@@ -1,0 +1,229 @@
+package store
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"lactssl/internal/db"
+	"lactssl/internal/model"
+	"lactssl/internal/util"
+)
+
+func TestCleanupExpiredCertificates(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	cipher, err := util.NewCipher([]byte("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := New(conn, cipher)
+
+	now := time.Now().UTC()
+	expired := &model.Certificate{PrimaryDomain: "expired.example.com", NotBefore: now.AddDate(0, -3, 0), NotAfter: now.Add(-time.Hour)}
+	valid := &model.Certificate{PrimaryDomain: "valid.example.com", NotBefore: now.AddDate(0, 0, -1), NotAfter: now.AddDate(0, 1, 0)}
+	for _, cert := range []*model.Certificate{expired, valid} {
+		if err := st.CreateCertificate(cert); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	task := &model.Task{Name: "renewal", Domains: []string{"expired.example.com"}}
+	if err := st.CreateTask(task); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateTaskResult(task.ID, "success", "", &now, nil, expired.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := st.CleanupExpiredCertificates(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 1 {
+		t.Fatalf("应只删除一张过期证书，实际删除 %d 张", deleted)
+	}
+	if _, err := st.GetCertificate(expired.ID); err == nil {
+		t.Fatal("过期证书未被删除")
+	}
+	if _, err := st.GetCertificate(valid.ID); err != nil {
+		t.Fatalf("有效证书不应被删除: %v", err)
+	}
+	loadedTask, err := st.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedTask.CertID != 0 {
+		t.Fatalf("任务仍引用已删除证书: %d", loadedTask.CertID)
+	}
+
+	deleted, err = st.CleanupAllCertificates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 1 {
+		t.Fatalf("清理全部证书应删除剩余 1 张，实际 %d 张", deleted)
+	}
+	certs, err := st.ListCertificates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) != 0 {
+		t.Fatalf("清理后仍存在 %d 张证书", len(certs))
+	}
+}
+
+func TestCleanupCertificatesFilters(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	cipher, err := util.NewCipher([]byte("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := New(conn, cipher)
+
+	now := time.Now().UTC()
+	revokedAt := now.AddDate(0, 0, -10)
+	makeCert := func(domain string, taskID int64, notAfter time.Time, source, ca, status string) *model.Certificate {
+		cert := &model.Certificate{
+			TaskID:        taskID,
+			PrimaryDomain: domain,
+			Domains:       []string{domain},
+			Source:        source,
+			CA:            ca,
+			Status:        status,
+			NotBefore:     now.AddDate(0, 0, -30),
+			NotAfter:      notAfter,
+		}
+		if err := st.CreateCertificate(cert); err != nil {
+			t.Fatal(err)
+		}
+		return cert
+	}
+	expiredOld := makeCert("old.example.com", 1, now.AddDate(0, 0, -10), "task", "letsencrypt", "valid")
+	expiredRecent := makeCert("recent.example.com", 1, now.AddDate(0, 0, -1), "task", "letsencrypt", "valid")
+	oldTaskCert := makeCert("keep.example.com", 2, now.AddDate(0, 0, 5), "task", "letsencrypt", "valid")
+	valid := makeCert("valid.example.com", 2, now.AddDate(0, 0, 30), "task", "letsencrypt", "valid")
+	revokedOld := makeCert("revoked-old.example.com", 0, now.AddDate(0, 0, 100), "acme", "private:1", "revoked")
+	revokedRecent := makeCert("revoked-recent.example.com", 0, now.AddDate(0, 0, 100), "acme", "private:1", "revoked")
+
+	for _, cert := range []*model.Certificate{expiredOld, valid, revokedOld, oldTaskCert} {
+		if _, err := conn.Exec(`UPDATE certificates SET created_at=? WHERE id=?`, now.AddDate(0, 0, -10), cert.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := conn.Exec(`UPDATE certificates SET revoked_at=? WHERE id IN (?,?)`, revokedAt, revokedOld.ID, revokedRecent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`UPDATE certificates SET revoked_at=? WHERE id=?`, now.AddDate(0, 0, -1), revokedRecent.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	count := func(filter CertCleanupFilter) int64 {
+		t.Helper()
+		got, err := st.CountCertificatesForCleanup(filter, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := count(CertCleanupFilter{Scope: "expired", ExpiredDays: 5}); got != 1 {
+		t.Fatalf("过期天数条件不匹配: %d", got)
+	}
+	if got := count(CertCleanupFilter{Scope: "revoked", RevokedDays: 5}); got != 1 {
+		t.Fatalf("撤销天数条件不匹配: %d", got)
+	}
+	if got := count(CertCleanupFilter{Scope: "all", Domain: "valid.example"}); got != 1 {
+		t.Fatalf("域名条件不匹配: %d", got)
+	}
+	if got := count(CertCleanupFilter{Scope: "all", CA: "letsencrypt"}); got != 4 {
+		t.Fatalf("CA 条件不匹配: %d", got)
+	}
+	if got := count(CertCleanupFilter{Scope: "all", Source: "acme"}); got != 2 {
+		t.Fatalf("来源条件不匹配: %d", got)
+	}
+	if got := count(CertCleanupFilter{Scope: "all", OlderThanDays: 5}); got != 4 {
+		t.Fatalf("签发时间条件不匹配: %d", got)
+	}
+	if got := count(CertCleanupFilter{Scope: "all", Domain: "keep.example", KeepLatestPerTask: true}); got != 1 {
+		t.Fatalf("保留任务最新证书条件不匹配: %d", got)
+	}
+
+	deleted, err := st.CleanupCertificates(CertCleanupFilter{Scope: "expired", ExpiredDays: 5}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 1 {
+		t.Fatalf("按条件清理数量不正确: %d", deleted)
+	}
+	if _, err := st.GetCertificate(expiredOld.ID); err == nil {
+		t.Fatal("符合条件的过期证书未被删除")
+	}
+	if _, err := st.GetCertificate(expiredRecent.ID); err != nil {
+		t.Fatalf("未达到过期天数的证书不应被删除: %v", err)
+	}
+}
+
+func TestPrivateCAKeyEncryptedAtRest(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	cipher, err := util.NewCipher([]byte("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := New(conn, cipher)
+
+	ca := &model.PrivateCA{
+		Name:       "Internal CA",
+		CommonName: "Internal Root CA",
+		KeyType:    "ecdsa",
+		Source:     "generated",
+		Serial:     "01",
+		CAType:     "root",
+		PathLen:    1,
+		CertPEM:    "CERT-PEM",
+		KeyPEM:     "PRIVATE-KEY-PEM",
+		NotBefore:  time.Now().UTC(),
+		NotAfter:   time.Now().UTC().AddDate(1, 0, 0),
+	}
+	if err := st.CreatePrivateCA(ca); err != nil {
+		t.Fatal(err)
+	}
+
+	var rawKey string
+	if err := conn.QueryRow(`SELECT key_pem FROM private_cas WHERE id=?`, ca.ID).Scan(&rawKey); err != nil {
+		t.Fatal(err)
+	}
+	if rawKey == ca.KeyPEM || !strings.Contains(rawKey, ":") {
+		t.Fatalf("私钥未加密落库: %q", rawKey)
+	}
+
+	loaded, err := st.GetPrivateCA(ca.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.KeyPEM != ca.KeyPEM {
+		t.Fatalf("解密后的私钥不正确: %q", loaded.KeyPEM)
+	}
+
+	list, err := st.ListPrivateCAs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("私有 CA 数量不正确: %d", len(list))
+	}
+	if list[0].KeyPEM != "" || list[0].CertPEM != "" {
+		t.Fatal("列表不应返回证书或私钥内容")
+	}
+}

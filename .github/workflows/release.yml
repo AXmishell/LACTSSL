@@ -1,0 +1,327 @@
+name: Release
+
+# 触发方式：
+#   1. 发布 GitHub Release（gh release create、网页发布、草稿转为正式发布）
+#   2. 手动重跑：Actions → Release → Run workflow，填写要重建的 tag
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要重新构建并上传产物的 tag，例如 v1.0.1"
+        required: true
+        type: string
+
+permissions:
+  # 上传 release 资产需要写权限；其余权限保持最小化
+  contents: write
+
+# 同一 tag 的发布串行执行，避免并发上传产生半成品资产
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  GOFLAGS: -mod=readonly
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+
+jobs:
+  meta:
+    name: Resolve tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Validate tag
+        id: meta
+        shell: bash
+        env:
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          EVENT_PRERELEASE: ${{ github.event.release.prerelease }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$tag" ]; then
+            echo "::error::无法确定 tag，请通过 release 事件或 workflow_dispatch 的 tag 输入提供"
+            exit 1
+          fi
+
+          version="${tag#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+            echo "::error::tag '$tag' 不是合法的语义化版本，期望格式为 vX.Y.Z（可带 -rc.1 等后缀）"
+            exit 1
+          fi
+
+          # 带 -rc.1 / -beta.1 等后缀，或被 GitHub 标记为 pre-release 时，
+          # 不更新 latest 等浮动标签，避免预发布覆盖稳定版。
+          prerelease=false
+          if printf '%s' "$version" | grep -q -- '-'; then
+            prerelease=true
+          fi
+          if [ "${EVENT_PRERELEASE:-}" = "true" ]; then
+            prerelease=true
+          fi
+
+          # GHCR 镜像名必须全部小写
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+            echo "image=$image"
+          } >> "$GITHUB_OUTPUT"
+          echo "本次发布: tag=$tag, version=$version, prerelease=$prerelease, image=$image"
+
+  web:
+    name: Build frontend
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+      - name: Upload web dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 1
+          if-no-files-found: error
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: [meta, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download web dist
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: internal/webui/dist
+
+      - name: Build binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          ext=""
+          if [ "$GOOS" = "windows" ]; then
+            ext=".exe"
+          fi
+
+          build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p out
+          CGO_ENABLED=0 go build -trimpath -tags embed \
+            -ldflags "-s -w -X 'lactssl/internal/api.Version=${VERSION}' -X 'lactssl/internal/api.BuildTime=${build_time}' -X 'lactssl/internal/api.BuildArch=${GOOS}/${GOARCH}'" \
+            -o "out/lactssl${ext}" ./cmd/server
+
+          test -f "out/lactssl${ext}"
+          ls -lh "out/lactssl${ext}"
+
+      - name: Package
+        shell: bash
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          name="lactssl_${VERSION}_${GOOS}_${GOARCH}"
+          mkdir -p stage dist
+          cp README.md LICENSE config.yaml.example stage/
+
+          if [ "$GOOS" = "windows" ]; then
+            cp out/lactssl.exe stage/
+            (cd stage && zip -q -r "../dist/${name}.zip" .)
+          else
+            cp out/lactssl stage/
+            tar -czf "dist/${name}.tar.gz" -C stage .
+          fi
+
+          ls -lh dist
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention-days: 1
+          if-no-files-found: error
+
+  checksums:
+    name: Generate checksums
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Generate checksums.txt
+        working-directory: dist
+        run: |
+          sha256sum *.tar.gz *.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-checksums
+          path: dist/checksums.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  docker:
+    name: Build and push GHCR image
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      # 检出 tag 需要读代码；推送镜像需要写 packages
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: image-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ needs.meta.outputs.image }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.meta.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.meta.outputs.tag }},enable=${{ needs.meta.outputs.prerelease == 'false' }}
+            type=semver,pattern={{major}},value=${{ needs.meta.outputs.tag }},enable=${{ needs.meta.outputs.prerelease == 'false' && !startsWith(needs.meta.outputs.version, '0.') }}
+            type=raw,value=latest,enable=${{ needs.meta.outputs.prerelease == 'false' }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image-meta.outputs.tags }}
+          labels: ${{ steps.image-meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.meta.outputs.version }}
+          cache-from: type=gha,scope=lactssl
+          cache-to: type=gha,mode=max,scope=lactssl
+
+      - name: Write image tags to summary
+        shell: bash
+        env:
+          TAGS: ${{ steps.image-meta.outputs.tags }}
+        run: |
+          {
+            echo "### Docker image"
+            echo '```'
+            printf '%s\n' "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Upload release assets
+    needs: [meta, checksums]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Upload assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::找不到 tag '$TAG' 对应的 release，请先创建 release"
+            exit 1
+          fi
+
+          # --clobber: 允许 gh release create <tag> <files> 已经上传过同名文件时覆盖
+          gh release upload "$TAG" dist/* --clobber
+
+          echo "### Release $TAG" >> "$GITHUB_STEP_SUMMARY"
+          gh release view "$TAG" --json url,assets \
+            --jq '"release: " + .url, "assets:", (.assets[] | " - " + .name + " (" + (.size | tostring) + " bytes)")' \
+            >> "$GITHUB_STEP_SUMMARY"

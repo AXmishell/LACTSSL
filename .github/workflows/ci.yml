@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFLAGS: -mod=readonly
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+
+jobs:
+  backend:
+    name: Backend (gofmt + vet + test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check gofmt
+        shell: bash
+        run: |
+          mapfile -t files < <(gofmt -l .)
+          if [ "${#files[@]}" -gt 0 ]; then
+            echo "以下文件未通过 gofmt，请运行 gofmt -w 后重新提交："
+            printf '  %s\n' "${files[@]}"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -n 1
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Typecheck scripts
+        run: ./node_modules/.bin/tsc -p ../scripts/tsconfig.json
+
+      - name: Check i18n locales
+        working-directory: .
+        run: node scripts/check-i18n.ts
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  build:
+    name: Build binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [backend, frontend]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: internal/webui/dist
+
+      - name: Build
+        run: |
+          BUILD_VERSION=$(tr -d '[:space:]' < VERSION)
+          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          BUILD_ARCH=$(go env GOOS)/$(go env GOARCH)
+          mkdir -p bin
+          CGO_ENABLED=0 go build -trimpath -tags embed \
+            -ldflags "-s -w -X 'lactssl/internal/api.Version=$BUILD_VERSION' -X 'lactssl/internal/api.BuildTime=$BUILD_TIME' -X 'lactssl/internal/api.BuildArch=$BUILD_ARCH'" \
+            -o bin/lactssl ./cmd/server
+
+      - name: Verify binary
+        run: |
+          test -x bin/lactssl
+          ls -lh bin/lactssl
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: lactssl-linux-amd64
+          path: bin/lactssl
+          retention-days: 7

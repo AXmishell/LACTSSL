@@ -1,0 +1,151 @@
+package service
+
+import (
+	"crypto/tls"
+	"crypto/x509"
+	"net"
+	"net/url"
+	"strings"
+	"time"
+
+	"lactssl/internal/i18n"
+	"lactssl/internal/model"
+)
+
+// CheckMonitor 检测一个站点证书并更新状态。
+func (m *Manager) CheckMonitor(monitorID int64) error {
+	monitor, err := m.Store.GetMonitor(monitorID)
+	if err != nil {
+		return i18n.E("monitor.error.not_found", "error", err.Error())
+	}
+
+	now := time.Now().UTC()
+	interval := monitor.IntervalHour
+	if interval <= 0 {
+		interval = 24
+	}
+	next := now.Add(time.Duration(interval) * time.Hour)
+
+	cert, checkErr := fetchCertificate(monitor.Target)
+	status := "valid"
+	message := ""
+	issuer := ""
+	var expires *time.Time
+
+	if checkErr != nil {
+		status = "error"
+		message = i18n.EncodeError(checkErr)
+		next = now.Add(time.Hour)
+	} else {
+		issuer = cert.Issuer.CommonName
+		if issuer == "" && len(cert.Issuer.Organization) > 0 {
+			issuer = cert.Issuer.Organization[0]
+		}
+		expiry := cert.NotAfter
+		expires = &expiry
+		days := int(time.Until(expiry).Hours() / 24)
+		if now.After(expiry) {
+			status = "expired"
+			message = i18n.Encode("monitor.message.expired", map[string]any{"date": expiry.Local().Format("2006-01-02")})
+		} else if now.Before(cert.NotBefore) {
+			status = "error"
+			message = i18n.Encode("monitor.message.not_yet_valid", map[string]any{"time": cert.NotBefore.Local().Format("2006-01-02 15:04")})
+		} else if days <= 30 {
+			status = "expiring"
+			message = i18n.Encode("monitor.message.expiring", map[string]any{"days": days})
+		} else {
+			message = i18n.Encode("monitor.message.valid", map[string]any{"days": days})
+		}
+		host, _, _ := parseTarget(monitor.Target)
+		if host != "" {
+			if err := cert.VerifyHostname(host); err != nil {
+				status = "error"
+				message = i18n.Encode("monitor.message.hostname_failed", map[string]any{
+					"message": i18n.Render(m.Locale(), message),
+					"error":   err.Error(),
+				})
+			}
+		}
+	}
+
+	if err := m.Store.UpdateMonitorResult(monitor.ID, status, message, issuer, expires, &now, &next); err != nil {
+		return err
+	}
+	level := "info"
+	if status == "error" || status == "expired" || status == "expiring" {
+		level = "warning"
+	}
+	m.Store.AddLogKey("monitor", monitor.ID, level, "log.monitor.result", map[string]any{
+		"name": monitor.Name, "target": monitor.Target, "message": i18n.Render(m.Locale(), message),
+	})
+
+	if monitor.Status != status && (status == "expiring" || status == "expired" || status == "error") {
+		m.notifyMonitor(monitor, status, message, expires)
+	}
+	return checkErr
+}
+
+func fetchCertificate(target string) (*x509.Certificate, error) {
+	host, port, err := parseTarget(target)
+	if err != nil {
+		return nil, err
+	}
+	if host == "" {
+		return nil, i18n.E("monitor.error.target_unresolvable")
+	}
+	addr := net.JoinHostPort(host, port)
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+		ServerName:         host,
+		InsecureSkipVerify: true, // 需要读取异常证书的到期时间，因此跳过链校验
+		MinVersion:         tls.VersionTLS12,
+	})
+	if err != nil {
+		return nil, i18n.E("monitor.error.connect_failed", "address", addr, "error", err.Error())
+	}
+	defer conn.Close()
+	state := conn.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		return nil, i18n.E("monitor.error.no_cert")
+	}
+	return state.PeerCertificates[0], nil
+}
+
+func parseTarget(target string) (string, string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", "", i18n.E("monitor.error.target_empty")
+	}
+	if strings.Contains(target, "://") {
+		u, err := url.Parse(target)
+		if err != nil {
+			return "", "", i18n.E("monitor.error.target_invalid")
+		}
+		port := u.Port()
+		if port == "" {
+			port = "443"
+		}
+		return u.Hostname(), port, nil
+	}
+	if host, port, err := net.SplitHostPort(target); err == nil {
+		return host, port, nil
+	}
+	return target, "443", nil
+}
+
+func (m *Manager) notifyMonitor(monitor *model.Monitor, status, message string, expires *time.Time) {
+	current := m.Locale()
+	subject := i18n.T(current, "email.monitor.subject", map[string]any{"name": monitor.Name})
+	expiry := i18n.T(current, "common.unknown", nil)
+	if expires != nil {
+		expiry = expires.Local().Format("2006-01-02 15:04:05")
+	}
+	body := i18n.T(current, "email.monitor.body", map[string]any{
+		"name":    monitor.Name,
+		"target":  monitor.Target,
+		"status":  status,
+		"expires": expiry,
+		"message": i18n.Render(current, message),
+	})
+	m.sendNotification(subject, body)
+}

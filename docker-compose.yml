@@ -1,0 +1,24 @@
+services:
+  lactssl:
+    build: .
+    container_name: lactssl
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      LACTSSL_DATA: /app/data
+      LACTSSL_CONFIG: /app/config/config.yaml
+      TZ: Asia/Shanghai
+      # 如需固定安全入口，取消下一行注释并修改（首次启动也会随机生成并打印到日志）
+      # LACTSSL_ENTRY: my-secret-entry
+      # 经过反向代理时，填写可信代理 CIDR，否则按 IP 限流会全部落到代理 IP 上
+      # LACTSSL_TRUSTED_PROXIES: 127.0.0.1,10.0.0.0/8
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    networks:
+      - 1panel-network
+
+networks:
+  1panel-network:
+    external: true

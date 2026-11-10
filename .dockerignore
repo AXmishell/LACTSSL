@@ -1,0 +1,11 @@
+.git
+.gitignore
+data
+config
+config.yaml
+web/node_modules
+web/dist
+internal/webui/dist
+bin
+lactssl
+*.log
