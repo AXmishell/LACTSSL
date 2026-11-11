@@ -1,11 +1,42 @@
 package service
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
+	"math/big"
 	"testing"
 	"time"
 )
+
+// TestImportWeakPrivateCARejected 验证导入低于现代安全强度的 CA 私钥会被拒绝。
+func TestImportWeakPrivateCARejected(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Weak CA"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.AddDate(1, 0, 0),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	if _, err := ParseImportedPrivateCA("Weak CA", certPEM, keyPEM); err == nil {
+		t.Fatal("1024 位 RSA CA 私钥应被拒绝")
+	}
+}
 
 func TestGeneratePrivateCA(t *testing.T) {
 	ca, err := GeneratePrivateCA(PrivateCARequest{

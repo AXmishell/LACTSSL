@@ -55,6 +55,19 @@ func sessionRequest(t *testing.T, router http.Handler, method, path, body string
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "192.0.2.30:1234"
+	// 严格双提交校验要求 CSRF Cookie 与请求头一致；测试里用请求头值模拟已下发的 Cookie。
+	if value, ok := headers[csrfHeaderName]; ok {
+		hasCSRF := false
+		for _, cookie := range cookies {
+			if cookie.Name == csrfCookieName {
+				hasCSRF = true
+				break
+			}
+		}
+		if !hasCSRF {
+			cookies = append(append([]*http.Cookie{}, cookies...), &http.Cookie{Name: csrfCookieName, Value: value})
+		}
+	}
 	for _, cookie := range cookies {
 		req.AddCookie(cookie)
 	}
@@ -141,7 +154,7 @@ func TestSessionCookieGatesPages(t *testing.T) {
 	}
 
 	setup := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/setup",
-		`{"email":"admin@example.com","password":"password123"}`, nil, nil)
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
 	if setup.Code != http.StatusOK {
 		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
 	}
@@ -207,7 +220,7 @@ func TestSessionCookieCSRF(t *testing.T) {
 	router := newSessionTestServer(t)
 
 	setup := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/setup",
-		`{"email":"admin@example.com","password":"password123"}`, nil, nil)
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
 	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
 
 	if w := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/auth/logout",
@@ -229,14 +242,14 @@ func TestSessionManagement(t *testing.T) {
 	router := newSessionTestServer(t)
 
 	setup := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/setup",
-		`{"email":"admin@example.com","password":"password123"}`, nil, nil)
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
 	if setup.Code != http.StatusOK {
 		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
 	}
 	first := findCookie(t, setup.Result().Cookies(), sessionCookieName)
 
 	login := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/auth/login",
-		`{"email":"admin@example.com","password":"password123"}`, nil, nil)
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
 	if login.Code != http.StatusOK {
 		t.Fatalf("登录失败: %d %s", login.Code, login.Body.String())
 	}
@@ -291,14 +304,51 @@ func TestSessionManagement(t *testing.T) {
 	}
 }
 
+// TestOriginGuardRejectsCrossSite 验证未认证状态变更接口拒绝跨站 Origin。
+func TestOriginGuardRejectsCrossSite(t *testing.T) {
+	router := newSessionTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/secret-entry/api/setup",
+		strings.NewReader(`{"email":"admin@example.com","password":"password1234"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://attacker.example")
+	req.RemoteAddr = "192.0.2.30:1234"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("跨站初始化请求应返回 403: %d %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/secret-entry/api/setup",
+		strings.NewReader(`{"email":"admin@example.com","password":"password1234"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://"+req.Host)
+	req.RemoteAddr = "192.0.2.30:1234"
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("同源初始化请求应成功: %d %s", w.Code, w.Body.String())
+	}
+}
+
 // TestCSRFTokenMustMatchCookie 验证双提交 CSRF 在拿到 Cookie 后必须值一致。
 func TestCSRFTokenMustMatchCookie(t *testing.T) {
 	router := newSessionTestServer(t)
 
 	setup := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/setup",
-		`{"email":"admin@example.com","password":"password123"}`, nil, nil)
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
 	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
 	csrf := findCookie(t, setup.Result().Cookies(), csrfCookieName)
+
+	missingCookieReq := httptest.NewRequest(http.MethodPost, "/secret-entry/api/auth/logout", nil)
+	missingCookieReq.RemoteAddr = "192.0.2.30:1234"
+	missingCookieReq.Header.Set(csrfHeaderName, "1")
+	missingCookieReq.AddCookie(session)
+	missingCookieResp := httptest.NewRecorder()
+	router.ServeHTTP(missingCookieResp, missingCookieReq)
+	if missingCookieResp.Code != http.StatusForbidden {
+		t.Fatalf("缺少 CSRF Cookie 时应返回 403: %d", missingCookieResp.Code)
+	}
 
 	wrong := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/auth/logout", "",
 		[]*http.Cookie{session, csrf}, map[string]string{csrfHeaderName: "wrong"})

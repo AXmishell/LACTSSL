@@ -298,7 +298,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, CopyDocument, Delete, Download, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
@@ -350,6 +350,7 @@ const detail = ref<Certificate | null>(null)
 const analysis = ref<CertificateAnalysis | null>(null)
 const detailTab = ref('overview')
 const pemTab = ref('fullchain')
+const keyPem = ref('')
 
 const deployVisible = ref(false)
 const deployTargets = ref<DeployTarget[]>([])
@@ -419,8 +420,24 @@ const cleanupCount = computed(() => cleanupCandidates.value.length)
 const pemContent = computed(() => {
   if (!detail.value) return ''
   if (pemTab.value === 'cert') return detail.value.cert_pem
-  if (pemTab.value === 'key') return detail.value.key_pem
+  if (pemTab.value === 'key') return keyPem.value
   return detail.value.fullchain_pem
+})
+
+// 私钥不再随证书详情接口返回，切换到私钥页签时按需获取。
+async function loadKeyPem(): Promise<void> {
+  const cert = detail.value
+  if (!cert || keyPem.value) return
+  try {
+    const data = await api.get<{ content: string }>(`/certificates/${cert.id}/pem?type=key`)
+    keyPem.value = data.content
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  }
+}
+
+watch([pemTab, detail], () => {
+  if (pemTab.value === 'key') void loadKeyPem()
 })
 
 const scoreGradient = computed(() => {
@@ -503,6 +520,7 @@ async function openDetail(row: Certificate): Promise<void> {
   analysis.value = null
   detailTab.value = 'overview'
   pemTab.value = 'fullchain'
+  keyPem.value = ''
   try {
     const [cert, report] = await Promise.all([
       api.get<Certificate>(`/certificates/${row.id}`),

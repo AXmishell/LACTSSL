@@ -228,6 +228,110 @@ func TestPrivateCAKeyEncryptedAtRest(t *testing.T) {
 	}
 }
 
+// TestCreateFirstUserOnlyOnce 验证初始化只能创建一个管理员。
+func TestCreateFirstUserOnlyOnce(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "first-user.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	cipher, err := util.NewCipher([]byte("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := New(conn, cipher)
+	if _, err := st.CreateFirstUser("admin@example.com", "hash"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateFirstUser("second@example.com", "hash"); err == nil {
+		t.Fatal("重复初始化应被拒绝")
+	}
+}
+
+// TestResetPasswordDisablesTOTP 验证密码重置可以解除被会话攻击者绑定的 TOTP。
+func TestResetPasswordDisablesTOTP(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "reset.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	cipher, err := util.NewCipher([]byte("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := New(conn, cipher)
+	user, err := st.CreateUser("admin@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetTOTP(user.ID, "TOTP-SECRET", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ResetPassword(user.ID, "new-hash"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := st.GetUserByID(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.TOTPEnabled || updated.TOTPSecret != "" {
+		t.Fatalf("密码重置后应关闭 TOTP: enabled=%v secret=%q", updated.TOTPEnabled, updated.TOTPSecret)
+	}
+}
+
+// TestCertificateKeyEncrypted 验证证书私钥加密落库、读取解密，并支持明文迁移。
+func TestCertificateKeyEncrypted(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "cert.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	cipher, err := util.NewCipher([]byte("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := New(conn, cipher)
+
+	now := time.Now().UTC()
+	cert := &model.Certificate{
+		PrimaryDomain: "example.com",
+		KeyPEM:        "PRIVATE-KEY-PEM",
+		CertPEM:       "CERT-PEM",
+		NotBefore:     now,
+		NotAfter:      now.AddDate(0, 1, 0),
+		Status:        "valid",
+	}
+	if err := st.CreateCertificate(cert); err != nil {
+		t.Fatal(err)
+	}
+	var rawKey string
+	if err := conn.QueryRow(`SELECT key_pem FROM certificates WHERE id=?`, cert.ID).Scan(&rawKey); err != nil {
+		t.Fatal(err)
+	}
+	if rawKey == cert.KeyPEM || !strings.Contains(rawKey, "enc:v1:") {
+		t.Fatalf("证书私钥未加密落库: %q", rawKey)
+	}
+	loaded, err := st.GetCertificate(cert.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.KeyPEM != cert.KeyPEM {
+		t.Fatalf("解密后的证书私钥不正确: %q", loaded.KeyPEM)
+	}
+
+	// 模拟旧版本明文数据并验证迁移。
+	if _, err := conn.Exec(`UPDATE certificates SET key_pem=? WHERE id=?`, "LEGACY-KEY", cert.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MigrateCertificateKeys(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = st.GetCertificate(cert.ID)
+	if err != nil || loaded.KeyPEM != "LEGACY-KEY" {
+		t.Fatalf("迁移后的私钥应可正常读取: %q %v", loaded.KeyPEM, err)
+	}
+}
+
 // TestTOTPSecretEncrypted 验证 TOTP 密钥加密落库且读取时自动解密。
 func TestTOTPSecretEncrypted(t *testing.T) {
 	conn, err := db.Open(filepath.Join(t.TempDir(), "totp.db"))

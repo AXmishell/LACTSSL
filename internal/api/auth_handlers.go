@@ -32,8 +32,30 @@ func validEmail(email string) bool {
 	return strings.EqualFold(addr.Address, email) && strings.Contains(email, ".")
 }
 
+// minPasswordLength 是账户密码的最小长度；bcrypt 上限仍为 72 字节。
+const minPasswordLength = 12
+
 func validPassword(password string) bool {
-	return len(password) >= 8 && len(password) <= 72
+	return len(password) >= minPasswordLength && len(password) <= 72
+}
+
+// reauthKey 返回重新认证限流键，避免被盗会话无限次爆破当前密码。
+func reauthKey(c *gin.Context, user *model.User) string {
+	return "reauth:" + fmt.Sprintf("%d", user.ID) + ":" + clientRateKey(c)
+}
+
+// allowReauth 在密码/验证码校验前扣减重新认证配额。
+func (s *Server) allowReauth(c *gin.Context, user *model.User) bool {
+	if allowed, wait := s.limiter.Allow(reauthKey(c, user), 10, 15*time.Minute); !allowed {
+		rateLimited(c, wait)
+		return false
+	}
+	return true
+}
+
+// resetReauth 在重新认证成功后归还配额。
+func (s *Server) resetReauth(c *gin.Context, user *model.User) {
+	s.limiter.Reset(reauthKey(c, user))
 }
 
 func (s *Server) setupStatus(c *gin.Context) {
@@ -81,9 +103,13 @@ func (s *Server) handleSetup(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.hash_failed")
 		return
 	}
-	user, err := s.Store.CreateUser(body.Email, hash)
+	user, err := s.Store.CreateFirstUser(body.Email, hash)
 	if err != nil {
-		failKey(c, http.StatusInternalServerError, "api.error.create_account_failed", "error", err.Error())
+		if _, localized := err.(*i18n.Error); localized {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+		failKey(c, http.StatusInternalServerError, "api.error.create_account_failed")
 		return
 	}
 	// 首次使用时把邮箱作为 ACME 账户邮箱的默认值。
@@ -205,6 +231,9 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
+	if !s.allowReauth(c, user) {
+		return
+	}
 	if !auth.VerifyPassword(user.PasswordHash, body.OldPassword) {
 		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
@@ -213,6 +242,7 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.new_password_length")
 		return
 	}
+	s.resetReauth(c, user)
 	hash, err := auth.HashPassword(body.NewPassword)
 	if err != nil {
 		failKey(c, http.StatusInternalServerError, "api.error.hash_failed")
@@ -244,6 +274,9 @@ func (s *Server) handleChangeEmail(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
+	if !s.allowReauth(c, user) {
+		return
+	}
 	if !auth.VerifyPassword(user.PasswordHash, body.Password) {
 		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
@@ -253,6 +286,7 @@ func (s *Server) handleChangeEmail(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_email")
 		return
 	}
+	s.resetReauth(c, user)
 	if err := s.Store.UpdateEmail(user.ID, email); err != nil {
 		failKey(c, http.StatusInternalServerError, "api.error.change_email_failed", "error", err.Error())
 		return
@@ -290,10 +324,19 @@ func (s *Server) handleTOTPSetup(c *gin.Context) {
 func (s *Server) handleTOTPEnable(c *gin.Context) {
 	user := getUser(c)
 	var body struct {
-		Code string `json:"code"`
+		Code     string `json:"code"`
+		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	if !s.allowReauth(c, user) {
+		return
+	}
+	// 启用 TOTP 属于安全敏感操作，必须重新校验密码，避免被盗会话绑定攻击者的验证器。
+	if !auth.VerifyPassword(user.PasswordHash, body.Password) {
+		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
 	}
 	if user.TOTPSecret == "" {
@@ -308,6 +351,7 @@ func (s *Server) handleTOTPEnable(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.enable_totp_failed")
 		return
 	}
+	s.resetReauth(c, user)
 	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.totp_enabled", nil)
 	ok(c, gin.H{"enabled": true})
 }
@@ -322,6 +366,9 @@ func (s *Server) handleTOTPDisable(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
+	if !s.allowReauth(c, user) {
+		return
+	}
 	if !auth.VerifyPassword(user.PasswordHash, body.Password) {
 		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
@@ -334,6 +381,7 @@ func (s *Server) handleTOTPDisable(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.disable_totp_failed")
 		return
 	}
+	s.resetReauth(c, user)
 	s.Store.AddLogKey("auth", user.ID, "warning", "log.auth.totp_disabled", nil)
 	ok(c, gin.H{"enabled": false})
 }
@@ -385,12 +433,16 @@ func (s *Server) handleForgotPassword(c *gin.Context) {
 	}
 	link := fmt.Sprintf("%s/%s/reset?token=%s", baseURL, s.Entry(), rawToken)
 	current := locale(c)
+	subject := i18n.T(current, "email.reset.subject", nil)
 	bodyHTML := i18n.Th(current, "email.reset.body", map[string]any{"link": link})
-	if err := service.SendMail(smtpCfg, user.Email, i18n.T(current, "email.reset.subject", nil), bodyHTML); err != nil {
-		failErr(c, http.StatusInternalServerError, err)
-		return
-	}
-	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.reset_mail_sent", nil)
+	// 异步发送邮件，避免通过响应时间判断邮箱是否存在；失败只写服务端日志。
+	go func() {
+		if err := service.SendMail(smtpCfg, user.Email, subject, bodyHTML); err != nil {
+			s.Store.AddLogKey("auth", user.ID, "error", "log.auth.reset_mail_failed", map[string]any{"error": err.Error()})
+			return
+		}
+		s.Store.AddLogKey("auth", user.ID, "info", "log.auth.reset_mail_sent", nil)
+	}()
 	ok(c, gin.H{"message": i18n.T(current, "api.ok.reset_sent", nil)})
 }
 
@@ -418,7 +470,11 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 	}
 	userID, err := s.Store.ConsumePasswordReset(util.HashToken(strings.TrimSpace(body.Token)))
 	if err != nil {
-		failErr(c, http.StatusBadRequest, err)
+		if _, localized := err.(*i18n.Error); localized {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+		failKey(c, http.StatusBadRequest, "api.error.reset_link_invalid")
 		return
 	}
 	hash, err := auth.HashPassword(body.Password)
@@ -426,8 +482,9 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.hash_failed")
 		return
 	}
-	if err := s.Store.UpdatePassword(userID, hash); err != nil {
-		failKey(c, http.StatusInternalServerError, "api.error.change_password_failed", "error", err.Error())
+	// 重置密码同时关闭 TOTP，保证邮箱持有者能恢复被攻击者绑定了 TOTP 的账户。
+	if err := s.Store.ResetPassword(userID, hash); err != nil {
+		failKey(c, http.StatusInternalServerError, "api.error.change_password_failed")
 		return
 	}
 	// 密码重置后旧令牌全部失效，清理对应会话记录。

@@ -244,6 +244,9 @@
           <el-button text type="primary" size="small" @click="copySecret">{{ t('settings.copy') }}</el-button>
         </div>
         <el-form label-position="top" style="margin-top: 18px">
+          <el-form-item :label="t('settings.currentPassword')">
+            <el-input v-model="totpPassword" type="password" show-password autocomplete="current-password" />
+          </el-form-item>
           <el-form-item :label="t('settings.totpCodeLabel')">
             <el-input v-model="totpCode" maxlength="6" :placeholder="t('settings.totpCodePlaceholder')" @keyup.enter="enableTOTP" />
           </el-form-item>
@@ -422,6 +425,7 @@ const totpLoading = ref(false)
 const totpSetup = ref<TOTPSetup | null>(null)
 const totpQr = ref('')
 const totpCode = ref('')
+const totpPassword = ref('')
 const disableVisible = ref(false)
 const disableForm = reactive({ password: '', code: '' })
 
@@ -565,18 +569,22 @@ function resetBackupDialog(): void {
 
 async function downloadBackup(): Promise<void> {
   const password = backupPassword.value
-  if (password && password.length < 8) {
+  if (!password) {
+    ElMessage.warning(t('settings.backupPasswordRequired'))
+    return
+  }
+  if (password.length < 12) {
     ElMessage.warning(t('settings.backupPasswordMin'))
     return
   }
-  if (password && password !== backupPasswordConfirm.value) {
+  if (password !== backupPasswordConfirm.value) {
     ElMessage.warning(t('settings.backupPasswordMismatch'))
     return
   }
   backupDownloading.value = true
   try {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
-    const label = password ? '-encrypted' : ''
+    const label = '-encrypted'
     await downloadFile('/settings/backup/download', `lactssl-backup-${stamp}${label}.zip`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -682,7 +690,7 @@ function openPasswordDialog(): void {
 }
 
 async function savePassword(): Promise<void> {
-  if ((passwordForm.new_password || '').length < 8) {
+  if ((passwordForm.new_password || '').length < 12) {
     ElMessage.warning(t('settings.passwordMin'))
     return
   }
@@ -709,6 +717,7 @@ async function startTOTP(): Promise<void> {
   totpVisible.value = true
   totpLoading.value = true
   totpCode.value = ''
+  totpPassword.value = ''
   totpSetup.value = null
   totpQr.value = ''
   try {
@@ -724,15 +733,20 @@ async function startTOTP(): Promise<void> {
 }
 
 async function enableTOTP(): Promise<void> {
+  if (!totpPassword.value) {
+    ElMessage.warning(t('settings.currentPasswordRequired'))
+    return
+  }
   if (!/^\d{6}$/.test(totpCode.value)) {
     ElMessage.warning(t('settings.totpCodeInvalid'))
     return
   }
   savingAccount.value = true
   try {
-    await api.post('/auth/totp/enable', { code: totpCode.value })
+    await api.post('/auth/totp/enable', { code: totpCode.value, password: totpPassword.value })
     await loadUser(true)
     totpVisible.value = false
+    totpPassword.value = ''
     ElMessage.success(t('settings.totpEnabled'))
   } catch (error: any) {
     ElMessage.error(error.message)

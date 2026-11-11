@@ -71,6 +71,36 @@ func (s *Server) downloadCertificate(c *gin.Context) {
 	c.Data(http.StatusOK, "application/x-pem-file; charset=utf-8", []byte(content))
 }
 
+// getCertificatePEM 按需返回证书/私钥 PEM，避免详情接口默认携带私钥。
+func (s *Server) getCertificatePEM(c *gin.Context) {
+	id, okID := parseID(c)
+	if !okID {
+		return
+	}
+	cert, err := s.Store.GetCertificate(id)
+	if err != nil {
+		failKey(c, http.StatusNotFound, "api.error.cert_not_found")
+		return
+	}
+	kind := c.DefaultQuery("type", "fullchain")
+	var content string
+	switch kind {
+	case "key":
+		content = cert.KeyPEM
+		if strings.TrimSpace(content) == "" {
+			failKey(c, http.StatusBadRequest, "api.error.cert_key_unavailable")
+			return
+		}
+	case "cert":
+		content = cert.CertPEM
+	default:
+		kind = "fullchain"
+		content = cert.FullchainPEM
+	}
+	c.Header("Cache-Control", "no-store")
+	ok(c, gin.H{"type": kind, "content": content})
+}
+
 func (s *Server) deleteCertificate(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {

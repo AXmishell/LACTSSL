@@ -42,9 +42,9 @@ func TestApplyPendingRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	copyBytes(t, sourceDB, filepath.Join(pendingDir, backup.DatabaseName))
-	pendingConfig := "data_dir: " + dataDir + "\nsecurity:\n  salt: restored-salt\n  jwt_secret: restored-jwt\n"
+	pendingConfig := "data_dir: " + dataDir + "\nsecurity:\n  salt: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\n  jwt_secret: jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj\n"
 	copyText(t, pendingConfig, filepath.Join(pendingDir, backup.ConfigName))
-	oldConfig := "data_dir: " + dataDir + "\nsecurity:\n  salt: old-salt\n  jwt_secret: old-jwt\n"
+	oldConfig := "data_dir: " + dataDir + "\nsecurity:\n  salt: oooooooooooooooooooooooooooooooo\n  jwt_secret: kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\n"
 	copyText(t, oldConfig, configPath)
 
 	t.Setenv("LACTSSL_CONFIG", configPath)
@@ -58,7 +58,7 @@ func TestApplyPendingRestore(t *testing.T) {
 	if !applied {
 		t.Fatal("应报告已应用恢复")
 	}
-	if string(restored.EncryptionKey) != "restored-salt" {
+	if string(restored.EncryptionKey) != "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr" {
 		t.Fatalf("配置未从备份恢复: %q", string(restored.EncryptionKey))
 	}
 	if pending, _ := backup.LoadPending(dataDir); pending != nil {

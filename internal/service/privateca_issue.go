@@ -76,6 +76,9 @@ func loadIssuingCA(ca *model.PrivateCA) (crypto.PrivateKey, *x509.Certificate, e
 	if !publicKeysEqual(cert.PublicKey, publicKey(key)) {
 		return nil, nil, i18n.E("service.private_ca.key_mismatch")
 	}
+	if err := validateCAKeyStrength(cert.PublicKey); err != nil {
+		return nil, nil, err
+	}
 	if !cert.IsCA || (cert.KeyUsage != 0 && cert.KeyUsage&x509.KeyUsageCertSign == 0) {
 		return nil, nil, i18n.E("service.acme_server.ca_not_signing")
 	}

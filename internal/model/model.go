@@ -112,7 +112,7 @@ type Certificate struct {
 	ACMEOrderID   int64      `json:"acme_order_id,omitempty"`
 	ACMEAccountID int64      `json:"acme_account_id,omitempty"`
 	CertPEM       string     `json:"cert_pem"`
-	KeyPEM        string     `json:"key_pem"`
+	KeyPEM        string     `json:"-"`
 	FullchainPEM  string     `json:"fullchain_pem"`
 	Serial        string     `json:"serial"`
 	NotBefore     time.Time  `json:"not_before"`

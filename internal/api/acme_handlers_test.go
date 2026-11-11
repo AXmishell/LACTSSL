@@ -76,7 +76,7 @@ func TestValidateACMEEndpoint(t *testing.T) {
 func TestCleanupACMEDiagnosticsEndpoint(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	setup := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/setup",
-		`{"email":"admin@example.com","password":"password123"}`, nil, nil)
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
 	if setup.Code != http.StatusOK {
 		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
 	}

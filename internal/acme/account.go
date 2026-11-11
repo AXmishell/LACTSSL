@@ -35,7 +35,7 @@ func (s *Server) handleNewAccount(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.accountLimiter.Allow(r.RemoteAddr) {
+	if !s.accountLimiter.Allow(s.clientIP(r)) {
 		writeProblemType(w, http.StatusTooManyRequests, ProblemRateLimited, "too many account creation attempts")
 		return
 	}

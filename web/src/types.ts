@@ -206,7 +206,6 @@ export interface Certificate {
   ca: string
   source?: string
   cert_pem: string
-  key_pem: string
   fullchain_pem: string
   serial: string
   not_before: string

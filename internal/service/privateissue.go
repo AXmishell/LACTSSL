@@ -47,6 +47,9 @@ func IssuePrivateCertificate(ca *model.PrivateCA, req PrivateCertRequest) (*ACME
 	if !publicKeysEqual(caCert.PublicKey, publicKey(caKey)) {
 		return nil, i18n.E("service.private_ca.key_mismatch")
 	}
+	if err := validateCAKeyStrength(caCert.PublicKey); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	if now.After(caCert.NotAfter) {
 		return nil, i18n.E("service.private_ca.cert_expired")

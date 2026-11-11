@@ -146,6 +146,14 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 	}
+	// 这两项直接决定令牌签名与敏感字段加密强度，过短的密钥会使整套认证与加密失去意义。
+	const minSecretLength = 32
+	if len(strings.TrimSpace(fc.Security.JWTSecret)) < minSecretLength {
+		return nil, fmt.Errorf("security.jwt_secret 长度至少需要 %d 个字符，请使用随机高熵值", minSecretLength)
+	}
+	if len(strings.TrimSpace(fc.Security.Salt)) < minSecretLength {
+		return nil, fmt.Errorf("security.salt 长度至少需要 %d 个字符，请使用随机高熵值", minSecretLength)
+	}
 
 	addr, err := resolveAddr(fc)
 	if err != nil {
@@ -364,9 +372,9 @@ security:
   # 对外访问地址，例如 https://ssl.example.com；用于邮件中的重置链接等绝对地址。
   # 密码重置等邮件链接必须基于该固定地址生成；留空时仅允许本机回环请求按 Host 推导，远程请求会被拒绝，避免 Host 头注入。
   public_url: %s
-  # JWT 签名密钥（加盐）；留空则自动生成并写回本文件
+  # JWT 签名密钥（加盐）；留空则自动生成并写回本文件。手动配置时至少 32 个字符。
   jwt_secret: %s
-  # 数据库敏感字段加密盐（AES-256-GCM）；留空则自动生成并写回本文件
+  # 数据库敏感字段加密盐（AES-256-GCM）；留空则自动生成并写回本文件。手动配置时至少 32 个字符。
   salt: %s
 
 acme:

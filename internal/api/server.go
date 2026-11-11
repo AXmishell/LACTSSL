@@ -3,7 +3,9 @@ package api
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,6 +14,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -84,7 +87,7 @@ func (s *Server) Router() *gin.Engine {
 	r.Use(gin.Recovery(), s.bodyLimit(), s.localeMiddleware(), s.securityHeaders(), s.cors())
 
 	api := r.Group("/:entry/api")
-	api.Use(s.entryMiddleware())
+	api.Use(s.entryMiddleware(), s.originGuard())
 	{
 		api.GET("/setup/status", s.setupStatus)
 		api.POST("/setup", s.handleSetup)
@@ -163,6 +166,7 @@ func (s *Server) Router() *gin.Engine {
 		protected.GET("/certificates/:id", s.getCertificate)
 		protected.GET("/certificates/:id/analysis", s.analyzeCertificate)
 		protected.GET("/certificates/:id/download", s.downloadCertificate)
+		protected.GET("/certificates/:id/pem", s.getCertificatePEM)
 		protected.POST("/certificates/:id/deploy", s.deployCertificate)
 		protected.DELETE("/certificates/:id", s.deleteCertificate)
 
@@ -217,6 +221,18 @@ func isLargeUploadPath(path string) bool {
 	return strings.HasSuffix(path, "/settings/backup/restore") || strings.HasSuffix(path, "/setup/restore")
 }
 
+const cspNonceKey = "lactssl.csp_nonce"
+
+// cspNonce 生成每次请求唯一的 CSP nonce，用于放行注入的安全入口脚本。
+func cspNonce() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		// 极端情况下退回空 nonce：内联脚本会被 CSP 拦截，但不会降级为允许任意内联脚本。
+		return ""
+	}
+	return base64.RawStdEncoding.EncodeToString(buf)
+}
+
 // securityHeaders 添加基础安全响应头。
 func (s *Server) securityHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -224,7 +240,9 @@ func (s *Server) securityHeaders() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "same-origin")
 		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+		nonce := cspNonce()
+		c.Set(cspNonceKey, nonce)
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'nonce-"+nonce+"'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 		if s.sessionCookieSecure(c) {
 			c.Header("Strict-Transport-Security", "max-age=31536000")
 		}
@@ -244,6 +262,68 @@ func (s *Server) cors() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// originGuard 对未认证的状态变更接口做来源校验，阻止跨站登录/初始化/重置请求。
+// 不携带 Origin 的非浏览器客户端仍然允许，但浏览器跨站请求会被拒绝。
+func (s *Server) originGuard() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		switch c.Request.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			if !s.sameOrigin(c) {
+				failKey(c, http.StatusForbidden, "api.error.unauthorized")
+				return
+			}
+		}
+		c.Next()
+	}
+}
+
+func (s *Server) sameOrigin(c *gin.Context) bool {
+	origin := strings.TrimSpace(c.GetHeader("Origin"))
+	if origin == "" {
+		return !strings.EqualFold(strings.TrimSpace(c.GetHeader("Sec-Fetch-Site")), "cross-site")
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return false
+	}
+	// 浏览器禁止脚本伪造 Sec-Fetch-Site；same-origin 可覆盖反向代理改写 Host 的场景。
+	if strings.EqualFold(strings.TrimSpace(c.GetHeader("Sec-Fetch-Site")), "same-origin") {
+		return true
+	}
+	// 开发模式下浏览器在 :5173，而 Vite 把接口代理到 :8080；仅当双方都在本机回环时放行。
+	if isLoopbackRemoteAddr(c.Request.RemoteAddr) && isLoopbackHost(parsed.Host) {
+		return true
+	}
+	allowed := map[string]bool{}
+	addHost := func(host string) {
+		host = strings.TrimSpace(host)
+		if host == "" {
+			return
+		}
+		allowed[strings.ToLower(host)] = true
+		allowed[normalizeOriginHost(host)] = true
+	}
+	addHost(c.Request.Host)
+	if s.PublicURL != "" {
+		if public, err := url.Parse(s.PublicURL); err == nil && public.Host != "" {
+			addHost(public.Host)
+		}
+	}
+	// 反向代理可能改写 Host，仅在请求来自可信代理时采信 X-Forwarded-Host。
+	if s.isTrustedProxy(c.Request.RemoteAddr) {
+		addHost(c.GetHeader("X-Forwarded-Host"))
+	}
+	return allowed[normalizeOriginHost(parsed.Host)]
+}
+
+// normalizeOriginHost 去掉默认端口，避免 Origin 与 Host 的写法差异导致同源误判。
+func normalizeOriginHost(host string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	host = strings.TrimSuffix(host, ":80")
+	host = strings.TrimSuffix(host, ":443")
+	return host
 }
 
 func (s *Server) entryMiddleware() gin.HandlerFunc {
@@ -297,15 +377,15 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		// Cookie 会随跨站请求自动携带，因此状态变更请求必须带自定义头；
 		// 显式使用 Authorization: Bearer 的 API 调用不存在 CSRF 问题。
 		if !fromHeader {
+			if _, err := c.Cookie(csrfCookieName); err != nil {
+				// 旧会话首次请求时补发 CSRF Cookie；后续写请求即可做强校验。
+				s.setCSRFCookie(c, token, time.Now().Add(entryCookieTTL))
+			}
 			if requiresCSRF(c.Request.Method) {
 				if !s.validCSRF(c) {
 					failKey(c, http.StatusForbidden, "api.error.unauthorized")
 					return
 				}
-			}
-			if _, err := c.Cookie(csrfCookieName); err != nil {
-				// 兼容旧会话：补发 CSRF Cookie，后续写请求即可做强校验。
-				s.setCSRFCookie(c, token, time.Now().Add(entryCookieTTL))
 			}
 		}
 		claims, err := s.Auth.Parse(token)
@@ -496,9 +576,11 @@ func (s *Server) serveIndex(c *gin.Context) {
 	s.setEntryCookie(c)
 	// 把当前安全入口注入页面：登录页和已登录页面都通过它拼接口地址。
 	entry := s.Entry()
+	nonceValue, _ := c.Get(cspNonceKey)
+	nonce, _ := nonceValue.(string)
 	inject := fmt.Sprintf(
-		`<script>window.__LACTSSL_ENTRY__=%q;window.__LACTSSL_API_BASE__=%q;</script>`,
-		entry, "/"+entry+"/api",
+		`<script nonce=%q>window.__LACTSSL_ENTRY__=%q;window.__LACTSSL_API_BASE__=%q;</script>`,
+		nonce, entry, "/"+entry+"/api",
 	)
 	if bytes.Contains(data, []byte("</head>")) {
 		data = bytes.Replace(data, []byte("</head>"), []byte(inject+"</head>"), 1)

@@ -309,6 +309,11 @@ func (s *Server) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.orderView(r, ep, order))
 		return
 	}
+	if s.orderExpired(order) {
+		_ = s.Store.UpdateACMEOrderStatus(order.ID, "invalid", "order expired", 0)
+		writeProblemType(w, http.StatusForbidden, ProblemOrderNotReady, "order has expired")
+		return
+	}
 	if order.Status != "ready" {
 		writeProblemType(w, http.StatusForbidden, ProblemOrderNotReady, "order is not ready for finalization")
 		return

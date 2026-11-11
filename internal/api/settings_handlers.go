@@ -417,6 +417,9 @@ func (s *Server) changeEntry(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
+	if !s.allowReauth(c, user) {
+		return
+	}
 	if !auth.VerifyPassword(user.PasswordHash, body.Password) {
 		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
@@ -431,6 +434,7 @@ func (s *Server) changeEntry(c *gin.Context) {
 		return
 	}
 	s.SetEntry(entry)
-	s.Store.AddLogKey("settings", 0, "warning", "log.settings.entry_changed", map[string]any{"entry": entry})
+	s.resetReauth(c, user)
+	s.Store.AddLogKey("settings", 0, "warning", "log.settings.entry_changed", map[string]any{"entry": util.MaskSecret(entry)})
 	ok(c, gin.H{"entry": entry, "message": i18n.T(locale(c), "api.ok.entry_updated", nil)})
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
@@ -349,6 +350,9 @@ func ParseImportedPrivateCA(name, certPEM, keyPEM string) (*model.PrivateCA, err
 	if !publicKeysEqual(cert.PublicKey, publicKey(privateKey)) {
 		return nil, i18n.E("service.private_ca.key_mismatch")
 	}
+	if err := validateCAKeyStrength(cert.PublicKey); err != nil {
+		return nil, err
+	}
 	encodedKey, err := encodePrivateKey(privateKey)
 	if err != nil {
 		return nil, i18n.E("service.private_ca.encode_key_failed", "error", err.Error())
@@ -448,6 +452,9 @@ func loadParentCA(certPEM, keyPEM string) (*x509.Certificate, crypto.PrivateKey,
 	}
 	if !publicKeysEqual(cert.PublicKey, publicKey(key)) {
 		return nil, nil, i18n.E("service.private_ca.key_mismatch")
+	}
+	if err := validateCAKeyStrength(cert.PublicKey); err != nil {
+		return nil, nil, err
 	}
 	if cert.MaxPathLenZero && cert.MaxPathLen == 0 {
 		return nil, nil, i18n.E("service.private_ca.parent_no_path")
@@ -767,6 +774,29 @@ func publicKey(privateKey crypto.PrivateKey) crypto.PublicKey {
 	default:
 		return nil
 	}
+}
+
+// validateCAKeyStrength 拒绝弱密钥的导入 CA，避免 ACME 使用低于现代安全强度的签发密钥。
+func validateCAKeyStrength(public crypto.PublicKey) error {
+	switch key := public.(type) {
+	case *rsa.PublicKey:
+		if key.N == nil || key.N.BitLen() < 2048 {
+			return i18n.E("service.private_ca.ca_key_weak")
+		}
+	case *ecdsa.PublicKey:
+		switch key.Curve {
+		case elliptic.P256(), elliptic.P384(), elliptic.P521():
+		default:
+			return i18n.E("service.private_ca.ca_key_weak")
+		}
+	case ed25519.PublicKey:
+		if len(key) != ed25519.PublicKeySize {
+			return i18n.E("service.private_ca.ca_key_weak")
+		}
+	default:
+		return i18n.E("service.private_ca.ca_key_weak")
+	}
+	return nil
 }
 
 func publicKeysEqual(first, second crypto.PublicKey) bool {

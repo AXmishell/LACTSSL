@@ -67,7 +67,25 @@ func TestTOTP(t *testing.T) {
 	if !ValidateTOTP(secret, code) {
 		t.Fatal("正确的动态验证码未通过校验")
 	}
+	if ValidateTOTP(secret, code) {
+		t.Fatal("同一动态验证码不应在有效窗口内重复使用")
+	}
 	if ValidateTOTP(secret, "000000") {
 		t.Fatal("错误的动态验证码不应通过校验")
+	}
+}
+
+func TestExpiringValue(t *testing.T) {
+	manager := New([]byte("jwt-secret"))
+	valid := manager.SignExpiringValue("entry-gate", "my-entry", time.Now().Add(time.Minute))
+	if !manager.VerifyExpiringValue("entry-gate", "my-entry", valid) {
+		t.Fatal("未过期的签名值应通过校验")
+	}
+	expired := manager.SignExpiringValue("entry-gate", "my-entry", time.Now().Add(-time.Minute))
+	if manager.VerifyExpiringValue("entry-gate", "my-entry", expired) {
+		t.Fatal("已过期的签名值不应通过校验")
+	}
+	if manager.VerifyExpiringValue("other-purpose", "my-entry", valid) {
+		t.Fatal("不同用途的签名值不应通过校验")
 	}
 }

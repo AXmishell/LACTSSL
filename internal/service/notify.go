@@ -261,10 +261,12 @@ func SendMail(cfg SMTPConfig, to, subject, html string) error {
 	defer client.Close()
 
 	if !cfg.SSL {
-		if ok, _ := client.Extension("STARTTLS"); ok {
-			if err := client.StartTLS(&tls.Config{ServerName: cfg.Host, MinVersion: tls.VersionTLS12}); err != nil {
-				return i18n.E("service.notify.starttls_failed", "error", err.Error())
-			}
+		// 未启用隐式 TLS 时必须完成 STARTTLS，避免邮件正文和重置令牌明文传输。
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return i18n.E("service.notify.starttls_required")
+		}
+		if err := client.StartTLS(&tls.Config{ServerName: cfg.Host, MinVersion: tls.VersionTLS12}); err != nil {
+			return i18n.E("service.notify.starttls_failed", "error", err.Error())
 		}
 	}
 	if cfg.Username != "" {

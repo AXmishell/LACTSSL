@@ -26,7 +26,7 @@ func (m *Manager) CheckMonitor(monitorID int64) error {
 	}
 	next := now.Add(time.Duration(interval) * time.Hour)
 
-	cert, checkErr := fetchCertificate(monitor.Target)
+	cert, chain, checkErr := fetchCertificate(monitor.Target)
 	status := "valid"
 	message := ""
 	issuer := ""
@@ -64,6 +64,16 @@ func (m *Manager) CheckMonitor(monitorID int64) error {
 					"message": i18n.Render(m.Locale(), message),
 					"error":   err.Error(),
 				})
+			} else if status != "expired" && status != "error" {
+				// 除了主机名匹配，还必须校验证书链是否受信任，避免链路上的中间人
+				// 用自签证书伪造“正常”状态、掩盖真实证书问题。
+				if err := verifyPeerChain(cert, chain, host); err != nil {
+					status = "error"
+					message = i18n.Encode("monitor.message.trust_failed", map[string]any{
+						"message": i18n.Render(m.Locale(), message),
+						"error":   err.Error(),
+					})
+				}
 			}
 		}
 	}
@@ -85,30 +95,51 @@ func (m *Manager) CheckMonitor(monitorID int64) error {
 	return checkErr
 }
 
-func fetchCertificate(target string) (*x509.Certificate, error) {
+func fetchCertificate(target string) (*x509.Certificate, []*x509.Certificate, error) {
 	host, port, err := parseTarget(target)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if host == "" {
-		return nil, i18n.E("monitor.error.target_unresolvable")
+		return nil, nil, i18n.E("monitor.error.target_unresolvable")
 	}
 	addr := net.JoinHostPort(host, port)
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-		ServerName:         host,
-		InsecureSkipVerify: true, // 需要读取异常证书的到期时间，因此跳过链校验
+		ServerName: host,
+		// 这里仍跳过握手阶段的链校验，以便读取已过期/自签证书的到期时间；
+		// 调用方随后会单独执行 verifyPeerChain 并报告不受信任状态。
+		InsecureSkipVerify: true,
 		MinVersion:         tls.VersionTLS12,
 	})
 	if err != nil {
-		return nil, i18n.E("monitor.error.connect_failed", "address", addr, "error", err.Error())
+		return nil, nil, i18n.E("monitor.error.connect_failed", "address", addr, "error", err.Error())
 	}
 	defer conn.Close()
 	state := conn.ConnectionState()
 	if len(state.PeerCertificates) == 0 {
-		return nil, i18n.E("monitor.error.no_cert")
+		return nil, nil, i18n.E("monitor.error.no_cert")
 	}
-	return state.PeerCertificates[0], nil
+	return state.PeerCertificates[0], state.PeerCertificates[1:], nil
+}
+
+// verifyPeerChain 使用系统根证书校验目标证书链，单独报告不受信任/链不完整问题。
+func verifyPeerChain(cert *x509.Certificate, chain []*x509.Certificate, host string) error {
+	roots, err := x509.SystemCertPool()
+	if err != nil || roots == nil {
+		roots = x509.NewCertPool()
+	}
+	intermediates := x509.NewCertPool()
+	for _, item := range chain {
+		intermediates.AddCert(item)
+	}
+	_, err = cert.Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		DNSName:       host,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	return err
 }
 
 func parseTarget(target string) (string, string, error) {

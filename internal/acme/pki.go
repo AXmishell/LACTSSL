@@ -1,20 +1,40 @@
 package acme
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ocsp"
 	"lactssl/internal/service"
 )
 
-const maxOCSPBody = 64 * 1024
+const (
+	maxOCSPBody  = 64 * 1024
+	crlCacheTTL  = 5 * time.Minute
+	pkiRateLimit = 600
+	pkiRateWin   = time.Minute
+)
+
+// crlCacheEntry 缓存同一吊销集合的 CRL，避免每次请求都自增编号并重新签名。
+type crlCacheEntry struct {
+	der     []byte
+	digest  [32]byte
+	number  int64
+	builtAt time.Time
+}
 
 func (s *Server) handleCRL(w http.ResponseWriter, r *http.Request) {
+	if !s.pkiLimiter.Allow(s.clientIP(r)) {
+		writeProblemType(w, http.StatusTooManyRequests, ProblemRateLimited, "too many PKI requests")
+		return
+	}
 	caID, err := strconv.ParseInt(r.PathValue("ca"), 10, 64)
 	if err != nil || caID <= 0 {
 		writeProblemType(w, http.StatusNotFound, ProblemMalformed, "CA not found")
@@ -45,16 +65,57 @@ func (s *Server) handleCRL(w http.ResponseWriter, r *http.Request) {
 			Reason:    certificate.RevokeReason,
 		})
 	}
-	number, err := s.Store.NextCRLNumber(caID)
-	if err != nil {
-		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "failed to allocate CRL number")
+	digest := revocationDigest(caID, entries)
+
+	s.crlMu.Lock()
+	cached, found := s.crlCache[caID]
+	if found && cached.digest == digest && time.Since(cached.builtAt) < crlCacheTTL {
+		der := cached.der
+		s.crlMu.Unlock()
+		writeCRL(w, der)
 		return
+	}
+	number := int64(0)
+	if found && cached.digest == digest && cached.number > 0 {
+		number = cached.number
+	}
+	s.crlMu.Unlock()
+
+	if number == 0 {
+		number, err = s.Store.NextCRLNumber(caID)
+		if err != nil {
+			writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "failed to allocate CRL number")
+			return
+		}
 	}
 	der, err := service.BuildCRL(ca, entries, number, s.now())
 	if err != nil {
 		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, err.Error())
 		return
 	}
+	s.crlMu.Lock()
+	s.crlCache[caID] = crlCacheEntry{der: der, digest: digest, number: number, builtAt: time.Now()}
+	s.crlMu.Unlock()
+	writeCRL(w, der)
+}
+
+// revocationDigest 生成吊销集合摘要，用于判断 CRL 是否需要新编号。
+func revocationDigest(caID int64, entries []service.RevokedCertificateEntry) [32]byte {
+	hash := sha256.New()
+	fmt.Fprintf(hash, "ca:%d\n", caID)
+	for _, entry := range entries {
+		serial := ""
+		if entry.Serial != nil {
+			serial = entry.Serial.Text(16)
+		}
+		fmt.Fprintf(hash, "%s|%d|%d\n", serial, entry.RevokedAt.Unix(), entry.Reason)
+	}
+	var digest [32]byte
+	copy(digest[:], hash.Sum(nil))
+	return digest
+}
+
+func writeCRL(w http.ResponseWriter, der []byte) {
 	w.Header().Set("Content-Type", "application/pkix-crl")
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	w.WriteHeader(http.StatusOK)
@@ -88,6 +149,10 @@ func (s *Server) handleOCSPGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeOCSPResponse(w http.ResponseWriter, r *http.Request, requestBytes []byte) {
+	if !s.pkiLimiter.Allow(s.clientIP(r)) {
+		writeProblemType(w, http.StatusTooManyRequests, ProblemRateLimited, "too many PKI requests")
+		return
+	}
 	caID, err := strconv.ParseInt(r.PathValue("ca"), 10, 64)
 	if err != nil || caID <= 0 {
 		writeProblemType(w, http.StatusNotFound, ProblemMalformed, "CA not found")

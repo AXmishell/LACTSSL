@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -112,6 +114,27 @@ func (m *Manager) VerifyValue(purpose, value, signature string) bool {
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(signature)) == 1
 }
 
+// SignExpiringValue 生成带服务端过期时间的签名值，格式为 <unix>.<hmac>。
+// 用于入口门禁 Cookie，避免仅依赖浏览器端过期时间。
+func (m *Manager) SignExpiringValue(purpose, value string, expires time.Time) string {
+	deadline := strconv.FormatInt(expires.Unix(), 10)
+	return deadline + "." + m.SignValue(purpose, value+"|"+deadline)
+}
+
+// VerifyExpiringValue 校验带过期时间的签名值。
+func (m *Manager) VerifyExpiringValue(purpose, value, token string) bool {
+	deadline, signature, ok := strings.Cut(token, ".")
+	if !ok || deadline == "" || signature == "" {
+		return false
+	}
+	expires, err := strconv.ParseInt(deadline, 10, 64)
+	if err != nil || !time.Now().Before(time.Unix(expires, 0)) {
+		return false
+	}
+	expected := m.SignValue(purpose, value+"|"+deadline)
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(signature)) == 1
+}
+
 // Parse 校验令牌并返回载荷。
 func (m *Manager) Parse(tokenString string) (*Claims, error) {
 	claims := &Claims{}
@@ -145,7 +168,13 @@ func GenerateTOTP(email string) (string, string, error) {
 	return key.Secret(), key.URL(), nil
 }
 
-// ValidateTOTP 校验动态验证码，允许前后各一个时间窗口。
+// TOTP 验证码在有效窗口内只允许使用一次，避免被重放。
+var (
+	totpReplay      sync.Map // "secret|code" -> 过期 Unix 秒
+	totpReplaySweep atomic.Int64
+)
+
+// ValidateTOTP 校验动态验证码，允许前后各一个时间窗口，并拒绝窗口内重复使用。
 func ValidateTOTP(secret, code string) bool {
 	code = strings.TrimSpace(code)
 	if secret == "" || code == "" {
@@ -157,5 +186,34 @@ func ValidateTOTP(secret, code string) bool {
 		Digits:    otp.DigitsSix,
 		Algorithm: otp.AlgorithmSHA1,
 	})
-	return err == nil && ok
+	if err != nil || !ok {
+		return false
+	}
+	now := time.Now()
+	key := secret + "|" + code
+	if value, loaded := totpReplay.Load(key); loaded {
+		if expires, valid := value.(int64); valid && expires > now.Unix() {
+			return false
+		}
+	}
+	totpReplay.Store(key, now.Add(2*time.Minute).Unix())
+	sweepTOTPReplay(now)
+	return true
+}
+
+// sweepTOTPReplay 定期清理过期条目，避免长期运行后内存增长。
+func sweepTOTPReplay(now time.Time) {
+	last := totpReplaySweep.Load()
+	if last != 0 && now.Unix()-last < 300 {
+		return
+	}
+	if !totpReplaySweep.CompareAndSwap(last, now.Unix()) {
+		return
+	}
+	totpReplay.Range(func(key, value any) bool {
+		if expires, ok := value.(int64); !ok || expires <= now.Unix() {
+			totpReplay.Delete(key)
+		}
+		return true
+	})
 }

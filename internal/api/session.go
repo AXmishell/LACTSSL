@@ -71,7 +71,7 @@ func (s *Server) setSessionCookie(c *gin.Context, token string, expire time.Time
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.sessionCookieSecure(c),
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Expires:  expire,
 		MaxAge:   int(time.Until(expire).Seconds()),
 	})
@@ -85,7 +85,7 @@ func (s *Server) clearSessionCookie(c *gin.Context) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.sessionCookieSecure(c),
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
@@ -99,7 +99,7 @@ func (s *Server) setCSRFCookie(c *gin.Context, token string, expire time.Time) {
 		Path:     "/",
 		HttpOnly: false,
 		Secure:   s.sessionCookieSecure(c),
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Expires:  expire,
 		MaxAge:   int(time.Until(expire).Seconds()),
 	})
@@ -112,14 +112,13 @@ func (s *Server) clearCSRFCookie(c *gin.Context) {
 		Value:    "",
 		Path:     "/",
 		Secure:   s.sessionCookieSecure(c),
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
 }
 
-// validCSRF 校验双提交 CSRF 令牌。
-// 旧版客户端没有 CSRF Cookie 时退回“请求头存在”校验，避免升级后立即掉线。
+// validCSRF 严格校验双提交 CSRF 令牌；Cookie 缺失时不再退化为“只看请求头”。
 func (s *Server) validCSRF(c *gin.Context) bool {
 	header := c.GetHeader(csrfHeaderName)
 	if header == "" {
@@ -127,7 +126,7 @@ func (s *Server) validCSRF(c *gin.Context) bool {
 	}
 	cookie, err := c.Cookie(csrfCookieName)
 	if err != nil || cookie == "" {
-		return true
+		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(header), []byte(cookie)) == 1
 }
@@ -135,25 +134,26 @@ func (s *Server) validCSRF(c *gin.Context) bool {
 // setEntryCookie 写入一次性门禁 Cookie。只有先访问过安全入口，才能打开裸登录页。
 // 签名绑定当前入口，入口变更后旧 Cookie 自动失效。
 func (s *Server) setEntryCookie(c *gin.Context) {
+	expires := time.Now().Add(entryCookieTTL)
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     entryCookieName,
-		Value:    s.Auth.SignValue(entryGatePurpose, s.Entry()),
+		Value:    s.Auth.SignExpiringValue(entryGatePurpose, s.Entry(), expires),
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.sessionCookieSecure(c),
-		SameSite: http.SameSiteLaxMode,
-		Expires:  time.Now().Add(entryCookieTTL),
+		SameSite: http.SameSiteStrictMode,
+		Expires:  expires,
 		MaxAge:   int(entryCookieTTL.Seconds()),
 	})
 }
 
-// hasEntryCookie 校验请求是否携带有效的入口门禁 Cookie。
+// hasEntryCookie 校验请求是否携带有效的入口门禁 Cookie（含服务端过期时间）。
 func (s *Server) hasEntryCookie(c *gin.Context) bool {
 	value, err := c.Cookie(entryCookieName)
 	if err != nil || value == "" {
 		return false
 	}
-	return s.Auth.VerifyValue(entryGatePurpose, s.Entry(), value)
+	return s.Auth.VerifyExpiringValue(entryGatePurpose, s.Entry(), value)
 }
 
 // sessionIDForToken 返回令牌对应的服务端会话 ID。
@@ -225,6 +225,11 @@ func (s *Server) sessionUser(c *gin.Context) *model.User {
 	}
 	user, err := s.Store.GetUserByID(claims.UserID)
 	if err != nil || user.TokenVersion != claims.Version {
+		return nil
+	}
+	// 页面级鉴权同样需要尊重服务端会话撤销，避免已撤销令牌仍能加载控制台外壳。
+	session, err := s.Store.GetSession(sessionIDForToken(claims, token))
+	if err != nil || session.UserID != user.ID || session.RevokedAt != nil || !time.Now().UTC().Before(session.ExpiresAt) {
 		return nil
 	}
 	return user

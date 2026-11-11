@@ -71,8 +71,8 @@ func TestLoadFromYAMLAndEnvOverride(t *testing.T) {
 data_dir: %q
 security:
   entry: "from-file"
-  jwt_secret: "jwt-secret-value"
-  salt: "salt-value"
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
 `, dataDir)
 	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ security:
 	if cfg.Entry != "from-file" {
 		t.Fatalf("YAML 安全入口未生效: %s", cfg.Entry)
 	}
-	if string(cfg.JWTSecret) != "jwt-secret-value" || string(cfg.EncryptionKey) != "salt-value" {
+	if string(cfg.JWTSecret) != "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj" || string(cfg.EncryptionKey) != "ssssssssssssssssssssssssssssssss" {
 		t.Fatal("YAML 密钥未生效")
 	}
 	if len(cfg.TrustedProxies) != 1 || cfg.TrustedProxies[0] != "127.0.0.1" {
@@ -115,6 +115,24 @@ security:
 	}
 }
 
+func TestLoadRejectsWeakSecrets(t *testing.T) {
+	clearEnv(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	content := fmt.Sprintf(`data_dir: %q
+security:
+  jwt_secret: "short"
+  salt: "%s"
+`, filepath.Join(dir, "data"), strings.Repeat("s", 32))
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LACTSSL_CONFIG", cfgPath)
+	if _, err := Load(); err == nil {
+		t.Fatal("过短的 jwt_secret 应被拒绝")
+	}
+}
+
 func TestLoadACMEConfig(t *testing.T) {
 	clearEnv(t)
 	dir := t.TempDir()
@@ -122,8 +140,8 @@ func TestLoadACMEConfig(t *testing.T) {
 	dataDir := filepath.Join(dir, "data")
 	content := fmt.Sprintf(`data_dir: %q
 security:
-  jwt_secret: "jwt-secret-value"
-  salt: "salt-value"
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
 acme:
   enabled: true
   addr: ":14000"
@@ -171,8 +189,8 @@ func TestLoadACMERejectsIncompleteTLS(t *testing.T) {
 	dataDir := filepath.Join(dir, "data")
 	content := fmt.Sprintf(`data_dir: %q
 security:
-  jwt_secret: "jwt-secret-value"
-  salt: "salt-value"
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
 acme:
   enabled: true
   addr: ":14000"
@@ -196,8 +214,8 @@ func TestLoadPublicURL(t *testing.T) {
 	dataDir := filepath.Join(dir, "data")
 	content := fmt.Sprintf(`data_dir: %q
 security:
-  jwt_secret: "jwt-secret-value"
-  salt: "salt-value"
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
   public_url: "https://ssl.example.com/"
 `, dataDir)
 	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {

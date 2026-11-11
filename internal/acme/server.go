@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"lactssl/internal/model"
@@ -25,6 +26,12 @@ type Server struct {
 
 	validationSem  chan struct{}
 	accountLimiter *ipRateLimiter
+	pkiLimiter     *ipRateLimiter
+	// TrustedProxies 用于在反向代理后解析真实客户端 IP。
+	TrustedProxies []string
+
+	crlMu    sync.Mutex
+	crlCache map[int64]crlCacheEntry
 }
 
 // NewServer 创建 ACME 协议服务。
@@ -39,6 +46,8 @@ func NewServer(st *store.Store, baseURL string) *Server {
 		Now:            time.Now,
 		validationSem:  make(chan struct{}, 8),
 		accountLimiter: newIPRateLimiter(30, time.Hour),
+		pkiLimiter:     newIPRateLimiter(pkiRateLimit, pkiRateWin),
+		crlCache:       make(map[int64]crlCacheEntry),
 	}
 }
 

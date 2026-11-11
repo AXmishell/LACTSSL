@@ -108,6 +108,13 @@ if [ "$RUN_BACKEND" -eq 1 ]; then
 
   step "覆盖率"
   go tool cover -func=coverage.out | tail -n 1
+
+  if command -v govulncheck >/dev/null 2>&1; then
+    step "govulncheck"
+    govulncheck ./...
+  else
+    echo "提示: 未安装 govulncheck，跳过漏洞扫描（CI 中仍会执行）"
+  fi
 fi
 
 if [ "$RUN_FRONTEND" -eq 1 ]; then
@@ -116,6 +123,9 @@ if [ "$RUN_FRONTEND" -eq 1 ]; then
 
   step "安装前端依赖 (npm ci)"
   (cd web && npm ci)
+
+  step "前端依赖漏洞扫描 (npm audit)"
+  (cd web && npm audit --audit-level=high)
 
   step "前端类型检查 (vue-tsc)"
   (cd web && npm run typecheck)

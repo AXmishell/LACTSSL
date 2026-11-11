@@ -71,6 +71,20 @@ func (s *Store) CreateUser(email, hash string) (*model.User, error) {
 	return s.GetUserByID(id)
 }
 
+// CreateFirstUser 原子地创建首个管理员账户，避免初始化接口并发请求创建多个管理员。
+func (s *Store) CreateFirstUser(email, hash string) (*model.User, error) {
+	now := nowUTC()
+	res, err := s.DB.Exec(`INSERT INTO users(email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at)
+		SELECT ?,?,'',0,1,?,? WHERE NOT EXISTS (SELECT 1 FROM users)`, email, hash, now, now)
+	if err != nil {
+		return nil, err
+	}
+	if affected, _ := res.RowsAffected(); affected != 1 {
+		return nil, i18n.E("api.error.already_initialized")
+	}
+	return s.GetUserByEmail(email)
+}
+
 // UpdatePassword 更新密码并提升令牌版本。
 func (s *Store) UpdatePassword(id int64, hash string) error {
 	_, err := s.DB.Exec(`UPDATE users SET password_hash=?, token_version=token_version+1, updated_at=? WHERE id=?`, hash, nowUTC(), id)
@@ -262,10 +276,23 @@ func (s *Store) ConsumePasswordReset(tokenHash string) (int64, error) {
 	if time.Now().After(expires) {
 		return 0, i18n.E("api.error.reset_link_expired")
 	}
-	if _, err := s.DB.Exec(`UPDATE password_resets SET used=1 WHERE id=?`, id); err != nil {
+	// 使用条件更新原子地消费令牌，避免并发请求把同一个令牌使用两次。
+	res, err := s.DB.Exec(`UPDATE password_resets SET used=1 WHERE id=? AND used=0`, id)
+	if err != nil {
 		return 0, err
 	}
+	if affected, _ := res.RowsAffected(); affected != 1 {
+		return 0, i18n.E("api.error.reset_link_used")
+	}
 	return userID, nil
+}
+
+// ResetPassword 通过密码重置流程更新密码：提升令牌版本、清理会话并关闭 TOTP，
+// 这样即使攻击者曾利用被盗会话绑定 TOTP，邮箱持有者仍能恢复账户。
+func (s *Store) ResetPassword(id int64, hash string) error {
+	_, err := s.DB.Exec(`UPDATE users SET password_hash=?, token_version=token_version+1,
+		totp_secret='', totp_enabled=0, updated_at=? WHERE id=?`, hash, nowUTC(), id)
+	return err
 }
 
 // CleanExpiredResets 清理过期令牌。
@@ -666,7 +693,7 @@ func scanTask(row interface{ Scan(...any) error }) (*model.Task, error) {
 
 // ---------------------------- 证书 ----------------------------
 
-// CreateCertificate 保存证书。
+// CreateCertificate 保存证书。证书私钥与其他敏感字段一样加密落库。
 func (s *Store) CreateCertificate(c *model.Certificate) error {
 	domains, _ := json.Marshal(c.Domains)
 	now := nowUTC()
@@ -674,9 +701,13 @@ func (s *Store) CreateCertificate(c *model.Certificate) error {
 	if source == "" {
 		source = "task"
 	}
+	encryptedKey, err := s.Cipher.Encrypt(c.KeyPEM)
+	if err != nil {
+		return err
+	}
 	res, err := s.DB.Exec(`INSERT INTO certificates(task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,created_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.TaskID, string(domains), c.PrimaryDomain, c.Issuer, c.CA, source, c.PrivateCAID, c.ACMEOrderID, c.ACMEAccountID, c.CertPEM, c.KeyPEM, c.FullchainPEM, c.Serial, c.NotBefore, c.NotAfter, c.Status, now)
+		c.TaskID, string(domains), c.PrimaryDomain, c.Issuer, c.CA, source, c.PrivateCAID, c.ACMEOrderID, c.ACMEAccountID, c.CertPEM, encryptedKey, c.FullchainPEM, c.Serial, c.NotBefore, c.NotAfter, c.Status, now)
 	if err != nil {
 		return err
 	}
@@ -685,10 +716,48 @@ func (s *Store) CreateCertificate(c *model.Certificate) error {
 	return nil
 }
 
+// MigrateCertificateKeys 把旧版本明文保存的证书私钥加密。
+func (s *Store) MigrateCertificateKeys() error {
+	rows, err := s.DB.Query(`SELECT id,key_pem FROM certificates WHERE key_pem<>''`)
+	if err != nil {
+		return err
+	}
+	type item struct {
+		id  int64
+		key string
+	}
+	var pending []item
+	for rows.Next() {
+		var value item
+		if err := rows.Scan(&value.id, &value.key); err != nil {
+			rows.Close()
+			return err
+		}
+		if !util.IsEncrypted(value.key) {
+			pending = append(pending, value)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, value := range pending {
+		encrypted, err := s.Cipher.Encrypt(value.key)
+		if err != nil {
+			return err
+		}
+		if _, err := s.DB.Exec(`UPDATE certificates SET key_pem=? WHERE id=?`, encrypted, value.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetCertificate 查询证书。
 func (s *Store) GetCertificate(id int64) (*model.Certificate, error) {
 	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at FROM certificates WHERE id=?`, id)
-	return scanCertificate(row)
+	return s.scanCertificate(row)
 }
 
 // ListCertificates 返回全部证书（不包含 PEM 大字段）。
@@ -700,7 +769,7 @@ func (s *Store) ListCertificates() ([]model.Certificate, error) {
 	defer rows.Close()
 	list := make([]model.Certificate, 0)
 	for rows.Next() {
-		c, err := scanCertificate(rows)
+		c, err := s.scanCertificate(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -830,7 +899,7 @@ func (s *Store) deleteCertificatesWhere(where string, args ...any) (int64, error
 	return deleted, nil
 }
 
-func scanCertificate(row interface{ Scan(...any) error }) (*model.Certificate, error) {
+func (s *Store) scanCertificate(row interface{ Scan(...any) error }) (*model.Certificate, error) {
 	var c model.Certificate
 	var domainsJSON string
 	var revokedAt sql.NullTime
@@ -839,6 +908,12 @@ func scanCertificate(row interface{ Scan(...any) error }) (*model.Certificate, e
 	}
 	if revokedAt.Valid {
 		c.RevokedAt = &revokedAt.Time
+	}
+	// 兼容旧版本明文私钥；解密失败时按空值处理，避免把密文当成私钥使用。
+	if decrypted, err := s.Cipher.Decrypt(c.KeyPEM); err == nil {
+		c.KeyPEM = decrypted
+	} else {
+		c.KeyPEM = ""
 	}
 	_ = json.Unmarshal([]byte(domainsJSON), &c.Domains)
 	if c.Domains == nil {

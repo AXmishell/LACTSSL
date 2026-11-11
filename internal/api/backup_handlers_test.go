@@ -57,7 +57,7 @@ func newBackupTestServer(t *testing.T) (*gin.Engine, string) {
 func loginBackupTest(t *testing.T, router *gin.Engine) *http.Cookie {
 	t.Helper()
 	setup := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/setup",
-		`{"email":"admin@example.com","password":"password123"}`, nil, nil)
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
 	if setup.Code != http.StatusOK {
 		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
 	}
@@ -86,7 +86,12 @@ func TestBackupInfoAndDownload(t *testing.T) {
 		t.Fatalf("备份信息不正确: %s", info.Body.String())
 	}
 
-	download := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/settings/backup/download", "", []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	missingPassword := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/settings/backup/download", "", []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if missingPassword.Code != http.StatusBadRequest || !strings.Contains(missingPassword.Body.String(), "api.error.backup_password_required") {
+		t.Fatalf("未设置备份密码时应拒绝下载: %d %s", missingPassword.Code, missingPassword.Body.String())
+	}
+
+	download := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/settings/backup/download", `{"password":"backup-secret"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if download.Code != http.StatusOK {
 		t.Fatalf("下载备份失败: %d %s", download.Code, download.Body.String())
 	}
@@ -102,7 +107,7 @@ func TestRestoreBackupRequiresPasswordAndStagesUpload(t *testing.T) {
 	router, dataDir := newBackupTestServer(t)
 	session := loginBackupTest(t, router)
 
-	download := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/settings/backup/download", "", []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	download := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/settings/backup/download", `{"password":"backup-secret"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if download.Code != http.StatusOK {
 		t.Fatalf("下载备份失败: %d", download.Code)
 	}
@@ -120,6 +125,9 @@ func TestRestoreBackupRequiresPasswordAndStagesUpload(t *testing.T) {
 		if err := writer.WriteField("password", password); err != nil {
 			t.Fatalf("写入密码字段失败: %v", err)
 		}
+		if err := writer.WriteField("backup_password", "backup-secret"); err != nil {
+			t.Fatalf("写入备份密码字段失败: %v", err)
+		}
 		_ = writer.Close()
 
 		req := httptest.NewRequest(http.MethodPost, "/secret-entry/api/settings/backup/restore", &body)
@@ -127,6 +135,7 @@ func TestRestoreBackupRequiresPasswordAndStagesUpload(t *testing.T) {
 		req.Header.Set(csrfHeaderName, "1")
 		req.RemoteAddr = "192.0.2.30:1234"
 		req.AddCookie(session)
+		req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "1"})
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		return w
@@ -137,7 +146,7 @@ func TestRestoreBackupRequiresPasswordAndStagesUpload(t *testing.T) {
 		t.Fatalf("错误密码应被拒绝: %d %s", wrong.Code, wrong.Body.String())
 	}
 
-	okResponse := restoreRequest("password123")
+	okResponse := restoreRequest("password1234")
 	if okResponse.Code != http.StatusOK {
 		t.Fatalf("恢复备份失败: %d %s", okResponse.Code, okResponse.Body.String())
 	}
@@ -173,6 +182,7 @@ func multipartBackupRequest(t *testing.T, router *gin.Engine, path string, sessi
 	if session != nil {
 		req.AddCookie(session)
 	}
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "1"})
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w
@@ -192,15 +202,15 @@ func TestEncryptedBackupDownloadAndRestore(t *testing.T) {
 	}
 
 	path := "/secret-entry/api/settings/backup/restore"
-	missing := multipartBackupRequest(t, router, path, session, download.Body.Bytes(), "password123", "")
+	missing := multipartBackupRequest(t, router, path, session, download.Body.Bytes(), "password1234", "")
 	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), "api.error.backup_password_required") {
 		t.Fatalf("缺少解密密码应被拒绝: %d %s", missing.Code, missing.Body.String())
 	}
-	wrong := multipartBackupRequest(t, router, path, session, download.Body.Bytes(), "password123", "wrong-backup-secret")
+	wrong := multipartBackupRequest(t, router, path, session, download.Body.Bytes(), "password1234", "wrong-backup-secret")
 	if wrong.Code != http.StatusBadRequest || !strings.Contains(wrong.Body.String(), "api.error.backup_password_invalid") {
 		t.Fatalf("错误解密密码应被拒绝: %d %s", wrong.Code, wrong.Body.String())
 	}
-	success := multipartBackupRequest(t, router, path, session, download.Body.Bytes(), "password123", "backup-secret")
+	success := multipartBackupRequest(t, router, path, session, download.Body.Bytes(), "password1234", "backup-secret")
 	if success.Code != http.StatusOK {
 		t.Fatalf("加密备份恢复失败: %d %s", success.Code, success.Body.String())
 	}

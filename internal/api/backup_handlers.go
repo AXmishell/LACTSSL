@@ -35,7 +35,7 @@ func (s *Server) backupInfo(c *gin.Context) {
 }
 
 // downloadBackup 生成并下载包含数据库与配置的 ZIP 备份包。
-// 请求体可选传入 password，非空时生成加密备份。
+// 必须提供加密密码，避免包含凭据与私钥的备份以明文形式落地。
 func (s *Server) downloadBackup(c *gin.Context) {
 	if s.Backup == nil {
 		failKey(c, http.StatusServiceUnavailable, "api.error.backup_unavailable")
@@ -49,7 +49,11 @@ func (s *Server) downloadBackup(c *gin.Context) {
 		return
 	}
 	password := strings.TrimSpace(body.Password)
-	if len(password) > 0 && len(password) < 8 {
+	if password == "" {
+		failKey(c, http.StatusBadRequest, "api.error.backup_password_required")
+		return
+	}
+	if len(password) < minPasswordLength {
 		failKey(c, http.StatusBadRequest, "api.error.backup_password_too_short")
 		return
 	}
@@ -97,10 +101,18 @@ func (s *Server) restoreBackup(c *gin.Context) {
 		return
 	}
 	user := getUser(c)
-	if user == nil || !auth.VerifyPassword(user.PasswordHash, c.PostForm("password")) {
+	if user == nil {
+		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
+		return
+	}
+	if !s.allowReauth(c, user) {
+		return
+	}
+	if !auth.VerifyPassword(user.PasswordHash, c.PostForm("password")) {
 		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
 	}
+	s.resetReauth(c, user)
 
 	file, err := fileHeader.Open()
 	if err != nil {
@@ -204,6 +216,7 @@ func failBackupUpload(c *gin.Context, err error) {
 	case errors.Is(err, backup.ErrInvalidArchive), errors.Is(err, backup.ErrInvalidDatabase), errors.Is(err, backup.ErrInvalidConfig):
 		failKey(c, http.StatusBadRequest, "api.error.backup_invalid_file")
 	default:
-		failKey(c, http.StatusInternalServerError, "api.error.backup_restore_failed", "error", err.Error())
+		// 未认证的安装页也调用此函数，避免把文件系统/数据库错误原文返回给调用方。
+		failKey(c, http.StatusInternalServerError, "api.error.backup_restore_failed")
 	}
 }

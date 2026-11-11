@@ -1,5 +1,5 @@
 # 前端构建阶段：固定在构建机平台，多架构构建时只执行一次
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS web
 WORKDIR /app/web
 COPY web/package*.json ./
 RUN npm ci
@@ -7,7 +7,7 @@ COPY web/ ./
 RUN npm run build
 
 # Go 构建阶段：在构建机平台交叉编译到目标平台，避免 arm64 走 QEMU 编译
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:eb61c3873c97416fff0116553fff65d67a3549f72e11d9758849a689cdd8b523 AS build
 RUN apk add --no-cache git ca-certificates tzdata
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -30,7 +30,7 @@ RUN set -eu; \
       -o /lactssl ./cmd/server
 
 # 运行阶段
-FROM alpine:3.20
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 RUN apk add --no-cache ca-certificates tzdata openssh-client su-exec \
     && addgroup -S -g 10001 lactssl \
     && adduser -S -D -H -u 10001 -G lactssl lactssl \

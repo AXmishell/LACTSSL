@@ -128,6 +128,21 @@ func TestCRLAndOCSPRevocation(t *testing.T) {
 	if !found {
 		t.Fatal("CRL 未包含已撤销证书序列号")
 	}
+
+	// 内容未变化时重复请求不应继续膨胀 CRL Number。
+	againResp, err := http.Get(ts.URL + "/pki/" + strconv.FormatInt(ca.ID, 10) + "/crl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer againResp.Body.Close()
+	againDER, _ := io.ReadAll(againResp.Body)
+	again, err := x509.ParseRevocationList(againDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crl.Number.Cmp(again.Number) != 0 {
+		t.Fatalf("吊销集合未变化时 CRL Number 不应递增: %s != %s", crl.Number, again.Number)
+	}
 	if err := crl.CheckSignatureFrom(caCert); err != nil {
 		t.Fatalf("CRL 签名校验失败: %v", err)
 	}

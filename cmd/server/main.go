@@ -66,6 +66,9 @@ func main() {
 	if err := st.MigrateTOTPSecrets(); err != nil {
 		log.Printf("迁移 TOTP 密钥加密失败: %v", err)
 	}
+	if err := st.MigrateCertificateKeys(); err != nil {
+		log.Printf("迁移证书私钥加密失败: %v", err)
+	}
 	st.ResetProcessingACMEChallenges()
 
 	entry, err := ensureEntry(st, cfg.Entry)
@@ -107,7 +110,9 @@ func main() {
 	var mainHandler http.Handler = server.Router()
 	var acmeHTTPServer *http.Server
 	if cfg.ACME.Enabled {
-		acmeHandler := acme.NewServer(st, cfg.ACME.BaseURL).Handler()
+		acmeServer := acme.NewServer(st, cfg.ACME.BaseURL)
+		acmeServer.TrustedProxies = cfg.TrustedProxies
+		acmeHandler := acmeServer.Handler()
 		if cfg.ACME.Addr == "" {
 			// 未配置独立端口时，把 ACME 协议挂到主端口的 /acme 前缀。
 			root := http.NewServeMux()
@@ -255,7 +260,7 @@ func ensureEntry(st *store.Store, override string) (string, error) {
 			return "", err
 		}
 		if previous != "" && previous != entry {
-			st.AddLogKey("system", 0, "warning", "log.system.entry_overridden", map[string]any{"previous": previous, "entry": entry})
+			st.AddLogKey("system", 0, "warning", "log.system.entry_overridden", map[string]any{"previous": util.MaskSecret(previous), "entry": util.MaskSecret(entry)})
 		}
 		return entry, nil
 	}
@@ -274,7 +279,8 @@ func ensureEntry(st *store.Store, override string) (string, error) {
 	if err := st.SetSetting("security.entry", entry); err != nil {
 		return "", err
 	}
-	st.AddLogKey("system", 0, "info", "log.system.entry_generated", map[string]any{"entry": entry})
+	// 不在持久化日志中记录入口明文，避免日志/备份泄露安全入口。
+	st.AddLogKey("system", 0, "info", "log.system.entry_generated", map[string]any{"entry": util.MaskSecret(entry)})
 	return entry, nil
 }
 
