@@ -214,6 +214,11 @@ func (m *Manager) LoadSMTPConfig() SMTPConfig {
 	}
 }
 
+// sanitizeMailHeader 移除邮件头中的换行，避免通过任务名、备注等字段注入额外头。
+func sanitizeMailHeader(value string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
+}
+
 // SendMail 使用给定配置发送 HTML 邮件。
 func SendMail(cfg SMTPConfig, to, subject, html string) error {
 	if cfg.Host == "" || cfg.From == "" {
@@ -223,11 +228,11 @@ func SendMail(cfg SMTPConfig, to, subject, html string) error {
 		return i18n.E("service.notify.recipient_empty")
 	}
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
-	fromAddr := extractAddress(cfg.From)
+	fromAddr := extractAddress(sanitizeMailHeader(cfg.From))
 	header := strings.Join([]string{
-		"From: " + cfg.From,
-		"To: " + to,
-		"Subject: " + mime.BEncoding.Encode("UTF-8", subject),
+		"From: " + sanitizeMailHeader(cfg.From),
+		"To: " + sanitizeMailHeader(to),
+		"Subject: " + mime.BEncoding.Encode("UTF-8", sanitizeMailHeader(subject)),
 		"MIME-Version: 1.0",
 		"Content-Type: text/html; charset=UTF-8",
 		"Date: " + time.Now().Format(time.RFC1123Z),
@@ -271,7 +276,7 @@ func SendMail(cfg SMTPConfig, to, subject, html string) error {
 	if err := client.Mail(fromAddr); err != nil {
 		return err
 	}
-	if err := client.Rcpt(to); err != nil {
+	if err := client.Rcpt(sanitizeMailHeader(to)); err != nil {
 		return err
 	}
 	writer, err := client.Data()

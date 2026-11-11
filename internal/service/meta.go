@@ -10,6 +10,7 @@ type FieldDef struct {
 	LabelKey       string     `json:"-"`
 	Type           string     `json:"type"` // text / password / textarea / number / select / switch
 	Required       bool       `json:"required"`
+	Secret         bool       `json:"secret,omitempty"` // 密钥字段：接口返回时脱敏，编辑时留空表示保留原值
 	Placeholder    string     `json:"placeholder"`
 	PlaceholderKey string     `json:"-"`
 	Help           string     `json:"help"`
@@ -17,6 +18,11 @@ type FieldDef struct {
 	Options        []Option   `json:"options,omitempty"`
 	Default        string     `json:"default,omitempty"`
 	ShowIf         *Condition `json:"show_if,omitempty"`
+}
+
+// IsSecret 判断字段是否保存密钥，密码输入框默认视为密钥。
+func (f FieldDef) IsSecret() bool {
+	return f.Secret || f.Type == "password"
 }
 
 // Condition 描述字段的显示条件：当 Key 对应的值等于 Value 时才显示。
@@ -239,7 +245,8 @@ var DeployTypes = []ProviderDef{
 			{Key: "user", LabelKey: "meta.field.user.label", PlaceholderKey: "meta.field.user.placeholder", Type: "text", Required: true},
 			{Key: "auth_type", LabelKey: "meta.field.auth_type.label", Type: "select", Default: "password", Options: []Option{{LabelKey: "meta.field.auth_type.option.password", Value: "password"}, {LabelKey: "meta.field.auth_type.option.key", Value: "key"}}},
 			{Key: "password", LabelKey: "meta.field.password.label", Type: "password", ShowIf: &Condition{Key: "auth_type", Value: "password"}},
-			{Key: "private_key", LabelKey: "meta.field.private_key.label", HelpKey: "meta.field.private_key.help", Type: "textarea", ShowIf: &Condition{Key: "auth_type", Value: "key"}},
+			{Key: "private_key", LabelKey: "meta.field.private_key.label", HelpKey: "meta.field.private_key.help", Type: "textarea", Secret: true, ShowIf: &Condition{Key: "auth_type", Value: "key"}},
+			{Key: "host_key_fingerprint", LabelKey: "meta.field.host_key_fingerprint.label", HelpKey: "meta.field.host_key_fingerprint.help", Type: "text"},
 		},
 		DeployFields: []FieldDef{
 			{Key: "cert_path", LabelKey: "meta.field.remote_cert_path.label", PlaceholderKey: "meta.field.remote_cert_path.placeholder", Type: "text", Required: true},
@@ -254,7 +261,7 @@ var DeployTypes = []ProviderDef{
 			{Key: "port", LabelKey: "meta.field.ftp_port.label", Type: "number", Default: "21"},
 			{Key: "user", LabelKey: "meta.field.user.label", PlaceholderKey: "meta.field.user.placeholder", Type: "text", Required: true},
 			{Key: "password", LabelKey: "meta.field.password.label", Type: "password", Required: true},
-			{Key: "tls", LabelKey: "meta.field.ftp_tls.label", HelpKey: "meta.field.ftp_tls.help", Type: "select", Default: "none", Options: []Option{
+			{Key: "tls", LabelKey: "meta.field.ftp_tls.label", HelpKey: "meta.field.ftp_tls.help", Type: "select", Default: "explicit", Options: []Option{
 				{LabelKey: "meta.field.ftp_tls.option.none", Value: "none"},
 				{LabelKey: "meta.field.ftp_tls.option.explicit", Value: "explicit"},
 				{LabelKey: "meta.field.ftp_tls.option.implicit", Value: "implicit"},

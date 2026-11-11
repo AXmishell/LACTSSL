@@ -10,7 +10,7 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"LACTSSL_CONFIG", "LACTSSL_DATA", "LACTSSL_ADDR", "LACTSSL_PORT", "LACTSSL_ENTRY", "LACTSSL_TRUSTED_PROXIES", "LACTSSL_ACME_ENABLED", "LACTSSL_ACME_ADDR", "LACTSSL_ACME_BASE_URL", "LACTSSL_ACME_TLS_CERT", "LACTSSL_ACME_TLS_KEY", "LACTSSL_ACME_MTLS_ENABLED", "LACTSSL_ACME_MTLS_CLIENT_CA"} {
+	for _, key := range []string{"LACTSSL_CONFIG", "LACTSSL_DATA", "LACTSSL_ADDR", "LACTSSL_PORT", "LACTSSL_ENTRY", "LACTSSL_PUBLIC_URL", "LACTSSL_TRUSTED_PROXIES", "LACTSSL_ACME_ENABLED", "LACTSSL_ACME_ADDR", "LACTSSL_ACME_BASE_URL", "LACTSSL_ACME_TLS_CERT", "LACTSSL_ACME_TLS_KEY", "LACTSSL_ACME_MTLS_ENABLED", "LACTSSL_ACME_MTLS_CLIENT_CA"} {
 		t.Setenv(key, "")
 	}
 }
@@ -185,5 +185,40 @@ acme:
 	t.Setenv("LACTSSL_CONFIG", cfgPath)
 	if _, err := Load(); err == nil {
 		t.Fatal("TLS 证书和私钥只配置一项时应报错")
+	}
+}
+
+// TestLoadPublicURL 验证对外访问地址的读取与环境变量覆盖。
+func TestLoadPublicURL(t *testing.T) {
+	clearEnv(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	dataDir := filepath.Join(dir, "data")
+	content := fmt.Sprintf(`data_dir: %q
+security:
+  jwt_secret: "jwt-secret-value"
+  salt: "salt-value"
+  public_url: "https://ssl.example.com/"
+`, dataDir)
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LACTSSL_CONFIG", cfgPath)
+	if cfg, err := Load(); err != nil {
+		t.Fatal(err)
+	} else if cfg.PublicURL != "https://ssl.example.com" {
+		t.Fatalf("public_url 未正确归一化: %q", cfg.PublicURL)
+	}
+
+	t.Setenv("LACTSSL_PUBLIC_URL", "https://override.example.com")
+	if cfg, err := Load(); err != nil {
+		t.Fatal(err)
+	} else if cfg.PublicURL != "https://override.example.com" {
+		t.Fatalf("环境变量未覆盖 public_url: %q", cfg.PublicURL)
+	}
+
+	t.Setenv("LACTSSL_PUBLIC_URL", "ftp://invalid")
+	if _, err := Load(); err == nil {
+		t.Fatal("非法 public_url 应返回错误")
 	}
 }

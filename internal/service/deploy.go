@@ -46,7 +46,7 @@ func (m *Manager) Deploy(cert *model.Certificate, account *model.DeployAccount, 
 	case "local":
 		return deployLocal(cert, cfg)
 	case "ssh":
-		return deploySSH(cert, cfg)
+		return m.deploySSH(cert, cfg, account)
 	case "ftp":
 		return deployFTP(cert, cfg)
 	case "webhook":
@@ -144,7 +144,7 @@ func deployLocal(cert *model.Certificate, cfg map[string]string) error {
 	return nil
 }
 
-func deploySSH(cert *model.Certificate, cfg map[string]string) error {
+func (m *Manager) deploySSH(cert *model.Certificate, cfg map[string]string, account *model.DeployAccount) error {
 	host := strings.TrimSpace(cfg["host"])
 	user := strings.TrimSpace(cfg["user"])
 	if host == "" || user == "" {
@@ -172,11 +172,31 @@ func deploySSH(cert *model.Certificate, cfg map[string]string) error {
 		authMethods = append(authMethods, ssh.Password(cfg["password"]))
 	}
 
+	pinned := strings.TrimSpace(cfg["host_key_fingerprint"])
 	sshConfig := &ssh.ClientConfig{
-		User:            user,
-		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // 个人自用场景允许首次连接未登记的主机
-		Timeout:         15 * time.Second,
+		User:    user,
+		Auth:    authMethods,
+		Timeout: 15 * time.Second,
+		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			actual := ssh.FingerprintSHA256(key)
+			if pinned != "" {
+				if actual != pinned {
+					return i18n.E("service.deploy.ssh_host_key_mismatch", "expected", pinned, "actual", actual)
+				}
+				return nil
+			}
+			// 首次连接采用 TOFU：记录指纹，后续连接必须一致。
+			if account != nil && account.ID > 0 && m != nil && m.Store != nil {
+				if account.Config == nil {
+					account.Config = map[string]string{}
+				}
+				account.Config["host_key_fingerprint"] = actual
+				if err := m.Store.UpdateDeployAccount(account); err != nil {
+					return i18n.E("service.deploy.ssh_host_key_save_failed", "error", err.Error())
+				}
+			}
+			return nil
+		},
 	}
 	client, err := ssh.Dial("tcp", net.JoinHostPort(host, port), sshConfig)
 	if err != nil {

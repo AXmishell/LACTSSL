@@ -227,3 +227,76 @@ func TestPrivateCAKeyEncryptedAtRest(t *testing.T) {
 		t.Fatal("列表不应返回证书或私钥内容")
 	}
 }
+
+// TestTOTPSecretEncrypted 验证 TOTP 密钥加密落库且读取时自动解密。
+func TestTOTPSecretEncrypted(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "totp.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	cipher, err := util.NewCipher([]byte("totp-test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := New(conn, cipher)
+	user, err := st.CreateUser("totp@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := "JBSWY3DPEHPK3PXP"
+	if err := st.SetTOTP(user.ID, secret, true); err != nil {
+		t.Fatal(err)
+	}
+
+	var stored string
+	if err := conn.QueryRow(`SELECT totp_secret FROM users WHERE id=?`, user.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored == secret || !strings.HasPrefix(stored, "enc:v1:") {
+		t.Fatalf("TOTP 密钥未加密落库: %q", stored)
+	}
+
+	loaded, err := st.GetUserByID(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.TOTPSecret != secret || !loaded.TOTPEnabled {
+		t.Fatalf("读取 TOTP 密钥不正确: %+v", loaded)
+	}
+}
+
+// TestMigrateTOTPSecrets 验证旧版本明文 TOTP 密钥会在启动时加密。
+func TestMigrateTOTPSecrets(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "totp-migrate.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	cipher, err := util.NewCipher([]byte("totp-test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := New(conn, cipher)
+	user, err := st.CreateUser("legacy@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`UPDATE users SET totp_secret='LEGACYSECRET' WHERE id=?`, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MigrateTOTPSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := conn.QueryRow(`SELECT totp_secret FROM users WHERE id=?`, user.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if !util.IsEncrypted(stored) {
+		t.Fatalf("旧 TOTP 密钥未被加密: %q", stored)
+	}
+	loaded, err := st.GetUserByID(user.ID)
+	if err != nil || loaded.TOTPSecret != "LEGACYSECRET" {
+		t.Fatalf("迁移后无法解密: %+v, %v", loaded, err)
+	}
+}

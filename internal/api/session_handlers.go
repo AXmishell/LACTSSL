@@ -29,6 +29,7 @@ func (s *Server) issueSession(c *gin.Context, user *model.User) (time.Time, erro
 		return time.Time{}, err
 	}
 	s.setSessionCookie(c, token, expire)
+	s.setCSRFCookie(c, token, expire)
 	return expire, nil
 }
 

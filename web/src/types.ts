@@ -33,6 +33,7 @@ export interface FieldDef {
   label: string
   type: 'text' | 'password' | 'textarea' | 'number' | 'select' | 'switch'
   required?: boolean
+  secret?: boolean
   placeholder?: string
   help?: string
   options?: FieldOption[]

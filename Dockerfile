@@ -31,12 +31,18 @@ RUN set -eu; \
 
 # 运行阶段
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata openssh-client
+RUN apk add --no-cache ca-certificates tzdata openssh-client su-exec \
+    && addgroup -S -g 10001 lactssl \
+    && adduser -S -D -H -u 10001 -G lactssl lactssl \
+    && mkdir -p /app/data /app/config \
+    && chown -R lactssl:lactssl /app
 WORKDIR /app
 COPY --from=build /lactssl /app/lactssl
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 ENV LACTSSL_DATA=/app/data \
     LACTSSL_CONFIG=/app/config/config.yaml \
     TZ=Asia/Shanghai
 EXPOSE 8080
 VOLUME ["/app/data", "/app/config"]
-ENTRYPOINT ["/app/lactssl"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

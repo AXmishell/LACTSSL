@@ -171,7 +171,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 // handleLogout 清除会话 Cookie。令牌本身无状态，客户端也可能已过期，因此不要求登录，
 // 但仍要求 CSRF 头，避免被跨站请求强制退出。
 func (s *Server) handleLogout(c *gin.Context) {
-	if c.GetHeader(csrfHeaderName) == "" {
+	if !s.validCSRF(c) {
 		failKey(c, http.StatusForbidden, "api.error.unauthorized")
 		return
 	}
@@ -182,6 +182,7 @@ func (s *Server) handleLogout(c *gin.Context) {
 		}
 	}
 	s.clearSessionCookie(c)
+	s.clearCSRFCookie(c)
 	ok(c, gin.H{"ok": true})
 }
 
@@ -355,15 +356,21 @@ func (s *Server) handleForgotPassword(c *gin.Context) {
 		ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.reset_sent", nil)})
 		return
 	}
+	// 配置检查放在查询账户之前，避免通过错误类型判断邮箱是否存在。
+	smtpCfg := s.Manager.LoadSMTPConfig()
+	if smtpCfg.Host == "" {
+		failKey(c, http.StatusBadRequest, "api.error.smtp_not_configured")
+		return
+	}
+	baseURL, err := s.publicBaseURL(c)
+	if err != nil {
+		failKey(c, http.StatusBadRequest, "api.error.public_url_required")
+		return
+	}
 	user, err := s.Store.GetUserByEmail(email)
 	if err != nil {
 		// 无论邮箱是否存在都返回相同提示。
 		ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.reset_sent", nil)})
-		return
-	}
-	smtpCfg := s.Manager.LoadSMTPConfig()
-	if smtpCfg.Host == "" {
-		failKey(c, http.StatusBadRequest, "api.error.smtp_not_configured")
 		return
 	}
 
@@ -376,17 +383,9 @@ func (s *Server) handleForgotPassword(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.save_reset_token_failed")
 		return
 	}
-	scheme := "http"
-	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	host := c.Request.Host
-	if forwarded := c.GetHeader("X-Forwarded-Host"); forwarded != "" {
-		host = forwarded
-	}
-	link := fmt.Sprintf("%s://%s/%s/reset?token=%s", scheme, host, s.Entry(), rawToken)
+	link := fmt.Sprintf("%s/%s/reset?token=%s", baseURL, s.Entry(), rawToken)
 	current := locale(c)
-	bodyHTML := i18n.T(current, "email.reset.body", map[string]any{"link": link})
+	bodyHTML := i18n.Th(current, "email.reset.body", map[string]any{"link": link})
 	if err := service.SendMail(smtpCfg, user.Email, i18n.T(current, "email.reset.subject", nil), bodyHTML); err != nil {
 		failErr(c, http.StatusInternalServerError, err)
 		return

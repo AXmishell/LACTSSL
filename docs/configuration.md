@@ -27,6 +27,7 @@ database:
 
 security:
   entry: ""             # 安全入口，留空则首次启动随机生成
+  public_url: ""        # 对外访问地址，如 "https://ssl.example.com"
   jwt_secret: ""        # JWT 签名密钥，留空自动生成并写回
   salt: ""              # 敏感字段加密盐，留空自动生成并写回
 
@@ -55,6 +56,7 @@ acme:
 ### `security`
 
 - `entry`：管理页面的安全入口路径段。留空时首次启动随机生成 20 位大小写字母与数字组合，并保存到数据库。
+- `public_url`：对外访问地址，例如 `https://ssl.example.com`（不要带路径）。密码重置邮件中的链接基于该地址生成，避免 Host 头注入；未配置时仅允许本机回环请求按 Host 推导。也可用环境变量 `LACTSSL_PUBLIC_URL` 覆盖。
 - `jwt_secret`：登录令牌签名密钥。留空时自动生成 32 字节随机值并写回配置文件。
 - `salt`：数据库中敏感字段（DNS/部署凭据、通知密钥等）的加密盐。留空时自动生成并写回。
 
@@ -77,6 +79,7 @@ acme:
 | `LACTSSL_PORT` | 监听端口，覆盖 `server.port` |
 | `LACTSSL_DATA` | 数据目录，覆盖 `data_dir` |
 | `LACTSSL_ENTRY` | 安全入口，覆盖 `security.entry` 并写回数据库 |
+| `LACTSSL_PUBLIC_URL` | 对外访问地址，覆盖 `security.public_url` |
 | `LACTSSL_TRUSTED_PROXIES` | 逗号分隔的可信代理列表，覆盖 `server.trusted_proxies` |
 | `LACTSSL_ACME_ENABLED` | 是否启用 ACME 服务端，覆盖 `acme.enabled` |
 | `LACTSSL_ACME_ADDR` | ACME 独立监听地址，覆盖 `acme.addr` |

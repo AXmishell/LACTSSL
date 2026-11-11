@@ -8,6 +8,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"sort"
 	"strings"
@@ -185,6 +186,22 @@ func T(locale Locale, key string, params map[string]any) string {
 	}
 	for name, value := range params {
 		text = strings.ReplaceAll(text, "{"+name+"}", fmt.Sprint(value))
+	}
+	return text
+}
+
+// Th 与 T 相同，但对参数做 HTML 转义，用于拼接邮件等 HTML 内容。
+func Th(locale Locale, key string, params map[string]any) string {
+	load()
+	text := lookup(locale, key)
+	if text == "" {
+		text = lookup(Default, key)
+	}
+	if text == "" {
+		return key
+	}
+	for name, value := range params {
+		text = strings.ReplaceAll(text, "{"+name+"}", html.EscapeString(fmt.Sprint(value)))
 	}
 	return text
 }

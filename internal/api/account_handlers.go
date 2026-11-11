@@ -40,6 +40,9 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}
+	for i := range list {
+		maskDNSAccount(&list[i])
+	}
 	ok(c, list)
 }
 
@@ -53,7 +56,21 @@ func (s *Server) getDNSAccount(c *gin.Context) {
 		failKey(c, http.StatusNotFound, "api.error.dns_account_not_found")
 		return
 	}
+	maskDNSAccount(item)
 	ok(c, item)
+}
+
+// maskDNSAccount 隐藏凭据中的密钥字段，避免接口把明文密钥回传到前端。
+func maskDNSAccount(item *model.DNSAccount) {
+	if item == nil {
+		return
+	}
+	def, found := service.DNSProviderInfo(item.Provider)
+	if !found {
+		item.Config = map[string]string{}
+		return
+	}
+	item.Config = service.MaskProviderConfig(def, item.Config)
 }
 
 type dnsAccountBody struct {
@@ -63,7 +80,7 @@ type dnsAccountBody struct {
 	Remark   string            `json:"remark"`
 }
 
-func (b *dnsAccountBody) validate(current i18n.Locale) error {
+func (b *dnsAccountBody) validate(current i18n.Locale, base map[string]string) error {
 	b.Name = strings.TrimSpace(b.Name)
 	b.Provider = strings.TrimSpace(b.Provider)
 	if b.Name == "" {
@@ -76,7 +93,12 @@ func (b *dnsAccountBody) validate(current i18n.Locale) error {
 	if b.Config == nil {
 		b.Config = map[string]string{}
 	}
-	return validateFields(def.Fields, b.Config, current)
+	merged := service.MergeProviderConfig(def, base, b.Config)
+	if err := validateFields(def.Fields, merged, current); err != nil {
+		return err
+	}
+	b.Config = service.FilterAuthConfig(def, merged)
+	return nil
 }
 
 func (s *Server) createDNSAccount(c *gin.Context) {
@@ -85,7 +107,7 @@ func (s *Server) createDNSAccount(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if err := body.validate(locale(c)); err != nil {
+	if err := body.validate(locale(c), nil); err != nil {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
@@ -95,6 +117,7 @@ func (s *Server) createDNSAccount(c *gin.Context) {
 		return
 	}
 	s.Store.AddLogKey("dns", item.ID, "info", "log.dns.created", map[string]any{"name": item.Name})
+	maskDNSAccount(item)
 	ok(c, item)
 }
 
@@ -108,13 +131,18 @@ func (s *Server) updateDNSAccount(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if err := body.validate(locale(c)); err != nil {
-		failErr(c, http.StatusBadRequest, err)
-		return
-	}
 	item, err := s.Store.GetDNSAccount(id)
 	if err != nil {
 		failKey(c, http.StatusNotFound, "api.error.dns_account_not_found")
+		return
+	}
+	// 只有服务商未变化时才复用已有密钥，避免把旧服务商的密钥带到新服务商。
+	var base map[string]string
+	if item.Provider == strings.TrimSpace(body.Provider) {
+		base = item.Config
+	}
+	if err := body.validate(locale(c), base); err != nil {
+		failErr(c, http.StatusBadRequest, err)
 		return
 	}
 	item.Name = body.Name
@@ -125,6 +153,7 @@ func (s *Server) updateDNSAccount(c *gin.Context) {
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}
+	maskDNSAccount(item)
 	ok(c, item)
 }
 
@@ -155,6 +184,9 @@ func (s *Server) listDeployAccounts(c *gin.Context) {
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}
+	for i := range list {
+		maskDeployAccount(&list[i])
+	}
 	ok(c, list)
 }
 
@@ -168,7 +200,21 @@ func (s *Server) getDeployAccount(c *gin.Context) {
 		failKey(c, http.StatusNotFound, "api.error.deploy_account_not_found")
 		return
 	}
+	maskDeployAccount(item)
 	ok(c, item)
+}
+
+// maskDeployAccount 隐藏目标凭据中的密码、私钥和访问令牌。
+func maskDeployAccount(item *model.DeployAccount) {
+	if item == nil {
+		return
+	}
+	def, found := service.DeployTypeInfo(item.Type)
+	if !found {
+		item.Config = map[string]string{}
+		return
+	}
+	item.Config = service.MaskProviderConfig(def, item.Config)
 }
 
 type deployAccountBody struct {
@@ -178,7 +224,7 @@ type deployAccountBody struct {
 	Remark string            `json:"remark"`
 }
 
-func (b *deployAccountBody) validate(current i18n.Locale) error {
+func (b *deployAccountBody) validate(current i18n.Locale, base map[string]string) error {
 	b.Name = strings.TrimSpace(b.Name)
 	b.Type = strings.TrimSpace(b.Type)
 	if b.Name == "" {
@@ -191,11 +237,12 @@ func (b *deployAccountBody) validate(current i18n.Locale) error {
 	if b.Config == nil {
 		b.Config = map[string]string{}
 	}
-	if err := validateFields(def.Fields, b.Config, current); err != nil {
+	merged := service.MergeProviderConfig(def, base, b.Config)
+	if err := validateFields(def.Fields, merged, current); err != nil {
 		return err
 	}
 	// 凭据只保存认证与连接信息；部署路径、站点、域名等参数由任务流程的部署节点保存。
-	b.Config = service.FilterAuthConfig(def, b.Config)
+	b.Config = service.FilterAuthConfig(def, merged)
 	return nil
 }
 
@@ -205,7 +252,7 @@ func (s *Server) createDeployAccount(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if err := body.validate(locale(c)); err != nil {
+	if err := body.validate(locale(c), nil); err != nil {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
@@ -215,6 +262,7 @@ func (s *Server) createDeployAccount(c *gin.Context) {
 		return
 	}
 	s.Store.AddLogKey("deploy", item.ID, "info", "log.deploy.created", map[string]any{"name": item.Name})
+	maskDeployAccount(item)
 	ok(c, item)
 }
 
@@ -228,13 +276,18 @@ func (s *Server) updateDeployAccount(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if err := body.validate(locale(c)); err != nil {
-		failErr(c, http.StatusBadRequest, err)
-		return
-	}
 	item, err := s.Store.GetDeployAccount(id)
 	if err != nil {
 		failKey(c, http.StatusNotFound, "api.error.deploy_account_not_found")
+		return
+	}
+	// 只有凭据类型未变化时才复用已有密钥，避免类型切换后残留旧凭据。
+	var base map[string]string
+	if item.Type == strings.TrimSpace(body.Type) {
+		base = item.Config
+	}
+	if err := body.validate(locale(c), base); err != nil {
+		failErr(c, http.StatusBadRequest, err)
 		return
 	}
 	item.Name = body.Name
@@ -245,6 +298,7 @@ func (s *Server) updateDeployAccount(c *gin.Context) {
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}
+	maskDeployAccount(item)
 	ok(c, item)
 }
 

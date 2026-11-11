@@ -63,6 +63,9 @@ func main() {
 		log.Fatalf("%s: %v", cliText("cli.error.init_crypto"), err)
 	}
 	st := store.New(conn, cipher)
+	if err := st.MigrateTOTPSecrets(); err != nil {
+		log.Printf("迁移 TOTP 密钥加密失败: %v", err)
+	}
 	st.ResetProcessingACMEChallenges()
 
 	entry, err := ensureEntry(st, cfg.Entry)
@@ -79,6 +82,7 @@ func main() {
 	}
 
 	server := api.New(st, authManager, manager, entry, webui.Assets(), cfg.TrustedProxies)
+	server.PublicURL = cfg.PublicURL
 	server.ACMEBaseURL = cfg.ACME.BaseURL
 	if server.ACMEBaseURL == "" && cfg.ACME.Addr != "" {
 		scheme := "http"
@@ -115,6 +119,10 @@ func main() {
 				Addr:              cfg.ACME.Addr,
 				Handler:           acmeHandler,
 				ReadHeaderTimeout: 15 * time.Second,
+				ReadTimeout:       10 * time.Minute,
+				WriteTimeout:      10 * time.Minute,
+				IdleTimeout:       2 * time.Minute,
+				MaxHeaderBytes:    1 << 20,
 			}
 			if cfg.ACME.TLSCert != "" {
 				pool := x509.NewCertPool()
@@ -152,6 +160,10 @@ func main() {
 		Addr:              cfg.Addr,
 		Handler:           mainHandler,
 		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       10 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {
@@ -317,13 +329,16 @@ func printStartup(cfg *config.Config, entry string, st *store.Store) {
 	fmt.Println("  " + cliText("cli.banner"))
 	fmt.Println("  " + cliText("cli.version", "version", api.Version))
 	fmt.Println("==============================================")
-	fmt.Println("  " + cliText("cli.secure_entry", "url", fmt.Sprintf("http://%s/%s/", addr, entry)))
+	if count == 0 {
+		fmt.Println("  " + cliText("cli.secure_entry", "url", fmt.Sprintf("http://%s/%s/", addr, entry)))
+		fmt.Println("  " + cliText("cli.init_hint"))
+	} else {
+		// 初始化后不再把安全入口写入日志，避免容器日志或日志采集系统长期保存入口。
+		fmt.Println("  " + cliText("cli.secure_entry_hidden"))
+	}
 	fmt.Println("  " + cliText("cli.config_file", "path", cfg.File))
 	fmt.Println("  " + cliText("cli.data_dir", "path", cfg.DataDir))
 	fmt.Println("  " + webAssetsText())
-	if count == 0 {
-		fmt.Println("  " + cliText("cli.init_hint"))
-	}
 	fmt.Println("  " + i18n.T(cliLocale(), "cli.hint", nil))
 	fmt.Println("==============================================")
 }

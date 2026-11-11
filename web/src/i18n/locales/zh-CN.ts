@@ -492,6 +492,7 @@ export default {
     dnsSubtitle: '为 ACME DNS-01 验证配置域名服务商 API 凭据，凭据会加密保存。',
     deploySubtitle: '保存证书部署所需的认证与连接信息；证书路径、站点、域名等参数在任务流程的部署节点中填写。',
     deployAuthOnly: '目标凭据只保存认证与连接信息。证书文件路径、重载命令、站点和域名请在「证书申请 → 证书流程 → 部署证书」中填写。',
+    secretKeepHint: '出于安全考虑，已保存的密钥不会回显；留空表示保留原值。',
     addDns: '新增 DNS 账户',
     addDeploy: '新增目标凭据',
     emptyDnsTitle: '还没有 DNS 账户',

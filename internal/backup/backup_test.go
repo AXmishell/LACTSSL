@@ -167,6 +167,9 @@ func TestEncryptedExportAndStage(t *testing.T) {
 	if meta == nil || !meta.Encrypted || meta.Salt == "" || payload == "" {
 		t.Fatalf("加密元数据不完整: %+v, payload=%q", meta, payload)
 	}
+	if meta.Cipher != encryptionCipherV2 {
+		t.Fatalf("新备份应使用带分块序号校验的加密格式: %q", meta.Cipher)
+	}
 	archive, err := zip.OpenReader(zipPath)
 	if err != nil {
 		t.Fatalf("读取加密备份失败: %v", err)

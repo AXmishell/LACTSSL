@@ -80,6 +80,11 @@ func RandomHex(n int) (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
+// IsEncrypted 判断字符串是否为本包生成的密文。
+func IsEncrypted(value string) bool {
+	return strings.HasPrefix(value, encPrefix)
+}
+
 // HashToken 对重置令牌等短期凭证做不可逆摘要。
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))

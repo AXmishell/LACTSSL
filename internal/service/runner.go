@@ -298,7 +298,7 @@ func (m *Manager) sendTaskNotification(task *model.Task, cert *model.Certificate
 		if subject == "" {
 			subject = i18n.T(current, "email.task.failed.subject", map[string]any{"name": task.Name})
 		}
-		body := i18n.T(current, "email.task.failed.body", map[string]any{
+		body := i18n.Th(current, "email.task.failed.body", map[string]any{
 			"task":    task.Name,
 			"domains": strings.Join(task.Domains, ", "),
 			"message": rendered,
@@ -314,7 +314,7 @@ func (m *Manager) sendTaskNotification(task *model.Task, cert *model.Certificate
 			subject = i18n.T(current, "email.task.partial.subject", map[string]any{"domain": cert.PrimaryDomain})
 		}
 	}
-	body := i18n.T(current, "email.task.success.body", map[string]any{
+	body := i18n.Th(current, "email.task.success.body", map[string]any{
 		"task":    task.Name,
 		"domains": strings.Join(cert.Domains, ", "),
 		"issuer":  cert.Issuer,

@@ -45,10 +45,12 @@ const (
 	// 加密备份使用 PBKDF2-HMAC-SHA256 派生密钥，并以分块 AES-256-GCM 加密内部 ZIP。
 	encryptionKDF        = "pbkdf2-sha256"
 	encryptionCipher     = "aes-256-gcm"
+	encryptionCipherV2   = "aes-256-gcm-chunked"
 	encryptionIterations = 600000
 	encryptionChunkSize  = 1 << 20
 	encryptionSaltSize   = 16
 	encryptionAAD        = "LACTSSL-BACKUP-V1"
+	encryptionAADV2      = "LACTSSL-BACKUP-V2"
 
 	pendingDirName = "restore-pending"
 	maxConfigSize  = 1 << 20
@@ -257,7 +259,7 @@ func encryptArchive(source, tempDir string, inner manifest, password string) (st
 		KDF:        encryptionKDF,
 		Iterations: encryptionIterations,
 		Salt:       base64.StdEncoding.EncodeToString(salt),
-		Cipher:     encryptionCipher,
+		Cipher:     encryptionCipherV2,
 		Payload:    "payload.enc",
 	}
 	encryptedPath := filepath.Join(tempDir, "encrypted.zip")
@@ -291,6 +293,15 @@ func encryptArchive(source, tempDir string, inner manifest, password string) (st
 	return encryptedPath, nil
 }
 
+// chunkAAD 为每个分块生成唯一附加认证数据，防止分块被重排或截断。
+func chunkAAD(index uint64) []byte {
+	aad := make([]byte, 0, len(encryptionAADV2)+8)
+	aad = append(aad, encryptionAADV2...)
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], index)
+	return append(aad, buf[:]...)
+}
+
 // encryptFile 使用 PBKDF2 派生密钥，把文件分块加密为 length|nonce|ciphertext 结构。
 func encryptFile(source, target, password string, salt []byte) error {
 	key, err := pbkdf2.Key(sha256.New, password, salt, encryptionIterations, 32)
@@ -317,8 +328,7 @@ func encryptFile(source, target, password string, salt []byte) error {
 	defer out.Close()
 
 	buffer := make([]byte, encryptionChunkSize)
-	aad := []byte(encryptionAAD)
-	for {
+	for index := uint64(0); ; index++ {
 		n, readErr := io.ReadFull(in, buffer)
 		if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
 			return readErr
@@ -328,7 +338,7 @@ func encryptFile(source, target, password string, salt []byte) error {
 			if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 				return err
 			}
-			ciphertext := gcm.Seal(nil, nonce, buffer[:n], aad)
+			ciphertext := gcm.Seal(nil, nonce, buffer[:n], chunkAAD(index))
 			var length [4]byte
 			binary.BigEndian.PutUint32(length[:], uint32(n))
 			if _, err := out.Write(length[:]); err != nil {
@@ -352,7 +362,8 @@ func encryptFile(source, target, password string, salt []byte) error {
 }
 
 // decryptStream 解密上述分块格式，密码错误或数据被篡改时返回 ErrInvalidPassword。
-func decryptStream(source io.Reader, target, password string, salt []byte, iterations int) error {
+// legacy 为 true 时兼容旧版备份（所有分块使用同一 AAD）。
+func decryptStream(source io.Reader, target, password string, salt []byte, iterations int, legacy bool) error {
 	if iterations <= 0 {
 		iterations = encryptionIterations
 	}
@@ -377,7 +388,7 @@ func decryptStream(source io.Reader, target, password string, salt []byte, itera
 	aad := []byte(encryptionAAD)
 	var length [4]byte
 	var total int64
-	for {
+	for index := uint64(0); ; index++ {
 		_, err := io.ReadFull(source, length[:])
 		if err == io.EOF {
 			break
@@ -401,7 +412,11 @@ func decryptStream(source io.Reader, target, password string, salt []byte, itera
 		if _, err := io.ReadFull(source, ciphertext); err != nil {
 			return ErrInvalidArchive
 		}
-		plain, err := gcm.Open(nil, nonce, ciphertext, aad)
+		chunkAADValue := aad
+		if !legacy {
+			chunkAADValue = chunkAAD(index)
+		}
+		plain, err := gcm.Open(nil, nonce, ciphertext, chunkAADValue)
 		if err != nil {
 			return ErrInvalidPassword
 		}
@@ -501,7 +516,7 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 			if password == "" {
 				return ErrPasswordRequired
 			}
-			if (meta.Cipher != "" && meta.Cipher != encryptionCipher) || (meta.KDF != "" && meta.KDF != encryptionKDF) {
+			if (meta.Cipher != "" && meta.Cipher != encryptionCipher && meta.Cipher != encryptionCipherV2) || (meta.KDF != "" && meta.KDF != encryptionKDF) {
 				return ErrInvalidArchive
 			}
 			salt, err := base64.StdEncoding.DecodeString(meta.Salt)
@@ -512,11 +527,12 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 			if iterations == 0 {
 				iterations = encryptionIterations
 			}
-			if iterations < 10000 || iterations > 2000000 {
+			// 限制迭代次数上限，避免未认证的恢复请求通过极高 KDF 参数消耗 CPU。
+			if iterations < 10000 || iterations > 1000000 {
 				return ErrInvalidArchive
 			}
 			innerPath := filepath.Join(workDir, "payload.zip")
-			if err := decryptArchivePayload(uploadPath, payload, innerPath, password, salt, iterations); err != nil {
+			if err := decryptArchivePayload(uploadPath, payload, innerPath, password, salt, iterations, meta.Cipher != encryptionCipherV2); err != nil {
 				return err
 			}
 			dbPath, configPath, err = extractArchive(innerPath, workDir)
@@ -611,7 +627,7 @@ func readArchiveManifest(archivePath string) (*manifest, string, error) {
 }
 
 // decryptArchivePayload 从外层 ZIP 读取 payload.enc 并解密为内部 ZIP。
-func decryptArchivePayload(archivePath, payload, target, password string, salt []byte, iterations int) error {
+func decryptArchivePayload(archivePath, payload, target, password string, salt []byte, iterations int, legacy bool) error {
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidArchive, err)
@@ -630,7 +646,7 @@ func decryptArchivePayload(archivePath, payload, target, password string, salt [
 		if err != nil {
 			return ErrInvalidArchive
 		}
-		decryptErr := decryptStream(file, target, password, salt, iterations)
+		decryptErr := decryptStream(file, target, password, salt, iterations, legacy)
 		_ = file.Close()
 		return decryptErr
 	}

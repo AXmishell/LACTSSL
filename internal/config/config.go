@@ -27,6 +27,7 @@ type Config struct {
 	JWTSecret      []byte     // JWT 签名密钥
 	EncryptionKey  []byte     // 数据库敏感配置加密密钥（盐）
 	Entry          string     // 初始安全入口（可通过环境变量或配置文件覆盖）
+	PublicURL      string     // 对外访问地址（用于邮件链接等绝对地址）
 	TrustedProxies []string   // 可信反向代理 CIDR；为空表示不信任任何代理头
 	ACME           ACMEConfig // 内置 ACME 服务端配置
 	File           string     // 实际使用的配置文件路径
@@ -58,6 +59,7 @@ type fileConfig struct {
 	} `yaml:"database"`
 	Security struct {
 		Entry     string `yaml:"entry"`
+		PublicURL string `yaml:"public_url"`
 		JWTSecret string `yaml:"jwt_secret"`
 		Salt      string `yaml:"salt"`
 	} `yaml:"security"`
@@ -95,6 +97,10 @@ func Load() (*Config, error) {
 	fc, created, err := loadFile(path)
 	if err != nil {
 		return nil, err
+	}
+	// 已存在的配置文件可能权限过宽，启动时统一收紧到 0600。
+	if !created {
+		_ = os.Chmod(path, 0o600)
 	}
 
 	dataDir := strings.TrimSpace(os.Getenv("LACTSSL_DATA"))
@@ -156,6 +162,20 @@ func Load() (*Config, error) {
 		entry = strings.TrimSpace(fc.Security.Entry)
 	}
 
+	publicURL := strings.TrimRight(strings.TrimSpace(os.Getenv("LACTSSL_PUBLIC_URL")), "/")
+	if publicURL == "" {
+		publicURL = strings.TrimRight(strings.TrimSpace(fc.Security.PublicURL), "/")
+	}
+	if publicURL != "" {
+		parsed, err := url.Parse(publicURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("security.public_url 必须是有效的 http 或 https 地址，且不能包含查询参数或片段")
+		}
+		if strings.TrimSpace(parsed.Path) != "" && strings.TrimRight(parsed.Path, "/") != "" {
+			return nil, fmt.Errorf("security.public_url 不能包含路径")
+		}
+	}
+
 	trustedProxies := fc.Server.TrustedProxies
 	if raw := strings.TrimSpace(os.Getenv("LACTSSL_TRUSTED_PROXIES")); raw != "" {
 		trustedProxies = splitList(raw)
@@ -214,6 +234,7 @@ func Load() (*Config, error) {
 		JWTSecret:      []byte(strings.TrimSpace(fc.Security.JWTSecret)),
 		EncryptionKey:  []byte(strings.TrimSpace(fc.Security.Salt)),
 		Entry:          entry,
+		PublicURL:      publicURL,
 		TrustedProxies: trustedProxies,
 		ACME:           acmeCfg,
 		File:           path,
@@ -340,6 +361,9 @@ database:
 security:
   # 安全入口；留空则首次启动随机生成并保存到数据库
   entry: %s
+  # 对外访问地址，例如 https://ssl.example.com；用于邮件中的重置链接等绝对地址。
+  # 密码重置等邮件链接必须基于该固定地址生成；留空时仅允许本机回环请求按 Host 推导，远程请求会被拒绝，避免 Host 头注入。
+  public_url: %s
   # JWT 签名密钥（加盐）；留空则自动生成并写回本文件
   jwt_secret: %s
   # 数据库敏感字段加密盐（AES-256-GCM）；留空则自动生成并写回本文件
@@ -365,6 +389,7 @@ acme:
 		quote(fc.DataDir),
 		quote(fc.Database.Path),
 		quote(fc.Security.Entry),
+		quote(fc.Security.PublicURL),
 		quote(fc.Security.JWTSecret),
 		quote(fc.Security.Salt),
 		fc.ACME.Enabled,
@@ -398,6 +423,10 @@ func writeFile(path string, data []byte) error {
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("写入配置文件 %s 失败: %w", path, err)
+	}
+	// 已存在的配置文件可能带着更宽松的权限，这里显式收紧。
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("设置配置文件权限失败: %w", err)
 	}
 	return nil
 }

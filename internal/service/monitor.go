@@ -140,7 +140,7 @@ func (m *Manager) notifyMonitor(monitor *model.Monitor, status, message string, 
 	if expires != nil {
 		expiry = expires.Local().Format("2006-01-02 15:04:05")
 	}
-	body := i18n.T(current, "email.monitor.body", map[string]any{
+	body := i18n.Th(current, "email.monitor.body", map[string]any{
 		"name":    monitor.Name,
 		"target":  monitor.Target,
 		"status":  status,

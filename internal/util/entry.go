@@ -17,6 +17,11 @@ var reservedEntries = map[string]struct{}{
 	"assets":  {},
 	"healthz": {},
 	"static":  {},
+	"login":   {},
+	"install": {},
+	"reset":   {},
+	"acme":    {},
+	"pki":     {},
 }
 
 // ValidateEntry 规范化并校验安全入口，允许首尾带斜杠的写法。

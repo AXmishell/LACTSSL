@@ -45,19 +45,19 @@ func (s *Store) CountUsers() (int64, error) {
 // GetUser 返回唯一账户。
 func (s *Store) GetUser() (*model.User, error) {
 	row := s.DB.QueryRow(`SELECT id,email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at FROM users ORDER BY id LIMIT 1`)
-	return scanUser(row)
+	return s.scanUser(row)
 }
 
 // GetUserByID 按 ID 查询账户。
 func (s *Store) GetUserByID(id int64) (*model.User, error) {
 	row := s.DB.QueryRow(`SELECT id,email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at FROM users WHERE id=?`, id)
-	return scanUser(row)
+	return s.scanUser(row)
 }
 
 // GetUserByEmail 按邮箱查询账户。
 func (s *Store) GetUserByEmail(email string) (*model.User, error) {
 	row := s.DB.QueryRow(`SELECT id,email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at FROM users WHERE email=?`, email)
-	return scanUser(row)
+	return s.scanUser(row)
 }
 
 // CreateUser 创建账户。
@@ -83,10 +83,52 @@ func (s *Store) UpdateEmail(id int64, email string) error {
 	return err
 }
 
-// SetTOTP 更新 TOTP 密钥与启用状态。
+// SetTOTP 更新 TOTP 密钥与启用状态。密钥加密后落库。
 func (s *Store) SetTOTP(id int64, secret string, enabled bool) error {
-	_, err := s.DB.Exec(`UPDATE users SET totp_secret=?, totp_enabled=?, updated_at=? WHERE id=?`, secret, boolInt(enabled), nowUTC(), id)
+	encrypted, err := s.Cipher.Encrypt(secret)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(`UPDATE users SET totp_secret=?, totp_enabled=?, updated_at=? WHERE id=?`, encrypted, boolInt(enabled), nowUTC(), id)
 	return err
+}
+
+// MigrateTOTPSecrets 把旧版本明文保存的 TOTP 密钥加密。
+func (s *Store) MigrateTOTPSecrets() error {
+	rows, err := s.DB.Query(`SELECT id,totp_secret FROM users WHERE totp_secret<>''`)
+	if err != nil {
+		return err
+	}
+	type item struct {
+		id     int64
+		secret string
+	}
+	var pending []item
+	for rows.Next() {
+		var value item
+		if err := rows.Scan(&value.id, &value.secret); err != nil {
+			rows.Close()
+			return err
+		}
+		if !util.IsEncrypted(value.secret) {
+			pending = append(pending, value)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, value := range pending {
+		encrypted, err := s.Cipher.Encrypt(value.secret)
+		if err != nil {
+			return err
+		}
+		if _, err := s.DB.Exec(`UPDATE users SET totp_secret=? WHERE id=?`, encrypted, value.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // BumpTokenVersion 使现有登录令牌全部失效。
@@ -109,11 +151,17 @@ func (s *Store) Maintenance() {
 	_, _ = s.DB.Exec(`DELETE FROM deploy_records WHERE created_at < ?`, nowUTC().AddDate(0, 0, -180))
 }
 
-func scanUser(row interface{ Scan(...any) error }) (*model.User, error) {
+func (s *Store) scanUser(row interface{ Scan(...any) error }) (*model.User, error) {
 	var u model.User
 	var enabled int
 	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.TOTPSecret, &enabled, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
+	}
+	// 兼容旧版本明文密钥；新写入的密钥带 enc:v1: 前缀。
+	if decrypted, err := s.Cipher.Decrypt(u.TOTPSecret); err == nil {
+		u.TOTPSecret = decrypted
+	} else {
+		u.TOTPSecret = ""
 	}
 	u.TOTPEnabled = enabled == 1
 	return &u, nil

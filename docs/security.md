@@ -13,6 +13,7 @@ https://your-domain/<entry>/
 - 访问正确入口后会写入一个有效期为 24 小时的签名 `HttpOnly` 门禁 Cookie，然后跳转到 `/login`；只有携带该 Cookie（或已登录）才可打开登录页。
 - 入口探测有频率限制，避免被暴力枚举。
 - 可在「设置 → 安全入口」中修改，修改后立即生效。
+- 首次初始化时会打印完整入口地址到启动日志；初始化完成后不再打印，避免日志系统长期保存入口。忘记入口时可设置 `LACTSSL_ENTRY` 覆盖，或在数据库 `settings` 表中查看 `security.entry`。
 
 入口是额外的一层防护，不能替代 HTTPS 和强密码。
 
@@ -20,15 +21,31 @@ https://your-domain/<entry>/
 
 - 登录会话保存在 `HttpOnly` Cookie 中，前端脚本无法读取。
 - 所有会改变服务端状态的请求（POST/PUT/DELETE 等）必须携带 `X-LACTSSL-CSRF` 请求头，否则拒绝。
+- 前端同时会收到一个非 `HttpOnly` 的 `lactssl_csrf` Cookie，请求头必须与其值一致（双提交校验）。旧会话尚未拿到该 Cookie 时退回“请求头存在”校验，下一次安全请求会自动补发。
 - 显式使用 `Authorization: Bearer <token>` 调用 API 时不受 CSRF 校验约束，便于脚本或外部集成。
+
+## 密码重置与对外地址
+
+密码重置邮件中的链接必须基于固定地址生成：
+
+```yaml
+security:
+  public_url: "https://ssl.example.com"
+```
+
+- 未配置 `security.public_url` 时，仅允许本机回环地址且 Host 为 `localhost`/回环 IP 的请求按当前 Host 推导链接；其他请求调用“忘记密码”会被拒绝。
+- 不再信任客户端可伪造的 `X-Forwarded-Host`。反向代理场景请配置 `public_url`，不要依赖请求头。
+- 这可以避免攻击者伪造 Host 把重置链接（含 token 与安全入口）指向自己的域名。
 
 ## 凭据保护
 
 - 管理员密码使用 bcrypt 哈希存储。
-- DNS 凭据、部署凭据、SMTP 密码、通知 Token 等敏感字段使用 AES-256-GCM 加密后写入数据库。
+- DNS 凭据、部署凭据、SMTP 密码、通知 Token、TOTP 密钥等敏感字段使用 AES-256-GCM 加密后写入数据库。
 - 目标凭据只保存认证与连接信息；部署路径、站点、域名等参数保存在任务流程中，不属于凭据配置的加密范围。
 - 加密密钥来自 `config.yaml` 的 `security.salt`；JWT 使用 `security.jwt_secret` 签名。
 - 接口返回配置时会对密钥字段脱敏，编辑时留空表示保留原值。
+- SSH 部署首次连接会记录目标主机指纹（TOFU），后续指纹不一致会拒绝连接；也可在凭据中手动填写 `SHA256:...` 指纹。服务器更换密钥后需要清空该字段重新记录。
+- FTP 部署默认使用显式 TLS，避免证书私钥和登录密码明文传输；只有明确选择 `none` 才会使用明文 FTP。
 
 因此 `config.yaml` 与 `data/` 同等重要，请一并备份并限制访问权限。
 
@@ -68,7 +85,8 @@ https://your-domain/<entry>/
 
 1. 将代理地址加入 `server.trusted_proxies` 或 `LACTSSL_TRUSTED_PROXIES`，例如 `127.0.0.1,10.0.0.0/8`。
 2. 确保代理传递 `X-Forwarded-For`、`X-Forwarded-Proto` 等标准头。
-3. 生产环境始终通过 HTTPS 访问，避免安全入口、Cookie 和密码在明文链路上传输。
+3. 配置 `security.public_url` 为代理后的固定公网地址，密码重置等邮件链接不会依赖请求 Host。
+4. 生产环境始终通过 HTTPS 访问，避免安全入口、Cookie 和密码在明文链路上传输。
 
 未配置可信代理时，服务不会信任代理头，所有请求会被视为来自代理 IP，导致按 IP 的限流失效、`Secure` Cookie 判断错误。
 
@@ -77,6 +95,8 @@ https://your-domain/<entry>/
 ## 部署建议
 
 - 使用独立用户运行服务，`config.yaml` 保持 `0600`，数据目录保持 `0700`。
+- Docker 镜像通过入口脚本修正卷权限后，使用非 root 的 `lactssl` 用户运行主程序；Compose 默认丢弃全部 capabilities 后按需添加 `CHOWN`/`SETUID` 等。
 - 不要把 `data/`、`config.yaml` 提交到版本库或放入公开目录。
 - 定期检查「日志」页面中的异常登录、入口探测和部署失败记录。
 - 公网部署时启用 TOTP，并使用较长的随机安全入口。
+- 服务默认限制普通接口请求体为 2 MiB（备份恢复除外），并设置读写超时；反向代理层也建议配置请求体大小和超时。

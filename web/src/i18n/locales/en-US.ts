@@ -492,6 +492,7 @@ export default {
     dnsSubtitle: 'Configure DNS provider API credentials for ACME DNS-01 validation. Credentials are stored encrypted.',
     deploySubtitle: 'Store the authentication and connection details used for certificate deployment; paths, sites and domains are configured on the deploy module in the certificate workflow.',
     deployAuthOnly: 'Target credentials only store authentication and connection details. Certificate paths, reload commands, sites and domains are configured in Certificate Application → Certificate Workflow → Deploy Certificate.',
+    secretKeepHint: 'Saved secrets are never sent back to the browser; leave the field empty to keep the current value.',
     addDns: 'Add DNS account',
     addDeploy: 'Add target credential',
     emptyDnsTitle: 'No DNS accounts yet',

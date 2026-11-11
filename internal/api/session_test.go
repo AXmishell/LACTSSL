@@ -290,3 +290,25 @@ func TestSessionManagement(t *testing.T) {
 		t.Fatalf("撤销后应只剩当前会话: %+v", payload.Data)
 	}
 }
+
+// TestCSRFTokenMustMatchCookie 验证双提交 CSRF 在拿到 Cookie 后必须值一致。
+func TestCSRFTokenMustMatchCookie(t *testing.T) {
+	router := newSessionTestServer(t)
+
+	setup := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/setup",
+		`{"email":"admin@example.com","password":"password123"}`, nil, nil)
+	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+	csrf := findCookie(t, setup.Result().Cookies(), csrfCookieName)
+
+	wrong := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/auth/logout", "",
+		[]*http.Cookie{session, csrf}, map[string]string{csrfHeaderName: "wrong"})
+	if wrong.Code != http.StatusForbidden {
+		t.Fatalf("CSRF 值不匹配应返回 403: %d", wrong.Code)
+	}
+
+	ok := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/auth/logout", "",
+		[]*http.Cookie{session, csrf}, map[string]string{csrfHeaderName: csrf.Value})
+	if ok.Code != http.StatusOK {
+		t.Fatalf("CSRF 值匹配应成功: %d %s", ok.Code, ok.Body.String())
+	}
+}

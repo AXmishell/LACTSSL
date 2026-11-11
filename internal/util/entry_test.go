@@ -24,7 +24,7 @@ func TestValidateEntry(t *testing.T) {
 		}
 	}
 
-	invalid := []string{"", "ab", "bad name", "bad/name", "含中文", "assets", "ASSETS", "api"}
+	invalid := []string{"", "ab", "bad name", "bad/name", "含中文", "assets", "ASSETS", "api", "login", "install", "reset", "acme", "pki"}
 	for _, in := range invalid {
 		if _, err := ValidateEntry(in); err == nil {
 			t.Fatalf("ValidateEntry(%q) 应当返回错误", in)

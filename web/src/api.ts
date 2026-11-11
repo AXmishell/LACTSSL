@@ -19,6 +19,13 @@ export const resetPath = '/reset'
 
 const csrfHeader = 'X-LACTSSL-CSRF'
 
+// 双提交 CSRF：服务端下发非 HttpOnly 的 lactssl_csrf Cookie，前端把它放进请求头。
+// 旧会话尚未拿到 Cookie 时发送占位值，服务端会退回兼容校验。
+function csrfToken(): string {
+  const match = document.cookie.match(/(?:^|;\s*)lactssl_csrf=([^;]*)/)
+  return match ? decodeURIComponent(match[1]) : '1'
+}
+
 // 旧版本把 JWT 存在 localStorage，切换为 HttpOnly Cookie 后顺手清理。
 localStorage.removeItem('lactssl.token')
 
@@ -30,7 +37,7 @@ const http = axios.create({
 
 http.interceptors.request.use((config) => {
   // Cookie 认证依赖自定义头抵御 CSRF；同源请求不会触发预检。
-  config.headers[csrfHeader] = '1'
+  config.headers[csrfHeader] = csrfToken()
   // 让后端按当前界面语言返回错误消息、动态元数据与持久化日志。
   config.headers['X-LACTSSL-Language'] = currentLocale()
   return config
@@ -89,7 +96,7 @@ export function errorText(error: unknown): string {
 export async function downloadFile(url: string, filename: string, init?: RequestInit): Promise<void> {
   const headers = new Headers(init?.headers)
   if (init?.method && init.method !== 'GET') {
-    headers.set(csrfHeader, '1')
+    headers.set(csrfHeader, csrfToken())
   }
   headers.set('X-LACTSSL-Language', currentLocale())
   const response = await fetch(`${apiBase}${url}`, {

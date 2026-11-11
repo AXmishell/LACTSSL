@@ -159,6 +159,7 @@
               :placeholder="field.placeholder"
             />
             <el-input v-else v-model="form.config[field.key]" :placeholder="field.placeholder" />
+            <div v-if="field.secret && editingId" class="form-help">{{ t('credentials.secretKeepHint') }}</div>
             <div v-if="field.help" class="form-help">{{ field.help }}</div>
           </el-form-item>
         </template>

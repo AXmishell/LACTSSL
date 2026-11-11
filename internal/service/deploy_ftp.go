@@ -27,7 +27,8 @@ func deployFTP(cert *model.Certificate, cfg map[string]string) error {
 
 	tlsMode := strings.ToLower(strings.TrimSpace(cfg["tls"]))
 	if tlsMode == "" {
-		tlsMode = "none"
+		// 默认显式 TLS；明文 FTP 会把证书私钥和登录密码暴露在网络上。
+		tlsMode = "explicit"
 	}
 	port := strings.TrimSpace(cfg["port"])
 	if port == "" {

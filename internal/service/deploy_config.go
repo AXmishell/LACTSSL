@@ -58,3 +58,42 @@ func MergeDeployConfig(def ProviderDef, auth, deployCfg map[string]string) map[s
 	}
 	return out
 }
+
+// MaskProviderConfig 返回脱敏后的凭据配置，密钥字段统一置空。
+// 非密钥字段（主机、用户名、路径等）保留，方便前端展示和编辑。
+func MaskProviderConfig(def ProviderDef, cfg map[string]string) map[string]string {
+	out := make(map[string]string, len(def.Fields))
+	for _, field := range def.Fields {
+		value, ok := cfg[field.Key]
+		if !ok {
+			continue
+		}
+		if field.IsSecret() && strings.TrimSpace(value) != "" {
+			out[field.Key] = ""
+			continue
+		}
+		out[field.Key] = value
+	}
+	return out
+}
+
+// MergeProviderConfig 合并更新请求与已有凭据。
+// 密钥字段提交空值表示保留原值，避免脱敏后的表单误清空密钥。
+func MergeProviderConfig(def ProviderDef, current, incoming map[string]string) map[string]string {
+	out := make(map[string]string, len(def.Fields))
+	for _, field := range def.Fields {
+		value, hasIncoming := incoming[field.Key]
+		if field.IsSecret() && (!hasIncoming || strings.TrimSpace(value) == "") {
+			if existing, ok := current[field.Key]; ok {
+				out[field.Key] = existing
+			}
+			continue
+		}
+		if hasIncoming {
+			out[field.Key] = value
+		} else if existing, ok := current[field.Key]; ok {
+			out[field.Key] = existing
+		}
+	}
+	return out
+}

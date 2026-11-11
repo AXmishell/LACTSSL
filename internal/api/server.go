@@ -35,6 +35,7 @@ type Server struct {
 	Manager        *service.Manager
 	Backup         *backup.Manager
 	WebFS          fs.FS
+	PublicURL      string
 	TrustedProxies []string
 	ACMEBaseURL    string
 	// Restart 由 main 注入，用于在恢复备份后触发优雅退出，让进程管理器拉起新进程。
@@ -80,7 +81,7 @@ func (s *Server) Router() *gin.Engine {
 		log.Printf("可信代理配置无效，已禁用代理头信任: %v", err)
 		_ = r.SetTrustedProxies(nil)
 	}
-	r.Use(gin.Recovery(), s.localeMiddleware(), s.securityHeaders(), s.cors())
+	r.Use(gin.Recovery(), s.bodyLimit(), s.localeMiddleware(), s.securityHeaders(), s.cors())
 
 	api := r.Group("/:entry/api")
 	api.Use(s.entryMiddleware())
@@ -177,7 +178,6 @@ func (s *Server) Router() *gin.Engine {
 		protected.GET("/settings", s.getSettings)
 		protected.PUT("/settings", s.updateSettings)
 		protected.GET("/settings/backup", s.backupInfo)
-		protected.GET("/settings/backup/download", s.downloadBackup)
 		protected.POST("/settings/backup/download", s.downloadBackup)
 		protected.POST("/settings/backup/restore", s.restoreBackup)
 		protected.POST("/settings/test-mail", s.testMail)
@@ -199,6 +199,24 @@ func (s *Server) localeMiddleware() gin.HandlerFunc {
 	}
 }
 
+// maxJSONBodySize 限制普通接口的请求体大小，备份恢复接口单独放宽。
+const maxJSONBodySize int64 = 2 << 20
+
+// bodyLimit 防止超大请求体占用内存；备份恢复使用独立的大小限制。
+func (s *Server) bodyLimit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !isLargeUploadPath(c.Request.URL.Path) {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONBodySize)
+		}
+		c.Next()
+	}
+}
+
+// isLargeUploadPath 判断是否为允许大文件上传的接口。
+func isLargeUploadPath(path string) bool {
+	return strings.HasSuffix(path, "/settings/backup/restore") || strings.HasSuffix(path, "/setup/restore")
+}
+
 // securityHeaders 添加基础安全响应头。
 func (s *Server) securityHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -206,6 +224,10 @@ func (s *Server) securityHeaders() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "same-origin")
 		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+		if s.sessionCookieSecure(c) {
+			c.Header("Strict-Transport-Security", "max-age=31536000")
+		}
 		// 接口响应和页面包含登录态与安全入口，默认禁止缓存；静态资源会覆盖此值。
 		c.Header("Cache-Control", "no-store")
 		c.Next()
@@ -274,9 +296,17 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		}
 		// Cookie 会随跨站请求自动携带，因此状态变更请求必须带自定义头；
 		// 显式使用 Authorization: Bearer 的 API 调用不存在 CSRF 问题。
-		if !fromHeader && requiresCSRF(c.Request.Method) && c.GetHeader(csrfHeaderName) == "" {
-			failKey(c, http.StatusForbidden, "api.error.unauthorized")
-			return
+		if !fromHeader {
+			if requiresCSRF(c.Request.Method) {
+				if !s.validCSRF(c) {
+					failKey(c, http.StatusForbidden, "api.error.unauthorized")
+					return
+				}
+			}
+			if _, err := c.Cookie(csrfCookieName); err != nil {
+				// 兼容旧会话：补发 CSRF Cookie，后续写请求即可做强校验。
+				s.setCSRFCookie(c, token, time.Now().Add(entryCookieTTL))
+			}
 		}
 		claims, err := s.Auth.Parse(token)
 		if err != nil {

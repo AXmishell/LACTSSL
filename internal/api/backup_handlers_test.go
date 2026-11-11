@@ -86,7 +86,7 @@ func TestBackupInfoAndDownload(t *testing.T) {
 		t.Fatalf("备份信息不正确: %s", info.Body.String())
 	}
 
-	download := sessionRequest(t, router, http.MethodGet, "/secret-entry/api/settings/backup/download", "", []*http.Cookie{session}, nil)
+	download := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/settings/backup/download", "", []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if download.Code != http.StatusOK {
 		t.Fatalf("下载备份失败: %d %s", download.Code, download.Body.String())
 	}
@@ -102,7 +102,7 @@ func TestRestoreBackupRequiresPasswordAndStagesUpload(t *testing.T) {
 	router, dataDir := newBackupTestServer(t)
 	session := loginBackupTest(t, router)
 
-	download := sessionRequest(t, router, http.MethodGet, "/secret-entry/api/settings/backup/download", "", []*http.Cookie{session}, nil)
+	download := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/settings/backup/download", "", []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if download.Code != http.StatusOK {
 		t.Fatalf("下载备份失败: %d", download.Code)
 	}

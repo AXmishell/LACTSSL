@@ -23,20 +23,22 @@ type Server struct {
 	TLSALPN01 *TLSALPN01Validator
 	Now       func() time.Time
 
-	validationSem chan struct{}
+	validationSem  chan struct{}
+	accountLimiter *ipRateLimiter
 }
 
 // NewServer 创建 ACME 协议服务。
 func NewServer(st *store.Store, baseURL string) *Server {
 	return &Server{
-		Store:         st,
-		BaseURL:       strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		Nonces:        NewNonceStore(),
-		HTTP01:        NewHTTP01Validator(),
-		DNS01:         NewDNS01Validator(),
-		TLSALPN01:     NewTLSALPN01Validator(),
-		Now:           time.Now,
-		validationSem: make(chan struct{}, 8),
+		Store:          st,
+		BaseURL:        strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		Nonces:         NewNonceStore(),
+		HTTP01:         NewHTTP01Validator(),
+		DNS01:          NewDNS01Validator(),
+		TLSALPN01:      NewTLSALPN01Validator(),
+		Now:            time.Now,
+		validationSem:  make(chan struct{}, 8),
+		accountLimiter: newIPRateLimiter(30, time.Hour),
 	}
 }
 

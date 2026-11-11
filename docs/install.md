@@ -69,7 +69,7 @@ docker run -d --name lactssl \
   lactssl
 ```
 
-容器内默认使用 `LACTSSL_DATA=/app/data`、`LACTSSL_CONFIG=/app/config/config.yaml`。经过反向代理时，记得设置 `LACTSSL_TRUSTED_PROXIES`，详见[安全](security.md)。
+容器内默认使用 `LACTSSL_DATA=/app/data`、`LACTSSL_CONFIG=/app/config/config.yaml`。入口脚本会以 root 修正挂载目录归属，然后降权到 `lactssl` 用户运行主程序；Compose 已丢弃全部 capabilities 并按需保留 `CHOWN`、`SETUID` 等。经过反向代理时，记得设置 `LACTSSL_TRUSTED_PROXIES` 和 `security.public_url`，详见[安全](security.md)。
 
 ### 使用 GHCR 镜像
 

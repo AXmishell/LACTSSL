@@ -1,8 +1,10 @@
 package api
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -18,14 +20,47 @@ import (
 const (
 	sessionCookieName = "lactssl_session"
 	entryCookieName   = "lactssl_entry"
+	csrfCookieName    = "lactssl_csrf"
 	csrfHeaderName    = "X-LACTSSL-CSRF"
 	entryGatePurpose  = "entry-gate"
+	csrfTokenPurpose  = "csrf"
 	entryCookieTTL    = 24 * time.Hour
 )
 
 // sessionCookieSecure 在 TLS 或可信反代声明 HTTPS 时给 Cookie 加 Secure。
-func sessionCookieSecure(c *gin.Context) bool {
-	return c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+func (s *Server) sessionCookieSecure(c *gin.Context) bool {
+	if c.Request.TLS != nil {
+		return true
+	}
+	return s.isTrustedProxy(c.Request.RemoteAddr) && strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+}
+
+// isTrustedProxy 判断请求是否来自配置的可信反向代理，只有可信代理的转发头才会被采信。
+func (s *Server) isTrustedProxy(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(remoteAddr))
+	if err != nil {
+		host = strings.TrimSpace(remoteAddr)
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil {
+		return false
+	}
+	for _, entry := range s.TrustedProxies {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if strings.Contains(entry, "/") {
+			if _, network, err := net.ParseCIDR(entry); err == nil && network.Contains(ip) {
+				return true
+			}
+			continue
+		}
+		if proxy := net.ParseIP(entry); proxy != nil && proxy.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // setSessionCookie 写入会话 Cookie。Path 设为根路径，保证裸页面和入口下的接口都能携带。
@@ -35,7 +70,7 @@ func (s *Server) setSessionCookie(c *gin.Context, token string, expire time.Time
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   sessionCookieSecure(c),
+		Secure:   s.sessionCookieSecure(c),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  expire,
 		MaxAge:   int(time.Until(expire).Seconds()),
@@ -49,11 +84,52 @@ func (s *Server) clearSessionCookie(c *gin.Context) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   sessionCookieSecure(c),
+		Secure:   s.sessionCookieSecure(c),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
+}
+
+// setCSRFCookie 下发双提交 CSRF Cookie。值由会话令牌派生，前端读取后放入请求头。
+func (s *Server) setCSRFCookie(c *gin.Context, token string, expire time.Time) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    s.Auth.SignValue(csrfTokenPurpose, token),
+		Path:     "/",
+		HttpOnly: false,
+		Secure:   s.sessionCookieSecure(c),
+		SameSite: http.SameSiteLaxMode,
+		Expires:  expire,
+		MaxAge:   int(time.Until(expire).Seconds()),
+	})
+}
+
+// clearCSRFCookie 清除 CSRF Cookie。
+func (s *Server) clearCSRFCookie(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    "",
+		Path:     "/",
+		Secure:   s.sessionCookieSecure(c),
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+	})
+}
+
+// validCSRF 校验双提交 CSRF 令牌。
+// 旧版客户端没有 CSRF Cookie 时退回“请求头存在”校验，避免升级后立即掉线。
+func (s *Server) validCSRF(c *gin.Context) bool {
+	header := c.GetHeader(csrfHeaderName)
+	if header == "" {
+		return false
+	}
+	cookie, err := c.Cookie(csrfCookieName)
+	if err != nil || cookie == "" {
+		return true
+	}
+	return subtle.ConstantTimeCompare([]byte(header), []byte(cookie)) == 1
 }
 
 // setEntryCookie 写入一次性门禁 Cookie。只有先访问过安全入口，才能打开裸登录页。
@@ -64,7 +140,7 @@ func (s *Server) setEntryCookie(c *gin.Context) {
 		Value:    s.Auth.SignValue(entryGatePurpose, s.Entry()),
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   sessionCookieSecure(c),
+		Secure:   s.sessionCookieSecure(c),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(entryCookieTTL),
 		MaxAge:   int(entryCookieTTL.Seconds()),
