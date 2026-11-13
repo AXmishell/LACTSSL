@@ -74,7 +74,8 @@ hide:
     ```
 
     ```bash
-    docker compose up -d --build
+    docker compose pull
+    docker compose up -d
     ```
 
 启动后访问日志中打印的安全入口，按提示创建管理员账户。环境要求与完整步骤见[安装与启动](install.md)。

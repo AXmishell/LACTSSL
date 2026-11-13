@@ -57,10 +57,11 @@ LACTSSL_ENTRY=my-dev-entry make dev
 --8<-- "docker-compose.yml"
 ```
 
-启动：
+启动（默认拉取 `ghcr.io/axmishell/lactssl:latest`）：
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 默认挂载：
@@ -68,7 +69,7 @@ docker compose up -d --build
 - `./config/config.yaml`：配置文件
 - `./data`：SQLite 数据库
 
-也可以手动构建运行：
+也可以手动构建运行（本地修改源码后使用）：
 
 ```bash
 docker build -t lactssl .

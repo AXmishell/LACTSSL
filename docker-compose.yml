@@ -1,10 +1,13 @@
 services:
   lactssl:
-    build:
-      context: .
-      # 镜像内没有 .git，版本号需显式传入：LACTSSL_VERSION=1.2.3 docker compose up -d --build
-      args:
-        VERSION: ${LACTSSL_VERSION:-dev}
+    # 默认使用 GHCR 上发布的镜像；也可改为指定版本，如 ghcr.io/axmishell/lactssl:1.2.3
+    image: ghcr.io/axmishell/lactssl:latest
+    # 本地构建时取消下面注释，并去掉上面的 image 行：
+    # build:
+    #   context: .
+    #   # 镜像内没有 .git，版本号需显式传入：LACTSSL_VERSION=1.2.3 docker compose up -d --build
+    #   args:
+    #     VERSION: ${LACTSSL_VERSION:-dev}
     container_name: lactssl
     restart: unless-stopped
     # 根文件系统只读，仅数据/配置卷与 /tmp 可写，降低命令执行后的持久化能力。

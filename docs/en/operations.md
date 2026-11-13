@@ -57,13 +57,13 @@ Local builds (`make build`, `./scripts/ci.sh`, `./scripts/rebuild-run.sh`) use `
 
 Build scripts inject the version with `-ldflags -X 'lactssl/internal/api.Version=...'`; after building, view the build version, build time, and architecture under "Settings → About". When using `go run ./cmd/server` directly, the version is shown as `dev`.
 
-Override the version explicitly when needed: `LACTSSL_VERSION=1.2.3 make build`. Docker build contexts do not include `.git`, so pass the version:
+Override the version explicitly when needed: `LACTSSL_VERSION=1.2.3 make build`. Docker build contexts do not include `.git`, so pass the version when building the image locally:
 
 ```bash
-LACTSSL_VERSION=1.2.3 docker compose up -d --build
-# or
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 ```
+
+Compose uses `ghcr.io/axmishell/lactssl:latest` by default; to pin an image version, edit `image` in `docker-compose.yml`, for example `ghcr.io/axmishell/lactssl:1.2.3`.
 
 ### Creating a release builds automatically
 
@@ -119,7 +119,8 @@ make build
 Docker deployment:
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Back up `config.yaml` and `data/` before upgrading. The database schema is migrated automatically at startup.

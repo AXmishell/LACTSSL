@@ -57,13 +57,13 @@ chmod 600 lactssl-backup-*.tar.gz
 
 构建脚本通过链接参数 `-ldflags -X 'lactssl/internal/api.Version=...'` 注入版本，构建完成后可在「设置 → 关于」查看构建版本、构建时间与架构。直接使用 `go run ./cmd/server` 时版本显示为 `dev`。
 
-需要固定版本时可显式覆盖：`LACTSSL_VERSION=1.2.3 make build`。Docker 构建上下文不包含 `.git`，需要传入版本：
+需要固定版本时可显式覆盖：`LACTSSL_VERSION=1.2.3 make build`。Docker 构建上下文不包含 `.git`，本地构建镜像时需要传入版本：
 
 ```bash
-LACTSSL_VERSION=1.2.3 docker compose up -d --build
-# 或
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 ```
+
+Compose 默认使用 `ghcr.io/axmishell/lactssl:latest`；如需固定镜像版本，可直接修改 `docker-compose.yml` 中的 `image`，例如 `ghcr.io/axmishell/lactssl:1.2.3`。
 
 ### 创建 Release 自动构建
 
@@ -119,7 +119,8 @@ make build
 Docker 部署：
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 升级前建议先备份 `config.yaml` 与 `data/`。数据库结构会在启动时自动迁移。

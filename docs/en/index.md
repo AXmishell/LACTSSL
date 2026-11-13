@@ -74,7 +74,8 @@ Secret entry path, TOTP two-factor authentication, CSRF protection, encrypted se
     ```
 
     ```bash
-    docker compose up -d --build
+    docker compose pull
+    docker compose up -d
     ```
 
 After startup, open the secret entry address printed in the logs and create an administrator account when prompted. See [Installation](install.md) for requirements and the complete steps.

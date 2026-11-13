@@ -57,10 +57,11 @@ Using Compose, the complete file is as follows (identical to `docker-compose.yml
 --8<-- "docker-compose.yml"
 ```
 
-Start it:
+Start it (pulls `ghcr.io/axmishell/lactssl:latest` by default):
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Default mounts:
@@ -68,7 +69,7 @@ Default mounts:
 - `./config/config.yaml`: configuration file
 - `./data`: SQLite database
 
-You can also build and run it manually:
+You can also build and run it manually (for local source changes):
 
 ```bash
 docker build -t lactssl .
