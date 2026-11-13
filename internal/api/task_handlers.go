@@ -93,7 +93,7 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		if _, err := s.Store.GetDNSAccount(body.DNSAccountID); err != nil {
 			return i18n.E("task.error.dns_account_required")
 		}
-		if _, found := service.CAInfo(body.CA); !found {
+		if _, err := s.Manager.ResolveCA(body.CA); err != nil {
 			return i18n.E("task.error.ca_unsupported")
 		}
 	}

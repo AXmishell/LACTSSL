@@ -217,7 +217,52 @@ func (v *HTTP01Validator) ipAllowed(ip net.IP) bool {
 	if ip.IsPrivate() {
 		return v.AllowPrivate
 	}
+	// 拒绝不在全局单播范围内的地址，以及 CGNAT、保留、文档、NAT64 等网段。
+	// 这些地址在部分云环境中可能路由到内部服务或元数据接口。
+	if !ip.IsGlobalUnicast() || inReservedNetwork(ip) {
+		return false
+	}
 	return true
+}
+
+// reservedNetworks 是明确不应作为公网 HTTP-01/TLS-ALPN-01 目标的网段。
+// 显式配置的 AllowedCIDRs 仍然优先，便于内网场景按需放行。
+var reservedNetworks = buildReservedNetworks()
+
+func buildReservedNetworks() []*net.IPNet {
+	values := []string{
+		"0.0.0.0/8",
+		"100.64.0.0/10",  // CGNAT，部分云元数据服务使用
+		"192.0.0.0/24",   // IETF 协议分配
+		"192.88.99.0/24", // 6to4 中继
+		"198.18.0.0/15",  // 基准测试
+		"240.0.0.0/4",    // 保留
+		"255.255.255.255/32",
+		"64:ff9b::/96",   // NAT64
+		"64:ff9b:1::/48", // 本地 NAT64
+		"100::/64",       // 丢弃前缀
+		"2001::/32",      // Teredo
+		"2001:10::/28",   // ORCHID
+		"2001:db8::/32",  // 文档
+		"2002::/16",      // 6to4
+	}
+	out := make([]*net.IPNet, 0, len(values))
+	for _, value := range values {
+		_, network, err := net.ParseCIDR(value)
+		if err == nil {
+			out = append(out, network)
+		}
+	}
+	return out
+}
+
+func inReservedNetwork(ip net.IP) bool {
+	for _, network := range reservedNetworks {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *HTTP01Validator) portAllowed(port, scheme string) bool {

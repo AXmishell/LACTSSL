@@ -6,6 +6,7 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/auth"
@@ -33,10 +34,11 @@ func validEmail(email string) bool {
 }
 
 // minPasswordLength 是账户密码的最小长度；bcrypt 上限仍为 72 字节。
-const minPasswordLength = 12
+const minPasswordLength = 8
 
 func validPassword(password string) bool {
-	return len(password) >= minPasswordLength && len(password) <= 72
+	// 长度按字符数计算（与界面文案一致），同时保留 bcrypt 的 72 字节上限。
+	return utf8.RuneCountInString(password) >= minPasswordLength && len(password) <= 72
 }
 
 // reauthKey 返回重新认证限流键，避免被盗会话无限次爆破当前密码。
@@ -221,6 +223,62 @@ func (s *Server) handleMe(c *gin.Context) {
 	ok(c, user)
 }
 
+// handleReauth 为备份下载、私钥导出等高风险操作提供短期二次认证。
+// 需要当前账户密码；启用 TOTP 时还需要动态验证码。
+func (s *Server) handleReauth(c *gin.Context) {
+	user := getUser(c)
+	if user == nil {
+		failKey(c, http.StatusUnauthorized, "api.error.not_logged_in")
+		return
+	}
+	var body struct {
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	if !s.allowReauth(c, user) {
+		return
+	}
+	if !auth.VerifyPassword(user.PasswordHash, body.Password) {
+		// 账户维度只在失败时扣减，避免攻击者用大量 IP 绕过限流；
+		// 正确密码不会被账户配额拦住，避免恶意锁定。
+		if !s.allowVerifyFailure(c, user) {
+			return
+		}
+		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
+		return
+	}
+	if user.TOTPEnabled {
+		if strings.TrimSpace(body.TOTP) == "" {
+			c.Abort()
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success":       false,
+				"code":          "api.error.totp_required",
+				"message":       i18n.T(locale(c), "api.error.totp_required", nil),
+				"totp_required": true,
+			})
+			return
+		}
+		if !auth.ValidateTOTP(user.TOTPSecret, body.TOTP) {
+			if !s.allowVerifyFailure(c, user) {
+				return
+			}
+			failKey(c, http.StatusBadRequest, "api.error.totp_invalid")
+			return
+		}
+	}
+	s.resetReauth(c, user)
+	s.markReauth(currentSessionID(c))
+	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.reauth_success", map[string]any{"ip": c.ClientIP()})
+	ok(c, gin.H{
+		"message":    i18n.T(locale(c), "api.ok.reauth_success", nil),
+		"expires_in": int(reauthTTL.Seconds()),
+	})
+}
+
 func (s *Server) handleChangePassword(c *gin.Context) {
 	user := getUser(c)
 	var body struct {
@@ -252,16 +310,13 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.change_password_failed", "error", err.Error())
 		return
 	}
-	updated, _ := s.Store.GetUserByID(user.ID)
-	// 改密会提升 TokenVersion，旧令牌全部失效，同时清理旧会话记录。
+	// 改密会提升 TokenVersion，旧令牌全部失效；删除全部会话记录并清除当前 Cookie，
+	// 让包括本机在内的所有设备都必须使用新密码重新登录。
 	_ = s.Store.DeleteUserSessions(user.ID)
-	expire, err := s.issueSession(c, updated)
-	if err != nil {
-		failKey(c, http.StatusInternalServerError, "api.error.token_failed")
-		return
-	}
+	s.clearSessionCookie(c)
+	s.clearCSRFCookie(c)
 	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.password_changed", nil)
-	ok(c, gin.H{"expire_at": expire})
+	ok(c, gin.H{"relogin": true})
 }
 
 func (s *Server) handleChangeEmail(c *gin.Context) {
@@ -381,6 +436,8 @@ func (s *Server) handleTOTPDisable(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.disable_totp_failed")
 		return
 	}
+	// 关闭 TOTP 后关键操作验证方式回退到密码，避免设置与用户状态不一致。
+	_ = s.Store.SetSetting(verifyModeSetting, verifyModePassword)
 	s.resetReauth(c, user)
 	s.Store.AddLogKey("auth", user.ID, "warning", "log.auth.totp_disabled", nil)
 	ok(c, gin.H{"enabled": false})
@@ -487,6 +544,8 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.change_password_failed")
 		return
 	}
+	// 重置密码会同时关闭 TOTP，关键操作验证方式回退到密码。
+	_ = s.Store.SetSetting(verifyModeSetting, verifyModePassword)
 	// 密码重置后旧令牌全部失效，清理对应会话记录。
 	_ = s.Store.DeleteUserSessions(userID)
 	s.Store.AddLogKey("auth", userID, "info", "log.auth.password_reset", nil)

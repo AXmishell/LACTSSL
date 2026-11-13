@@ -56,6 +56,17 @@ func (s *Server) downloadCertificate(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.cert_key_unavailable")
 		return
 	}
+	if kind == "key" {
+		user := getUser(c)
+		if user == nil {
+			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
+			return
+		}
+		if allowed, wait := s.limiter.Allow("certkeyexport:"+fmt.Sprintf("%d", user.ID), 30, time.Minute); !allowed {
+			rateLimited(c, wait)
+			return
+		}
+	}
 	var content, suffix string
 	switch kind {
 	case "key":
@@ -83,6 +94,18 @@ func (s *Server) getCertificatePEM(c *gin.Context) {
 		return
 	}
 	kind := c.DefaultQuery("type", "fullchain")
+	if kind == "key" {
+		// 查看私钥不再要求二次验证，但保留账户维度限流以降低批量抓取风险。
+		user := getUser(c)
+		if user == nil {
+			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
+			return
+		}
+		if allowed, wait := s.limiter.Allow("certkeyview:"+fmt.Sprintf("%d", user.ID), 30, time.Minute); !allowed {
+			rateLimited(c, wait)
+			return
+		}
+	}
 	var content string
 	switch kind {
 	case "key":

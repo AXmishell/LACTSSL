@@ -22,7 +22,8 @@ const csrfHeader = 'X-LACTSSL-CSRF'
 // 双提交 CSRF：服务端下发非 HttpOnly 的 lactssl_csrf Cookie，前端把它放进请求头。
 // 旧会话尚未拿到 Cookie 时发送占位值，服务端会退回兼容校验。
 function csrfToken(): string {
-  const match = document.cookie.match(/(?:^|;\s*)lactssl_csrf=([^;]*)/)
+  // HTTPS 下服务端使用 __Host- 前缀，需同时兼容明文 HTTP 的旧名称。
+  const match = document.cookie.match(/(?:^|;\s*)(?:__Host-)?lactssl_csrf=([^;]*)/)
   return match ? decodeURIComponent(match[1]) : '1'
 }
 
@@ -63,7 +64,7 @@ http.interceptors.response.use(
     const message = data?.message || (error.code === 'ECONNABORTED' ? t('api.timeout') : t('api.networkError'))
     const url = error.config?.url || ''
     // /auth/me 是登录状态探测，401 属于正常结果，不应触发跳转。
-    if (error.response?.status === 401 && !url.includes('/auth/login') && !url.includes('/auth/me')) {
+    if (error.response?.status === 401 && !url.includes('/auth/login') && !url.includes('/auth/me') && !url.includes('/auth/reauth')) {
       window.dispatchEvent(new Event('lactssl:unauthorized'))
       if (window.location.pathname !== loginPath) {
         window.location.assign(loginPath)
@@ -73,6 +74,8 @@ http.interceptors.response.use(
     err.data = data
     err.status = error.response?.status
     err.totpRequired = !!data?.totp_required
+    err.reauthRequired = !!data?.reauth_required
+    err.secondaryVerifyRequired = !!data?.secondary_verify_required
     return Promise.reject(err)
   }
 )
@@ -82,9 +85,12 @@ function request<T>(config: AxiosRequestConfig): Promise<T> {
 }
 
 export const api = {
-  get: <T = any>(url: string, params?: Record<string, any>) => request<T>({ method: 'GET', url, params }),
-  post: <T = any>(url: string, data?: any) => request<T>({ method: 'POST', url, data }),
-  put: <T = any>(url: string, data?: any) => request<T>({ method: 'PUT', url, data }),
+  get: <T = any>(url: string, params?: Record<string, any>, headers?: Record<string, string>) =>
+    request<T>({ method: 'GET', url, params, headers }),
+  post: <T = any>(url: string, data?: any, headers?: Record<string, string>) =>
+    request<T>({ method: 'POST', url, data, headers }),
+  put: <T = any>(url: string, data?: any, headers?: Record<string, string>) =>
+    request<T>({ method: 'PUT', url, data, headers }),
   delete: <T = any>(url: string) => request<T>({ method: 'DELETE', url })
 }
 
@@ -106,13 +112,23 @@ export async function downloadFile(url: string, filename: string, init?: Request
   })
   if (!response.ok) {
     let message = t('api.downloadFailed')
+    let reauthRequired = false
+    let totpRequired = false
+    let secondaryVerifyRequired = false
     try {
       const body = await response.json()
       if (body?.message) message = body.message
+      reauthRequired = !!body?.reauth_required
+      totpRequired = !!body?.totp_required
+      secondaryVerifyRequired = !!body?.secondary_verify_required
     } catch (_) {
       // 忽略非 JSON 响应
     }
-    throw new Error(message)
+    const error = new Error(message) as ApiError
+    error.reauthRequired = reauthRequired
+    error.totpRequired = totpRequired
+    error.secondaryVerifyRequired = secondaryVerifyRequired
+    throw error
   }
   const blob = await response.blob()
   const link = document.createElement('a')

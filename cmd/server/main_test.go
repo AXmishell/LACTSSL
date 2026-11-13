@@ -1,8 +1,11 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"lactssl/internal/backup"
@@ -24,6 +27,30 @@ func newTestStore(t *testing.T) *store.Store {
 		t.Fatalf("初始化加密组件失败: %v", err)
 	}
 	return store.New(conn, cipher)
+}
+
+func TestMountACMEHandlerIncludesPKI(t *testing.T) {
+	acmeHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("acme:" + r.URL.Path))
+	})
+	mainHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("main:" + r.URL.Path))
+	})
+	handler := mountACMEHandler(mainHandler, acmeHandler)
+	for _, path := range []string{"/acme/test/directory", "/pki/1/crl", "/pki/1/ocsp"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if !strings.HasPrefix(w.Body.String(), "acme:") {
+			t.Fatalf("%s 应由 ACME handler 处理，实际响应: %s", path, w.Body.String())
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if !strings.HasPrefix(w.Body.String(), "main:") {
+		t.Fatalf("普通页面应由主 handler 处理，实际响应: %s", w.Body.String())
+	}
 }
 
 func TestApplyPendingRestore(t *testing.T) {

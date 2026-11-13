@@ -4,6 +4,7 @@
 
 ```bash
 make dev          # Vite + Go 开发模式
+make rebuild-run  # 重新构建前端与后端二进制，并启动 Vite + Go
 make build        # 生产构建，产物 bin/lactssl
 make run          # 直接 go run ./cmd/server
 make test         # go test ./...
@@ -21,6 +22,42 @@ make clean        # 清理构建产物
 ./scripts/ci.sh --frontend-only
 ./scripts/ci.sh --no-build
 ```
+
+`make release` 等价于 `.github/workflows/release.yml`，默认 dry-run：按发布矩阵交叉编译并打包到 `dist/`，生成 `checksums.txt`，本地构建 Docker 镜像（不推送），不上传 Release：
+
+```bash
+make release TAG=v1.0.1                # 指定 tag
+./scripts/release.sh v1.0.1 --no-docker
+./scripts/release.sh v1.0.1 --multiarch   # buildx 构建 amd64+arm64，导出 OCI 镜像并校验平台
+./scripts/release.sh v1.1.0-rc.1 --docker-only   # 只验证镜像标签（预发布只打精确版本）
+./scripts/release.sh v1.0.1 --publish-only       # 只检查将要上传的资产列表
+./scripts/release.sh v1.0.1 --upload             # 用 gh 上传到同名 Release（覆盖同名资产）
+```
+
+`--multiarch` 需要 Docker Buildx；跨架构运行构建阶段时还需 QEMU（`docker run --privileged --rm tonistiigi/binfmt --install arm64`）。
+
+## 重新构建运行
+
+改完代码需要“重新构建 + 重启”时：
+
+```bash
+make rebuild-run
+```
+
+等价于 `./scripts/rebuild-run.sh`，依次执行：
+
+1. 构建前端到 `web/dist`
+2. 以开发模式编译 `bin/lactssl-dev`（不带 `-tags embed`，运行时读取 `web/dist`）
+3. 结束占用配置端口（默认 `8080`）与 `5173` 的旧进程
+4. 启动 Vite（`5173`）与 Go 二进制（`8080`）
+
+访问 `http://<host>:5173/<entry>/`。安全入口默认读取 `config.yaml` 的 `security.entry`；入口只保存在数据库时，用环境变量覆盖：
+
+```bash
+LACTSSL_ENTRY=xxxxxxxx make rebuild-run
+```
+
+脚本以前台方式运行，`Ctrl+C` 会同时结束 Vite 与 Go。只改前端时用 `make dev` 即可，Vite 热更新无需重复构建。
 
 ## 目录结构
 
@@ -60,8 +97,6 @@ scripts/             开发脚本与 CI（TypeScript，由 Node 直接运行）
 | --- | --- | --- | --- |
 | `5173` | Vite 开发服务器（仅开发模式） | `web/` 源码，带 HMR | 把 `/<entry>/api` 代理到 `8080` |
 | `8080` | Go 二进制（开发与生产相同） | `internal/webui/dist` 中嵌入二进制的前端产物 | 不代理 `5173`，也不依赖 Vite |
-
-也就是说，Go 服务始终直接托管编译进二进制的前端资源；`5173` 只是开发时额外起的源码服务。生产环境运行 `./bin/lactssl` 时只有配置中的 `port`（默认 `8080`），不存在 `5173`，也不需要 Node 或 Vite。启动日志中的「前端资源」一行会标明当前进程使用的是嵌入二进制还是本地 `web/dist`。
 
 ## 国际化
 

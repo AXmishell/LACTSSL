@@ -1,0 +1,3 @@
+# GitHub Pages 文档站点构建依赖（仅用于构建文档，不参与应用构建）
+# Zensical 目前处于 0.1.x beta，固定版本以避免构建结果漂移。
+zensical==0.1.1

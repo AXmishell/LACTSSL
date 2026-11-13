@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -142,7 +144,31 @@ func (s *Server) baseURL(r *http.Request) string {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	return scheme + "://" + r.Host
+	host := strings.TrimSpace(r.Host)
+	// 未配置固定 base_url 时只能依赖 Host；对 Host 做格式校验，
+	// 避免换行/路径等字符污染返回给客户端的资源 URL。
+	if !validRequestHost(host) {
+		host = "localhost"
+	}
+	return scheme + "://" + host
+}
+
+// validRequestHost 校验 Host 头是否为合法的 host[:port]。
+func validRequestHost(host string) bool {
+	if host == "" || len(host) > 255 || strings.ContainsAny(host, "/\\@ \t\r\n") {
+		return false
+	}
+	parsed, err := url.Parse("//" + host)
+	if err != nil || parsed.Host != host || parsed.Hostname() == "" || parsed.User != nil {
+		return false
+	}
+	if port := parsed.Port(); port != "" {
+		value, err := strconv.Atoi(port)
+		if err != nil || value < 1 || value > 65535 {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {

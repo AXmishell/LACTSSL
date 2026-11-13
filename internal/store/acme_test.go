@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -244,5 +245,66 @@ func TestACMEAccountRejectsReusedEAB(t *testing.T) {
 	second := &model.ACMEAccount{PublicID: "a2", EndpointID: ep.ID, Kid: "kid2", PublicJWK: "{}", Thumbprint: "t2", Status: "valid"}
 	if err := st.CreateACMEAccount(second, credential.ID); err == nil {
 		t.Fatal("重复使用 EAB 应失败")
+	}
+}
+
+func TestACMECALifecycle(t *testing.T) {
+	st := newTestStore(t)
+	ca := &model.ACMECA{
+		PublicID:     "acme-ca-public",
+		Name:         "Internal ACME",
+		DirectoryURL: "https://ca.example.com/acme/directory",
+		Protocol:     "v2",
+		EABRequired:  true,
+		EABKid:       "kid-1",
+		EABHMAC:      "secret-hmac",
+	}
+	if err := st.CreateACMECA(ca); err != nil {
+		t.Fatal(err)
+	}
+	list, err := st.ListACMECAs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].EABHMACSet != true {
+		t.Fatalf("列表不应包含 HMAC 明文: %+v", list)
+	}
+	if list[0].EABHMAC != "" {
+		t.Fatal("列表接口泄露了 HMAC 明文")
+	}
+	got, err := st.GetACMECA(ca.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EABHMAC != "secret-hmac" || got.DirectoryURL != ca.DirectoryURL {
+		t.Fatalf("读取通用 CA 不正确: %+v", got)
+	}
+	got.Name = "Renamed ACME"
+	got.Protocol = "v1"
+	got.EABRequired = false
+	got.EABKid = ""
+	if err := st.UpdateACMECA(got, ""); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := st.GetACMECA(ca.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "Renamed ACME" || updated.Protocol != "v1" || updated.EABHMAC != "secret-hmac" {
+		t.Fatalf("更新通用 CA 不正确: %+v", updated)
+	}
+
+	task := &model.Task{Name: "custom-ca", Domains: []string{"example.com"}, CA: "acme-ca:" + strconv.FormatInt(ca.ID, 10)}
+	if err := st.CreateTask(task); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteACMECA(ca.ID); err == nil {
+		t.Fatal("被任务引用的通用 CA 不应允许删除")
+	}
+	if err := st.DeleteTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteACMECA(ca.ID); err != nil {
+		t.Fatal(err)
 	}
 }

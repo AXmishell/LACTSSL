@@ -80,6 +80,34 @@ func TestHTTP01AllowsPrivateWithCIDR(t *testing.T) {
 	}
 }
 
+func TestHTTP01BlocksReservedNetworks(t *testing.T) {
+	v := NewHTTP01Validator()
+	blocked := []string{
+		"100.100.100.200", // CGNAT（阿里云元数据）
+		"192.0.0.192",     // IETF 协议分配
+		"198.18.0.1",      // 基准测试
+		"0.0.0.1",
+		"240.0.0.1",
+		"255.255.255.255",
+		"64:ff9b::a00:1", // NAT64
+		"2001:db8::1",    // 文档地址
+	}
+	for _, value := range blocked {
+		ip := net.ParseIP(value)
+		if ip == nil {
+			t.Fatalf("测试 IP 无法解析: %s", value)
+		}
+		if v.ipAllowed(ip) {
+			t.Fatalf("默认应拒绝保留地址: %s", value)
+		}
+	}
+	// 显式白名单仍可放行，便于内网部署。
+	v.AllowedCIDRs = []string{"100.64.0.0/10"}
+	if !v.ipAllowed(net.ParseIP("100.100.100.200")) {
+		t.Fatal("显式 CIDR 白名单应放行 CGNAT 地址")
+	}
+}
+
 func TestHTTP01RejectsInvalidToken(t *testing.T) {
 	v := NewHTTP01Validator()
 	if err := v.Validate(context.Background(), "example.com", "bad/token", "x"); err == nil {

@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // 开发服务器需要模拟 Go 服务的安全入口。优先读取环境变量，其次读取配置文件：
@@ -9,7 +10,7 @@ const RESERVED_ENTRIES = new Set(['api', 'assets', 'healthz', 'static'])
 
 function normalizeEntry(raw: string): string {
   const entry = raw.trim().replace(/^\/+|\/+$/g, '')
-  if (!/^[a-zA-Z0-9_-]{3,32}$/.test(entry) || RESERVED_ENTRIES.has(entry.toLowerCase())) {
+  if (!/^[a-zA-Z0-9_-]{8,32}$/.test(entry) || RESERVED_ENTRIES.has(entry.toLowerCase())) {
     return ''
   }
   return entry
@@ -20,7 +21,7 @@ function resolveEntry(): string {
   if (fromEnv) return fromEnv
   try {
     const file = fileURLToPath(new URL('../config.yaml', import.meta.url))
-    const match = readFileSync(file, 'utf8').match(/^\s*entry:\s*["']?([a-zA-Z0-9_-]{3,32})["']?\s*$/m)
+    const match = readFileSync(file, 'utf8').match(/^\s*entry:\s*["']?([a-zA-Z0-9_-]{8,32})["']?\s*$/m)
     if (match) return normalizeEntry(match[1])
   } catch {
     // 配置文件不存在时忽略，改用环境变量。
@@ -173,15 +174,65 @@ function entryGuardPlugin(entry: string): Plugin {
   }
 }
 
+// 清理构建产物中的注释：Vite 只压缩 JS/CSS，index.html 里的 HTML 注释和
+// 内联 <style> 注释会原样保留，而它们最终会通过 go:embed 进入二进制。
+function stripCommentsPlugin(): Plugin {
+  let outDir = 'dist'
+  return {
+    name: 'lactssl-strip-comments',
+    apply: 'build' as const,
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir)
+    },
+    writeBundle() {
+      const file = resolve(outDir, 'index.html')
+      const html = readFileSync(file, 'utf8')
+        // HTML 注释（构建产物中不需要）。
+        .replace(/<!--[\s\S]*?-->/g, '')
+        // 仅清理 <style> 内的 CSS 注释，避免误伤脚本字符串。
+        .replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi, (_, open: string, css: string, close: string) => {
+          return open + css.replace(/\/\*[\s\S]*?\*\//g, '') + close
+        })
+      writeFileSync(file, html)
+    }
+  }
+}
+
 const entry = resolveEntry()
+
+// 前端展示的版本号与后端 -ldflags 注入的值同源，避免页面与控制台版本不一致。
+function resolveVersion(): string {
+  try {
+    return readFileSync(fileURLToPath(new URL('../VERSION', import.meta.url)), 'utf8').trim() || 'dev'
+  } catch {
+    return 'dev'
+  }
+}
 
 // 生产环境由 Go 服务直接托管 dist，开发时把接口请求代理到后端。
 export default defineConfig({
-  plugins: [vue(), entryGuardPlugin(entry)],
+  plugins: [
+    vue({
+      // 生产构建不保留模板注释，避免注释进入 go:embed 的前端资源。
+      template: { compilerOptions: { comments: false } }
+    }),
+    entryGuardPlugin(entry),
+    stripCommentsPlugin()
+  ],
+  define: {
+    __LACTSSL_VERSION__: JSON.stringify(resolveVersion())
+  },
   base: '/',
+  // 依赖（如 Element Plus）带 /*! ... */ 法律声明注释，esbuild 默认会保留。
+  esbuild: {
+    legalComments: 'none'
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    minify: 'esbuild',
+    cssMinify: 'esbuild',
+    sourcemap: false,
     chunkSizeWarningLimit: 1600
   },
   server: {

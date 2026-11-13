@@ -89,9 +89,9 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 	if len(req.Domains) == 0 {
 		return nil, i18n.E("service.acme.domains_empty")
 	}
-	ca, ok := CAInfo(req.CA)
-	if !ok {
-		return nil, i18n.E("service.acme.ca_unsupported", "ca", req.CA)
+	ca, err := m.ResolveCA(req.CA)
+	if err != nil {
+		return nil, err
 	}
 
 	m.acmeMu.Lock()
@@ -102,25 +102,6 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 		return nil, err
 	}
 
-	cfg := lego.NewConfig(user)
-	cfg.CADirURL = ca.URL
-	cfg.UserAgent = "LACTSSL/1.0"
-	switch strings.ToLower(req.KeyType) {
-	case "rsa2048":
-		cfg.Certificate.KeyType = certcrypto.RSA2048
-	case "rsa4096":
-		cfg.Certificate.KeyType = certcrypto.RSA4096
-	case "ecdsa384":
-		cfg.Certificate.KeyType = certcrypto.EC384
-	default:
-		cfg.Certificate.KeyType = certcrypto.EC256
-	}
-
-	client, err := lego.NewClient(cfg)
-	if err != nil {
-		return nil, i18n.E("service.acme.client_init_failed", "error", err.Error())
-	}
-
 	if req.DNSAccount == nil {
 		return nil, i18n.E("service.acme.dns_account_required")
 	}
@@ -129,6 +110,22 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 		return nil, err
 	}
 	defer undo()
+
+	keyType := certificateKeyType(req.KeyType)
+	if ca.Protocol == "v1" {
+		return m.obtainV1(ca, user, req, provider, keyType)
+	}
+
+	cfg := lego.NewConfig(user)
+	cfg.CADirURL = ca.URL
+	cfg.UserAgent = "LACTSSL/1.0"
+	cfg.Certificate.KeyType = keyType
+
+	client, err := lego.NewClient(cfg)
+	if err != nil {
+		return nil, i18n.E("service.acme.client_init_failed", "error", err.Error())
+	}
+
 	if err := client.Challenge.SetDNS01Provider(provider); err != nil {
 		return nil, i18n.E("service.acme.dns01_config_failed", "error", err.Error())
 	}
@@ -186,6 +183,20 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 		NotBefore:    leaf.NotBefore,
 		NotAfter:     leaf.NotAfter,
 	}, nil
+}
+
+// certificateKeyType 把界面上的私钥类型转换为 lego 的证书密钥类型。
+func certificateKeyType(value string) certcrypto.KeyType {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "rsa2048":
+		return certcrypto.RSA2048
+	case "rsa4096":
+		return certcrypto.RSA4096
+	case "ecdsa384":
+		return certcrypto.EC384
+	default:
+		return certcrypto.EC256
+	}
 }
 
 // normalizeEABKey 兼容用户粘贴的带 padding 或标准 Base64 字符集的 HMAC Key。

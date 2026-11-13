@@ -87,6 +87,9 @@ func deployBaotaSite(cert *model.Certificate, cfg map[string]string) error {
 	if base == "" {
 		return i18n.E("service.deploy.panel_url_required")
 	}
+	if err := ValidateOutboundURL(base); err != nil {
+		return err
+	}
 	if secret == "" {
 		return i18n.E("service.deploy.baota_secret_required")
 	}
@@ -122,6 +125,9 @@ func deployBaotaPanel(cert *model.Certificate, cfg map[string]string) error {
 	secret := strings.TrimSpace(cfg["api_secret"])
 	if base == "" {
 		return i18n.E("service.deploy.panel_url_required")
+	}
+	if err := ValidateOutboundURL(base); err != nil {
+		return err
 	}
 	if secret == "" {
 		return i18n.E("service.deploy.baota_secret_required")
@@ -226,6 +232,9 @@ func deployOnePanelSite(cert *model.Certificate, cfg map[string]string) error {
 	if base == "" {
 		return i18n.E("service.deploy.panel_url_required")
 	}
+	if err := ValidateOutboundURL(base); err != nil {
+		return err
+	}
 	if apiKey == "" {
 		return i18n.E("service.deploy.onepanel_key_required")
 	}
@@ -260,6 +269,9 @@ func deployOnePanelPanel(cert *model.Certificate, cfg map[string]string) error {
 	apiKey := strings.TrimSpace(cfg["api_key"])
 	if base == "" {
 		return i18n.E("service.deploy.panel_url_required")
+	}
+	if err := ValidateOutboundURL(base); err != nil {
+		return err
 	}
 	if apiKey == "" {
 		return i18n.E("service.deploy.onepanel_key_required")
@@ -381,6 +393,9 @@ func deploySafeline(cert *model.Certificate, cfg map[string]string) error {
 	token := strings.TrimSpace(cfg["api_token"])
 	if base == "" {
 		return i18n.E("service.deploy.panel_url_required")
+	}
+	if err := ValidateOutboundURL(base); err != nil {
+		return err
 	}
 	if token == "" {
 		return i18n.E("service.deploy.safeline_token_required")

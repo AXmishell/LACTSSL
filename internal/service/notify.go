@@ -127,6 +127,9 @@ func SendGotify(cfg GotifyConfig, title, message string) error {
 		return i18n.E("service.notify.gotify_not_configured")
 	}
 	base := strings.TrimRight(cfg.URL, "/")
+	if err := ValidateOutboundURL(base); err != nil {
+		return err
+	}
 	endpoint := base + "/message?token=" + url.QueryEscape(cfg.Token)
 	payload, err := json.Marshal(map[string]any{
 		"title":    title,

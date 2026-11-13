@@ -189,7 +189,6 @@
           <el-tab-pane :label="t('certs.pemTab')" name="pem">
             <el-radio-group v-model="pemTab" size="small" style="margin-bottom: 12px">
               <el-radio-button value="fullchain">{{ t('certs.fullchain') }}</el-radio-button>
-              <el-radio-button value="cert">{{ t('certs.cert') }}</el-radio-button>
               <el-radio-button v-if="detail?.source !== 'acme'" value="key">{{ t('certs.key') }}</el-radio-button>
             </el-radio-group>
             <div class="flex gap-10" style="margin-bottom: 10px">
@@ -419,12 +418,12 @@ const cleanupCount = computed(() => cleanupCandidates.value.length)
 
 const pemContent = computed(() => {
   if (!detail.value) return ''
-  if (pemTab.value === 'cert') return detail.value.cert_pem
   if (pemTab.value === 'key') return keyPem.value
   return detail.value.fullchain_pem
 })
 
 // 私钥不再随证书详情接口返回，切换到私钥页签时按需获取。
+// 仅查看不做二次验证；下载证书文件时仍会要求验证。
 async function loadKeyPem(): Promise<void> {
   const cert = detail.value
   if (!cert || keyPem.value) return

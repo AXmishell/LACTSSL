@@ -1,0 +1,95 @@
+# 默认站点配置（英文）：构建到根目录；中文站点由 mkdocs.zh.yml 构建到 /zh/。
+# 本地预览双语站点请使用 scripts/docs-serve.sh（或 make docs-serve），
+# 因为 `zensical serve` 一次只能构建一种配置。
+site_name: LACTSSL
+site_url: https://lactssl.gpcn.cc/
+site_description: "Self-hosted SSL certificate manager: ACME issuance and auto-renewal, certificate deployment, endpoint certificate monitoring, and notifications."
+repo_url: https://github.com/AXmishell/LACTSSL
+repo_name: AXmishell/LACTSSL
+edit_uri: edit/main/docs/en/
+copyright: Copyright &copy; LACTSSL · MIT License
+
+docs_dir: docs/en
+site_dir: site
+
+theme:
+  name: material
+  variant: modern
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Installation: install.md
+  - Configuration: configuration.md
+  - Features: features.md
+  - Security: security.md
+  - Operations: operations.md
+  - Development: development.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  alternate:
+    - name: 简体中文
+      link: /zh/
+      lang: zh
+    - name: English
+      link: /
+      lang: en
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/AXmishell/LACTSSL
+      name: GitHub repository

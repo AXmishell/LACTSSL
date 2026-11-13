@@ -22,7 +22,7 @@ database:
 
 security:
   # 安全入口；留空则首次启动随机生成 20 位大小写字母与数字组合，并保存到数据库
-  # 也可手动指定，例如 "K7mQ2pX9vR4tY8nL6cWz"（支持带或不带首尾斜杠）
+  # 也可手动指定，至少 8 位，例如 "K7mQ2pX9vR4tY8nL6cWz"（支持带或不带首尾斜杠）
   entry: ""
   # 对外访问地址，例如 "https://ssl.example.com"（不要带路径）。
   # 密码重置邮件中的链接必须基于该固定地址生成；未配置时仅允许本机回环请求按 Host 推导。
@@ -33,8 +33,8 @@ security:
   salt: ""
 
 acme:
-  # 是否启用内置 ACME 服务端；端点、EAB、域名白名单在管理接口中配置
-  enabled: false
+  # 是否启用内置 ACME 服务端（默认开启）；端点、EAB、域名白名单在管理接口中配置
+  enabled: true
   # 独立监听地址，例如 ":14000"；留空则挂载到主端口的 /acme
   addr: ""
   # 对外访问地址，例如 "https://pki.example.com:14000"；留空则按请求 Host 推导

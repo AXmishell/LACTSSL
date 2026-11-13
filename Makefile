@@ -10,7 +10,7 @@ BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_ARCH := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
 LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)'
 
-.PHONY: all build web backend run dev dev-api dev-web test typecheck tidy clean ci i18n-check
+.PHONY: all build web backend run dev dev-api dev-web rebuild-run test typecheck tidy clean ci release i18n-check docs-build docs-serve
 
 all: build
 
@@ -31,6 +31,9 @@ run:
 dev:
 	./scripts/dev.sh
 
+rebuild-run:
+	./scripts/rebuild-run.sh
+
 dev-api:
 	$(GO) run ./cmd/server
 
@@ -47,8 +50,18 @@ typecheck:
 ci:
 	./scripts/ci.sh
 
+release:
+	./scripts/release.sh $(TAG)
+
 i18n-check:
 	node scripts/check-i18n.ts
+
+docs-build:
+	zensical build --strict --clean
+	zensical build -f mkdocs.zh.yml --strict
+
+docs-serve:
+	./scripts/docs-serve.sh $(PORT)
 
 tidy:
 	$(GO) mod tidy

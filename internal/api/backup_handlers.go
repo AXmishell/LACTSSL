@@ -4,14 +4,17 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"lactssl/internal/auth"
 	"lactssl/internal/backup"
 	"lactssl/internal/i18n"
 )
+
+// minBackupPasswordLength 是备份加密密码的最小长度，与账户密码要求独立。
+const minBackupPasswordLength = 8
 
 // backupInfo 返回备份页面所需的数据库大小与最近备份信息。
 func (s *Server) backupInfo(c *gin.Context) {
@@ -41,6 +44,14 @@ func (s *Server) downloadBackup(c *gin.Context) {
 		failKey(c, http.StatusServiceUnavailable, "api.error.backup_unavailable")
 		return
 	}
+	user := getUser(c)
+	if user == nil {
+		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionBackupDownload) {
+		return
+	}
 	var body struct {
 		Password string `json:"password"`
 	}
@@ -48,12 +59,16 @@ func (s *Server) downloadBackup(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
+	if allowed, wait := s.limiter.Allow("backup:download:"+strconv.FormatInt(user.ID, 10), 5, 10*time.Minute); !allowed {
+		rateLimited(c, wait)
+		return
+	}
 	password := strings.TrimSpace(body.Password)
 	if password == "" {
 		failKey(c, http.StatusBadRequest, "api.error.backup_password_required")
 		return
 	}
-	if len(password) < minPasswordLength {
+	if len(password) < minBackupPasswordLength {
 		failKey(c, http.StatusBadRequest, "api.error.backup_password_too_short")
 		return
 	}
@@ -80,6 +95,11 @@ func (s *Server) restoreBackup(c *gin.Context) {
 		return
 	}
 
+	// 先校验二次验证 token，再解析上传内容，避免大文件上传期间 token 过期。
+	if !s.requireSecondaryVerify(c, secondaryActionBackupRestore) {
+		return
+	}
+
 	// 限制整个 multipart 请求体，避免超大文件写入磁盘。
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, backup.MaxUploadSize+8<<20)
 	fileHeader, err := c.FormFile("file")
@@ -100,20 +120,6 @@ func (s *Server) restoreBackup(c *gin.Context) {
 		failKey(c, http.StatusRequestEntityTooLarge, "api.error.backup_too_large")
 		return
 	}
-	user := getUser(c)
-	if user == nil {
-		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
-		return
-	}
-	if !s.allowReauth(c, user) {
-		return
-	}
-	if !auth.VerifyPassword(user.PasswordHash, c.PostForm("password")) {
-		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
-		return
-	}
-	s.resetReauth(c, user)
-
 	file, err := fileHeader.Open()
 	if err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.backup_invalid_file")

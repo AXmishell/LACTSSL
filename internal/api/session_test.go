@@ -44,11 +44,19 @@ func newSessionTestServerWithStore(t *testing.T) (*gin.Engine, *store.Store) {
 		auth.New([]byte("jwt-secret")),
 		service.New(st),
 		"secret-entry",
-		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html><head></head><body>app</body></html>")}},
+		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
 		nil,
 	)
 	return s.Router(), st
 }
+
+// sessionIndexHTML 模拟构建后的 index.html，包含首屏启动层和模块脚本，
+// 用于验证 404 页面会清理这些只属于正常应用的节点。
+const sessionIndexHTML = `<html><head><title>LACTSSL</title>` +
+	`<style id="app-boot-style">#app-boot{position:fixed}</style></head><body>` +
+	`<div id="app"></div>` +
+	`<div id="app-boot" role="status"><span class="boot-mark"></span><span class="boot-text">正在加载</span></div>` +
+	`<script type="module" src="/assets/app.js"></script></body></html>`
 
 func sessionRequest(t *testing.T, router http.Handler, method, path, body string, cookies []*http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -120,6 +128,9 @@ func TestLoginPageRequiresGateCookie(t *testing.T) {
 	}
 	if body := w.Body.String(); !strings.Contains(body, "404") || !strings.Contains(body, "页面不存在") {
 		t.Fatalf("404 页面内容不正确: %s", body)
+	}
+	if body := w.Body.String(); strings.Contains(body, `id="app-boot"`) || strings.Contains(body, `id="app-boot-style"`) {
+		t.Fatalf("404 页面不应保留首屏加载层: %s", body)
 	}
 	forged := &http.Cookie{Name: entryCookieName, Value: "forged"}
 	if w := sessionRequest(t, router, http.MethodGet, "/login", "", []*http.Cookie{forged}, nil); w.Code != http.StatusNotFound {
@@ -301,6 +312,64 @@ func TestSessionManagement(t *testing.T) {
 	}
 	if len(payload.Data) != 1 || !payload.Data[0].Current {
 		t.Fatalf("撤销后应只剩当前会话: %+v", payload.Data)
+	}
+}
+
+// TestChangePasswordInvalidatesAllSessions 验证改密后包括当前设备在内的全部会话失效，
+// 且必须使用新密码重新登录。
+func TestChangePasswordInvalidatesAllSessions(t *testing.T) {
+	router := newSessionTestServer(t)
+
+	setup := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/setup",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if setup.Code != http.StatusOK {
+		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
+	}
+	first := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+
+	login := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/auth/login",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("登录失败: %d %s", login.Code, login.Body.String())
+	}
+	second := findCookie(t, login.Result().Cookies(), sessionCookieName)
+
+	change := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/auth/change-password",
+		`{"old_password":"password1234","new_password":"newpassword1234"}`,
+		[]*http.Cookie{second}, map[string]string{csrfHeaderName: "1"})
+	if change.Code != http.StatusOK {
+		t.Fatalf("修改密码失败: %d %s", change.Code, change.Body.String())
+	}
+
+	cleared := false
+	for _, cookie := range change.Result().Cookies() {
+		if cookie.Name == sessionCookieName && cookie.Value == "" && cookie.MaxAge < 0 {
+			cleared = true
+			break
+		}
+	}
+	if !cleared {
+		t.Fatalf("改密响应应清除会话 Cookie: %v", change.Result().Cookies())
+	}
+
+	for name, cookie := range map[string]*http.Cookie{"原会话": first, "当前会话": second} {
+		me := sessionRequest(t, router, http.MethodGet, "/secret-entry/api/auth/me", "",
+			[]*http.Cookie{cookie}, nil)
+		if me.Code != http.StatusUnauthorized {
+			t.Fatalf("%s 在改密后不应继续访问接口: %d %s", name, me.Code, me.Body.String())
+		}
+	}
+
+	oldLogin := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/auth/login",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if oldLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("旧密码不应还能登录: %d %s", oldLogin.Code, oldLogin.Body.String())
+	}
+
+	newLogin := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/auth/login",
+		`{"email":"admin@example.com","password":"newpassword1234"}`, nil, nil)
+	if newLogin.Code != http.StatusOK {
+		t.Fatalf("新密码应能登录: %d %s", newLogin.Code, newLogin.Body.String())
 	}
 }
 

@@ -63,6 +63,26 @@ func TestRenewalInfo(t *testing.T) {
 	}
 }
 
+func TestRenewalInfoRequiresEnabledEndpoint(t *testing.T) {
+	_, st, ep, ts, ca := newOrderTestServer(t)
+	certificate, leaf := issueTestCertificate(t, ca)
+	if err := st.CreateCertificate(certificate); err != nil {
+		t.Fatal(err)
+	}
+	ep.Enabled = false
+	if err := st.UpdateACMEEndpoint(ep); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(ts.URL + "/acme/test/renewal-info/" + ariCertID(leaf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("停用端点后 ARI 应返回 404: %d", resp.StatusCode)
+	}
+}
+
 func TestRenewalInfoDirectoryField(t *testing.T) {
 	_, _, _, ts := newTestACMEServer(t, false)
 	resp, err := http.Get(ts.URL + "/acme/test/directory")

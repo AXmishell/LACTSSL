@@ -16,6 +16,11 @@ coverage.out
 coverage.html
 *.test
 *.exe
+/site/
+# 本地 release 流程（scripts/release.sh）
+/dist/
+/out/
+/.release-work/
 
 # 前端
 /web/node_modules/
@@ -23,6 +28,9 @@ coverage.html
 /internal/webui/dist/
 /web/.vite/
 /web/.cache/
+
+# 文档站点构建缓存
+/.cache/
 
 # Python（生成 favicon 等脚本）
 __pycache__/

@@ -94,6 +94,9 @@ func main() {
 		}
 		server.ACMEBaseURL = scheme + "://" + displayAddr(cfg.ACME.Addr)
 	}
+	if cfg.ACME.Enabled && server.ACMEBaseURL == "" {
+		log.Println("警告: 未配置 acme.base_url 或 security.public_url，ACME 资源 URL 将按请求 Host 推导；公网部署请配置固定地址")
+	}
 	server.Backup = backup.New(conn, cfg.DataDir, cfg.DBPath, cfg.File, api.Version)
 	restart := make(chan struct{}, 1)
 	server.Restart = func() {
@@ -115,10 +118,8 @@ func main() {
 		acmeHandler := acmeServer.Handler()
 		if cfg.ACME.Addr == "" {
 			// 未配置独立端口时，把 ACME 协议挂到主端口的 /acme 前缀。
-			root := http.NewServeMux()
-			root.Handle("/acme/", acmeHandler)
-			root.Handle("/", mainHandler)
-			mainHandler = root
+			// CRL/OCSP 位于 /pki/<ca>/...，必须一起挂载，否则证书中的吊销地址会 404。
+			mainHandler = mountACMEHandler(mainHandler, acmeHandler)
 		} else {
 			acmeHTTPServer = &http.Server{
 				Addr:              cfg.ACME.Addr,
@@ -194,6 +195,16 @@ func main() {
 		_ = acmeHTTPServer.Shutdown(shutdownCtx)
 	}
 	log.Println(i18n.T(cliLocale(), "log.system.exit", nil))
+}
+
+// mountACMEHandler 把 ACME 协议与 PKI（CRL/OCSP）一起挂载到主端口。
+// 两者由同一个 Handler 提供，缺少 /pki/ 会让证书中的吊销地址不可达。
+func mountACMEHandler(mainHandler, acmeHandler http.Handler) http.Handler {
+	root := http.NewServeMux()
+	root.Handle("/acme/", acmeHandler)
+	root.Handle("/pki/", acmeHandler)
+	root.Handle("/", mainHandler)
+	return root
 }
 
 func clientAuthMode(required bool) tls.ClientAuthType {

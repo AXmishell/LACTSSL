@@ -350,7 +350,13 @@ func (m *Manager) privateCAChain(ca *model.PrivateCA) string {
 }
 
 // loadCAEABSettings 读取指定 CA 独立保存的 EAB 凭据。
+// 通用 ACME 上游的凭据保存在独立表中，内置 CA 仍使用设置项。
 func (m *Manager) loadCAEABSettings(ca string) (string, string) {
+	if id, ok := ParseACMECAValue(ca); ok {
+		if record, err := m.Store.GetACMECA(id); err == nil {
+			return record.EABKid, record.EABHMAC
+		}
+	}
 	kid, _ := m.Store.GetSetting(CAEABKidSettingKey(ca))
 	hmac, _ := m.Store.GetSecret(CAEABHMACSettingKey(ca))
 	return kid, hmac

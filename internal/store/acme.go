@@ -4,12 +4,124 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
 )
+
+// ---------------------------- 通用 ACME 上游 ----------------------------
+
+func scanACMECA(row interface{ Scan(...any) error }, withHMAC bool) (*model.ACMECA, error) {
+	var ca model.ACMECA
+	var eabRequired int
+	var hmac string
+	var err error
+	if withHMAC {
+		err = row.Scan(&ca.ID, &ca.PublicID, &ca.Name, &ca.DirectoryURL, &ca.Protocol, &eabRequired, &ca.EABKid, &hmac, &ca.CreatedAt, &ca.UpdatedAt)
+	} else {
+		err = row.Scan(&ca.ID, &ca.PublicID, &ca.Name, &ca.DirectoryURL, &ca.Protocol, &eabRequired, &ca.EABKid, &ca.CreatedAt, &ca.UpdatedAt)
+	}
+	if err != nil {
+		return nil, err
+	}
+	ca.EABRequired = eabRequired == 1
+	ca.EABHMAC = hmac
+	ca.EABHMACSet = hmac != ""
+	return &ca, nil
+}
+
+// CreateACMECA 保存通用 ACME 上游，HMAC 会先加密。
+func (s *Store) CreateACMECA(ca *model.ACMECA) error {
+	encrypted, err := s.Cipher.Encrypt(ca.EABHMAC)
+	if err != nil {
+		return err
+	}
+	now := nowUTC()
+	res, err := s.DB.Exec(`INSERT INTO acme_cas(public_id,name,directory_url,protocol,eab_required,eab_kid,eab_hmac,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?)`,
+		ca.PublicID, ca.Name, ca.DirectoryURL, ca.Protocol, boolInt(ca.EABRequired), ca.EABKid, encrypted, now, now)
+	if err != nil {
+		return err
+	}
+	ca.ID, _ = res.LastInsertId()
+	ca.CreatedAt, ca.UpdatedAt = now, now
+	ca.EABHMACSet = ca.EABHMAC != ""
+	return nil
+}
+
+// UpdateACMECA 更新通用 ACME 上游。hmac 为空表示保留原值。
+func (s *Store) UpdateACMECA(ca *model.ACMECA, hmac string) error {
+	now := nowUTC()
+	if hmac != "" {
+		encrypted, err := s.Cipher.Encrypt(hmac)
+		if err != nil {
+			return err
+		}
+		_, err = s.DB.Exec(`UPDATE acme_cas SET name=?,directory_url=?,protocol=?,eab_required=?,eab_kid=?,eab_hmac=?,updated_at=? WHERE id=?`,
+			ca.Name, ca.DirectoryURL, ca.Protocol, boolInt(ca.EABRequired), ca.EABKid, encrypted, now, ca.ID)
+		return err
+	}
+	_, err := s.DB.Exec(`UPDATE acme_cas SET name=?,directory_url=?,protocol=?,eab_required=?,eab_kid=?,updated_at=? WHERE id=?`,
+		ca.Name, ca.DirectoryURL, ca.Protocol, boolInt(ca.EABRequired), ca.EABKid, now, ca.ID)
+	return err
+}
+
+// ListACMECAs 返回全部通用 ACME 上游，不包含 HMAC 明文。
+func (s *Store) ListACMECAs() ([]model.ACMECA, error) {
+	rows, err := s.DB.Query(`SELECT id,public_id,name,directory_url,protocol,eab_required,eab_kid,eab_hmac,created_at,updated_at FROM acme_cas ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]model.ACMECA, 0)
+	for rows.Next() {
+		ca, err := scanACMECA(rows, true)
+		if err != nil {
+			return nil, err
+		}
+		ca.EABHMAC = ""
+		list = append(list, *ca)
+	}
+	return list, rows.Err()
+}
+
+// GetACMECA 按 ID 查询通用 ACME 上游，并解密 HMAC 供签发使用。
+func (s *Store) GetACMECA(id int64) (*model.ACMECA, error) {
+	row := s.DB.QueryRow(`SELECT id,public_id,name,directory_url,protocol,eab_required,eab_kid,eab_hmac,created_at,updated_at FROM acme_cas WHERE id=?`, id)
+	ca, err := scanACMECA(row, true)
+	if err != nil {
+		return nil, err
+	}
+	ca.EABHMAC, err = s.Cipher.Decrypt(ca.EABHMAC)
+	if err != nil {
+		return nil, err
+	}
+	ca.EABHMACSet = ca.EABHMAC != ""
+	return ca, nil
+}
+
+// GetACMECAByName 按名称查询通用 ACME 上游，用于校验名称唯一性。
+func (s *Store) GetACMECAByName(name string) (*model.ACMECA, error) {
+	row := s.DB.QueryRow(`SELECT id,public_id,name,directory_url,protocol,eab_required,eab_kid,created_at,updated_at FROM acme_cas WHERE name=?`, name)
+	return scanACMECA(row, false)
+}
+
+// DeleteACMECA 删除通用 ACME 上游；仍被任务引用时拒绝删除。
+func (s *Store) DeleteACMECA(id int64) error {
+	value := "acme-ca:" + strconv.FormatInt(id, 10)
+	var tasks int64
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM tasks WHERE ca=?`, value).Scan(&tasks); err != nil {
+		return err
+	}
+	if tasks > 0 {
+		return i18n.E("api.error.acme_ca_has_tasks", "count", tasks)
+	}
+	_, err := s.DB.Exec(`DELETE FROM acme_cas WHERE id=?`, id)
+	return err
+}
 
 // ---------------------------- ACME 端点 ----------------------------
 

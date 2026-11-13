@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -72,6 +73,40 @@ func TestTOTP(t *testing.T) {
 	}
 	if ValidateTOTP(secret, "000000") {
 		t.Fatal("错误的动态验证码不应通过校验")
+	}
+}
+
+func TestTOTPRejectsConcurrentReplay(t *testing.T) {
+	secret, _, err := GenerateTOTP("race@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := totp.GenerateCode(secret, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const workers = 64
+	var wg sync.WaitGroup
+	results := make([]bool, workers)
+	start := make(chan struct{})
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			<-start
+			results[index] = ValidateTOTP(secret, code)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	accepted := 0
+	for _, ok := range results {
+		if ok {
+			accepted++
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("同一 TOTP 验证码并发校验成功 %d 次，期望恰好 1 次", accepted)
 	}
 }
 

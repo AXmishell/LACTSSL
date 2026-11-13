@@ -75,6 +75,91 @@
       </el-table>
     </div>
 
+    <div class="k-card">
+      <div class="card-head">
+        <div>
+          <h3>{{ t('ca.genericTitle') }}</h3>
+          <div class="sub">{{ t('ca.genericSub') }}</div>
+        </div>
+        <el-button type="primary" :icon="Plus" @click="openGenericCreate">{{ t('ca.genericAdd') }}</el-button>
+      </div>
+      <el-table :data="genericItems" v-loading="genericLoading" style="width: 100%">
+        <el-table-column min-width="180" :label="t('ca.genericName')">
+          <template #default="{ row }">
+            <div class="ca-title">
+              {{ row.name }}
+              <span v-if="acme.acme_ca === `acme-ca:${row.id}`" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
+              <span v-if="row.eab_required" class="tag-soft tag-blue">EAB</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column min-width="280" :label="t('ca.genericURL')">
+          <template #default="{ row }">
+            <span class="ca-url">{{ row.directory_url }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column width="110" :label="t('ca.genericProtocol')">
+          <template #default="{ row }">
+            <span class="tag-soft tag-gray">{{ String(row.protocol || 'v2').toUpperCase() }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column width="150" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
+          <template #default="{ row }">
+            <el-button text type="primary" size="small" @click="openGenericEdit(row)">{{ t('ca.genericEdit') }}</el-button>
+            <el-button text type="danger" size="small" @click="deleteGeneric(row)">{{ t('ca.genericDelete') }}</el-button>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <div class="muted" style="padding: 24px 0">{{ t('ca.genericEmpty') }}</div>
+        </template>
+      </el-table>
+    </div>
+
+    <el-dialog
+      v-model="genericDialogVisible"
+      :title="genericEditingId ? t('ca.genericEditTitle') : t('ca.genericAddTitle')"
+      width="540px"
+      destroy-on-close
+    >
+      <el-form :model="genericForm" label-position="top">
+        <el-form-item :label="t('ca.genericName')" required>
+          <el-input v-model="genericForm.name" :placeholder="t('ca.genericNamePlaceholder')" maxlength="80" />
+        </el-form-item>
+        <el-form-item :label="t('ca.genericURL')" required>
+          <el-input v-model="genericForm.directory_url" :placeholder="t('ca.genericURLPlaceholder')" />
+          <div class="form-help">{{ t('ca.genericURLHelp') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('ca.genericProtocol')" required>
+          <el-select v-model="genericForm.protocol" style="width: 100%" @change="onGenericProtocolChange">
+            <el-option label="ACME v2 (RFC 8555)" value="v2" />
+            <el-option label="ACME v1 (legacy)" value="v1" />
+          </el-select>
+          <div class="form-help">{{ t('ca.genericProtocolHelp') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('ca.genericEAB')">
+          <el-switch v-model="genericForm.eab_required" :disabled="genericForm.protocol === 'v1'" />
+        </el-form-item>
+        <template v-if="genericForm.eab_required && genericForm.protocol !== 'v1'">
+          <el-form-item :label="t('ca.eabKid')" required>
+            <el-input v-model="genericForm.eab_kid" :placeholder="t('ca.eabKidPlaceholder')" maxlength="200" />
+          </el-form-item>
+          <el-form-item :label="t('ca.eabHmac')" required>
+            <el-input
+              v-model="genericForm.eab_hmac"
+              type="password"
+              show-password
+              :placeholder="genericEditing?.eab_hmac_set ? t('ca.eabHmacPlaceholderSet') : t('ca.eabHmacPlaceholderNew')"
+            />
+            <div class="form-help">{{ t('ca.eabHelp') }}</div>
+          </el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="genericDialogVisible = false">{{ t('ca.cancel') }}</el-button>
+        <el-button type="primary" :loading="genericSaving" @click="saveGeneric">{{ t('ca.save') }}</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="dialogVisible" :title="t('ca.eabTitle', { ca: editing?.label || '' })" width="500px" destroy-on-close>
       <el-alert
         v-if="editing?.desc"
@@ -119,10 +204,10 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
+import { Plus, Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { loadMeta, loadSettings } from '../store'
-import type { CAConfig, MessageResult, Meta, Settings } from '../types'
+import type { ACMECA, CAConfig, MessageResult, Meta, Settings } from '../types'
 
 interface ACMEForm {
   acme_email: string
@@ -133,14 +218,29 @@ interface ACMEForm {
 
 const { t } = useI18n()
 const items = ref<CAConfig[]>([])
+const genericItems = ref<ACMECA[]>([])
 const meta = ref<Meta | null>(null)
 const loading = ref(false)
+const genericLoading = ref(false)
 const saving = ref(false)
 const savingACME = ref(false)
 const dialogVisible = ref(false)
 const editing = ref<CAConfig | null>(null)
 
+const genericDialogVisible = ref(false)
+const genericSaving = ref(false)
+const genericEditingId = ref<number | null>(null)
+const genericEditing = ref<ACMECA | null>(null)
+
 const form = reactive({ eab_kid: '', eab_hmac: '' })
+const genericForm = reactive({
+  name: '',
+  directory_url: '',
+  protocol: 'v2',
+  eab_required: false,
+  eab_kid: '',
+  eab_hmac: ''
+})
 
 const acme = reactive<ACMEForm>({
   acme_email: '',
@@ -160,19 +260,120 @@ function applySettings(data: Settings): void {
 
 async function load(): Promise<void> {
   loading.value = true
+  genericLoading.value = true
   try {
-    const [caItems, metaData, settingData] = await Promise.all([
+    const [caItems, generic, metaData, settingData] = await Promise.all([
       api.get<CAConfig[]>('/ca-configs'),
+      api.get<ACMECA[]>('/acme-cas'),
       loadMeta(true),
       loadSettings(true)
     ])
     items.value = caItems || []
+    genericItems.value = generic || []
     meta.value = metaData
     applySettings(settingData)
   } catch (error: any) {
     ElMessage.error(error.message)
   } finally {
     loading.value = false
+    genericLoading.value = false
+  }
+}
+
+function openGenericCreate(): void {
+  genericEditingId.value = null
+  genericEditing.value = null
+  Object.assign(genericForm, {
+    name: '',
+    directory_url: '',
+    protocol: 'v2',
+    eab_required: false,
+    eab_kid: '',
+    eab_hmac: ''
+  })
+  genericDialogVisible.value = true
+}
+
+function openGenericEdit(row: ACMECA): void {
+  genericEditingId.value = row.id
+  genericEditing.value = row
+  Object.assign(genericForm, {
+    name: row.name,
+    directory_url: row.directory_url,
+    protocol: row.protocol || 'v2',
+    eab_required: row.eab_required,
+    eab_kid: row.eab_kid || '',
+    eab_hmac: ''
+  })
+  genericDialogVisible.value = true
+}
+
+function onGenericProtocolChange(value: string): void {
+  if (value === 'v1') {
+    genericForm.eab_required = false
+  }
+}
+
+async function saveGeneric(): Promise<void> {
+  if (!genericForm.name.trim()) {
+    ElMessage.warning(t('ca.genericNameRequired'))
+    return
+  }
+  if (!genericForm.directory_url.trim()) {
+    ElMessage.warning(t('ca.genericURLRequired'))
+    return
+  }
+  if (genericForm.eab_required) {
+    if (!genericForm.eab_kid.trim()) {
+      ElMessage.warning(t('ca.kidRequired'))
+      return
+    }
+    if (!genericForm.eab_hmac.trim() && !genericEditing.value?.eab_hmac_set) {
+      ElMessage.warning(t('ca.hmacRequired'))
+      return
+    }
+  }
+  genericSaving.value = true
+  try {
+    const payload = {
+      name: genericForm.name.trim(),
+      directory_url: genericForm.directory_url.trim(),
+      protocol: genericForm.protocol,
+      eab_required: genericForm.protocol === 'v1' ? false : genericForm.eab_required,
+      eab_kid: genericForm.eab_kid.trim(),
+      eab_hmac: genericForm.eab_hmac.trim()
+    }
+    if (genericEditingId.value) {
+      await api.put(`/acme-cas/${genericEditingId.value}`, payload)
+    } else {
+      await api.post('/acme-cas', payload)
+    }
+    ElMessage.success(genericEditingId.value ? t('ca.genericUpdated') : t('ca.genericCreated'))
+    genericDialogVisible.value = false
+    await load()
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    genericSaving.value = false
+  }
+}
+
+async function deleteGeneric(row: ACMECA): Promise<void> {
+  try {
+    await ElMessageBox.confirm(t('ca.genericDeleteConfirm', { name: row.name }), t('ca.genericDeleteTitle'), {
+      confirmButtonText: t('ca.genericDelete'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning'
+    })
+  } catch (_) {
+    return
+  }
+  try {
+    await api.delete(`/acme-cas/${row.id}`)
+    ElMessage.success(t('ca.genericDeleted'))
+    await load()
+  } catch (error: any) {
+    ElMessage.error(error.message)
   }
 }
 
@@ -274,6 +475,12 @@ onMounted(load)
   color: #94a3b8;
   font-size: 12px;
   line-height: 1.5;
+}
+.ca-url {
+  color: #475569;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
 }
 .form-help {
   font-size: 12px;

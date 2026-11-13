@@ -106,6 +106,9 @@ func runCommand(command string) error {
 		return nil
 	}
 	cmd := exec.Command("sh", "-c", command)
+	// 子进程不继承完整环境，避免并发的 DNS 申请把 lego 注入的 API 密钥
+	// （如 CLOUDFLARE_DNS_API_TOKEN）泄露给部署命令。
+	cmd.Env = commandEnv()
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -124,6 +127,27 @@ func runCommand(command string) error {
 		_ = cmd.Process.Kill()
 		return i18n.E("service.deploy.command_timeout")
 	}
+}
+
+// commandEnv 返回部署/重载命令允许继承的环境变量。
+// 只保留运行命令必需的基础变量与常见代理/工具配置，避免把应用密钥传给子进程。
+func commandEnv() []string {
+	allowed := map[string]bool{
+		"PATH": true, "HOME": true, "USER": true, "LOGNAME": true, "SHELL": true,
+		"LANG": true, "TZ": true, "TMPDIR": true, "TMP": true, "TEMP": true,
+		"TERM": true, "PWD": true, "SSL_CERT_FILE": true, "SSL_CERT_DIR": true,
+		"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
+		"http_proxy": true, "https_proxy": true, "no_proxy": true,
+		"KUBECONFIG": true, "DOCKER_HOST": true, "XDG_RUNTIME_DIR": true,
+	}
+	var env []string
+	for _, item := range os.Environ() {
+		name, _, _ := strings.Cut(item, "=")
+		if allowed[name] || strings.HasPrefix(name, "LC_") {
+			env = append(env, item)
+		}
+	}
+	return env
 }
 
 func deployLocal(cert *model.Certificate, cfg map[string]string) error {
@@ -268,6 +292,9 @@ func deployWebhook(cert *model.Certificate, cfg map[string]string) error {
 	target := strings.TrimSpace(cfg["url"])
 	if target == "" {
 		return i18n.E("service.deploy.webhook_url_required")
+	}
+	if err := ValidateOutboundURL(target); err != nil {
+		return err
 	}
 	payload := map[string]any{
 		"event":      "certificate.deploy",

@@ -2,6 +2,27 @@ package model
 
 import "time"
 
+// ACMECA 是「权威CA」中用户配置的通用 ACME 上游。
+// 一个系统可以配置多个上游，使用不同的目录地址或协议版本。
+type ACMECA struct {
+	ID int64 `json:"id"`
+	// PublicID 是对外展示的随机标识，避免暴露自增 ID。
+	PublicID string `json:"public_id"`
+	Name     string `json:"name"`
+	// DirectoryURL 是上游 ACME 目录（directory）地址。
+	DirectoryURL string `json:"directory_url"`
+	// Protocol 为 v1 或 v2，默认 v2。
+	Protocol string `json:"protocol"`
+	// EABRequired 表示注册账户时必须使用 External Account Binding。
+	EABRequired bool   `json:"eab_required"`
+	EABKid      string `json:"eab_kid"`
+	// EABHMAC 只在服务端内部使用，接口响应不返回明文。
+	EABHMAC    string    `json:"-"`
+	EABHMACSet bool      `json:"eab_hmac_set"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 // ACMEEndpoint 是一个对外提供 ACME 协议的端点，绑定到指定的私有 CA。
 type ACMEEndpoint struct {
 	ID                    int64     `json:"id"`

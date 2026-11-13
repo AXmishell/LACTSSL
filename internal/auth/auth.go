@@ -191,12 +191,18 @@ func ValidateTOTP(secret, code string) bool {
 	}
 	now := time.Now()
 	key := secret + "|" + code
-	if value, loaded := totpReplay.Load(key); loaded {
-		if expires, valid := value.(int64); valid && expires > now.Unix() {
+	expires := now.Add(2 * time.Minute).Unix()
+	// LoadOrStore 原子抢占验证码。仅靠 Load + Store 会让并发请求同时通过，
+	// 使同一个 TOTP 验证码被使用多次。
+	if value, loaded := totpReplay.LoadOrStore(key, expires); loaded {
+		if old, valid := value.(int64); valid && old > now.Unix() {
+			return false
+		}
+		// 过期条目：用 CompareAndSwap 抢占，避免多个请求同时覆盖后都成功。
+		if !totpReplay.CompareAndSwap(key, value, expires) {
 			return false
 		}
 	}
-	totpReplay.Store(key, now.Add(2*time.Minute).Unix())
 	sweepTOTPReplay(now)
 	return true
 }

@@ -56,9 +56,13 @@ type CADef struct {
 	Label    string `json:"label"`
 	LabelKey string `json:"-"`
 	URL      string `json:"url"`
-	EAB      bool   `json:"eab"`
-	Desc     string `json:"desc"`
-	DescKey  string `json:"-"`
+	// Protocol 是 ACME 协议版本：v2（RFC 8555）或 v1（旧版 ACME）。
+	Protocol string `json:"protocol"`
+	// Custom 表示该 CA 由用户在「权威CA」中配置，而不是内置 CA。
+	Custom  bool   `json:"custom,omitempty"`
+	EAB     bool   `json:"eab"`
+	Desc    string `json:"desc"`
+	DescKey string `json:"-"`
 }
 
 // Localized 返回翻译后的选项。
@@ -116,6 +120,9 @@ func (c CADef) Localized(locale i18n.Locale) CADef {
 	}
 	if c.DescKey != "" {
 		c.Desc = i18n.T(locale, c.DescKey, nil)
+	}
+	if c.Protocol == "" {
+		c.Protocol = "v2"
 	}
 	return c
 }

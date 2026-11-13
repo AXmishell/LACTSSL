@@ -36,6 +36,9 @@ var (
 	htmlTagPattern      = regexp.MustCompile(`(?is)<html[^>]*>`)
 	titlePattern        = regexp.MustCompile(`(?is)<title>.*?</title>`)
 	appDivPattern       = regexp.MustCompile(`(?is)<div\s+id="app"\s*>\s*</div>`)
+	// 首屏启动层只用于正常页面，404 页面必须移除，否则加载动画会一直盖住 404 内容。
+	bootStylePattern = regexp.MustCompile(`(?is)<style[^>]*\bid=["']app-boot-style["'][^>]*>.*?</style>\s*`)
+	bootDivPattern   = regexp.MustCompile(`(?is)<div[^>]*\bid=["']app-boot["'][^>]*>.*?</div>\s*`)
 )
 
 // notFoundPage 输出控制台样式的 404 页面，用于未通过安全入口门禁的页面请求。
@@ -73,6 +76,10 @@ func (s *Server) notFoundDocument(body string, loc i18n.Locale) ([]byte, error) 
 		return nil, err
 	}
 	doc := moduleScriptPattern.ReplaceAll(data, nil)
+	// 404 页面不运行前端应用，必须同时移除首屏加载层及其样式，
+	// 否则未登录访问根路径时只会看到永不消失的加载动画。
+	doc = bootStylePattern.ReplaceAll(doc, nil)
+	doc = bootDivPattern.ReplaceAll(doc, nil)
 	doc = htmlTagPattern.ReplaceAllFunc(doc, func([]byte) []byte {
 		return []byte(`<html lang="` + html.EscapeString(string(loc)) + `">`)
 	})

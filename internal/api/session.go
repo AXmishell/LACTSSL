@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/auth"
+	"lactssl/internal/i18n"
 	"lactssl/internal/model"
 	"lactssl/internal/util"
 )
@@ -21,10 +22,14 @@ const (
 	sessionCookieName = "lactssl_session"
 	entryCookieName   = "lactssl_entry"
 	csrfCookieName    = "lactssl_csrf"
-	csrfHeaderName    = "X-LACTSSL-CSRF"
-	entryGatePurpose  = "entry-gate"
-	csrfTokenPurpose  = "csrf"
-	entryCookieTTL    = 24 * time.Hour
+	// hostCookiePrefix 在 HTTPS 下启用，防止共享父域下的同名 Cookie 覆盖。
+	hostCookiePrefix = "__Host-"
+	csrfHeaderName   = "X-LACTSSL-CSRF"
+	entryGatePurpose = "entry-gate"
+	csrfTokenPurpose = "csrf"
+	entryCookieTTL   = 24 * time.Hour
+	// reauthTTL 是高风险操作重新认证的有效期。
+	reauthTTL = 5 * time.Minute
 )
 
 // sessionCookieSecure 在 TLS 或可信反代声明 HTTPS 时给 Cookie 加 Secure。
@@ -63,10 +68,27 @@ func (s *Server) isTrustedProxy(remoteAddr string) bool {
 	return false
 }
 
+// cookieName 在 HTTPS 下给 Cookie 加 __Host- 前缀；HTTP 环境保持原名，
+// 避免浏览器因缺少 Secure 属性拒绝 __Host- Cookie。
+func (s *Server) cookieName(base string, secure bool) string {
+	if secure {
+		return hostCookiePrefix + base
+	}
+	return base
+}
+
+// readCookie 优先读取 __Host- 前缀 Cookie，兼容明文 HTTP 下的旧名称。
+func (s *Server) readCookie(c *gin.Context, base string) (string, error) {
+	if value, err := c.Cookie(hostCookiePrefix + base); err == nil && value != "" {
+		return value, nil
+	}
+	return c.Cookie(base)
+}
+
 // setSessionCookie 写入会话 Cookie。Path 设为根路径，保证裸页面和入口下的接口都能携带。
 func (s *Server) setSessionCookie(c *gin.Context, token string, expire time.Time) {
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     sessionCookieName,
+		Name:     s.cookieName(sessionCookieName, s.sessionCookieSecure(c)),
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
@@ -77,24 +99,26 @@ func (s *Server) setSessionCookie(c *gin.Context, token string, expire time.Time
 	})
 }
 
-// clearSessionCookie 清除会话 Cookie。
+// clearSessionCookie 清除会话 Cookie（同时清理带与不带 __Host- 前缀的名称）。
 func (s *Server) clearSessionCookie(c *gin.Context) {
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   s.sessionCookieSecure(c),
-		SameSite: http.SameSiteStrictMode,
-		Expires:  time.Unix(0, 0),
-		MaxAge:   -1,
-	})
+	for _, name := range []string{sessionCookieName, hostCookiePrefix + sessionCookieName} {
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   s.sessionCookieSecure(c),
+			SameSite: http.SameSiteStrictMode,
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+		})
+	}
 }
 
 // setCSRFCookie 下发双提交 CSRF Cookie。值由会话令牌派生，前端读取后放入请求头。
 func (s *Server) setCSRFCookie(c *gin.Context, token string, expire time.Time) {
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     csrfCookieName,
+		Name:     s.cookieName(csrfCookieName, s.sessionCookieSecure(c)),
 		Value:    s.Auth.SignValue(csrfTokenPurpose, token),
 		Path:     "/",
 		HttpOnly: false,
@@ -105,17 +129,19 @@ func (s *Server) setCSRFCookie(c *gin.Context, token string, expire time.Time) {
 	})
 }
 
-// clearCSRFCookie 清除 CSRF Cookie。
+// clearCSRFCookie 清除 CSRF Cookie（同时清理带与不带 __Host- 前缀的名称）。
 func (s *Server) clearCSRFCookie(c *gin.Context) {
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     csrfCookieName,
-		Value:    "",
-		Path:     "/",
-		Secure:   s.sessionCookieSecure(c),
-		SameSite: http.SameSiteStrictMode,
-		Expires:  time.Unix(0, 0),
-		MaxAge:   -1,
-	})
+	for _, name := range []string{csrfCookieName, hostCookiePrefix + csrfCookieName} {
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			Secure:   s.sessionCookieSecure(c),
+			SameSite: http.SameSiteStrictMode,
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+		})
+	}
 }
 
 // validCSRF 严格校验双提交 CSRF 令牌；Cookie 缺失时不再退化为“只看请求头”。
@@ -124,7 +150,7 @@ func (s *Server) validCSRF(c *gin.Context) bool {
 	if header == "" {
 		return false
 	}
-	cookie, err := c.Cookie(csrfCookieName)
+	cookie, err := s.readCookie(c, csrfCookieName)
 	if err != nil || cookie == "" {
 		return false
 	}
@@ -136,7 +162,7 @@ func (s *Server) validCSRF(c *gin.Context) bool {
 func (s *Server) setEntryCookie(c *gin.Context) {
 	expires := time.Now().Add(entryCookieTTL)
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     entryCookieName,
+		Name:     s.cookieName(entryCookieName, s.sessionCookieSecure(c)),
 		Value:    s.Auth.SignExpiringValue(entryGatePurpose, s.Entry(), expires),
 		Path:     "/",
 		HttpOnly: true,
@@ -149,7 +175,7 @@ func (s *Server) setEntryCookie(c *gin.Context) {
 
 // hasEntryCookie 校验请求是否携带有效的入口门禁 Cookie（含服务端过期时间）。
 func (s *Server) hasEntryCookie(c *gin.Context) bool {
-	value, err := c.Cookie(entryCookieName)
+	value, err := s.readCookie(c, entryCookieName)
 	if err != nil || value == "" {
 		return false
 	}
@@ -207,7 +233,7 @@ func (s *Server) sessionToken(c *gin.Context) (token string, fromHeader bool) {
 	if header := c.GetHeader("Authorization"); strings.HasPrefix(header, "Bearer ") {
 		return strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")), true
 	}
-	if value, err := c.Cookie(sessionCookieName); err == nil {
+	if value, err := s.readCookie(c, sessionCookieName); err == nil {
 		return value, false
 	}
 	return "", false
@@ -233,6 +259,60 @@ func (s *Server) sessionUser(c *gin.Context) *model.User {
 		return nil
 	}
 	return user
+}
+
+// markReauth 记录当前会话在最近通过账户密码重新认证。
+func (s *Server) markReauth(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	now := time.Now()
+	s.reauthMu.Lock()
+	defer s.reauthMu.Unlock()
+	if s.reauth == nil {
+		s.reauth = make(map[string]time.Time)
+	}
+	// 顺手清理过期条目，避免 map 随会话增长。
+	for id, expires := range s.reauth {
+		if !now.Before(expires) {
+			delete(s.reauth, id)
+		}
+	}
+	s.reauth[sessionID] = now.Add(reauthTTL)
+}
+
+// hasReauth 判断当前会话是否仍在重新认证有效期内。
+func (s *Server) hasReauth(sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	s.reauthMu.Lock()
+	defer s.reauthMu.Unlock()
+	expires, ok := s.reauth[sessionID]
+	if !ok {
+		return false
+	}
+	if !time.Now().Before(expires) {
+		delete(s.reauth, sessionID)
+		return false
+	}
+	return true
+}
+
+// requireReauth 是旧版重新认证窗口的兼容辅助函数。
+// 当前敏感操作已改用二次验证 token，新的业务接口不再依赖该窗口。
+func (s *Server) requireReauth(c *gin.Context) bool {
+	if s.hasReauth(currentSessionID(c)) {
+		return true
+	}
+	c.Abort()
+	c.JSON(http.StatusForbidden, gin.H{
+		"success":         false,
+		"code":            "api.error.reauth_required",
+		"message":         i18n.T(locale(c), "api.error.reauth_required", nil),
+		"reauth_required": true,
+	})
+	return false
 }
 
 // requiresCSRF 判断该请求方法是否会改变服务端状态。

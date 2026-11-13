@@ -97,7 +97,13 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { api, installPath } from '../api'
 import { state, loadUser } from '../store'
+import { beginLoading, endLoading } from '../loading'
 import type { AuthResult, MessageResult, SetupStatus } from '../types'
+
+// 登录成功后保留的过渡加载时长（含 200ms 淡出），只用于 /login → 控制台，
+// 不影响后台页面切换。
+const LOGIN_LOADING_MS = 900
+const LOGIN_LOADING_FADE_MS = 200
 
 const router = useRouter()
 const { t } = useI18n()
@@ -159,8 +165,18 @@ async function submit(): Promise<void> {
     state.user = data.user
     state.settings = null
     state.meta = null
+    // 登录成功使用全局默认加载层（同样的延迟显示、文案与动画），
+    // 仅把展示时长保留为约 900ms；控制台内部切换不套用该时长。
+    const startedAt = performance.now()
+    beginLoading()
+    try {
+      await router.replace('/dashboard')
+      const remaining = LOGIN_LOADING_MS - LOGIN_LOADING_FADE_MS - (performance.now() - startedAt)
+      if (remaining > 0) await new Promise((resolve) => window.setTimeout(resolve, remaining))
+    } finally {
+      endLoading()
+    }
     ElMessage.success(t('auth.loginSuccess'))
-    router.replace('/dashboard')
   } catch (error: any) {
     if (error.totpRequired) {
       totpRequired.value = true

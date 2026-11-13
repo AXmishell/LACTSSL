@@ -11,9 +11,150 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#2563eb" />
     <title>LACTSSL</title>
+    <style id="app-boot-style">
+      /* 首屏启动层：在 JS 与路由就绪前直接由 HTML/CSS 渲染，避免白屏。 */
+      #app-boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: radial-gradient(circle at 50% 38%, #ffffff 0%, #f5f8ff 55%, #edf2fb 100%);
+        color: #0f172a;
+        font-family: "Inter", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        transition: opacity 0.24s ease, visibility 0.24s ease;
+      }
+      #app-boot.is-hiding {
+        opacity: 0;
+        visibility: hidden;
+      }
+      #app-boot .boot-mark {
+        position: relative;
+        width: 76px;
+        height: 76px;
+        display: grid;
+        place-items: center;
+      }
+      #app-boot .boot-mark img {
+        position: relative;
+        z-index: 1;
+        width: 40px;
+        height: 40px;
+        filter: drop-shadow(0 8px 16px rgba(37, 99, 235, 0.28));
+        animation: boot-breathe 1.8s ease-in-out infinite;
+      }
+      #app-boot .boot-ring {
+        position: absolute;
+        inset: 0;
+        border: 2px solid #e5ecf8;
+        border-top-color: #2563eb;
+        border-right-color: #60a5fa;
+        animation: boot-spin 1.25s linear infinite;
+      }
+      #app-boot .boot-ring-inner {
+        inset: 11px;
+        border: 1px solid #eef3fb;
+        border-bottom-color: #a7f3d0;
+        border-left-color: #d1fae5;
+        animation: none;
+      }
+      #app-boot .boot-text {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      #app-boot .boot-dots {
+        display: inline-flex;
+        gap: 3px;
+        padding-top: 3px;
+      }
+      #app-boot .boot-dots i {
+        width: 4px;
+        height: 4px;
+        background: #2563eb;
+        animation: boot-dot 1.1s ease-in-out infinite;
+      }
+      #app-boot .boot-dots i:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      #app-boot .boot-dots i:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      #app-boot .boot-en {
+        margin-left: 8px;
+        color: #94a3b8;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes boot-breathe {
+        0%,
+        100% {
+          opacity: 0.85;
+          transform: scale(0.94);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.04);
+        }
+      }
+      @keyframes boot-dot {
+        0%,
+        100% {
+          opacity: 0.35;
+          transform: translateY(0);
+        }
+        40% {
+          opacity: 1;
+          transform: translateY(-3px);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #app-boot .boot-mark img {
+          animation: none;
+        }
+        #app-boot .boot-ring {
+          animation-duration: 2.4s;
+        }
+        #app-boot .boot-dots i {
+          animation-duration: 2.2s;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
+    <div id="app-boot" role="status" aria-live="polite" aria-label="正在加载 · Loading">
+      <span class="boot-mark" aria-hidden="true">
+        <span class="boot-ring"></span>
+        <span class="boot-ring boot-ring-inner"></span>
+        <img src="/logo.svg" alt="" />
+      </span>
+      <span class="boot-text">
+        正在加载<span class="boot-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="boot-en">Loading</span>
+      </span>
+    </div>
+    <noscript>
+      <style>
+        #app-boot {
+          display: none;
+        }
+      </style>
+      <div style="position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font-family: sans-serif">
+        LACTSSL 需要启用 JavaScript 才能运行。<br />JavaScript is required to run LACTSSL.
+      </div>
+    </noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

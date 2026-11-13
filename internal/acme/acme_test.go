@@ -136,6 +136,25 @@ func postJWS(t *testing.T, url string, body []byte) (*http.Response, []byte) {
 	return resp, data
 }
 
+func TestBaseURLRejectsMalformedHost(t *testing.T) {
+	s := NewServer(nil, "")
+	request := &http.Request{Host: "evil.example\r\nX-Injected: 1"}
+	got := s.baseURL(request)
+	if strings.ContainsAny(got, "\r\n") || strings.Contains(got, "evil.example") {
+		t.Fatalf("非法 Host 不应进入资源 URL: %q", got)
+	}
+	for _, host := range []string{"example.com", "example.com:8443", "127.0.0.1:14000", "[::1]:14000"} {
+		if !validRequestHost(host) {
+			t.Fatalf("合法 Host 被拒绝: %s", host)
+		}
+	}
+	for _, host := range []string{"", "example.com/path", "user@example.com", "example.com:abc", "example.com:70000"} {
+		if validRequestHost(host) {
+			t.Fatalf("非法 Host 应被拒绝: %s", host)
+		}
+	}
+}
+
 func TestDirectoryAndNonce(t *testing.T) {
 	_, _, _, ts := newTestACMEServer(t, false)
 	resp, err := http.Get(ts.URL + "/acme/test/directory")

@@ -47,6 +47,22 @@
 
           <div class="setting-row">
             <div>
+              <div style="font-weight: 600; font-size: 14px">{{ t('settings.criticalVerifyTitle') }}</div>
+              <div class="muted" style="margin-top: 4px">{{ t('settings.criticalVerifySub') }}</div>
+            </div>
+            <div class="flex gap-10 wrap">
+              <span
+                class="tag-soft"
+                :class="verifyMode === 'none' ? 'tag-red' : verifyMode === 'password' ? 'tag-gray' : 'tag-green'"
+              >
+                {{ verifyModeLabel }}
+              </span>
+              <el-button @click="openVerifyModeDialog">{{ t('settings.switchVerifyMode') }}</el-button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div>
               <div style="font-weight: 600; font-size: 14px">{{ t('settings.mailRecovery') }}</div>
               <div class="muted" style="margin-top: 4px">{{ t('settings.mailRecoverySub') }}</div>
             </div>
@@ -69,8 +85,25 @@
               <el-input v-model="entryForm.entry" :placeholder="settings?.entry || t('settings.entryPlaceholder')" />
               <div class="form-help">{{ t('settings.entryHelp') }}</div>
             </el-form-item>
-            <el-form-item :label="t('settings.currentPassword')" required>
+            <el-form-item
+              v-if="verifyMode === 'password' || verifyMode === 'password_totp'"
+              :label="t('settings.currentPassword')"
+              required
+            >
               <el-input v-model="entryForm.password" type="password" show-password :placeholder="t('settings.confirmIdentity')" />
+            </el-form-item>
+            <el-form-item
+              v-if="verifyMode === 'totp' || verifyMode === 'password_totp'"
+              :label="t('settings.totpCode')"
+              required
+            >
+              <el-input
+                v-model="entryForm.totp"
+                maxlength="6"
+                :placeholder="t('settings.totpCodePlaceholder')"
+                @keyup.enter="saveEntry"
+              />
+              <div class="form-help">{{ t('settings.criticalVerifyTotpHint') }}</div>
             </el-form-item>
             <el-button type="primary" :loading="savingEntry" @click="saveEntry">{{ t('settings.updateEntry') }}</el-button>
           </el-form>
@@ -274,6 +307,71 @@
       </template>
     </el-dialog>
 
+    <!-- 二次验证方式 -->
+    <el-dialog v-model="verifyModeVisible" :title="t('settings.criticalVerify')" width="520px" @closed="resetVerifyModeDialog">
+      <p class="muted" style="margin-top: 0">{{ t('settings.criticalVerifySub') }}</p>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.criticalVerifyMethod')">
+          <el-radio-group v-model="verifyModeForm.mode" style="display: flex; flex-wrap: wrap; gap: 8px 16px">
+            <el-radio value="none">{{ t('settings.verifyModeNone') }}</el-radio>
+            <el-radio value="password">{{ t('settings.verifyModePassword') }}</el-radio>
+            <el-radio value="totp" :disabled="!user?.totp_enabled">{{ t('settings.verifyModeTOTP') }}</el-radio>
+            <el-radio value="password_totp" :disabled="!user?.totp_enabled">
+              {{ t('settings.verifyModePasswordTOTP') }}
+            </el-radio>
+          </el-radio-group>
+          <div v-if="!user?.totp_enabled" class="form-help">{{ t('settings.verifyModeTotpDisabled') }}</div>
+        </el-form-item>
+        <el-form-item
+          v-if="verifyMode === 'password' || verifyMode === 'password_totp'"
+          :label="t('settings.currentPassword')"
+          required
+        >
+          <el-input
+            v-model="verifyModeForm.password"
+            type="password"
+            show-password
+            autocomplete="current-password"
+          />
+        </el-form-item>
+        <el-form-item
+          v-if="verifyMode === 'totp' || verifyMode === 'password_totp'"
+          :label="t('settings.totpCode')"
+          required
+        >
+          <el-input v-model="verifyModeForm.totp" maxlength="6" :placeholder="t('settings.totpCodePlaceholder')" />
+        </el-form-item>
+        <div v-if="verifyMode === 'none'" class="form-help">
+          {{ t('settings.criticalVerifyNoneHint') }}
+        </div>
+      </el-form>
+      <el-alert
+        v-if="verifyModeForm.mode === 'none' && verifyMode !== 'none'"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="t('settings.criticalVerifyNoneWarning')"
+        style="margin-bottom: 12px"
+      />
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        :title="t('settings.criticalVerifySwitchHint')"
+      />
+      <template #footer>
+        <el-button @click="verifyModeVisible = false">{{ t('settings.cancel') }}</el-button>
+        <el-button
+          type="primary"
+          :loading="savingVerifyMode"
+          :disabled="verifyModeForm.mode === verifyMode"
+          @click="saveVerifyMode"
+        >
+          {{ t('common.confirm') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 下载备份 -->
     <el-dialog v-model="backupDialogVisible" :title="t('settings.backupDialogTitle')" width="460px" @closed="resetBackupDialog">
       <p class="muted" style="margin-top: 0">{{ t('settings.backupPasswordHint') }}</p>
@@ -297,6 +395,13 @@
         show-icon
         :title="t('settings.backupPasswordKeep')"
         style="margin-top: 4px"
+      />
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="t('settings.backupReauthHint')"
+        style="margin-top: 8px"
       />
       <template #footer>
         <el-button @click="backupDialogVisible = false">{{ t('settings.cancel') }}</el-button>
@@ -335,13 +440,29 @@
         <span class="restore-file-name">{{ restoreFileName }}</span>
       </div>
       <el-form label-position="top" style="margin-top: 16px">
-        <el-form-item :label="t('settings.restorePassword')">
+        <el-form-item
+          v-if="verifyMode === 'password' || verifyMode === 'password_totp'"
+          :label="t('settings.restorePassword')"
+          required
+        >
           <el-input
             v-model="restorePassword"
             type="password"
             show-password
             :placeholder="t('settings.restorePasswordPlaceholder')"
           />
+        </el-form-item>
+        <el-form-item
+          v-if="verifyMode === 'totp' || verifyMode === 'password_totp'"
+          :label="t('settings.totpCode')"
+          required
+        >
+          <el-input
+            v-model="restoreTotp"
+            maxlength="6"
+            :placeholder="t('settings.totpCodePlaceholder')"
+          />
+          <div class="form-help">{{ t('settings.criticalVerifyTotpHint') }}</div>
         </el-form-item>
         <el-form-item :label="t('settings.restoreDecryptPassword')">
           <el-input
@@ -359,7 +480,7 @@
         <el-button
           type="danger"
           :loading="restoring"
-          :disabled="!restoreFile || !restorePassword"
+          :disabled="!restoreFile || !restoreVerifyReady"
           @click="restoreBackup"
         >
           {{ t('settings.confirmRestore') }}
@@ -378,9 +499,14 @@ import type { UploadFile, UploadInstance } from 'element-plus'
 import { Document, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import QRCode from 'qrcode'
 import { api, copyText, downloadFile, errorText } from '../api'
-import { loadMeta, loadSettings, loadUser, state } from '../store'
+import {
+  requestSecondaryVerification,
+  secondaryVerifyHeader,
+  verifySecondary
+} from '../secondaryVerify'
+import { loadMeta, loadSettings, loadUser, logout, state } from '../store'
 import { formatDate } from '../utils'
-import type { AuthResult, BackupInfo, MessageResult, Meta, Settings as AppSettings, TOTPSetup } from '../types'
+import type { AuthResult, BackupInfo, MessageResult, Meta, Settings as AppSettings, TOTPSetup, VerifyMode } from '../types'
 
 interface ProgramStatus {
   version: string
@@ -409,11 +535,40 @@ const now = ref(Date.now())
 let statusTimer: number | undefined
 let clockTimer: number | undefined
 const user = computed(() => state.user)
+const verifyMode = computed<VerifyMode>(() => {
+  const mode = settings.value?.verify_mode
+  if (mode === 'none') return 'none'
+  if ((mode === 'totp' || mode === 'password_totp') && user.value?.totp_enabled) {
+    return mode
+  }
+  return 'password'
+})
+
+const verifyModeLabel = computed(() => {
+  switch (verifyMode.value) {
+    case 'none':
+      return t('settings.verifyModeNone')
+    case 'totp':
+      return t('settings.verifyModeTOTP')
+    case 'password_totp':
+      return t('settings.verifyModePasswordTOTP')
+    default:
+      return t('settings.verifyModePassword')
+  }
+})
 
 const savingEntry = ref(false)
 const savingAccount = ref(false)
+const savingVerifyMode = ref(false)
 
-const entryForm = reactive({ entry: '', password: '' })
+const entryForm = reactive({ entry: '', password: '', totp: '' })
+
+const verifyModeVisible = ref(false)
+const verifyModeForm = reactive({
+  mode: 'password' as VerifyMode,
+  password: '',
+  totp: ''
+})
 
 const emailVisible = ref(false)
 const emailForm = reactive({ email: '', password: '' })
@@ -439,8 +594,19 @@ const restoreUpload = ref<UploadInstance>()
 const restoreFile = ref<File | null>(null)
 const restoreFileName = ref('')
 const restorePassword = ref('')
+const restoreTotp = ref('')
 const restoreBackupPassword = ref('')
 const restoring = ref(false)
+const restoreVerifyReady = computed(() => {
+  if (verifyMode.value === 'none') return true
+  if ((verifyMode.value === 'password' || verifyMode.value === 'password_totp') && !restorePassword.value) {
+    return false
+  }
+  if ((verifyMode.value === 'totp' || verifyMode.value === 'password_totp') && !/^\d{6}$/.test(restoreTotp.value)) {
+    return false
+  }
+  return true
+})
 let restoreTimer: number | undefined
 
 const uptimeText = computed(() => {
@@ -517,10 +683,24 @@ async function reload(): Promise<void> {
   }
 }
 
+// verifyCredentialsValid 按当前验证方式校验表单中填写的关键操作凭证。
+// 返回 false 时已经提示用户具体缺少哪一项。
+function verifyCredentialsValid(mode: VerifyMode, password: string, code: string): boolean {
+  if ((mode === 'password' || mode === 'password_totp') && !password) {
+    ElMessage.warning(t('settings.currentPasswordRequired'))
+    return false
+  }
+  if ((mode === 'totp' || mode === 'password_totp') && !/^\d{6}$/.test(code)) {
+    ElMessage.warning(t('settings.totpCodeInvalid'))
+    return false
+  }
+  return true
+}
+
 async function saveEntry(): Promise<void> {
   const entry = entryForm.entry.trim().replace(/^\/+|\/+$/g, '')
   entryForm.entry = entry
-  if (!/^[a-zA-Z0-9_-]{3,32}$/.test(entry)) {
+  if (!/^[a-zA-Z0-9_-]{8,32}$/.test(entry)) {
     ElMessage.warning(t('settings.entryFormat'))
     return
   }
@@ -528,8 +708,7 @@ async function saveEntry(): Promise<void> {
     ElMessage.warning(t('settings.entryReserved', { entry }))
     return
   }
-  if (!entryForm.password) {
-    ElMessage.warning(t('settings.passwordRequired'))
+  if (!verifyCredentialsValid(verifyMode.value, entryForm.password, entryForm.totp)) {
     return
   }
   try {
@@ -543,16 +722,75 @@ async function saveEntry(): Promise<void> {
   }
   savingEntry.value = true
   try {
-    await api.post<MessageResult>('/security/entry', { entry, password: entryForm.password })
+    const token = await verifySecondary('entry_change', entryForm.password, entryForm.totp)
+    await api.post<MessageResult>('/security/entry', { entry }, { [secondaryVerifyHeader]: token })
     ElMessage.success(t('settings.entryUpdated'))
     entryForm.password = ''
+    entryForm.totp = ''
     setTimeout(() => {
       // 入口变更后重新加载，让服务端把新入口注入页面。
       window.location.replace('/dashboard')
     }, 700)
   } catch (error: any) {
+    if (error?.totpRequired) {
+      await refreshVerifyMode()
+    }
     ElMessage.error(error.message)
     savingEntry.value = false
+  }
+}
+
+function openVerifyModeDialog(): void {
+  verifyModeForm.mode = verifyMode.value
+  verifyModeForm.password = ''
+  verifyModeForm.totp = ''
+  verifyModeVisible.value = true
+}
+
+function resetVerifyModeDialog(): void {
+  verifyModeForm.password = ''
+  verifyModeForm.totp = ''
+}
+
+// 其他会话说切换验证方式后，本地设置可能过期；收到 totp_required 时重新拉取，
+// 让入口和恢复备份表单立即切换为验证码输入框。
+async function refreshVerifyMode(): Promise<void> {
+  try {
+    settings.value = await loadSettings(true)
+  } catch (_) {
+    // 刷新失败时保留原界面，用户仍可手动刷新页面。
+  }
+}
+
+async function saveVerifyMode(): Promise<void> {
+  if (verifyModeForm.mode === verifyMode.value) {
+    return
+  }
+  if (
+    (verifyModeForm.mode === 'totp' || verifyModeForm.mode === 'password_totp') &&
+    !user.value?.totp_enabled
+  ) {
+    ElMessage.warning(t('settings.verifyModeTotpDisabled'))
+    return
+  }
+  // 切换验证方式本身必须用“当前生效的验证方式”确认身份。
+  if (!verifyCredentialsValid(verifyMode.value, verifyModeForm.password, verifyModeForm.totp)) {
+    return
+  }
+  savingVerifyMode.value = true
+  try {
+    await api.post('/security/verify-mode', {
+      mode: verifyModeForm.mode,
+      password: verifyModeForm.password,
+      totp: verifyModeForm.totp
+    })
+    settings.value = await loadSettings(true)
+    verifyModeVisible.value = false
+    ElMessage.success(t('settings.verifyModeUpdated'))
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    savingVerifyMode.value = false
   }
 }
 
@@ -573,7 +811,7 @@ async function downloadBackup(): Promise<void> {
     ElMessage.warning(t('settings.backupPasswordRequired'))
     return
   }
-  if (password.length < 12) {
+  if (password.length < 8) {
     ElMessage.warning(t('settings.backupPasswordMin'))
     return
   }
@@ -581,19 +819,25 @@ async function downloadBackup(): Promise<void> {
     ElMessage.warning(t('settings.backupPasswordMismatch'))
     return
   }
-  backupDownloading.value = true
   try {
+    // 点击下载后先完成独立的二次验证，再携带短期 token 下载备份。
+    const token = await requestSecondaryVerification('backup_download')
+    if (!token) return
+    backupDownloading.value = true
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
     const label = '-encrypted'
     await downloadFile('/settings/backup/download', `lactssl-backup-${stamp}${label}.zip`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        [secondaryVerifyHeader]: token
+      },
       body: JSON.stringify({ password })
     })
     backupDialogVisible.value = false
     ElMessage.success(t('settings.backupDownloaded'))
     await loadBackupInfo()
-  } catch (error) {
+  } catch (error: any) {
     ElMessage.error(errorText(error))
   } finally {
     backupDownloading.value = false
@@ -609,6 +853,7 @@ function resetRestore(): void {
   restoreFile.value = null
   restoreFileName.value = ''
   restorePassword.value = ''
+  restoreTotp.value = ''
   restoreBackupPassword.value = ''
   restoreUpload.value?.clearFiles()
 }
@@ -630,17 +875,18 @@ async function restoreBackup(): Promise<void> {
     ElMessage.warning(t('settings.restoreFileRequired'))
     return
   }
-  if (!restorePassword.value) {
-    ElMessage.warning(t('settings.restorePasswordRequired'))
+  if (!verifyCredentialsValid(verifyMode.value, restorePassword.value, restoreTotp.value)) {
     return
   }
   restoring.value = true
   try {
+    const token = await verifySecondary('backup_restore', restorePassword.value, restoreTotp.value)
     const form = new FormData()
     form.append('file', restoreFile.value)
-    form.append('password', restorePassword.value)
     form.append('backup_password', restoreBackupPassword.value)
-    const data = await api.post<MessageResult>('/settings/backup/restore', form)
+    const data = await api.post<MessageResult>('/settings/backup/restore', form, {
+      [secondaryVerifyHeader]: token
+    })
     restoreVisible.value = false
     ElMessage.success(data.message || t('settings.restoreUploaded'))
     if (data.restarting) {
@@ -651,7 +897,10 @@ async function restoreBackup(): Promise<void> {
     } else {
       await loadBackupInfo()
     }
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.totpRequired) {
+      await refreshVerifyMode()
+    }
     ElMessage.error(errorText(error))
   } finally {
     restoring.value = false
@@ -690,7 +939,7 @@ function openPasswordDialog(): void {
 }
 
 async function savePassword(): Promise<void> {
-  if ((passwordForm.new_password || '').length < 12) {
+  if ((passwordForm.new_password || '').length < 8) {
     ElMessage.warning(t('settings.passwordMin'))
     return
   }
@@ -705,7 +954,10 @@ async function savePassword(): Promise<void> {
       new_password: passwordForm.new_password
     })
     passwordVisible.value = false
+    // 服务端已使全部会话失效并清除 Cookie，本机也回到登录页重新认证。
+    logout()
     ElMessage.success(t('settings.passwordUpdated'))
+    await router.replace('/login')
   } catch (error: any) {
     ElMessage.error(error.message)
   } finally {

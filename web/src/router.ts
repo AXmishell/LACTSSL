@@ -2,6 +2,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { loginPath } from './api'
 import { state, loadUser, loadSettings } from './store'
 import { setLocale, t } from './i18n'
+import { beginRouteLoading, endRouteLoading } from './loading'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -55,7 +56,16 @@ const router = createRouter({
   }
 })
 
-router.beforeEach(async (to) => {
+// 首次进入由 index.html 的首屏启动层负责，后续切换页面使用全局加载层。
+let initialNavigation = true
+
+router.beforeEach(async (to, from) => {
+  const isInitial = initialNavigation
+  initialNavigation = false
+  // 公开页（登录、安装、重置）与公开页之间的切换已有按钮级反馈，
+  // 不再叠加整页加载层，避免登录成功后出现多余的等待遮罩。
+  if (!isInitial && !from.meta.public && !to.meta.public) beginRouteLoading()
+
   document.title = to.meta.titleKey ? `${t(to.meta.titleKey)} · LACTSSL` : 'LACTSSL'
 
   if (to.meta.public) {
@@ -66,6 +76,7 @@ router.beforeEach(async (to) => {
     try {
       await loadUser()
     } catch (_) {
+      if (!isInitial) endRouteLoading()
       return { path: loginPath }
     }
   }
@@ -80,6 +91,15 @@ router.beforeEach(async (to) => {
     }
   }
   return true
+})
+
+// 导航成功、被取消或失败都会触发 afterEach，确保加载层不会残留。
+router.afterEach(() => {
+  endRouteLoading()
+})
+
+router.onError(() => {
+  endRouteLoading()
 })
 
 export default router

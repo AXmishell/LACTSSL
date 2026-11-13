@@ -114,7 +114,7 @@
             <el-radio-button value="root">{{ t('privateCA.rootCA') }}</el-radio-button>
             <el-radio-button value="intermediate">{{ t('privateCA.intermediateCA') }}</el-radio-button>
           </el-radio-group>
-          <div class="form-help">{{ t('privateCA.caTypeHelp') }}</div>
+          <div class="form-help" style="margin-left: 12px">{{ t('privateCA.caTypeHelp') }}</div>
         </el-form-item>
         <el-form-item v-if="generateForm.ca_type === 'intermediate'" :label="t('privateCA.parentCA')" required>
           <el-select v-model="generateForm.parent_id" style="width: 100%">
@@ -306,6 +306,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Close, Delete, Plus, Refresh, Upload } from '@element-plus/icons-vue'
 import { api, downloadFile } from '../api'
+import { requestSecondaryVerification, secondaryVerifyHeader } from '../secondaryVerify'
 import { loadMeta } from '../store'
 import { daysLeft, formatDate, splitLines } from '../utils'
 import type { MessageResult, PrivateCA } from '../types'
@@ -543,8 +544,16 @@ async function submitImport(): Promise<void> {
 
 async function downloadCA(ca: PrivateCA, kind: string): Promise<void> {
   try {
+    const headers: Record<string, string> = {}
+    if (kind === 'key') {
+      const token = await requestSecondaryVerification('private_ca_key_export')
+      if (!token) return
+      headers[secondaryVerifyHeader] = token
+    }
     const suffix = kind === 'key' ? 'key' : kind === 'chain' ? 'chain.crt' : 'crt'
-    await downloadFile(`/private-cas/${ca.id}/download?type=${kind}`, `${ca.common_name || ca.name}-${suffix}`)
+    await downloadFile(`/private-cas/${ca.id}/download?type=${kind}`, `${ca.common_name || ca.name}-${suffix}`, {
+      headers
+    })
   } catch (error: any) {
     ElMessage.error(error.message)
   }

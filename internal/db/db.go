@@ -177,6 +177,18 @@ func migrate(conn *sql.DB) error {
 			message TEXT NOT NULL,
 			created_at DATETIME NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS acme_cas (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			public_id TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL,
+			directory_url TEXT NOT NULL,
+			protocol TEXT NOT NULL DEFAULT 'v2',
+			eab_required INTEGER NOT NULL DEFAULT 0,
+			eab_kid TEXT NOT NULL DEFAULT '',
+			eab_hmac TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS acme_endpoints (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			public_id TEXT NOT NULL UNIQUE,

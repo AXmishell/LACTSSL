@@ -9,3 +9,11 @@ internal/webui/dist
 bin
 lactssl
 *.log
+# 本地构建产物与文档站点输出，避免进入构建上下文
+dist
+out
+.release-work
+site
+.cache
+coverage.out
+coverage.html

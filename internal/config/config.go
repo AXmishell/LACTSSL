@@ -83,6 +83,8 @@ func defaults() *fileConfig {
 	fc := &fileConfig{}
 	fc.Server.Port = 8080
 	fc.DataDir = "data"
+	// 内置 ACME 服务端默认开启；未创建端点时不会对外提供签发能力。
+	fc.ACME.Enabled = true
 	return fc
 }
 
@@ -218,6 +220,11 @@ func Load() (*Config, error) {
 	}
 	if raw := strings.TrimSpace(os.Getenv("LACTSSL_ACME_MTLS_ENABLED")); raw != "" {
 		acmeCfg.MTLSEnabled = parseBool(raw)
+	}
+	// 与主端口共用监听时，ACME 对外地址通常就是管理端的 public_url。
+	// 自动回退可以避免未配置 base_url 时继续信任请求 Host。
+	if acmeCfg.Enabled && acmeCfg.BaseURL == "" && acmeCfg.Addr == "" && publicURL != "" {
+		acmeCfg.BaseURL = publicURL
 	}
 	if acmeCfg.Enabled && (acmeCfg.TLSCert == "") != (acmeCfg.TLSKey == "") {
 		return nil, fmt.Errorf("acme.tls.cert 与 acme.tls.key 必须同时配置")
@@ -378,7 +385,7 @@ security:
   salt: %s
 
 acme:
-  # 是否启用内置 ACME 服务端；端点、EAB、域名白名单在管理接口中配置
+  # 是否启用内置 ACME 服务端（默认开启）；端点、EAB、域名白名单在管理接口中配置
   enabled: %t
   # 独立监听地址；留空则挂载到主端口 /acme
   addr: %s

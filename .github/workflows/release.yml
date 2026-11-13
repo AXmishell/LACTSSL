@@ -130,6 +130,10 @@ jobs:
             goarch: amd64
           - goos: darwin
             goarch: arm64
+          - goos: freebsd
+            goarch: amd64
+          - goos: freebsd
+            goarch: arm64
           - goos: windows
             goarch: amd64
     steps:

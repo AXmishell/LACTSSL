@@ -126,7 +126,7 @@ async function submit(): Promise<void> {
     errorMessage.value = t('setup.emailRequired')
     return
   }
-  if ((form.value.password || '').length < 12) {
+  if ((form.value.password || '').length < 8) {
     errorMessage.value = t('setup.passwordMin')
     return
   }

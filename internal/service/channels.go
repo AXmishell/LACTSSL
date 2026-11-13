@@ -183,6 +183,9 @@ func cfgList(cfg NotifyChannelConfig, key string) []string {
 }
 
 func notifyHTTP(method, endpoint string, payload []byte, contentType string, headers map[string]string) error {
+	if err := ValidateOutboundURL(endpoint); err != nil {
+		return err
+	}
 	req, err := http.NewRequest(method, endpoint, strings.NewReader(string(payload)))
 	if err != nil {
 		return err

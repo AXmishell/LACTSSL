@@ -53,8 +53,23 @@ export interface CADef {
   value: string
   label: string
   url?: string
+  protocol?: 'v1' | 'v2' | string
+  custom?: boolean
   eab?: boolean
   desc?: string
+}
+
+export interface ACMECA {
+  id: number
+  public_id: string
+  name: string
+  directory_url: string
+  protocol: 'v1' | 'v2' | string
+  eab_required: boolean
+  eab_kid: string
+  eab_hmac_set: boolean
+  created_at: string
+  updated_at: string
 }
 
 export interface CAConfig extends CADef {
@@ -102,8 +117,17 @@ export interface Meta {
   deploy_types?: ProviderDef[]
 }
 
+export type VerifyMode = 'none' | 'password' | 'totp' | 'password_totp'
+
+export type SecondaryVerifyAction =
+  | 'backup_download'
+  | 'backup_restore'
+  | 'entry_change'
+  | 'private_ca_key_export'
+
 export interface Settings {
   entry?: string
+  verify_mode?: VerifyMode
   language?: string
   acme_email?: string
   acme_ca?: string
@@ -362,6 +386,8 @@ export interface ApiError extends Error {
   data?: unknown
   status?: number
   totpRequired?: boolean
+  reauthRequired?: boolean
+  secondaryVerifyRequired?: boolean
 }
 
 export interface ACMEEndpoint {

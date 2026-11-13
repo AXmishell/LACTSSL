@@ -46,6 +46,11 @@ type Server struct {
 	entry     atomic.Value
 	limiter   *rateLimiter
 	startedAt time.Time
+
+	// reauth 记录会话最近一次通过账户密码（及 TOTP）重新认证的时间，
+	// 用于保护备份、私钥导出等高风险操作，降低会话被盗后的影响。
+	reauthMu sync.Mutex
+	reauth   map[string]time.Time
 }
 
 // New 创建 API 服务。
@@ -58,6 +63,7 @@ func New(st *store.Store, a *auth.Manager, mgr *service.Manager, entry string, w
 		TrustedProxies: trustedProxies,
 		limiter:        newRateLimiter(defaultLimiterMaxKeys),
 		startedAt:      time.Now(),
+		reauth:         make(map[string]time.Time),
 	}
 	s.entry.Store(entry)
 	return s
@@ -103,6 +109,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.Use(s.entryMiddleware(), s.authMiddleware())
 	{
 		protected.GET("/auth/me", s.handleMe)
+		protected.POST("/auth/reauth", s.handleReauth)
+		protected.POST("/auth/secondary-verify", s.handleSecondaryVerify)
 		protected.POST("/auth/change-password", s.handleChangePassword)
 		protected.POST("/auth/change-email", s.handleChangeEmail)
 		protected.POST("/auth/totp/setup", s.handleTOTPSetup)
@@ -119,6 +127,10 @@ func (s *Server) Router() *gin.Engine {
 
 		protected.GET("/ca-configs", s.caConfigs)
 		protected.PUT("/ca-configs/:value", s.updateCAConfig)
+		protected.GET("/acme-cas", s.listACMECAs)
+		protected.POST("/acme-cas", s.createACMECA)
+		protected.PUT("/acme-cas/:id", s.updateACMECA)
+		protected.DELETE("/acme-cas/:id", s.deleteACMECA)
 
 		protected.GET("/private-cas", s.listPrivateCAs)
 		protected.POST("/private-cas", s.createPrivateCA)
@@ -189,6 +201,7 @@ func (s *Server) Router() *gin.Engine {
 		protected.POST("/settings/test-serverchan", s.testServerChan)
 		protected.POST("/settings/test-channel", s.testChannel)
 		protected.POST("/security/entry", s.changeEntry)
+		protected.POST("/security/verify-mode", s.changeVerifyMode)
 	}
 
 	r.NoRoute(s.serveSPA)
@@ -377,7 +390,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		// Cookie 会随跨站请求自动携带，因此状态变更请求必须带自定义头；
 		// 显式使用 Authorization: Bearer 的 API 调用不存在 CSRF 问题。
 		if !fromHeader {
-			if _, err := c.Cookie(csrfCookieName); err != nil {
+			if _, err := s.readCookie(c, csrfCookieName); err != nil {
 				// 旧会话首次请求时补发 CSRF Cookie；后续写请求即可做强校验。
 				s.setCSRFCookie(c, token, time.Now().Add(entryCookieTTL))
 			}

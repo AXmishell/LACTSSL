@@ -119,7 +119,7 @@
           </el-select>
           <div class="form-help">{{ t('acmeServer.caHelp') }}</div>
         </el-form-item>
-        <div class="grid grid-2" style="gap: 0 18px">
+        <div class="grid grid-2 field-group" style="gap: 0 18px">
           <el-form-item :label="t('acmeServer.enabled')">
             <el-switch v-model="form.enabled" />
             <div class="form-help">{{ t('acmeServer.enabledHelp') }}</div>
@@ -140,7 +140,7 @@
           />
           <div class="form-help">{{ t('acmeServer.allowedDomainsHelp') }}</div>
         </el-form-item>
-        <div class="grid grid-2" style="gap: 0 18px">
+        <div class="grid grid-2 field-group" style="gap: 0 18px">
           <el-form-item :label="t('acmeServer.challengeTypes')">
             <el-checkbox v-model="form.http01_enabled">HTTP-01</el-checkbox>
             <el-checkbox v-model="form.dns01_enabled">DNS-01</el-checkbox>
@@ -152,7 +152,7 @@
             <div class="form-help">{{ t('acmeServer.wildcardHelp') }}</div>
           </el-form-item>
         </div>
-        <div class="grid grid-2" style="gap: 0 18px">
+        <div class="grid grid-2 field-group" style="gap: 0 18px">
           <el-form-item :label="t('acmeServer.allowIP')">
             <el-switch v-model="form.allow_ip" />
             <div class="form-help">{{ t('acmeServer.allowIPHelp') }}</div>
@@ -167,7 +167,7 @@
             <div class="form-help">{{ t('acmeServer.allowedIPCIDRsHelp') }}</div>
           </el-form-item>
         </div>
-        <div class="grid grid-2" style="gap: 0 18px">
+        <div class="grid grid-2 field-group" style="gap: 0 18px">
           <el-form-item :label="t('acmeServer.allowPrivateHTTP01')">
             <el-switch v-model="form.allow_private_http01" />
             <div class="form-help">{{ t('acmeServer.allowPrivateHTTP01Help') }}</div>
@@ -613,6 +613,19 @@ onMounted(load)
 </script>
 
 <style scoped>
+/* 开关右侧统一留出 12px 外边距，避免与相邻说明文字贴在一起 */
+:deep(.el-switch) {
+  margin-right: 12px;
+}
+/* 开关相关的字段成组显示，加浅色边框便于区分 */
+.field-group {
+  border: 1px solid var(--kp-border);
+  padding: 16px 16px 0;
+  margin-bottom: 18px;
+}
+.field-group :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
 .acme-name {
   font-weight: 600;
 }

@@ -26,7 +26,7 @@ func (s *Server) handleRenewalInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ep, err := s.Store.GetACMEEndpointBySlug(slug)
-	if err != nil {
+	if err != nil || !ep.Enabled {
 		writeProblemType(w, http.StatusNotFound, ProblemMalformed, "ACME endpoint not found")
 		return
 	}

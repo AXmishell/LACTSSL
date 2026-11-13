@@ -1,0 +1,103 @@
+# 中文站点配置：构建到 /zh/，默认站点为英文（mkdocs.yml）。
+# 本地预览双语站点请使用 scripts/docs-serve.sh（或 make docs-serve），
+# 因为 `zensical serve` 一次只能构建一种配置。
+site_name: LACTSSL
+site_url: https://lactssl.gpcn.cc/zh/
+site_description: 自托管的 SSL 证书管理工具：ACME 申请与自动续期、证书部署、站点证书监控和通知。
+repo_url: https://github.com/AXmishell/LACTSSL
+repo_name: AXmishell/LACTSSL
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; LACTSSL · MIT License
+
+docs_dir: docs
+
+# 英文文档位于 docs/en，由默认配置 mkdocs.yml 构建。
+exclude_docs: |
+  en/
+
+site_dir: site/zh
+
+theme:
+  name: material
+  # Zensical 的现代主题（classic 则保持 Material 原有外观）
+  variant: modern
+  language: zh
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换到深色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换到浅色模式
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+
+nav:
+  - 首页: index.md
+  - 安装与启动: install.md
+  - 配置: configuration.md
+  - 功能说明: features.md
+  - 安全: security.md
+  - 运维: operations.md
+  - 开发: development.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # 使用 pymdownx 的 slugify 以保留中文标题锚点（与 GitHub 的锚点一致）。
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  # 语言切换器：英文为默认站点，中文站点构建到 /zh/。
+  alternate:
+    - name: 简体中文
+      link: /zh/
+      lang: zh
+    - name: English
+      link: /
+      lang: en
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/AXmishell/LACTSSL
+      name: GitHub 仓库

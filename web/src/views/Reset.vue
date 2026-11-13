@@ -95,7 +95,7 @@ onMounted(async () => {
 })
 
 async function submit(): Promise<void> {
-  if ((form.value.password || '').length < 12) {
+  if ((form.value.password || '').length < 8) {
     errorMessage.value = t('reset.passwordMin')
     return
   }

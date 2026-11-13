@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +22,11 @@ func (s *Server) listPrivateCAs(c *gin.Context) {
 }
 
 func (s *Server) createPrivateCA(c *gin.Context) {
+	// RSA 4096 生成开销较大，限制同一客户端的高频创建。
+	if allowed, wait := s.limiter.Allow("privateca:create:"+clientRateKey(c), 10, time.Minute); !allowed {
+		rateLimited(c, wait)
+		return
+	}
 	var body struct {
 		Name               string `json:"name"`
 		CommonName         string `json:"common_name"`
@@ -158,6 +165,20 @@ func (s *Server) downloadPrivateCA(c *gin.Context) {
 		return
 	}
 	kind := c.DefaultQuery("type", "cert")
+	if kind == "key" {
+		if !s.requireSecondaryVerify(c, secondaryActionPrivateCAKeyExport) {
+			return
+		}
+		user := getUser(c)
+		if user == nil {
+			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
+			return
+		}
+		if allowed, wait := s.limiter.Allow("keyexport:"+fmt.Sprintf("%d", user.ID), 30, time.Minute); !allowed {
+			rateLimited(c, wait)
+			return
+		}
+	}
 	var content, suffix string
 	switch kind {
 	case "key":

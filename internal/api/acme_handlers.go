@@ -60,7 +60,11 @@ func (s *Server) acmeDirectoryURL(c *gin.Context, slug string) string {
 		if c.Request.TLS != nil {
 			scheme = "https"
 		}
-		base = scheme + "://" + c.Request.Host
+		host := strings.TrimSpace(c.Request.Host)
+		if !validPublicHost(host) {
+			host = "localhost"
+		}
+		base = scheme + "://" + host
 	}
 	return base + "/acme/" + slug + "/directory"
 }

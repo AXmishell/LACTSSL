@@ -94,3 +94,23 @@ func TestNewDNSProviderUnknown(t *testing.T) {
 		t.Fatal("未知 DNS 服务商应返回错误")
 	}
 }
+
+func TestACMECAValueRoundTrip(t *testing.T) {
+	value := ACMECAValue(42)
+	if value != "acme-ca:42" {
+		t.Fatalf("unexpected value: %s", value)
+	}
+	id, ok := ParseACMECAValue(value)
+	if !ok || id != 42 {
+		t.Fatalf("parse failed: %d %v", id, ok)
+	}
+	for _, invalid := range []string{"letsencrypt", "acme-ca:", "acme-ca:0", "private-ca:42"} {
+		if _, ok := ParseACMECAValue(invalid); ok {
+			t.Fatalf("should not parse %q", invalid)
+		}
+	}
+	def := CADefFromACMECA(model.ACMECA{ID: 7, Name: "Custom", DirectoryURL: "https://ca.example.com/dir", Protocol: "v1", EABRequired: false})
+	if def.Value != "acme-ca:7" || def.Protocol != "v1" || !def.Custom || def.URL != "https://ca.example.com/dir" {
+		t.Fatalf("unexpected CADef: %+v", def)
+	}
+}

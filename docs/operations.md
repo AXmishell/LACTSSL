@@ -13,7 +13,7 @@
 
 「系统设置 → 备份与恢复」提供在线操作：
 
-- **下载备份**：生成 ZIP 备份包，包含 SQLite 数据库快照（`lactssl.db`）、当前配置文件（`config.yaml`）和版本信息（`manifest.json`）。可设置加密密码；设置后备份内容使用 AES-256-GCM 加密，恢复时必须输入同一密码。密码遗失将无法恢复该备份。
+- **下载备份**：生成 ZIP 备份包，包含 SQLite 数据库快照（`lactssl.db`）、当前配置文件（`config.yaml`）和版本信息（`manifest.json`）。下载前需要重新输入当前账户密码（启用 TOTP 时还需动态验证码）；备份加密密码与账户密码相互独立。备份内容使用 AES-256-GCM 加密，恢复时必须输入同一密码。密码遗失将无法恢复该备份。
 - **恢复备份**：上传 ZIP 备份包或单独的 `.db` 数据库文件，输入当前密码确认；加密备份还需输入备份解密密码。服务会把恢复内容写入 `data/restore-pending/` 并自动重启。Docker 部署会由 `restart: unless-stopped` 自动拉起；直接运行二进制时需要自行重新启动进程。
 - **安装页导入**：系统尚未初始化时，可在 `/install` 的「高级功能」中直接导入备份，跳过创建管理员账户。导入后可继续使用备份中的账户登录。
 
@@ -50,7 +50,7 @@ chmod 600 lactssl-backup-*.tar.gz
 仓库根目录的 `VERSION` 文件是唯一的版本来源：
 
 ```bash
-echo 1.0.1 > VERSION
+echo 1.0.0 > VERSION
 make build
 ```
 
@@ -84,6 +84,8 @@ workflow 会从 tag 检出源码，构建前端并嵌入二进制，产出：
 - `lactssl_<version>_linux_arm64.tar.gz`
 - `lactssl_<version>_darwin_amd64.tar.gz`
 - `lactssl_<version>_darwin_arm64.tar.gz`
+- `lactssl_<version>_freebsd_amd64.tar.gz`
+- `lactssl_<version>_freebsd_arm64.tar.gz`
 - `lactssl_<version>_windows_amd64.zip`
 - `checksums.txt`（SHA-256）
 
@@ -92,10 +94,10 @@ workflow 会从 tag 检出源码，构建前端并嵌入二进制，产出：
 同时会构建 `linux/amd64`、`linux/arm64` 的 Docker 镜像并推送到 GHCR：
 
 ```text
-ghcr.io/<owner>/lactssl:<version>
-ghcr.io/<owner>/lactssl:<major>.<minor>
-ghcr.io/<owner>/lactssl:<major>
-ghcr.io/<owner>/lactssl:latest
+ghcr.io/axmishell/lactssl:<version>
+ghcr.io/axmishell/lactssl:<major>.<minor>
+ghcr.io/axmishell/lactssl:<major>
+ghcr.io/axmishell/lactssl:latest
 ```
 
 预发布版本只推送完整的 `<version>` 标签，不会更新 `latest`、`<major>.<minor>` 和 `<major>`。首次发布后 GHCR 包默认私有，需要到包设置中手动改为 Public。

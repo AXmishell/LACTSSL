@@ -149,7 +149,7 @@ func parseTarget(target string) (string, string, error) {
 	}
 	if strings.Contains(target, "://") {
 		u, err := url.Parse(target)
-		if err != nil {
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 			return "", "", i18n.E("monitor.error.target_invalid")
 		}
 		port := u.Port()

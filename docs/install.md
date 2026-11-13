@@ -9,6 +9,8 @@
 ## 源码构建
 
 ```bash
+git clone https://github.com/AXmishell/LACTSSL.git
+cd LACTSSL
 cp config.yaml.example config.yaml && chmod 600 config.yaml
 cd web && npm install && cd ..
 make build
@@ -16,6 +18,8 @@ make build
 ```
 
 `make build` 会先构建前端（产物复制到 `internal/webui/dist`），再编译嵌入了前端资源的 `bin/lactssl`。
+
+FreeBSD 同样可以直接源码构建；如果只需要现成二进制，可下载 Release 中的 `lactssl_<version>_freebsd_amd64.tar.gz` 或 `lactssl_<version>_freebsd_arm64.tar.gz`。
 
 `config.yaml` 不存在时，服务首次启动会自动生成一份带随机密钥的配置；手动复制示例文件可以保留完整注释。
 
@@ -47,7 +51,13 @@ LACTSSL_ENTRY=my-dev-entry make dev
 
 ## Docker
 
-使用 Compose：
+使用 Compose，完整编排文件如下（与仓库根目录的 `docker-compose.yml` 一致）：
+
+```yaml title="docker-compose.yml"
+--8<-- "docker-compose.yml"
+```
+
+启动：
 
 ```bash
 docker compose up -d --build
@@ -76,17 +86,15 @@ docker run -d --name lactssl \
 发布 Release 时会同时构建 `linux/amd64` 与 `linux/arm64` 镜像并推送到 GitHub Container Registry：
 
 ```bash
-docker pull ghcr.io/<owner>/lactssl:latest
+docker pull ghcr.io/axmishell/lactssl:latest
 docker run -d --name lactssl \
   -p 8080:8080 \
   -v "$PWD/data:/app/data" \
   -v "$PWD/config:/app/config" \
-  ghcr.io/<owner>/lactssl:latest
+  ghcr.io/axmishell/lactssl:latest
 ```
 
 稳定版标签包括 `latest`、`<version>`、`<major>.<minor>`、`<major>`，例如 `1.0.1`、`1.0`、`1`；预发布版本（如 `1.0.1-rc.1`）只推送完整版本标签，不会覆盖 `latest`。
-
-首次发布后，GHCR 包默认是私有的。如需匿名拉取，请在仓库右侧 **Packages** 打开对应包，进入 **Package settings → Change visibility** 改为 Public。
 
 ## 下一步
 

@@ -59,6 +59,41 @@ func TestLoadCreatesConfigAndMigratesLegacySecret(t *testing.T) {
 	}
 }
 
+func TestLoadEnablesACMEByDefault(t *testing.T) {
+	clearEnv(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	t.Setenv("LACTSSL_CONFIG", cfgPath)
+	t.Setenv("LACTSSL_DATA", filepath.Join(dir, "data"))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ACME.Enabled {
+		t.Fatal("内置 ACME 服务端应默认开启")
+	}
+
+	// 显式关闭时仍以配置文件为准。
+	content := fmt.Sprintf(`data_dir: %q
+security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+acme:
+  enabled: false
+`, filepath.Join(dir, "data"))
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ACME.Enabled {
+		t.Fatal("显式配置 acme.enabled=false 时应关闭 ACME 服务端")
+	}
+}
+
 func TestLoadFromYAMLAndEnvOverride(t *testing.T) {
 	clearEnv(t)
 	dir := t.TempDir()
@@ -179,6 +214,32 @@ acme:
 	}
 	if cfg.ACME.Addr != "127.0.0.1:15000" || cfg.ACME.BaseURL != "https://acme.example.com" {
 		t.Fatalf("ACME 环境变量未覆盖: %+v", cfg.ACME)
+	}
+}
+
+func TestLoadACMEBaseURLFallsBackToPublicURL(t *testing.T) {
+	clearEnv(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	dataDir := filepath.Join(dir, "data")
+	content := fmt.Sprintf(`data_dir: %q
+security:
+  public_url: "https://ssl.example.com"
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+acme:
+  enabled: true
+`, dataDir)
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LACTSSL_CONFIG", cfgPath)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ACME.BaseURL != "https://ssl.example.com" {
+		t.Fatalf("ACME base_url 应回退到 public_url: %q", cfg.ACME.BaseURL)
 	}
 }
 

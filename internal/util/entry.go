@@ -8,8 +8,9 @@ import (
 	"strings"
 )
 
-// entryPattern 限制安全入口为 3-32 位字母、数字、下划线和中划线。
-var entryPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,32}$`)
+// entryPattern 限制安全入口为 8-32 位字母、数字、下划线和中划线。
+// 手工入口不应短于 8 位，避免被分布式扫描快速枚举。
+var entryPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{8,32}$`)
 
 // reservedEntries 是不能用作安全入口的名称，避免与接口或静态资源前缀冲突。
 var reservedEntries = map[string]struct{}{

@@ -2,13 +2,11 @@ package api
 
 import (
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"lactssl/internal/auth"
 	"lactssl/internal/i18n"
 	"lactssl/internal/service"
 	"lactssl/internal/util"
@@ -48,7 +46,7 @@ func (s *Server) handleMeta(c *gin.Context) {
 		"version":       Version,
 		"language":      string(current),
 		"languages":     supportedLanguages(),
-		"cas":           service.LocalizeCADefs(current),
+		"cas":           service.LocalizedCADefs(s.Store, current),
 		"private_cas":   privateCAs,
 		"dns_providers": service.LocalizeDNSProviders(current),
 		"deploy_types":  service.LocalizeDeployTypes(current),
@@ -107,6 +105,7 @@ func (s *Server) getSettings(c *gin.Context) {
 	serverChanSendKey, _ := s.Store.GetSecret("serverchan.sendkey")
 	ok(c, gin.H{
 		"entry":                  s.Entry(),
+		"verify_mode":            s.effectiveVerifyMode(getUser(c)),
 		"language":               s.setting("language", string(i18n.Default)),
 		"acme_email":             s.setting("acme.email", ""),
 		"acme_ca":                s.setting("acme.ca", "letsencrypt"),
@@ -189,7 +188,7 @@ func (s *Server) updateSettings(c *gin.Context) {
 		_ = s.Store.SetSetting("acme.email", email)
 	}
 	if body.ACMECA != nil {
-		if _, found := service.CAInfo(*body.ACMECA); !found {
+		if _, err := s.Manager.ResolveCA(*body.ACMECA); err != nil {
 			failKey(c, http.StatusBadRequest, "task.error.ca_unsupported")
 			return
 		}
@@ -233,8 +232,7 @@ func (s *Server) updateSettings(c *gin.Context) {
 	if body.GotifyURL != nil {
 		value := strings.TrimSpace(*body.GotifyURL)
 		if value != "" {
-			parsed, err := url.Parse(value)
-			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			if err := service.ValidateOutboundURL(value); err != nil {
 				failKey(c, http.StatusBadRequest, "api.error.gotify_url_invalid")
 				return
 			}
@@ -284,6 +282,10 @@ func (s *Server) updateSettings(c *gin.Context) {
 }
 
 func (s *Server) testMail(c *gin.Context) {
+	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
+		rateLimited(c, wait)
+		return
+	}
 	var body struct {
 		To string `json:"to"`
 	}
@@ -317,6 +319,10 @@ func (s *Server) testMail(c *gin.Context) {
 }
 
 func (s *Server) testGotify(c *gin.Context) {
+	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
+		rateLimited(c, wait)
+		return
+	}
 	var body struct {
 		URL      string `json:"url"`
 		Token    string `json:"token"`
@@ -351,6 +357,10 @@ func (s *Server) testGotify(c *gin.Context) {
 }
 
 func (s *Server) testServerChan(c *gin.Context) {
+	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
+		rateLimited(c, wait)
+		return
+	}
 	var body struct {
 		SendKey string `json:"sendkey"`
 		Version string `json:"version"`
@@ -381,6 +391,10 @@ func (s *Server) testServerChan(c *gin.Context) {
 }
 
 func (s *Server) testChannel(c *gin.Context) {
+	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
+		rateLimited(c, wait)
+		return
+	}
 	var body struct {
 		Channel string                      `json:"channel"`
 		Config  service.NotifyChannelConfig `json:"config"`
@@ -408,20 +422,14 @@ func (s *Server) testChannel(c *gin.Context) {
 }
 
 func (s *Server) changeEntry(c *gin.Context) {
-	user := getUser(c)
+	if !s.requireSecondaryVerify(c, secondaryActionEntryChange) {
+		return
+	}
 	var body struct {
-		Password string `json:"password"`
-		Entry    string `json:"entry"`
+		Entry string `json:"entry"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
-		return
-	}
-	if !s.allowReauth(c, user) {
-		return
-	}
-	if !auth.VerifyPassword(user.PasswordHash, body.Password) {
-		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
 	}
 	entry, err := util.ValidateEntry(body.Entry)
@@ -434,7 +442,6 @@ func (s *Server) changeEntry(c *gin.Context) {
 		return
 	}
 	s.SetEntry(entry)
-	s.resetReauth(c, user)
 	s.Store.AddLogKey("settings", 0, "warning", "log.settings.entry_changed", map[string]any{"entry": util.MaskSecret(entry)})
 	ok(c, gin.H{"entry": entry, "message": i18n.T(locale(c), "api.ok.entry_updated", nil)})
 }

@@ -1,0 +1,112 @@
+# Development
+
+## Common commands
+
+```bash
+make dev          # Vite + Go development mode
+make rebuild-run  # Rebuild the frontend and backend binary, then start Vite + Go
+make build        # Production build, output at bin/lactssl
+make run          # Run go run ./cmd/server directly
+make test         # go test ./...
+make typecheck    # Frontend vue-tsc + tsc for scripts
+make ci           # Full local CI
+make i18n-check   # Verify that Chinese and English translation keys match
+make tidy         # go mod tidy + install frontend dependencies
+make clean        # Remove build artifacts
+```
+
+`make ci` is equivalent to `.github/workflows/ci.yml` and can also be split with arguments:
+
+```bash
+./scripts/ci.sh --backend-only
+./scripts/ci.sh --frontend-only
+./scripts/ci.sh --no-build
+```
+
+`make release` is equivalent to `.github/workflows/release.yml` and is a dry run by default: it cross-compiles and packages according to the release matrix into `dist/`, generates `checksums.txt`, but does not push images or upload a Release:
+
+```bash
+make release TAG=v1.0.1       # Specify a tag
+./scripts/release.sh v1.0.1 --no-docker
+./scripts/release.sh v1.0.1 --upload   # Upload to a Release with the same name using gh (overwrites assets with the same name)
+```
+
+## Rebuild and run
+
+When you need to "rebuild and restart" after changing code:
+
+```bash
+make rebuild-run
+```
+
+This is equivalent to `./scripts/rebuild-run.sh`, which performs the following in order:
+
+1. Build the frontend into `web/dist`
+2. Compile `bin/lactssl-dev` in development mode (without `-tags embed`, reading `web/dist` at runtime)
+3. Stop old processes occupying the configured port (default `8080`) and `5173`
+4. Start Vite (`5173`) and the Go binary (`8080`)
+
+Open `http://<host>:5173/<entry>/`. The secret entry is read from `security.entry` in `config.yaml` by default; when the entry only exists in the database, override it with an environment variable:
+
+```bash
+LACTSSL_ENTRY=xxxxxxxx make rebuild-run
+```
+
+The script runs in the foreground; `Ctrl+C` stops both Vite and Go. Use `make dev` when only changing the frontend; Vite hot reload means no rebuild is needed.
+
+## Directory layout
+
+```text
+cmd/server/          Program entry point, startup, and secret entry initialization
+internal/api/        Gin routes, handlers, sessions, and rate limiting
+internal/auth/       JWT and password/TOTP logic
+internal/config/     config.yaml and environment variable loading
+internal/db/         SQLite opening and migrations
+internal/i18n/       Backend internationalization and language resources
+internal/model/      Database entities and task workflows
+internal/acme/       Built-in ACME server protocol (directory, nonce, accounts, JWS, validation)
+internal/service/    ACME client, deployment, notifications, monitoring, scheduling
+internal/store/      Data access layer
+internal/util/       Encryption, validation, and other utilities
+internal/webui/      Embedded frontend build output
+web/                 Vue 3 + Element Plus frontend
+scripts/             Development scripts and CI (TypeScript, run directly by Node)
+```
+
+## Build and version injection
+
+- Frontend build output goes to `web/dist` first, then is copied to `internal/webui/dist` and embedded into the binary with the `embed` tag.
+- The version comes from `VERSION` in the repository root and is injected with `-ldflags -X 'lactssl/internal/api.Version=...'`; build time and architecture are handled the same way.
+- Pushing a `v*` tag makes the `Version Sync` workflow write the tag version back to `VERSION`; see [Operations](operations.md#versioning) for details.
+- When not injected, the version is shown as `dev`.
+
+## Frontend development
+
+`make dev` starts Vite (`:5173`) and Go (`:8080`). The Vite development server emulates secret entry validation and reads `security.entry` from `config.yaml`; it can also be overridden with `LACTSSL_ENTRY`.
+
+During development, open the Vite address; `/<entry>/api` requests are proxied to the Go service.
+
+Note that the proxy is one-way: **8080 does not reverse proxy 5173**:
+
+| Port | Who listens | Frontend asset source | Relationship with the other port |
+| --- | --- | --- | --- |
+| `5173` | Vite development server (development mode only) | `web/` source with HMR | Proxies `/<entry>/api` to `8080` |
+| `8080` | Go binary (same in development and production) | Frontend output embedded in the binary from `internal/webui/dist` | Does not proxy `5173` and does not depend on Vite |
+
+## Internationalization
+
+Backend language resources live in `internal/i18n/locales/`, and frontend resources in `web/src/i18n/locales/`. When adding text, update both `zh-CN` and `en-US`, then run:
+
+```bash
+make i18n-check
+```
+
+The check script is TypeScript (`scripts/check-i18n.ts`), run directly by Node's native type stripping and requiring Node 22.18 or later; the script's own type check is included in `make typecheck` (see `scripts/tsconfig.json`).
+
+## Testing
+
+```bash
+make test
+```
+
+CI also runs `gofmt` checks, `go vet`, tests with `-race`, coverage reporting, and frontend type checking and builds.
