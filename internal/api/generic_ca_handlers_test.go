@@ -59,10 +59,11 @@ func TestACMECACRUDAndMeta(t *testing.T) {
 		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
 	}
 	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+	acmeToken := secondaryVerifyToken(t, router, session, secondaryActionACMEWrite, "password1234", "")
 
 	w := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/acme-cas",
 		`{"name":"Internal ACME","directory_url":"https://ca.example.com/acme/directory","protocol":"v2","eab_required":true,"eab_kid":"kid","eab_hmac":"secret"}`,
-		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1", secondaryVerifyHeader: acmeToken})
 	if w.Code != http.StatusOK {
 		t.Fatalf("创建通用 CA 失败: %d %s", w.Code, w.Body.String())
 	}
@@ -85,7 +86,7 @@ func TestACMECACRUDAndMeta(t *testing.T) {
 	if err := st.SetSetting("acme.ca", service.ACMECAValue(created.ID)); err != nil {
 		t.Fatal(err)
 	}
-	w = sessionRequest(t, router, http.MethodDelete, "/secret-entry/api/acme-cas/"+jsonNumber(created.ID), "", []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	w = sessionRequest(t, router, http.MethodDelete, "/secret-entry/api/acme-cas/"+jsonNumber(created.ID), "", []*http.Cookie{session}, map[string]string{csrfHeaderName: "1", secondaryVerifyHeader: acmeToken})
 	if w.Code != http.StatusConflict {
 		t.Fatalf("默认 CA 不应允许删除: %d %s", w.Code, w.Body.String())
 	}
@@ -93,7 +94,7 @@ func TestACMECACRUDAndMeta(t *testing.T) {
 	if err := st.SetSetting("acme.ca", "letsencrypt"); err != nil {
 		t.Fatal(err)
 	}
-	w = sessionRequest(t, router, http.MethodDelete, "/secret-entry/api/acme-cas/"+jsonNumber(created.ID), "", []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	w = sessionRequest(t, router, http.MethodDelete, "/secret-entry/api/acme-cas/"+jsonNumber(created.ID), "", []*http.Cookie{session}, map[string]string{csrfHeaderName: "1", secondaryVerifyHeader: acmeToken})
 	if w.Code != http.StatusOK {
 		t.Fatalf("删除通用 CA 失败: %d %s", w.Code, w.Body.String())
 	}

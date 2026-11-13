@@ -148,6 +148,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Delete, Plus, Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
+import { requestSecondaryVerification, secondaryVerifyHeader, withSecondaryVerify } from '../secondaryVerify'
 import { daysLeft, formatDate, monitorState } from '../utils'
 import type { Monitor } from '../types'
 
@@ -233,8 +234,10 @@ async function save(): Promise<void> {
       interval_hours: form.value.interval_hours,
       enabled: form.value.enabled
     }
-    if (editingId.value) await api.put(`/monitors/${editingId.value}`, payload)
-    else await api.post('/monitors', payload)
+    const saved = await withSecondaryVerify('monitor_write', (headers) =>
+      editingId.value ? api.put(`/monitors/${editingId.value}`, payload, headers) : api.post('/monitors', payload, headers)
+    )
+    if (saved === null) return
     ElMessage.success(editingId.value ? t('monitors.updated') : t('monitors.added'))
     dialogVisible.value = false
     await load()
@@ -272,7 +275,8 @@ async function remove(monitor: Monitor): Promise<void> {
     return
   }
   try {
-    await api.delete(`/monitors/${monitor.id}`)
+    const deleted = await withSecondaryVerify('monitor_write', (headers) => api.delete(`/monitors/${monitor.id}`, headers))
+    if (deleted === null) return
     ElMessage.success(t('monitors.deleted'))
     load()
   } catch (error: any) {
@@ -312,12 +316,15 @@ async function batchDelete(): Promise<void> {
   } catch (_) {
     return
   }
+  const token = await requestSecondaryVerification('monitor_write')
+  if (token === null) return
+  const verifyHeaders: Record<string, string> = token ? { [secondaryVerifyHeader]: token } : {}
   batchDeleting.value = true
   let failed = 0
   try {
     for (const id of ids) {
       try {
-        await api.delete(`/monitors/${id}`)
+        await api.delete(`/monitors/${id}`, verifyHeaders)
       } catch (error: any) {
         failed++
         const name = monitors.value.find((monitor) => monitor.id === id)?.name || id

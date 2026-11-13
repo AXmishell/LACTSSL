@@ -103,7 +103,12 @@ func (s *Server) getSettings(c *gin.Context) {
 	gotifyToken, _ := s.Store.GetSecret("gotify.token")
 	gotifyPriority, _ := strconv.Atoi(s.setting("gotify.priority", "5"))
 	serverChanSendKey, _ := s.Store.GetSecret("serverchan.sendkey")
+	stepUp := make(map[string]bool, len(toggleableStepUpActions))
+	for _, action := range toggleableStepUpActions {
+		stepUp[action] = s.stepUpEnabled(action)
+	}
 	ok(c, gin.H{
+		"step_up":                stepUp,
 		"entry":                  s.Entry(),
 		"verify_mode":            s.effectiveVerifyMode(getUser(c)),
 		"language":               s.setting("language", string(i18n.Default)),
@@ -164,6 +169,18 @@ func (s *Server) updateSettings(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	// 语言切换等纯展示设置不要求二次验证；SMTP/通知/默认 CA 等会改变
+	// 凭据流向或签发目标的配置必须完成二次验证。
+	sensitive := body.ACMEEmail != nil || body.ACMECA != nil || body.ACMEKeyType != nil ||
+		body.ACMERenew != nil || body.SMTPHost != nil || body.SMTPPort != nil ||
+		body.SMTPUsername != nil || body.SMTPPassword != nil || body.SMTPFrom != nil ||
+		body.SMTPSSL != nil || body.NotifyEnable != nil || body.NotifyTo != nil ||
+		body.GotifyURL != nil || body.GotifyToken != nil || body.GotifyEnable != nil ||
+		body.GotifyPrio != nil || body.ServerChanKey != nil || body.ServerChanEnable != nil ||
+		body.ServerChanVersion != nil || body.NotifyChannels != nil
+	if sensitive && !s.requireSecondaryVerify(c, secondaryActionSettingsWrite) {
 		return
 	}
 	if body.Language != nil {
@@ -282,6 +299,9 @@ func (s *Server) updateSettings(c *gin.Context) {
 }
 
 func (s *Server) testMail(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionNotificationTest) {
+		return
+	}
 	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
 		rateLimited(c, wait)
 		return
@@ -319,6 +339,9 @@ func (s *Server) testMail(c *gin.Context) {
 }
 
 func (s *Server) testGotify(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionNotificationTest) {
+		return
+	}
 	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
 		rateLimited(c, wait)
 		return
@@ -357,6 +380,9 @@ func (s *Server) testGotify(c *gin.Context) {
 }
 
 func (s *Server) testServerChan(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionNotificationTest) {
+		return
+	}
 	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
 		rateLimited(c, wait)
 		return
@@ -391,6 +417,9 @@ func (s *Server) testServerChan(c *gin.Context) {
 }
 
 func (s *Server) testChannel(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionNotificationTest) {
+		return
+	}
 	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
 		rateLimited(c, wait)
 		return

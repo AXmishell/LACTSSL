@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"lactssl/internal/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -741,21 +742,27 @@ func validateDatabase(filePath string) error {
 	return nil
 }
 
-// validateConfig 确认配置文件是可解析的 YAML，且包含安全配置段。
+// validateConfig 确认恢复的配置可以被安全加载。
+// 除了格式与必填密钥外，还会校验监听地址、安全入口、TLS/mTLS 组合等，
+// 避免非法配置写入 restore-pending 后导致下次启动反复失败。
 func validateConfig(filePath string) error {
+	if err := config.ValidateFile(filePath); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	}
+	// 恢复包必须携带数据库加密盐，否则新生成的盐会让旧数据库中的密文无法解密。
 	raw, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
-	var doc map[string]any
+	var doc struct {
+		Security struct {
+			Salt string `yaml:"salt"`
+		} `yaml:"security"`
+	}
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
-	security, ok := doc["security"].(map[string]any)
-	if !ok {
-		return fmt.Errorf("%w: 缺少 security 配置段", ErrInvalidConfig)
-	}
-	if _, ok := security["salt"]; !ok {
+	if strings.TrimSpace(doc.Security.Salt) == "" {
 		return fmt.Errorf("%w: 缺少 security.salt", ErrInvalidConfig)
 	}
 	return nil
@@ -764,6 +771,15 @@ func validateConfig(filePath string) error {
 // PendingDir 返回待恢复文件目录。
 func PendingDir(dataDir string) string {
 	return filepath.Join(dataDir, pendingDirName)
+}
+
+// CancelPending 删除尚未应用的恢复内容。
+// 首次初始化成功后调用，避免此前匿名上传的 pending 恢复包在后续重启时覆盖新账户。
+func (m *Manager) CancelPending() error {
+	if m == nil || m.DataDir == "" {
+		return nil
+	}
+	return os.RemoveAll(PendingDir(m.DataDir))
 }
 
 // Pending 描述一组等待服务重启后应用的恢复文件。
@@ -795,6 +811,16 @@ func (p *Pending) Cleanup() error {
 		return nil
 	}
 	return os.RemoveAll(p.Root)
+}
+
+// Quarantine 把无法应用的恢复包移到带时间戳的旁路目录，
+// 避免每次启动都重复尝试同一份坏配置而无法启动。
+func (p *Pending) Quarantine() error {
+	if p == nil || p.Root == "" {
+		return nil
+	}
+	target := p.Root + ".failed-" + time.Now().UTC().Format("20060102-150405")
+	return os.Rename(p.Root, target)
 }
 
 // ApplyDatabase 用恢复文件替换目标数据库，并清理旧的 WAL/SHM 文件。

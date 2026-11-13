@@ -47,28 +47,23 @@ If only the database was restored and the `salt` in `config.yaml` was lost, encr
 
 ## Versioning
 
-The `VERSION` file in the repository root is the single source of version information:
+Version numbers come solely from git tags; the repository no longer keeps a `VERSION` file.
+
+Local builds (`make build`, `./scripts/ci.sh`, `./scripts/rebuild-run.sh`) use `scripts/version.sh`, which derives the version with `git describe --tags --always --dirty` and strips the leading `v`:
+
+- With the latest tag `v1.0.1` and 3 commits after it, the version is `1.0.1-3-gabc1234`;
+- Uncommitted changes append `-dirty`, for example `1.0.1-3-gabc1234-dirty`;
+- Without any tag it falls back to the short commit hash; when git is unavailable (such as a Docker build context) it shows `dev`.
+
+Build scripts inject the version with `-ldflags -X 'lactssl/internal/api.Version=...'`; after building, view the build version, build time, and architecture under "Settings → About". When using `go run ./cmd/server` directly, the version is shown as `dev`.
+
+Override the version explicitly when needed: `LACTSSL_VERSION=1.2.3 make build`. Docker build contexts do not include `.git`, so pass the version:
 
 ```bash
-echo 1.0.0 > VERSION
-make build
+LACTSSL_VERSION=1.2.3 docker compose up -d --build
+# or
+docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 ```
-
-`make build`, Docker builds, and CI all read this file and inject the version into the binary through linker flags. After building, view the build version, build time, and architecture under "Settings → About".
-
-When using `go run ./cmd/server` directly, the version is shown as `dev`.
-
-### Automatic sync when pushing tags
-
-When a tag such as `v1.0.1` is pushed, the `Version Sync` workflow writes the tag version back to `VERSION` on the default branch:
-
-- The tag must be a semantic version `vX.Y.Z`, optionally with a pre-release suffix such as `-rc.1`; the `v` prefix is removed before writing.
-- The commit the tag points to must be on the default branch, otherwise the workflow only warns and skips the sync.
-- If `VERSION` already matches the tag, no commit is created.
-- The sync commit message is `chore(release): 1.0.1` and is pushed with `GITHUB_TOKEN`, so CI is not triggered again.
-- If branch protection is enabled on the default branch, GitHub Actions must be allowed to write, otherwise the workflow fails after retrying and asks you to update manually.
-
-The tag determines the release version; `VERSION` is aligned with the latest tag after a release for subsequent local builds.
 
 ### Creating a release builds automatically
 
@@ -89,7 +84,7 @@ The workflow checks out the source from the tag, builds the frontend, embeds it 
 - `lactssl_<version>_windows_amd64.zip`
 - `checksums.txt` (SHA-256)
 
-Archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`. The version comes directly from the tag (with the `v` prefix removed) and does not depend on the `VERSION` file, so builds are correct even if `VERSION` has not been synced yet.
+Archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`. The version comes directly from the tag (with the `v` prefix removed) and does not rely on local git derivation, so building from any checkout produces the correct version.
 
 Docker images for `linux/amd64` and `linux/arm64` are also built and pushed to GHCR:
 

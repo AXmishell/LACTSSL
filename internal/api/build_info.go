@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-// 构建信息，由构建命令通过 -ldflags 注入（版本号来自仓库根目录的 VERSION 文件），
+// 构建信息，由构建命令通过 -ldflags 注入（版本号由 git tag 推导），
 // 未注入时回退到开发默认值或运行时信息。
 var (
-	// Version 是应用版本号，对应 VERSION 文件的内容。
+	// Version 是应用版本号，由构建脚本根据 git tag 生成。
 	Version = "dev"
 	// BuildTime 是二进制构建时间，RFC3339 格式。
 	BuildTime = ""

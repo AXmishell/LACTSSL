@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -200,10 +201,19 @@ function stripCommentsPlugin(): Plugin {
 
 const entry = resolveEntry()
 
-// 前端展示的版本号与后端 -ldflags 注入的值同源，避免页面与控制台版本不一致。
+// 前端展示的版本号与后端 -ldflags 注入的值同源：优先 LACTSSL_VERSION，
+// 其次与 scripts/version.sh 一致使用 git describe，无法获取时回退 dev。
 function resolveVersion(): string {
+  const fromEnv = process.env.LACTSSL_VERSION?.trim().replace(/^v/, '')
+  if (fromEnv) return fromEnv
   try {
-    return readFileSync(fileURLToPath(new URL('../VERSION', import.meta.url)), 'utf8').trim() || 'dev'
+    const root = fileURLToPath(new URL('../', import.meta.url))
+    const described = execFileSync('git', ['describe', '--tags', '--always', '--dirty'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim()
+    return described.replace(/^v/, '') || 'dev'
   } catch {
     return 'dev'
   }

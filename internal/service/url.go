@@ -1,6 +1,7 @@
 package service
 
 import (
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -28,6 +29,10 @@ func ValidateOutboundURL(raw string) error {
 		if err != nil || number < 1 || number > 65535 {
 			return i18n.E("service.url_invalid", "url", value)
 		}
+	}
+	// 字面量地址在配置阶段就可以拦截；域名解析结果在拨号阶段再次校验。
+	if ip := net.ParseIP(strings.Trim(parsed.Hostname(), "[]")); ip != nil && isBlockedOutboundIP(ip) {
+		return i18n.E("service.url_blocked", "url", value)
 	}
 	return nil
 }

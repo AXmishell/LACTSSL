@@ -416,3 +416,75 @@ func TestRestoreBackupWithTOTPVerification(t *testing.T) {
 		t.Fatalf("恢复请求应写入待恢复文件: %+v, %v", pending, err)
 	}
 }
+
+func TestUpdateSettingsRequiresStepUpOnlyForSensitiveFields(t *testing.T) {
+	router, _ := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	languageOnly := sessionRequest(t, router, http.MethodPut, "/secret-entry/api/settings",
+		`{"language":"en-US"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if languageOnly.Code != http.StatusOK {
+		t.Fatalf("仅切换语言不应要求二次验证: %d %s", languageOnly.Code, languageOnly.Body.String())
+	}
+
+	sensitive := sessionRequest(t, router, http.MethodPut, "/secret-entry/api/settings",
+		`{"smtp_host":"smtp.example.com"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if sensitive.Code != http.StatusForbidden || !strings.Contains(sensitive.Body.String(), `"secondary_verify_required":true`) {
+		t.Fatalf("修改 SMTP 未完成二次验证时应返回 403: %d %s", sensitive.Code, sensitive.Body.String())
+	}
+
+	token := secondaryVerifyToken(t, router, session, secondaryActionSettingsWrite, "password1234", "")
+	allowed := sessionRequest(t, router, http.MethodPut, "/secret-entry/api/settings",
+		`{"smtp_host":"smtp.example.com"}`, []*http.Cookie{session},
+		map[string]string{csrfHeaderName: "1", secondaryVerifyHeader: token})
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("二次验证后应允许修改 SMTP: %d %s", allowed.Code, allowed.Body.String())
+	}
+}
+
+func TestStepUpCanBeDisabledPerAction(t *testing.T) {
+	router, _ := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	settings := sessionRequest(t, router, http.MethodGet, "/secret-entry/api/settings", "", []*http.Cookie{session}, nil)
+	if settings.Code != http.StatusOK || !strings.Contains(settings.Body.String(), `"step_up"`) {
+		t.Fatalf("设置接口应返回 step_up 开关: %d %s", settings.Code, settings.Body.String())
+	}
+
+	createAccount := func() *httptest.ResponseRecorder {
+		return sessionRequest(t, router, http.MethodPost, "/secret-entry/api/deploy-accounts",
+			`{"name":"local","type":"local","config":{}}`, []*http.Cookie{session},
+			map[string]string{csrfHeaderName: "1"})
+	}
+
+	if resp := createAccount(); resp.Code != http.StatusForbidden {
+		t.Fatalf("默认应要求二次验证: %d %s", resp.Code, resp.Body.String())
+	}
+
+	disable := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/security/verify-mode",
+		`{"mode":"password","password":"password1234","step_up":{"account_write":false}}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if disable.Code != http.StatusOK {
+		t.Fatalf("关闭 account_write 二次验证失败: %d %s", disable.Code, disable.Body.String())
+	}
+	if resp := createAccount(); resp.Code != http.StatusOK {
+		t.Fatalf("关闭后不应再要求二次验证: %d %s", resp.Code, resp.Body.String())
+	}
+
+	enable := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/security/verify-mode",
+		`{"mode":"password","password":"password1234","step_up":{"account_write":true}}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if enable.Code != http.StatusOK {
+		t.Fatalf("重新开启 account_write 二次验证失败: %d %s", enable.Code, enable.Body.String())
+	}
+	if resp := createAccount(); resp.Code != http.StatusForbidden {
+		t.Fatalf("重新开启后应要求二次验证: %d %s", resp.Code, resp.Body.String())
+	}
+
+	invalid := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/security/verify-mode",
+		`{"mode":"password","password":"password1234","step_up":{"unknown_action":false}}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("未知开关应被拒绝: %d %s", invalid.Code, invalid.Body.String())
+	}
+}

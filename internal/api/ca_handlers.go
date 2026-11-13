@@ -43,6 +43,9 @@ func (s *Server) caConfigs(c *gin.Context) {
 }
 
 func (s *Server) updateCAConfig(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
+		return
+	}
 	ca, found := service.CAInfo(c.Param("value"))
 	if !found {
 		failKey(c, http.StatusNotFound, "api.error.ca_not_found")

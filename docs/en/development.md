@@ -76,8 +76,8 @@ scripts/             Development scripts and CI (TypeScript, run directly by Nod
 ## Build and version injection
 
 - Frontend build output goes to `web/dist` first, then is copied to `internal/webui/dist` and embedded into the binary with the `embed` tag.
-- The version comes from `VERSION` in the repository root and is injected with `-ldflags -X 'lactssl/internal/api.Version=...'`; build time and architecture are handled the same way.
-- Pushing a `v*` tag makes the `Version Sync` workflow write the tag version back to `VERSION`; see [Operations](operations.md#versioning) for details.
+- Versions come solely from git tags: `scripts/version.sh` runs `git describe --tags --always --dirty` (stripping the `v` prefix), and the result is injected with `-ldflags -X 'lactssl/internal/api.Version=...'`; build time and architecture are handled the same way. The repository no longer keeps a `VERSION` file.
+- Releases are driven by tags; see [Operations](operations.md#versioning). Use `LACTSSL_VERSION` to override the version for local builds.
 - When not injected, the version is shown as `dev`.
 
 ## Frontend development

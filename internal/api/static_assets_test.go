@@ -60,3 +60,30 @@ func TestServeSPAServesAssetsDirectlyFromWebFS(t *testing.T) {
 		t.Fatalf("WebFS 中不存在的资源应返回 404: %d", missing.Code)
 	}
 }
+
+func TestServeAssetRejectsTraversal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := New(
+		nil,
+		auth.New([]byte("jwt-secret")),
+		nil,
+		"secret-entry",
+		fstest.MapFS{
+			"index.html":    &fstest.MapFile{Data: []byte("index")},
+			"assets/app.js": &fstest.MapFile{Data: []byte("app")},
+		},
+		nil,
+	)
+	router := s.Router()
+
+	for _, path := range []string{
+		"/assets/../index.html",
+		"/assets/../../internal/webui/dist/index.html",
+		"/assets/%2e%2e/index.html",
+	} {
+		resp := sessionRequest(t, router, http.MethodGet, path, "", nil, nil)
+		if resp.Code != http.StatusNotFound {
+			t.Fatalf("%s 应返回 404: %d %s", path, resp.Code, resp.Body.String())
+		}
+	}
+}

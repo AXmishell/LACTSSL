@@ -81,8 +81,8 @@ scripts/             开发脚本与 CI（TypeScript，由 Node 直接运行）
 ## 构建与版本注入
 
 - 前端构建产物先输出到 `web/dist`，再复制到 `internal/webui/dist` 并以 `embed` 标签嵌入二进制。
-- 版本号来自根目录 `VERSION`，通过 `-ldflags -X 'lactssl/internal/api.Version=...'` 注入；构建时间与架构同理。
-- 推送 `v*` tag 会由 `Version Sync` workflow 自动把 tag 版本写回 `VERSION`，详见[运维](operations.md#版本号)。
+- 版本号以 git tag 为唯一来源，通过 `scripts/version.sh` 调用 `git describe --tags --always --dirty` 推导（去掉 `v` 前缀），并用 `-ldflags -X 'lactssl/internal/api.Version=...'` 注入；构建时间与架构同理。仓库不再维护 `VERSION` 文件。
+- 发布流程以 tag 为准，详见[运维](operations.md#版本号)；用 `LACTSSL_VERSION` 可覆盖本地构建的版本号。
 - 未注入时版本显示为 `dev`。
 
 ## 前端开发

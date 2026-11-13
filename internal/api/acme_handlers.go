@@ -83,6 +83,9 @@ func (s *Server) listACMEEndpoints(c *gin.Context) {
 }
 
 func (s *Server) createACMEEndpoint(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
+		return
+	}
 	var body acmeEndpointBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -129,6 +132,9 @@ func (s *Server) updateACMEEndpoint(c *gin.Context) {
 		failKey(c, http.StatusNotFound, "api.error.acme_endpoint_not_found")
 		return
 	}
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
+		return
+	}
 	var body acmeEndpointBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -155,6 +161,9 @@ func (s *Server) deleteACMEEndpoint(c *gin.Context) {
 	ep, err := s.Store.GetACMEEndpoint(id)
 	if err != nil {
 		failKey(c, http.StatusNotFound, "api.error.acme_endpoint_not_found")
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
 		return
 	}
 	if err := s.Store.DeleteACMEEndpoint(id); err != nil {
@@ -321,6 +330,9 @@ func (s *Server) createACMEEABCredential(c *gin.Context) {
 		failKey(c, http.StatusNotFound, "api.error.acme_endpoint_not_found")
 		return
 	}
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
+		return
+	}
 	var body struct {
 		Label       string `json:"label"`
 		ExpiresDays int    `json:"expires_days"`
@@ -383,6 +395,9 @@ func (s *Server) deleteACMEEABCredential(c *gin.Context) {
 	credential, err := s.Store.GetACMEEABCredential(id)
 	if err != nil {
 		failKey(c, http.StatusNotFound, "api.error.acme_eab_not_found")
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
 		return
 	}
 	if err := s.Store.DeleteACMEEABCredential(id); err != nil {

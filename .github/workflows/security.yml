@@ -1,0 +1,74 @@
+name: Security
+
+on:
+  schedule:
+    # 每天 03:17 UTC（北京时间 11:17）扫描一次，捕获代码未变但新披露的漏洞
+    - cron: "17 3 * * *"
+  push:
+    branches: [main]
+    paths:
+      - go.mod
+      - go.sum
+      - .github/workflows/security.yml
+  pull_request:
+    paths:
+      - go.mod
+      - go.sum
+      - .github/workflows/security.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFLAGS: -mod=readonly
+  GOVULNCHECK_VERSION: v1.9.0
+  GOVULNCHECK: ${{ github.workspace }}/.bin/govulncheck
+
+jobs:
+  govulncheck:
+    name: govulncheck (dependency vulnerabilities)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # 上传 SARIF 到 Code scanning 需要
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$GOVULNCHECK")"
+          GOBIN="$(dirname "$GOVULNCHECK")" go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          "$GOVULNCHECK" -version
+
+      - name: Scan (SARIF)
+        shell: bash
+        run: |
+          "$GOVULNCHECK" -format sarif ./... > govulncheck.sarif
+          python3 -c "import json;d=json.load(open('govulncheck.sarif'));print('SARIF runs:',len(d.get('runs',[])))"
+
+      - name: Upload SARIF to code scanning
+        # fork PR 的 token 只读，无法上传，跳过即可
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
+        with:
+          sarif_file: govulncheck.sarif
+          category: govulncheck
+
+      - name: Fail on findings
+        # sarif 格式始终返回 0，这里用 text 模式做门禁（有漏洞时退出码 3）
+        shell: bash
+        run: '"$GOVULNCHECK" ./...'

@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"crypto/md5"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,11 +18,7 @@ import (
 )
 
 func deployHTTPClient(skipVerify bool) *http.Client {
-	client := &http.Client{Timeout: 30 * time.Second}
-	if skipVerify {
-		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	}
-	return client
+	return newOutboundClient(30*time.Second, skipVerify)
 }
 
 func panelURL(value string) string {
@@ -60,7 +55,7 @@ func baotaPost(client *http.Client, base, secret, apiPath, action string, data u
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := client.Do(req)
 	if err != nil {
-		return i18n.E("service.deploy.baota_request_failed", "error", err.Error())
+		return i18n.E("service.deploy.baota_request_failed", "error", SafeError(err))
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -171,7 +166,7 @@ func onePanelRequest(client *http.Client, base, version, apiKey, method, apiPath
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, i18n.E("service.deploy.onepanel_request_failed", "error", err.Error())
+		return nil, i18n.E("service.deploy.onepanel_request_failed", "error", SafeError(err))
 	}
 	defer resp.Body.Close()
 	bodyData, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
@@ -328,7 +323,7 @@ func safelineRequest(client *http.Client, base, token, method, apiPath string, p
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, i18n.E("service.deploy.safeline_request_failed", "error", err.Error())
+		return nil, i18n.E("service.deploy.safeline_request_failed", "error", SafeError(err))
 	}
 	defer resp.Body.Close()
 	bodyData, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))

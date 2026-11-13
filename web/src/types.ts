@@ -124,9 +124,20 @@ export type SecondaryVerifyAction =
   | 'backup_restore'
   | 'entry_change'
   | 'private_ca_key_export'
+  | 'certificate_key_export'
+  | 'settings_write'
+  | 'account_write'
+  | 'task_write'
+  | 'deploy_execute'
+  | 'acme_write'
+  | 'private_ca_write'
+  | 'certificate_write'
+  | 'monitor_write'
+  | 'notification_test'
 
 export interface Settings {
   entry?: string
+  step_up?: Partial<Record<SecondaryVerifyAction, boolean>>
   verify_mode?: VerifyMode
   language?: string
   acme_email?: string

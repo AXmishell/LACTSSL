@@ -51,7 +51,7 @@ jobs:
 
       - name: govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           "$(go env GOPATH)/bin/govulncheck" ./...
 
       - name: Coverage summary
@@ -116,6 +116,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # 需要完整历史与 tag，供 scripts/version.sh 通过 git describe 推导版本号。
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -131,7 +134,7 @@ jobs:
 
       - name: Build
         run: |
-          BUILD_VERSION=$(tr -d '[:space:]' < VERSION)
+          BUILD_VERSION=$(./scripts/version.sh)
           BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           BUILD_ARCH=$(go env GOOS)/$(go env GOARCH)
           mkdir -p bin
@@ -150,45 +153,3 @@ jobs:
           name: lactssl-linux-amd64
           path: bin/lactssl
           retention-days: 7
-
-  freebsd:
-    name: Build FreeBSD (${{ matrix.goarch }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: [backend, frontend]
-    strategy:
-      fail-fast: false
-      matrix:
-        goarch: [amd64, arm64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Download frontend dist
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: web-dist
-          path: internal/webui/dist
-
-      - name: Cross-build
-        env:
-          GOOS: freebsd
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          BUILD_VERSION=$(tr -d '[:space:]' < VERSION)
-          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          mkdir -p bin
-          CGO_ENABLED=0 go build -trimpath -tags embed \
-            -ldflags "-s -w -X 'lactssl/internal/api.Version=$BUILD_VERSION' -X 'lactssl/internal/api.BuildTime=$BUILD_TIME' -X 'lactssl/internal/api.BuildArch=$GOOS/$GOARCH'" \
-            -o bin/lactssl ./cmd/server
-
-      - name: Verify binary
-        run: |
-          test -x bin/lactssl
-          ls -lh bin/lactssl

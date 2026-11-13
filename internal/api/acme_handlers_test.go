@@ -81,6 +81,7 @@ func TestCleanupACMEDiagnosticsEndpoint(t *testing.T) {
 		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
 	}
 	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+	acmeToken := secondaryVerifyToken(t, router, session, secondaryActionACMEWrite, "password1234", "")
 
 	ep := &model.ACMEEndpoint{PublicID: "ep", Name: "Internal", Slug: "internal", CAID: 1, Enabled: true, AllowedDomains: []string{"example.com"}}
 	if err := st.CreateACMEEndpoint(ep); err != nil {
@@ -115,7 +116,7 @@ func TestCleanupACMEDiagnosticsEndpoint(t *testing.T) {
 	}
 
 	w = sessionRequest(t, router, http.MethodPost, "/secret-entry/api/acme-diagnostics/cleanup",
-		`{"target":"orders","scope":"stale"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+		`{"target":"orders","scope":"stale"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1", secondaryVerifyHeader: acmeToken})
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"orders":1`) {
 		t.Fatalf("清理失效订单失败: %d %s", w.Code, w.Body.String())
 	}
@@ -127,7 +128,7 @@ func TestCleanupACMEDiagnosticsEndpoint(t *testing.T) {
 	}
 
 	w = sessionRequest(t, router, http.MethodPost, "/secret-entry/api/acme-diagnostics/cleanup",
-		`{"target":"unknown","scope":"stale"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+		`{"target":"unknown","scope":"stale"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1", secondaryVerifyHeader: acmeToken})
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("非法清理对象应返回 400: %d %s", w.Code, w.Body.String())
 	}

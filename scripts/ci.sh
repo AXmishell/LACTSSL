@@ -147,7 +147,7 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   rm -rf internal/webui/dist
   cp -a web/dist internal/webui/dist
   mkdir -p bin
-  build_version="$(tr -d '[:space:]' < VERSION)"
+  build_version="$(./scripts/version.sh)"
   build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   build_arch="$(go env GOOS)/$(go env GOARCH)"
   CGO_ENABLED=0 go build -trimpath -tags embed \

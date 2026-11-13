@@ -32,6 +32,9 @@ func (s *Server) listACMECAs(c *gin.Context) {
 }
 
 func (s *Server) createACMECA(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
+		return
+	}
 	var body acmeCABody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -71,6 +74,9 @@ func (s *Server) updateACMECA(c *gin.Context) {
 	existing, err := s.Store.GetACMECA(id)
 	if err != nil {
 		failKey(c, http.StatusNotFound, "api.error.acme_ca_not_found")
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
 		return
 	}
 	var body acmeCABody
@@ -116,6 +122,9 @@ func (s *Server) updateACMECA(c *gin.Context) {
 func (s *Server) deleteACMECA(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
 		return
 	}
 	ca, err := s.Store.GetACMECA(id)

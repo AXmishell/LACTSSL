@@ -69,10 +69,8 @@
             <el-button @click="goNotifications">{{ t('settings.goConfigure') }}</el-button>
           </div>
         </div>
-      </el-tab-pane>
 
-      <!-- 安全入口 -->
-      <el-tab-pane :label="t('settings.tabEntry')" name="entry">
+        <!-- 安全入口 -->
         <div class="k-card">
           <div class="card-head">
             <div>
@@ -80,7 +78,7 @@
               <div class="sub">{{ t('settings.entrySub') }}</div>
             </div>
           </div>
-          <el-form :model="entryForm" label-position="top" style="max-width: 520px">
+          <el-form :model="entryForm" label-position="top" class="entry-form">
             <el-form-item>
               <el-input v-model="entryForm.entry" :placeholder="settings?.entry || t('settings.entryPlaceholder')" />
               <div class="form-help">{{ t('settings.entryHelp') }}</div>
@@ -308,7 +306,7 @@
     </el-dialog>
 
     <!-- 二次验证方式 -->
-    <el-dialog v-model="verifyModeVisible" :title="t('settings.criticalVerify')" width="520px" @closed="resetVerifyModeDialog">
+    <el-dialog v-model="verifyModeVisible" :title="t('settings.criticalVerify')" width="680px" @closed="resetVerifyModeDialog">
       <p class="muted" style="margin-top: 0">{{ t('settings.criticalVerifySub') }}</p>
       <el-form label-position="top">
         <el-form-item :label="t('settings.criticalVerifyMethod')">
@@ -345,6 +343,14 @@
           {{ t('settings.criticalVerifyNoneHint') }}
         </div>
       </el-form>
+      <el-divider content-position="left">{{ t('settings.stepUpTitle') }}</el-divider>
+      <p class="muted" style="margin: 0 0 10px">{{ t('settings.stepUpSub') }}</p>
+      <div class="step-up-list">
+        <div v-for="item in stepUpToggleDefs" :key="item.action" class="step-up-row">
+          <span>{{ t(item.labelKey) }}</span>
+          <el-switch v-model="stepUpForm[item.action]" />
+        </div>
+      </div>
       <el-alert
         v-if="verifyModeForm.mode === 'none' && verifyMode !== 'none'"
         type="warning"
@@ -364,7 +370,7 @@
         <el-button
           type="primary"
           :loading="savingVerifyMode"
-          :disabled="verifyModeForm.mode === verifyMode"
+          :disabled="!verifyDialogDirty"
           @click="saveVerifyMode"
         >
           {{ t('common.confirm') }}
@@ -506,7 +512,7 @@ import {
 } from '../secondaryVerify'
 import { loadMeta, loadSettings, loadUser, logout, state } from '../store'
 import { formatDate } from '../utils'
-import type { AuthResult, BackupInfo, MessageResult, Meta, Settings as AppSettings, TOTPSetup, VerifyMode } from '../types'
+import type { AuthResult, BackupInfo, MessageResult, Meta, SecondaryVerifyAction, Settings as AppSettings, TOTPSetup, VerifyMode } from '../types'
 
 interface ProgramStatus {
   version: string
@@ -569,6 +575,25 @@ const verifyModeForm = reactive({
   password: '',
   totp: ''
 })
+const stepUpForm = reactive<Record<string, boolean>>({})
+const stepUpToggleDefs: Array<{ action: SecondaryVerifyAction; labelKey: string }> = [
+  { action: 'deploy_execute', labelKey: 'secondaryVerify.action.deployExecute' },
+  { action: 'task_write', labelKey: 'secondaryVerify.action.taskWrite' },
+  { action: 'account_write', labelKey: 'secondaryVerify.action.accountWrite' },
+  { action: 'settings_write', labelKey: 'secondaryVerify.action.settingsWrite' },
+  { action: 'notification_test', labelKey: 'secondaryVerify.action.notificationTest' },
+  { action: 'acme_write', labelKey: 'secondaryVerify.action.acmeWrite' },
+  { action: 'private_ca_write', labelKey: 'secondaryVerify.action.privateCaWrite' },
+  { action: 'certificate_key_export', labelKey: 'secondaryVerify.action.certificateKeyExport' },
+  { action: 'certificate_write', labelKey: 'secondaryVerify.action.certificateWrite' },
+  { action: 'monitor_write', labelKey: 'secondaryVerify.action.monitorWrite' }
+]
+const stepUpDirty = computed(() =>
+  stepUpToggleDefs.some(
+    (item) => stepUpForm[item.action] !== (settings.value?.step_up?.[item.action] !== false)
+  )
+)
+const verifyDialogDirty = computed(() => verifyModeForm.mode !== verifyMode.value || stepUpDirty.value)
 
 const emailVisible = ref(false)
 const emailForm = reactive({ email: '', password: '' })
@@ -740,10 +765,17 @@ async function saveEntry(): Promise<void> {
   }
 }
 
+function resetStepUpForm(): void {
+  for (const item of stepUpToggleDefs) {
+    stepUpForm[item.action] = settings.value?.step_up?.[item.action] !== false
+  }
+}
+
 function openVerifyModeDialog(): void {
   verifyModeForm.mode = verifyMode.value
   verifyModeForm.password = ''
   verifyModeForm.totp = ''
+  resetStepUpForm()
   verifyModeVisible.value = true
 }
 
@@ -763,7 +795,7 @@ async function refreshVerifyMode(): Promise<void> {
 }
 
 async function saveVerifyMode(): Promise<void> {
-  if (verifyModeForm.mode === verifyMode.value) {
+  if (!verifyDialogDirty.value) {
     return
   }
   if (
@@ -782,9 +814,11 @@ async function saveVerifyMode(): Promise<void> {
     await api.post('/security/verify-mode', {
       mode: verifyModeForm.mode,
       password: verifyModeForm.password,
-      totp: verifyModeForm.totp
+      totp: verifyModeForm.totp,
+      step_up: { ...stepUpForm }
     })
     settings.value = await loadSettings(true)
+    resetStepUpForm()
     verifyModeVisible.value = false
     ElMessage.success(t('settings.verifyModeUpdated'))
   } catch (error: any) {
@@ -811,7 +845,7 @@ async function downloadBackup(): Promise<void> {
     ElMessage.warning(t('settings.backupPasswordRequired'))
     return
   }
-  if (password.length < 8) {
+  if (password.length < 12) {
     ElMessage.warning(t('settings.backupPasswordMin'))
     return
   }
@@ -822,7 +856,7 @@ async function downloadBackup(): Promise<void> {
   try {
     // 点击下载后先完成独立的二次验证，再携带短期 token 下载备份。
     const token = await requestSecondaryVerification('backup_download')
-    if (!token) return
+    if (token === null) return
     backupDownloading.value = true
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
     const label = '-encrypted'
@@ -1068,6 +1102,12 @@ onUnmounted(() => {
   font-weight: 600;
   font-size: 14px;
 }
+.entry-form {
+  max-width: 520px;
+}
+.entry-form :deep(.el-form-item:last-of-type) {
+  margin-bottom: 12px;
+}
 .backup-meta {
   margin-top: 8px;
 }
@@ -1135,5 +1175,42 @@ onUnmounted(() => {
 }
 .about-line:last-child {
   border-bottom: none;
+}
+.step-up-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid #eef1f6;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.step-up-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid #eef1f6;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #334155;
+}
+.step-up-row > span {
+  flex: 1;
+  min-width: 0;
+}
+.step-up-row :deep(.el-switch) {
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .step-up-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

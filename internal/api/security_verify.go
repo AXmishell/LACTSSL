@@ -114,13 +114,20 @@ func (s *Server) changeVerifyMode(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Mode     string `json:"mode"`
-		Password string `json:"password"`
-		TOTP     string `json:"totp"`
+		Mode     string          `json:"mode"`
+		Password string          `json:"password"`
+		TOTP     string          `json:"totp"`
+		StepUp   map[string]bool `json:"step_up"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
+	}
+	for action := range body.StepUp {
+		if !isToggleableStepUp(action) {
+			failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+			return
+		}
 	}
 	mode := strings.TrimSpace(body.Mode)
 	switch mode {
@@ -140,9 +147,20 @@ func (s *Server) changeVerifyMode(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.save_verify_mode_failed")
 		return
 	}
+	for action, enabled := range body.StepUp {
+		if err := s.Store.SetSetting(stepUpSettingKey(action), strconv.FormatBool(enabled)); err != nil {
+			failKey(c, http.StatusInternalServerError, "api.error.save_verify_mode_failed")
+			return
+		}
+	}
 	s.Store.AddLogKey("settings", 0, "warning", "log.settings.verify_mode_changed", map[string]any{"mode": mode})
+	stepUp := make(map[string]bool, len(toggleableStepUpActions))
+	for _, action := range toggleableStepUpActions {
+		stepUp[action] = s.stepUpEnabled(action)
+	}
 	ok(c, gin.H{
 		"mode":    mode,
+		"step_up": stepUp,
 		"message": i18n.T(locale(c), "api.ok.verify_mode_updated", nil),
 	})
 }

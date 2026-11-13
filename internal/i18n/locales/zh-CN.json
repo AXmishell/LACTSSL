@@ -326,6 +326,8 @@
   "service.deploy.qiniu_kodo_cdn_domain": "域名 {domain} 是七牛云 CDN 域名，请改用「七牛云 CDN」目标",
   "service.deploy.panel_url_required": "面板地址不能为空",
   "service.url_invalid": "地址无效，仅支持 http:// 或 https:// 且不能包含用户名密码: {url}",
+  "service.url_blocked": "目标地址不允许访问（云元数据、链路本地或保留网段）: {url}",
+  "service.deploy.webhook_https_required": "Webhook 会携带证书私钥，公网地址必须使用 https",
   "service.deploy.baota_secret_required": "宝塔面板接口密钥不能为空",
   "service.deploy.baota_sites_empty": "没有可部署的网站",
   "service.deploy.baota_request_failed": "请求宝塔面板 API 失败: {error}",

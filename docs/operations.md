@@ -47,28 +47,23 @@ chmod 600 lactssl-backup-*.tar.gz
 
 ## 版本号
 
-仓库根目录的 `VERSION` 文件是唯一的版本来源：
+版本号以 git tag 为唯一来源，仓库不再维护 `VERSION` 文件。
+
+本地构建（`make build`、`./scripts/ci.sh`、`./scripts/rebuild-run.sh`）由 `scripts/version.sh` 通过 `git describe --tags --always --dirty` 推导版本号并去掉开头的 `v`：
+
+- 最新 tag 为 `v1.0.1` 且之后有 3 个提交时，版本为 `1.0.1-3-gabc1234`；
+- 工作区有未提交改动时追加 `-dirty`，例如 `1.0.1-3-gabc1234-dirty`；
+- 仓库没有任何 tag 时退化为提交短哈希；git 不可用时（如 Docker 构建上下文）显示 `dev`。
+
+构建脚本通过链接参数 `-ldflags -X 'lactssl/internal/api.Version=...'` 注入版本，构建完成后可在「设置 → 关于」查看构建版本、构建时间与架构。直接使用 `go run ./cmd/server` 时版本显示为 `dev`。
+
+需要固定版本时可显式覆盖：`LACTSSL_VERSION=1.2.3 make build`。Docker 构建上下文不包含 `.git`，需要传入版本：
 
 ```bash
-echo 1.0.0 > VERSION
-make build
+LACTSSL_VERSION=1.2.3 docker compose up -d --build
+# 或
+docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 ```
-
-`make build`、Docker 构建与 CI 都会读取该文件并通过链接参数注入二进制。构建完成后可在「设置 → 关于」查看构建版本、构建时间与架构。
-
-直接使用 `go run ./cmd/server` 时版本显示为 `dev`。
-
-### 推送 tag 自动同步
-
-推送形如 `v1.0.1` 的 tag 时，`Version Sync` workflow 会把 tag 版本写回默认分支的 `VERSION`：
-
-- tag 必须是语义化版本 `vX.Y.Z`，可带 `-rc.1` 之类的预发布后缀；`v` 前缀会被去掉后写入。
-- tag 指向的提交必须在默认分支上，否则 workflow 只给出警告并跳过同步。
-- 若 `VERSION` 已与 tag 一致，则不会产生提交。
-- 同步提交信息为 `chore(release): 1.0.1`，使用 `GITHUB_TOKEN` 推送，不会再次触发 CI。
-- 默认分支若开启保护规则，需要允许 GitHub Actions 写入，否则 workflow 会在重试后失败并提示手动更新。
-
-tag 是该次发布版本的依据；`VERSION` 会在发布后与最新 tag 对齐，供后续本地构建使用。
 
 ### 创建 Release 自动构建
 
@@ -89,7 +84,7 @@ workflow 会从 tag 检出源码，构建前端并嵌入二进制，产出：
 - `lactssl_<version>_windows_amd64.zip`
 - `checksums.txt`（SHA-256）
 
-归档内包含二进制、`README.md`、`LICENSE` 和 `config.yaml.example`。版本号直接取自 tag（去掉 `v` 前缀），不依赖 `VERSION` 文件，因此即使 `VERSION` 尚未同步也能正确构建。
+归档内包含二进制、`README.md`、`LICENSE` 和 `config.yaml.example`。版本号直接取自 tag（去掉 `v` 前缀），不依赖本地 git 推导，因此从任意检出的源码构建都能得到正确版本。
 
 同时会构建 `linux/amd64`、`linux/arm64` 的 Docker 镜像并推送到 GHCR：
 

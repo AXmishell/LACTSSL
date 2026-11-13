@@ -91,7 +91,7 @@ export const api = {
     request<T>({ method: 'POST', url, data, headers }),
   put: <T = any>(url: string, data?: any, headers?: Record<string, string>) =>
     request<T>({ method: 'PUT', url, data, headers }),
-  delete: <T = any>(url: string) => request<T>({ method: 'DELETE', url })
+  delete: <T = any>(url: string, headers?: Record<string, string>) => request<T>({ method: 'DELETE', url, headers })
 }
 
 export function errorText(error: unknown): string {

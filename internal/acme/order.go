@@ -457,7 +457,8 @@ func (s *Server) authenticateAccount(w http.ResponseWriter, r *http.Request, ep 
 		writeProblem(w, problem)
 		return nil, nil, false
 	}
-	_ = s.Store.TouchACMEAccount(account.ID)
+	now := s.now().UTC()
+	_ = s.Store.TouchACMEAccount(account.ID, now, now.Add(-time.Minute))
 	return account, envelope, true
 }
 

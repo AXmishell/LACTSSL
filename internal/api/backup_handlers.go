@@ -14,7 +14,7 @@ import (
 )
 
 // minBackupPasswordLength 是备份加密密码的最小长度，与账户密码要求独立。
-const minBackupPasswordLength = 8
+const minBackupPasswordLength = 12
 
 // backupInfo 返回备份页面所需的数据库大小与最近备份信息。
 func (s *Server) backupInfo(c *gin.Context) {

@@ -474,7 +474,7 @@ func failErr(c *gin.Context, status int, err error) {
 		failKey(c, status, localized.Key, pairsOf(localized.Params)...)
 		return
 	}
-	fail(c, status, err.Error())
+	fail(c, status, service.SanitizeErrorText(err.Error()))
 }
 
 func pairsOf(params map[string]any) []any {
@@ -604,12 +604,19 @@ func (s *Server) serveIndex(c *gin.Context) {
 }
 
 func (s *Server) serveAsset(c *gin.Context, name string) {
-	name = path.Clean(name)
-	if strings.Contains(name, "..") {
+	// 只允许规范化的 assets/ 路径和固定的公共图标，避免 /assets/../index.html
+	// 这类路径被 path.Clean 归一化后绕过页面门禁。
+	clean := path.Clean(name)
+	if clean != name || !fs.ValidPath(clean) || clean == "." {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	data, err := fs.ReadFile(s.WebFS, name)
+	if !strings.HasPrefix(clean, "assets/") && clean != "favicon.svg" && clean != "favicon.ico" && clean != "logo.svg" {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	data, err := fs.ReadFile(s.WebFS, clean)
+	name = clean
 	if err != nil {
 		c.Status(http.StatusNotFound)
 		return

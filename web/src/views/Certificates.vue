@@ -302,6 +302,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, CopyDocument, Delete, Download, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import { api, copyText, downloadFile } from '../api'
+import { requestSecondaryVerification, secondaryVerifyHeader, withSecondaryVerify } from '../secondaryVerify'
 import { loadMeta, state } from '../store'
 import DeployConfigFields from '../components/DeployConfigFields.vue'
 import { certState, daysLeft, formatDate, isExpired } from '../utils'
@@ -428,7 +429,10 @@ async function loadKeyPem(): Promise<void> {
   const cert = detail.value
   if (!cert || keyPem.value) return
   try {
-    const data = await api.get<{ content: string }>(`/certificates/${cert.id}/pem?type=key`)
+    const data = await withSecondaryVerify('certificate_key_export', (headers) =>
+      api.get<{ content: string }>(`/certificates/${cert.id}/pem?type=key`, undefined, headers)
+    )
+    if (!data) return
     keyPem.value = data.content
   } catch (error: any) {
     ElMessage.error(error.message)
@@ -538,7 +542,13 @@ async function download(cert: Certificate | null, kind: string): Promise<boolean
   if (!cert) return false
   const suffix = kind === 'key' ? 'key' : kind === 'cert' ? 'crt' : 'fullchain.crt'
   try {
-    await downloadFile(`/certificates/${cert.id}/download?type=${kind}`, `${cert.primary_domain}-${kind}.${suffix}`)
+    const headers: Record<string, string> = {}
+    if (kind === 'key') {
+      const token = await requestSecondaryVerification('certificate_key_export')
+      if (token === null) return false
+      if (token) headers[secondaryVerifyHeader] = token
+    }
+    await downloadFile(`/certificates/${cert.id}/download?type=${kind}`, `${cert.primary_domain}-${kind}.${suffix}`, { headers })
     return true
   } catch (error: any) {
     ElMessage.error(error.message)
@@ -633,6 +643,9 @@ async function submitDeploy(): Promise<void> {
     }
   }
   if (!deployCerts.value.length) return
+  const token = await requestSecondaryVerification('deploy_execute')
+  if (token === null) return
+  const verifyHeaders: Record<string, string> = token ? { [secondaryVerifyHeader]: token } : {}
   deploying.value = true
   deployResults.value = []
   const results: DeployResult[] = []
@@ -640,7 +653,7 @@ async function submitDeploy(): Promise<void> {
   try {
     for (const cert of deployCerts.value) {
       try {
-        const data = await api.post<DeployResponse>(`/certificates/${cert.id}/deploy`, { targets: deployTargets.value })
+        const data = await api.post<DeployResponse>(`/certificates/${cert.id}/deploy`, { targets: deployTargets.value }, verifyHeaders)
         const mapped = (data.results || []).map((item) => ({
           ...item,
           name: deployCerts.value.length > 1 ? `${cert.primary_domain} · ${item.name}` : item.name
@@ -712,7 +725,10 @@ async function submitCleanup(): Promise<void> {
   }
   cleaning.value = true
   try {
-    const data = await api.post<{ deleted: number }>('/certificates/cleanup', { ...cleanupForm })
+    const data = await withSecondaryVerify<{ deleted: number }>('certificate_write', (headers) =>
+      api.post<{ deleted: number }>('/certificates/cleanup', { ...cleanupForm }, headers)
+    )
+    if (data === null) return
     ElMessage.success(t('certs.cleanupDone', { count: data?.deleted ?? count }))
     cleanupVisible.value = false
     detailVisible.value = false
@@ -735,7 +751,8 @@ async function remove(cert: Certificate): Promise<void> {
     return
   }
   try {
-    await api.delete(`/certificates/${cert.id}`)
+    const deleted = await withSecondaryVerify('certificate_write', (headers) => api.delete(`/certificates/${cert.id}`, headers))
+    if (deleted === null) return
     ElMessage.success(t('certs.deleted'))
     if (detail.value?.id === cert.id) detailVisible.value = false
     load()
@@ -782,12 +799,15 @@ async function batchRemove(): Promise<void> {
   } catch (_) {
     return
   }
+  const token = await requestSecondaryVerification('certificate_write')
+  if (token === null) return
+  const verifyHeaders: Record<string, string> = token ? { [secondaryVerifyHeader]: token } : {}
   batchDeleting.value = true
   let failed = 0
   try {
     for (const cert of list) {
       try {
-        await api.delete(`/certificates/${cert.id}`)
+        await api.delete(`/certificates/${cert.id}`, verifyHeaders)
         if (detail.value?.id === cert.id) detailVisible.value = false
       } catch (error: any) {
         failed++

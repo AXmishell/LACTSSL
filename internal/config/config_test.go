@@ -301,3 +301,98 @@ security:
 		t.Fatal("非法 public_url 应返回错误")
 	}
 }
+
+func TestValidateFileRejectsUnsafeRestoreConfig(t *testing.T) {
+	validSecret := strings.Repeat("a", 32)
+	validSalt := strings.Repeat("b", 32)
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{
+			name: "valid",
+			content: fmt.Sprintf(`security:
+  entry: "restore-entry"
+  jwt_secret: %q
+  salt: %q
+server:
+  addr: ":8080"
+`, validSecret, validSalt),
+		},
+		{
+			name: "short salt",
+			content: `security:
+  salt: "short"
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid entry",
+			content: `security:
+  entry: "x"
+  jwt_secret: "` + validSecret + `"
+  salt: "` + validSalt + `"
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid port",
+			content: `server:
+  port: 70000
+security:
+  jwt_secret: "` + validSecret + `"
+  salt: "` + validSalt + `"
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid listen addr",
+			content: `server:
+  addr: "localhost"
+security:
+  jwt_secret: "` + validSecret + `"
+  salt: "` + validSalt + `"
+`,
+			wantErr: true,
+		},
+		{
+			name: "tls pair mismatch",
+			content: `acme:
+  tls:
+    cert: "/tmp/cert.pem"
+security:
+  jwt_secret: "` + validSecret + `"
+  salt: "` + validSalt + `"
+`,
+			wantErr: true,
+		},
+		{
+			name: "mtls without tls",
+			content: `acme:
+  mtls:
+    enabled: true
+    client_ca: "/tmp/ca.pem"
+security:
+  jwt_secret: "` + validSecret + `"
+  salt: "` + validSalt + `"
+`,
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err := ValidateFile(path)
+			if tc.wantErr && err == nil {
+				t.Fatal("应拒绝该配置")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("合法配置被拒绝: %v", err)
+			}
+		})
+	}
+}

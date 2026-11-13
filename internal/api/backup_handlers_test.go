@@ -38,7 +38,7 @@ func newBackupTestServer(t *testing.T) (*gin.Engine, string) {
 		t.Fatalf("初始化加密组件失败: %v", err)
 	}
 	configPath := filepath.Join(dataDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte("security:\n  salt: test-salt\n  jwt_secret: test-jwt\n"), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte("security:\n  salt: 0123456789abcdef0123456789abcdef\n  jwt_secret: fedcba9876543210fedcba9876543210\n"), 0o600); err != nil {
 		t.Fatalf("写入测试配置失败: %v", err)
 	}
 	st := store.New(conn, cipher)

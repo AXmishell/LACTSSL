@@ -70,10 +70,9 @@ func SendServerChan(cfg ServerChanConfig, title, message string) error {
 	form := url.Values{}
 	form.Set("title", title)
 	form.Set("desp", message)
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.PostForm(endpoint, form)
+	resp, err := newOutboundClient(15*time.Second, false).PostForm(endpoint, form)
 	if err != nil {
-		return i18n.E("service.notify.serverchan_request_failed", "error", err.Error())
+		return i18n.E("service.notify.serverchan_request_failed", "error", SafeError(err))
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
@@ -144,10 +143,9 @@ func SendGotify(cfg GotifyConfig, title, message string) error {
 		return i18n.E("service.notify.gotify_request_failed", "error", err.Error())
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := newOutboundClient(15*time.Second, false).Do(req)
 	if err != nil {
-		return i18n.E("service.notify.gotify_request_failed", "error", err.Error())
+		return i18n.E("service.notify.gotify_request_failed", "error", SafeError(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -343,7 +341,7 @@ func (m *Manager) sendNotificationTo(subject, body string, channels []string) {
 			continue
 		}
 		if err := SendNotifyChannel(name, cfg, subject, htmlToText(body)); err != nil {
-			m.Store.AddLogKey("notify", 0, "error", "log.notify.channel_failed", map[string]any{"channel": name, "error": err.Error()})
+			m.Store.AddLogKey("notify", 0, "error", "log.notify.channel_failed", map[string]any{"channel": name, "error": SafeError(err)})
 			continue
 		}
 		m.Store.AddLogKey("notify", 0, "info", "log.notify.channel_sent", map[string]any{"channel": name, "subject": subject})
@@ -365,7 +363,7 @@ func (m *Manager) sendMailNotification(subject, body string) {
 		return
 	}
 	if err := SendMail(cfg, to, subject, body); err != nil {
-		m.Store.AddLogKey("notify", 0, "error", "log.notify.failed", map[string]any{"error": err.Error()})
+		m.Store.AddLogKey("notify", 0, "error", "log.notify.failed", map[string]any{"error": SafeError(err)})
 		return
 	}
 	m.Store.AddLogKey("notify", 0, "info", "log.notify.sent", map[string]any{"subject": subject})
@@ -377,7 +375,7 @@ func (m *Manager) sendGotifyNotification(subject, body string) {
 		return
 	}
 	if err := SendGotify(cfg, subject, htmlToText(body)); err != nil {
-		m.Store.AddLogKey("notify", 0, "error", "log.notify.gotify_failed", map[string]any{"error": err.Error()})
+		m.Store.AddLogKey("notify", 0, "error", "log.notify.gotify_failed", map[string]any{"error": SafeError(err)})
 		return
 	}
 	m.Store.AddLogKey("notify", 0, "info", "log.notify.gotify_sent", map[string]any{"subject": subject})
@@ -389,7 +387,7 @@ func (m *Manager) sendServerChanNotification(subject, body string) {
 		return
 	}
 	if err := SendServerChan(cfg, subject, htmlToText(body)); err != nil {
-		m.Store.AddLogKey("notify", 0, "error", "log.notify.serverchan_failed", map[string]any{"error": err.Error()})
+		m.Store.AddLogKey("notify", 0, "error", "log.notify.serverchan_failed", map[string]any{"error": SafeError(err)})
 		return
 	}
 	m.Store.AddLogKey("notify", 0, "info", "log.notify.serverchan_sent", map[string]any{"subject": subject})

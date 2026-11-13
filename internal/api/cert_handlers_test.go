@@ -86,6 +86,7 @@ func TestCleanupCertificatesEndpoint(t *testing.T) {
 		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
 	}
 	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+	certToken := secondaryVerifyToken(t, router, session, secondaryActionCertificateWrite, "password1234", "")
 
 	now := time.Now().UTC()
 	expired := &model.Certificate{PrimaryDomain: "expired.example.com", NotBefore: now.Add(-time.Hour), NotAfter: now.Add(-time.Minute)}
@@ -112,7 +113,7 @@ func TestCleanupCertificatesEndpoint(t *testing.T) {
 	}
 
 	w = sessionRequest(t, router, http.MethodPost, "/secret-entry/api/certificates/cleanup",
-		`{"scope":"expired"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+		`{"scope":"expired"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1", secondaryVerifyHeader: certToken})
 	if w.Code != http.StatusOK {
 		t.Fatalf("清理过期证书失败: %d %s", w.Code, w.Body.String())
 	}
@@ -127,7 +128,7 @@ func TestCleanupCertificatesEndpoint(t *testing.T) {
 	}
 
 	w = sessionRequest(t, router, http.MethodPost, "/secret-entry/api/certificates/cleanup",
-		`{"scope":"all"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+		`{"scope":"all"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1", secondaryVerifyHeader: certToken})
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"deleted":1`) {
 		t.Fatalf("清理全部证书失败: %d %s", w.Code, w.Body.String())
 	}

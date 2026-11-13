@@ -306,7 +306,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Close, Delete, Plus, Refresh, Upload } from '@element-plus/icons-vue'
 import { api, downloadFile } from '../api'
-import { requestSecondaryVerification, secondaryVerifyHeader } from '../secondaryVerify'
+import { requestSecondaryVerification, secondaryVerifyHeader, withSecondaryVerify } from '../secondaryVerify'
 import { loadMeta } from '../store'
 import { daysLeft, formatDate, splitLines } from '../utils'
 import type { MessageResult, PrivateCA } from '../types'
@@ -471,7 +471,8 @@ async function submitGenerate(): Promise<void> {
   }
   saving.value = true
   try {
-    const data = await api.post<MessageResult>('/private-cas', {
+    const data = await withSecondaryVerify<MessageResult>('private_ca_write', (headers) =>
+      api.post<MessageResult>('/private-cas', {
       name: generateForm.name.trim(),
       common_name: generateForm.common_name.trim(),
       organization: generateForm.organization.trim(),
@@ -500,7 +501,9 @@ async function submitGenerate(): Promise<void> {
         policy_oids: splitLines(generateForm.policy_oids),
         cps_url: generateForm.cps_url.trim()
       }
-    })
+      }, headers)
+    )
+    if (data === null) return
     ElMessage.success(data?.message || t('privateCA.generated'))
     generateVisible.value = false
     await load()
@@ -526,12 +529,15 @@ async function submitImport(): Promise<void> {
   }
   saving.value = true
   try {
-    const data = await api.post<MessageResult>('/private-cas/import', {
-      name: importForm.name.trim(),
-      cert_pem: importForm.cert_pem,
-      key_pem: importForm.key_pem,
-      parent_id: importForm.parent_id || 0
-    })
+    const data = await withSecondaryVerify<MessageResult>('private_ca_write', (headers) =>
+      api.post<MessageResult>('/private-cas/import', {
+        name: importForm.name.trim(),
+        cert_pem: importForm.cert_pem,
+        key_pem: importForm.key_pem,
+        parent_id: importForm.parent_id || 0
+      }, headers)
+    )
+    if (data === null) return
     ElMessage.success(data?.message || t('privateCA.imported'))
     importVisible.value = false
     await load()
@@ -547,8 +553,8 @@ async function downloadCA(ca: PrivateCA, kind: string): Promise<void> {
     const headers: Record<string, string> = {}
     if (kind === 'key') {
       const token = await requestSecondaryVerification('private_ca_key_export')
-      if (!token) return
-      headers[secondaryVerifyHeader] = token
+      if (token === null) return
+      if (token) headers[secondaryVerifyHeader] = token
     }
     const suffix = kind === 'key' ? 'key' : kind === 'chain' ? 'chain.crt' : 'crt'
     await downloadFile(`/private-cas/${ca.id}/download?type=${kind}`, `${ca.common_name || ca.name}-${suffix}`, {
@@ -570,7 +576,10 @@ async function remove(ca: PrivateCA): Promise<void> {
     return
   }
   try {
-    const data = await api.delete<MessageResult>(`/private-cas/${ca.id}`)
+    const data = await withSecondaryVerify<MessageResult>('private_ca_write', (headers) =>
+      api.delete<MessageResult>(`/private-cas/${ca.id}`, headers)
+    )
+    if (data === null) return
     ElMessage.success(data?.message || t('privateCA.deleted'))
     await load()
   } catch (error: any) {
@@ -611,6 +620,9 @@ async function batchDelete(): Promise<void> {
   } catch (_) {
     return
   }
+  const token = await requestSecondaryVerification('private_ca_write')
+  if (token === null) return
+  const verifyHeaders: Record<string, string> = token ? { [secondaryVerifyHeader]: token } : {}
   batchDeleting.value = true
   let failed = 0
   // 先删子 CA：父 CA 下仍有子级时后端会拒绝删除。
@@ -618,7 +630,7 @@ async function batchDelete(): Promise<void> {
   try {
     for (const ca of ordered) {
       try {
-        await api.delete(`/private-cas/${ca.id}`)
+        await api.delete(`/private-cas/${ca.id}`, verifyHeaders)
       } catch (error: any) {
         failed++
         ElMessage.error(`${ca.name}: ${error.message}`)

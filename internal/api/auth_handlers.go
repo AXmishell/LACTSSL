@@ -114,6 +114,10 @@ func (s *Server) handleSetup(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.create_account_failed")
 		return
 	}
+	// 初始化完成后丢弃此前可能被匿名暂存的恢复包，避免下次重启覆盖新账户。
+	if s.Backup != nil {
+		_ = s.Backup.CancelPending()
+	}
 	// 首次使用时把邮箱作为 ACME 账户邮箱的默认值。
 	_ = s.Store.SetSetting("acme.email", body.Email)
 	_ = s.Store.SetSetting("language", string(locale(c)))
@@ -293,6 +297,9 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 		return
 	}
 	if !auth.VerifyPassword(user.PasswordHash, body.OldPassword) {
+		if !s.allowVerifyFailure(c, user) {
+			return
+		}
 		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
 	}
@@ -333,6 +340,9 @@ func (s *Server) handleChangeEmail(c *gin.Context) {
 		return
 	}
 	if !auth.VerifyPassword(user.PasswordHash, body.Password) {
+		if !s.allowVerifyFailure(c, user) {
+			return
+		}
 		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
 	}
@@ -391,6 +401,9 @@ func (s *Server) handleTOTPEnable(c *gin.Context) {
 	}
 	// 启用 TOTP 属于安全敏感操作，必须重新校验密码，避免被盗会话绑定攻击者的验证器。
 	if !auth.VerifyPassword(user.PasswordHash, body.Password) {
+		if !s.allowVerifyFailure(c, user) {
+			return
+		}
 		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
 	}
@@ -399,6 +412,9 @@ func (s *Server) handleTOTPEnable(c *gin.Context) {
 		return
 	}
 	if !auth.ValidateTOTP(user.TOTPSecret, body.Code) {
+		if !s.allowVerifyFailure(c, user) {
+			return
+		}
 		failKey(c, http.StatusBadRequest, "api.error.totp_invalid")
 		return
 	}
@@ -425,10 +441,16 @@ func (s *Server) handleTOTPDisable(c *gin.Context) {
 		return
 	}
 	if !auth.VerifyPassword(user.PasswordHash, body.Password) {
+		if !s.allowVerifyFailure(c, user) {
+			return
+		}
 		failKey(c, http.StatusBadRequest, "api.error.current_password_wrong")
 		return
 	}
 	if !auth.ValidateTOTP(user.TOTPSecret, body.Code) {
+		if !s.allowVerifyFailure(c, user) {
+			return
+		}
 		failKey(c, http.StatusBadRequest, "api.error.totp_invalid")
 		return
 	}

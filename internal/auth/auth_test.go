@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pquerna/otp/totp"
 	"lactssl/internal/model"
 )
@@ -122,5 +123,28 @@ func TestExpiringValue(t *testing.T) {
 	}
 	if manager.VerifyExpiringValue("other-purpose", "my-entry", valid) {
 		t.Fatal("不同用途的签名值不应通过校验")
+	}
+}
+
+func TestJWTSigningUsesDerivedKey(t *testing.T) {
+	secret := []byte("jwt-secret")
+	manager := New(secret)
+	claims := Claims{
+		UserID:  1,
+		Version: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        "forged",
+			Subject:   "1",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			Issuer:    "LACTSSL",
+		},
+	}
+	forged, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Parse(forged); err == nil {
+		t.Fatal("使用原始 secret 直接签名的令牌不应被接受")
 	}
 }

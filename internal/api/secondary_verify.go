@@ -21,14 +21,74 @@ const (
 	secondaryActionBackupRestore      = "backup_restore"
 	secondaryActionEntryChange        = "entry_change"
 	secondaryActionPrivateCAKeyExport = "private_ca_key_export"
+	secondaryActionCertificateKeyView = "certificate_key_export"
+	secondaryActionSettingsWrite      = "settings_write"
+	secondaryActionAccountWrite       = "account_write"
+	secondaryActionTaskWrite          = "task_write"
+	secondaryActionDeployExecute      = "deploy_execute"
+	secondaryActionACMEWrite          = "acme_write"
+	secondaryActionPrivateCAWrite     = "private_ca_write"
+	secondaryActionCertificateWrite   = "certificate_write"
+	secondaryActionMonitorWrite       = "monitor_write"
+	secondaryActionNotificationTest   = "notification_test"
 )
+
+// toggleableStepUpActions 是允许在系统设置中单独开启/关闭二次验证的操作。
+// 备份、恢复、安全入口、私有 CA 私钥导出等关键操作始终强制验证，不在此列表中。
+var toggleableStepUpActions = []string{
+	secondaryActionDeployExecute,
+	secondaryActionTaskWrite,
+	secondaryActionAccountWrite,
+	secondaryActionSettingsWrite,
+	secondaryActionNotificationTest,
+	secondaryActionACMEWrite,
+	secondaryActionPrivateCAWrite,
+	secondaryActionCertificateKeyView,
+	secondaryActionCertificateWrite,
+	secondaryActionMonitorWrite,
+}
+
+func isToggleableStepUp(action string) bool {
+	for _, item := range toggleableStepUpActions {
+		if item == action {
+			return true
+		}
+	}
+	return false
+}
+
+func stepUpSettingKey(action string) string {
+	return "security.step_up." + action
+}
+
+// stepUpEnabled 返回某个操作是否需要二次验证。未配置时默认开启。
+func (s *Server) stepUpEnabled(action string) bool {
+	if !isToggleableStepUp(action) || s.Store == nil {
+		return true
+	}
+	value, err := s.Store.GetSetting(stepUpSettingKey(action))
+	if err != nil || strings.TrimSpace(value) == "" {
+		return true
+	}
+	return strings.ToLower(strings.TrimSpace(value)) != "false"
+}
 
 func validSecondaryAction(action string) bool {
 	switch action {
 	case secondaryActionBackupDownload,
 		secondaryActionBackupRestore,
 		secondaryActionEntryChange,
-		secondaryActionPrivateCAKeyExport:
+		secondaryActionPrivateCAKeyExport,
+		secondaryActionCertificateKeyView,
+		secondaryActionSettingsWrite,
+		secondaryActionAccountWrite,
+		secondaryActionTaskWrite,
+		secondaryActionDeployExecute,
+		secondaryActionACMEWrite,
+		secondaryActionPrivateCAWrite,
+		secondaryActionCertificateWrite,
+		secondaryActionMonitorWrite,
+		secondaryActionNotificationTest:
 		return true
 	default:
 		return false
@@ -76,6 +136,11 @@ func (s *Server) handleSecondaryVerify(c *gin.Context) {
 
 // requireSecondaryVerify 校验业务请求携带的二次验证 token。
 func (s *Server) requireSecondaryVerify(c *gin.Context, action string) bool {
+	// 系统设置允许逐项关闭二次验证；关键操作（备份/入口/私有 CA 私钥）
+	// 不在 toggleableStepUpActions 中，始终要求验证。
+	if !s.stepUpEnabled(action) {
+		return true
+	}
 	user := getUser(c)
 	if user == nil {
 		failKey(c, http.StatusUnauthorized, "api.error.not_logged_in")

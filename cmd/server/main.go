@@ -237,19 +237,38 @@ func applyPendingRestore(cfg *config.Config) (*config.Config, bool, error) {
 	current := cfg
 	applied := false
 	if pending.ConfigPath != "" {
+		// 在替换现网配置前完整预检，避免坏配置写入后每次启动都失败。
+		if err := config.ValidateFile(pending.ConfigPath); err != nil {
+			_ = pending.Quarantine()
+			return cfg, false, err
+		}
+		// 保留一份原配置，加载失败时可以回滚。
+		backupFile := current.File + ".before-restore"
+		original, readErr := os.ReadFile(current.File)
+		if readErr == nil {
+			_ = os.WriteFile(backupFile, original, 0o600)
+		}
 		if err := backup.ApplyConfig(current.File, pending.ConfigPath); err != nil {
+			_ = pending.Quarantine()
 			return cfg, false, err
 		}
 		reloaded, err := config.Load()
 		if err != nil {
+			if readErr == nil {
+				_ = os.WriteFile(current.File, original, 0o600)
+			}
+			_ = os.Remove(backupFile)
+			_ = pending.Quarantine()
 			return cfg, false, err
 		}
+		_ = os.Remove(backupFile)
 		current = reloaded
 		applied = true
 	}
 	if pending.DatabasePath != "" {
 		if err := backup.ApplyDatabase(current.DBPath, pending.DatabasePath); err != nil {
-			return cfg, applied, err
+			_ = pending.Quarantine()
+			return current, applied, err
 		}
 		applied = true
 	}

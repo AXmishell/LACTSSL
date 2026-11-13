@@ -279,6 +279,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Connection, CopyDocument, DataAnalysis, Delete, Key, Plus, Refresh } from '@element-plus/icons-vue'
 import { api, copyText } from '../api'
+import { requestSecondaryVerification, secondaryVerifyHeader, withSecondaryVerify } from '../secondaryVerify'
 import { formatDate } from '../utils'
 import type { ACMEEABCreated, ACMEEABCredential, ACMEEndpoint, PrivateCA } from '../types'
 
@@ -469,13 +470,13 @@ async function submitEndpoint(): Promise<void> {
       validity_days: form.validity_days,
       max_orders_per_hour: form.max_orders_per_hour
     }
-    if (editing.value) {
-      await api.put(`/acme-endpoints/${editing.value.id}`, payload)
-      ElMessage.success(t('acmeServer.updated'))
-    } else {
-      await api.post('/acme-endpoints', payload)
-      ElMessage.success(t('acmeServer.created'))
-    }
+    const saved = await withSecondaryVerify('acme_write', (headers) =>
+      editing.value
+        ? api.put(`/acme-endpoints/${editing.value.id}`, payload, headers)
+        : api.post('/acme-endpoints', payload, headers)
+    )
+    if (saved === null) return
+    ElMessage.success(t(editing.value ? 'acmeServer.updated' : 'acmeServer.created'))
     dialogVisible.value = false
     await load()
   } catch (error: any) {
@@ -496,7 +497,8 @@ async function removeEndpoint(row: ACMEEndpoint): Promise<void> {
     return
   }
   try {
-    await api.delete(`/acme-endpoints/${row.id}`)
+    const deleted = await withSecondaryVerify('acme_write', (headers) => api.delete(`/acme-endpoints/${row.id}`, headers))
+    if (deleted === null) return
     ElMessage.success(t('common.deleted'))
     await load()
   } catch (error: any) {
@@ -527,12 +529,16 @@ async function loadEAB(): Promise<void> {
 
 async function createEAB(): Promise<void> {
   if (!eabEndpoint.value) return
+  const endpoint = eabEndpoint.value
   eabSaving.value = true
   try {
-    createdEAB.value = await api.post<ACMEEABCreated>(`/acme-endpoints/${eabEndpoint.value.id}/eab`, {
-      label: eabForm.label.trim(),
-      expires_days: eabForm.expires_days
-    })
+    createdEAB.value = await withSecondaryVerify<ACMEEABCreated>('acme_write', (headers) =>
+      api.post<ACMEEABCreated>(`/acme-endpoints/${endpoint.id}/eab`, {
+        label: eabForm.label.trim(),
+        expires_days: eabForm.expires_days
+      }, headers)
+    )
+    if (createdEAB.value === null) return
     ElMessage.success(t('acmeServer.eabCreated'))
     await loadEAB()
   } catch (error: any) {
@@ -553,7 +559,8 @@ async function removeEAB(row: ACMEEABCredential): Promise<void> {
     return
   }
   try {
-    await api.delete(`/acme-eab/${row.id}`)
+    const deleted = await withSecondaryVerify('acme_write', (headers) => api.delete(`/acme-eab/${row.id}`, headers))
+    if (deleted === null) return
     ElMessage.success(t('common.deleted'))
     await loadEAB()
   } catch (error: any) {
@@ -590,12 +597,15 @@ async function batchDelete(): Promise<void> {
   } catch (_) {
     return
   }
+  const token = await requestSecondaryVerification('acme_write')
+  if (token === null) return
+  const verifyHeaders: Record<string, string> = token ? { [secondaryVerifyHeader]: token } : {}
   batchDeleting.value = true
   let failed = 0
   try {
     for (const endpoint of list) {
       try {
-        await api.delete(`/acme-endpoints/${endpoint.id}`)
+        await api.delete(`/acme-endpoints/${endpoint.id}`, verifyHeaders)
       } catch (error: any) {
         failed++
         ElMessage.error(`${endpoint.name}: ${error.message}`)

@@ -2,7 +2,7 @@ APP := lactssl
 GO := go
 NPM := npm
 MODULE := lactssl
-VERSION := $(shell cat VERSION 2>/dev/null | tr -d '[:space:]')
+VERSION := $(shell ./scripts/version.sh 2>/dev/null)
 ifeq ($(VERSION),)
 VERSION := dev
 endif

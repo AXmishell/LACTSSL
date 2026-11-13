@@ -46,23 +46,38 @@ security:
 - Sensitive fields such as DNS credentials, deployment credentials, SMTP passwords, notification tokens, TOTP secrets, private CA keys, and certificate private keys are encrypted with AES-256-GCM before being written to the database; legacy plaintext data is migrated automatically at startup.
 - Target credentials only store authentication and connection details; deployment paths, sites, domains, and similar parameters live in task workflows and are outside the credential encryption scope.
 - The encryption key comes from `security.salt` in `config.yaml`; JWTs are signed with `security.jwt_secret`.
+- JWT signatures use an independent subkey derived from `jwt_secret` via HKDF, separate from the database AES-GCM key. Even when an older configuration reused the same value for both, the two key materials are no longer identical. Existing sessions are invalidated once after upgrading and require a fresh sign-in.
 - APIs mask secret fields when returning configuration; leaving them empty while editing keeps the existing value.
 - SSH deployments record the target host fingerprint on first connection (TOFU) and reject connections when it later changes; you can also enter a `SHA256:...` fingerprint manually in the credential. After a server key change, clear the field so it can be recorded again.
 - FTP deployments use explicit TLS by default to avoid sending certificate private keys and login passwords in plaintext; plain FTP is only used when `none` is explicitly selected.
 
 As a result, `config.yaml` and `data/` are equally important: back them up together and restrict access. Manual values for `security.jwt_secret` and `security.salt` must be at least 32 characters, or startup is refused.
 
-An encryption password is mandatory when downloading backups; backup packages use PBKDF2-HMAC-SHA256 (600,000 iterations) + AES-256-GCM. Do not distribute unencrypted database or configuration copies.
+An encryption password of at least 12 characters is mandatory when downloading backups; backup packages use PBKDF2-HMAC-SHA256 (600,000 iterations) + AES-256-GCM. Do not distribute unencrypted database or configuration copies.
+
+Before a restore package is written to `data/restore-pending`, the configuration is fully validated (secret lengths, secret entry, listen address, TLS/mTLS combinations, and so on). Invalid configurations are rejected up front so the service cannot get stuck failing to start. A successful initial setup also clears any pending restore, preventing content staged before initialization from overwriting the new account on a later restart.
 
 Email uses implicit TLS by default (`smtp.ssl=true`). When implicit TLS is disabled and the SMTP server does not support STARTTLS, the service refuses to send, preventing sensitive emails such as reset tokens from being transmitted in plaintext.
 
 ## Secondary verification for sensitive operations
 
-Changing the secret entry, restoring a backup, downloading a backup, and exporting a private CA key require an additional "secondary verification" beyond session authentication. Viewing private keys and downloading certificates in certificate details only rely on the login session and do not require secondary verification. You can switch between "None", "Password", "TOTP", and "Password and TOTP" under System Settings → Account security. Password is the default; TOTP modes are only available when two-factor authentication is enabled. With "None", the operations above only rely on the login session, significantly reducing security; use it only when you fully understand the risk. Changing the verification method itself requires proving identity with the currently active method and cannot be changed with just a login session; "Password and TOTP" requires both the password and a one-time code. If TOTP is disabled, the account password is reset by email, or TOTP data is unavailable after restoring an old backup, the method automatically falls back to password to avoid locking the account. A TOTP code can only be used once within its validity window, so an operation immediately after switching methods may need to wait for the next code.
+Changing the secret entry, restoring a backup, downloading a backup, exporting a private CA key, exporting/viewing a certificate private key, changing system or notification settings, sending notification tests, changing DNS/deployment credentials, creating/modifying/deleting tasks, executing certificate deployments, deleting or cleaning up certificates, modifying site monitors, changing ACME service configuration and cleaning up diagnostics, and modifying private CAs all require an additional "secondary verification" beyond session authentication. Language switching and other purely presentational settings are exempt. You can switch between "None", "Password", "TOTP", and "Password and TOTP" under System Settings → Account security. Password is the default; TOTP modes are only available when two-factor authentication is enabled. With "None", the operations above only rely on the login session, significantly reducing security; use it only when you fully understand the risk. Changing the verification method itself requires proving identity with the currently active method and cannot be changed with just a login session; "Password and TOTP" requires both the password and a one-time code. If TOTP is disabled, the account password is reset by email, or TOTP data is unavailable after restoring an old backup, the method automatically falls back to password to avoid locking the account. A TOTP code can only be used once within its validity window, so an operation immediately after switching methods may need to wait for the next code.
+
+In the Settings → Account security → Change verification method dialog, you can individually enable or disable secondary verification for deployments, task create/update/delete, DNS/deployment credentials, SMTP/notification settings, notification tests, ACME/private CA configuration, certificate private key export, certificate deletion/cleanup, and site monitor create/update/delete. Backup download/restore, secret entry changes, and private CA key export are always verified and cannot be turned off.
 
 Secondary verification uses short-lived tokens: the frontend first calls `/auth/secondary-verify`, the server validates the password/TOTP using the current method, and on success issues a token valid for 2 minutes bound to the current user, session, and specific operation; business APIs validate that token in the `X-LACTSSL-VERIFY` header and no longer accept account passwords directly. If the token expires or the operation does not match, secondary verification must be completed again.
 
 This restriction reduces the impact of a stolen session: backups contain `jwt_secret` and `salt` from `config.yaml`, so anyone with a backup can decrypt all credentials and forge login tokens; therefore exporting must not rely on a cookie session alone. Account operations such as changing the password or email and enabling/disabling TOTP still require the current password and are subject to independent failure rate limits.
+
+## Outbound requests and SSRF
+
+Deployment webhooks, notification channels, panel integrations, and site monitors make server-side outbound requests:
+
+- Literal and resolved destinations reject cloud metadata, link-local, reserved, documentation, and NAT64 ranges (such as `169.254.169.254`, `100.100.100.200`, `fd00:ec2::254`, `0.0.0.0/8`, and `240.0.0.0/4`).
+- Loopback and private addresses remain allowed so Gotify, self-hosted panels, and LAN webhooks keep working; restrict them at the network layer if not needed.
+- Deployment webhooks carry certificate private keys, so public destinations must use `https://`; loopback, private, `.local`, and `.internal` destinations may use HTTP.
+- DNS results are re-validated during dialing and the verified IP is dialed directly, preventing DNS-rebinding bypasses.
+- URLs in third-party error messages are redacted before being written to logs, keeping Telegram bot tokens, Gotify tokens, ServerChan SendKeys, and similar secrets out of logs and backups.
 
 ## Two-factor authentication
 
@@ -79,8 +94,9 @@ The following operations are rate-limited, counted by client IP or account:
 - Forgot password / password reset
 - Secret entry probing
 - Changing the password, email, or secret entry; enabling/disabling TOTP; secondary verification; restoring backups
-- Backup download, private CA key export, notification tests, and private CA generation
-- ACME account creation, order creation, and CRL/OCSP requests
+- Backup download, private CA key export, certificate private key export, notification tests, and private CA generation
+- Sensitive changes to DNS/deployment credentials, tasks, ACME configuration, and private CAs
+- ACME account creation, order creation, all ACME protocol requests (including new-nonce/directory), and CRL/OCSP requests
 
 When a limit is triggered the service returns `429` with a `Retry-After` header.
 
@@ -120,7 +136,7 @@ Note: if TLS is terminated at the proxy while the backend is still accessed over
 ## Deployment recommendations
 
 - Run the service as a dedicated user, keep `config.yaml` at `0600`, and keep the data directory at `0700`.
-- The Docker image uses an entrypoint script to fix volume ownership and then runs the main program as the non-root `lactssl` user; Compose drops all capabilities by default and adds back only what is needed, such as `CHOWN`/`SETUID`.
+- The Docker image uses an entrypoint script to fix volume ownership and then runs the main program as the non-root `lactssl` user; Compose drops all capabilities by default and adds back only what is needed, such as `CHOWN`/`SETUID`, and enables a read-only root filesystem, a `/tmp` tmpfs, `pids_limit`, and `init`.
 - Do not commit `data/` or `config.yaml` to version control or place them in public directories.
 - Regularly review the "Logs" page for abnormal sign-ins, entry probes, and deployment failures.
 - Enable TOTP for public deployments and use a long random secret entry. An administrator session is equivalent to full control (including local deployment command execution and private CA issuance), so do not stay signed in on shared browsers or untrusted devices.

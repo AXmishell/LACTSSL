@@ -57,6 +57,9 @@ func (s *Server) downloadCertificate(c *gin.Context) {
 		return
 	}
 	if kind == "key" {
+		if !s.requireSecondaryVerify(c, secondaryActionCertificateKeyView) {
+			return
+		}
 		user := getUser(c)
 		if user == nil {
 			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
@@ -76,7 +79,7 @@ func (s *Server) downloadCertificate(c *gin.Context) {
 	default:
 		content, suffix = cert.FullchainPEM, "fullchain.crt"
 	}
-	filename := fmt.Sprintf("%s-%s.%s", cert.PrimaryDomain, cert.NotAfter.Format("20060102"), suffix)
+	filename := fmt.Sprintf("%s-%s.%s", safeDownloadName(cert.PrimaryDomain), cert.NotAfter.Format("20060102"), suffix)
 	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 	c.Header("Cache-Control", "no-store")
 	c.Data(http.StatusOK, "application/x-pem-file; charset=utf-8", []byte(content))
@@ -95,7 +98,10 @@ func (s *Server) getCertificatePEM(c *gin.Context) {
 	}
 	kind := c.DefaultQuery("type", "fullchain")
 	if kind == "key" {
-		// 查看私钥不再要求二次验证，但保留账户维度限流以降低批量抓取风险。
+		// 私钥查看同样属于敏感操作，与备份/私有 CA 私钥导出一致要求二次验证。
+		if !s.requireSecondaryVerify(c, secondaryActionCertificateKeyView) {
+			return
+		}
 		user := getUser(c)
 		if user == nil {
 			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
@@ -127,6 +133,9 @@ func (s *Server) getCertificatePEM(c *gin.Context) {
 func (s *Server) deleteCertificate(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionCertificateWrite) {
 		return
 	}
 	if err := s.Store.DeleteCertificate(id); err != nil {
@@ -202,6 +211,10 @@ func parseCertCleanupBody(c *gin.Context) (certCleanupBody, bool) {
 func (s *Server) cleanupCertificates(c *gin.Context) {
 	body, okBody := parseCertCleanupBody(c)
 	if !okBody {
+		return
+	}
+	// dry_run 只做计数，不要求二次验证；真正删除前必须完成验证。
+	if !body.DryRun && !s.requireSecondaryVerify(c, secondaryActionCertificateWrite) {
 		return
 	}
 	filter, okFilter := body.filter()
@@ -288,6 +301,9 @@ func (s *Server) deployCertificate(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionDeployExecute) {
 		return
 	}
 	targets := body.Targets

@@ -48,6 +48,9 @@ func (b *monitorBody) normalize() error {
 }
 
 func (s *Server) createMonitor(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionMonitorWrite) {
+		return
+	}
 	var body monitorBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -72,6 +75,9 @@ func (s *Server) createMonitor(c *gin.Context) {
 func (s *Server) updateMonitor(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionMonitorWrite) {
 		return
 	}
 	monitor, err := s.Store.GetMonitor(id)
@@ -105,6 +111,9 @@ func (s *Server) updateMonitor(c *gin.Context) {
 func (s *Server) deleteMonitor(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionMonitorWrite) {
 		return
 	}
 	if err := s.Store.DeleteMonitor(id); err != nil {

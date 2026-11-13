@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/mail"
 	"strings"
+	"time"
 
 	"github.com/go-jose/go-jose/v4"
 	"lactssl/internal/model"
@@ -82,7 +83,8 @@ func (s *Server) handleNewAccount(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := s.Store.GetACMEAccountByThumbprint(ep.ID, thumbprint)
 	if err == nil {
-		_ = s.Store.TouchACMEAccount(existing.ID)
+		now := s.now().UTC()
+		_ = s.Store.TouchACMEAccount(existing.ID, now, now.Add(-time.Minute))
 		w.Header().Set("Location", existing.Kid)
 		writeJSON(w, http.StatusOK, accountView{Status: existing.Status, Contact: existing.Contact})
 		return
@@ -159,7 +161,8 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, problem)
 		return
 	}
-	_ = s.Store.TouchACMEAccount(account.ID)
+	now := s.now().UTC()
+	_ = s.Store.TouchACMEAccount(account.ID, now, now.Add(-time.Minute))
 
 	if len(envelope.Payload) == 0 {
 		writeJSON(w, http.StatusOK, accountView{Status: account.Status, Contact: account.Contact})

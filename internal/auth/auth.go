@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -22,8 +23,12 @@ import (
 )
 
 // Manager 负责签发与校验登录令牌。
+//
+// secret 同时用于 JWT 与一次性门禁值的 HMAC；两者使用不同的派生密钥，
+// 避免与数据库 AES-GCM 主密钥（旧版本可能复用同一串）发生密钥复用。
 type Manager struct {
-	secret []byte
+	secret  []byte // 原始密钥，用于门禁/CSRF 等 purpose HMAC
+	signKey []byte // 由 secret 派生的 JWT 专用签名密钥
 }
 
 // Claims 是 JWT 载荷，带版本号以便改密后使旧令牌失效。
@@ -33,9 +38,15 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// New 创建认证管理器。
+// New 创建认证管理器。JWT 使用 HKDF 派生的独立子密钥，
+// 即使旧配置中 jwt_secret 与 salt 相同，也不会让 JWT 与数据库加密共享同一把密钥。
 func New(secret []byte) *Manager {
-	return &Manager{secret: secret}
+	signKey, err := hkdf.Key(sha256.New, secret, nil, "lactssl/jwt-signing-v1", 32)
+	if err != nil || len(signKey) == 0 {
+		// hkdf 仅在参数非法时失败；回退到原始密钥，保证服务可用。
+		signKey = secret
+	}
+	return &Manager{secret: secret, signKey: signKey}
 }
 
 var dummyHash string
@@ -86,7 +97,7 @@ func (m *Manager) IssueSession(user *model.User) (string, time.Time, string, err
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString(m.secret)
+	signed, err := token.SignedString(m.signKey)
 	return signed, expire, sessionID, err
 }
 
@@ -142,7 +153,7 @@ func (m *Manager) Parse(tokenString string) (*Claims, error) {
 		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, i18n.E("api.error.unsupported_algorithm")
 		}
-		return m.secret, nil
+		return m.signKey, nil
 	}, jwt.WithIssuer("LACTSSL"), jwt.WithExpirationRequired())
 	if err != nil || !token.Valid {
 		return nil, i18n.E("api.error.session_expired")

@@ -222,6 +222,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
+import { withSecondaryVerify } from '../secondaryVerify'
 import { loadSettings } from '../store'
 import type { MessageResult, Settings as AppSettings } from '../types'
 
@@ -551,16 +552,19 @@ async function reload(): Promise<void> {
 async function saveMail(): Promise<void> {
   savingMail.value = true
   try {
-    await api.put('/settings', {
-      smtp_host: mail.smtp_host,
-      smtp_port: mail.smtp_port,
-      smtp_username: mail.smtp_username,
-      smtp_password: mail.smtp_password,
-      smtp_from: mail.smtp_from,
-      smtp_ssl: mail.smtp_ssl,
-      notify_enabled: mail.notify_enabled,
-      notify_to: mail.notify_to
-    })
+    const saved = await withSecondaryVerify('settings_write', (headers) =>
+      api.put('/settings', {
+        smtp_host: mail.smtp_host,
+        smtp_port: mail.smtp_port,
+        smtp_username: mail.smtp_username,
+        smtp_password: mail.smtp_password,
+        smtp_from: mail.smtp_from,
+        smtp_ssl: mail.smtp_ssl,
+        notify_enabled: mail.notify_enabled,
+        notify_to: mail.notify_to
+      }, headers)
+    )
+    if (saved === null) return
     ElMessage.success(t('notifications.mailSaved'))
     await reload()
   } catch (error: any) {
@@ -573,7 +577,10 @@ async function saveMail(): Promise<void> {
 async function sendTest(): Promise<void> {
   testing.value = true
   try {
-    const data = await api.post<MessageResult>('/settings/test-mail', { to: mail.notify_to })
+    const data = await withSecondaryVerify<MessageResult>('notification_test', (headers) =>
+      api.post<MessageResult>('/settings/test-mail', { to: mail.notify_to }, headers)
+    )
+    if (data === null) return
     ElMessage.success(data.message || t('notifications.testSent'))
   } catch (error: any) {
     ElMessage.error(error.message)
@@ -585,12 +592,15 @@ async function sendTest(): Promise<void> {
 async function saveGotify(): Promise<void> {
   savingGotify.value = true
   try {
-    await api.put('/settings', {
-      gotify_url: gotifyForm.value.url,
-      gotify_token: gotifyForm.value.token,
-      gotify_priority: gotifyForm.value.priority,
-      gotify_enabled: gotifyForm.value.enabled
-    })
+    const saved = await withSecondaryVerify('settings_write', (headers) =>
+      api.put('/settings', {
+        gotify_url: gotifyForm.value.url,
+        gotify_token: gotifyForm.value.token,
+        gotify_priority: gotifyForm.value.priority,
+        gotify_enabled: gotifyForm.value.enabled
+      }, headers)
+    )
+    if (saved === null) return
     ElMessage.success(t('notifications.gotifySaved'))
     await reload()
   } catch (error: any) {
@@ -603,11 +613,14 @@ async function saveGotify(): Promise<void> {
 async function sendGotifyTest(): Promise<void> {
   testingGotify.value = true
   try {
-    const data = await api.post<MessageResult>('/settings/test-gotify', {
-      url: gotifyForm.value.url,
-      token: gotifyForm.value.token,
-      priority: gotifyForm.value.priority
-    })
+    const data = await withSecondaryVerify<MessageResult>('notification_test', (headers) =>
+      api.post<MessageResult>('/settings/test-gotify', {
+        url: gotifyForm.value.url,
+        token: gotifyForm.value.token,
+        priority: gotifyForm.value.priority
+      }, headers)
+    )
+    if (data === null) return
     ElMessage.success(data.message || t('notifications.gotifyTestSent'))
   } catch (error: any) {
     ElMessage.error(error.message)
@@ -619,11 +632,14 @@ async function sendGotifyTest(): Promise<void> {
 async function saveServerChan(): Promise<void> {
   savingServerChan.value = true
   try {
-    await api.put('/settings', {
-      serverchan_sendkey: serverChanForm.value.sendkey,
-      serverchan_version: serverChanForm.value.version,
-      serverchan_enabled: serverChanForm.value.enabled
-    })
+    const saved = await withSecondaryVerify('settings_write', (headers) =>
+      api.put('/settings', {
+        serverchan_sendkey: serverChanForm.value.sendkey,
+        serverchan_version: serverChanForm.value.version,
+        serverchan_enabled: serverChanForm.value.enabled
+      }, headers)
+    )
+    if (saved === null) return
     ElMessage.success(t('notifications.serverchanSaved'))
     await reload()
   } catch (error: any) {
@@ -636,10 +652,13 @@ async function saveServerChan(): Promise<void> {
 async function sendServerChanTest(): Promise<void> {
   testingServerChan.value = true
   try {
-    const data = await api.post<MessageResult>('/settings/test-serverchan', {
-      sendkey: serverChanForm.value.sendkey,
-      version: serverChanForm.value.version
-    })
+    const data = await withSecondaryVerify<MessageResult>('notification_test', (headers) =>
+      api.post<MessageResult>('/settings/test-serverchan', {
+        sendkey: serverChanForm.value.sendkey,
+        version: serverChanForm.value.version
+      }, headers)
+    )
+    if (data === null) return
     ElMessage.success(data.message || t('notifications.serverchanTestSent'))
   } catch (error: any) {
     ElMessage.error(error.message)
@@ -652,9 +671,12 @@ async function saveGeneric(): Promise<void> {
   if (!currentDef.value) return
   savingGeneric.value = true
   try {
-    await api.put('/settings', {
-      notify_channels: { [channel.value]: currentForm.value }
-    })
+    const saved = await withSecondaryVerify('settings_write', (headers) =>
+      api.put('/settings', {
+        notify_channels: { [channel.value]: currentForm.value }
+      }, headers)
+    )
+    if (saved === null) return
     ElMessage.success(t('notifications.channelSaved'))
     await reload()
   } catch (error: any) {
@@ -668,10 +690,13 @@ async function testGeneric(): Promise<void> {
   if (!currentDef.value) return
   testingGeneric.value = true
   try {
-    const data = await api.post<MessageResult>('/settings/test-channel', {
-      channel: channel.value,
-      config: currentForm.value
-    })
+    const data = await withSecondaryVerify<MessageResult>('notification_test', (headers) =>
+      api.post<MessageResult>('/settings/test-channel', {
+        channel: channel.value,
+        config: currentForm.value
+      }, headers)
+    )
+    if (data === null) return
     ElMessage.success(data.message || t('notifications.channelTestSent'))
   } catch (error: any) {
     ElMessage.error(error.message)

@@ -196,10 +196,9 @@ func notifyHTTP(method, endpoint string, payload []byte, contentType string, hea
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := newOutboundClient(15*time.Second, false).Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s", SafeError(err))
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
@@ -355,9 +354,9 @@ func SendNotifyChannel(name string, cfg NotifyChannelConfig, title, body string)
 			return missingChannelConfig(name)
 		}
 		tokenURL := "https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=" + url.QueryEscape(corpID) + "&corpsecret=" + url.QueryEscape(corpSecret)
-		resp, err := http.Get(tokenURL)
+		resp, err := newOutboundClient(15*time.Second, false).Get(tokenURL)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s", SafeError(err))
 		}
 		defer resp.Body.Close()
 		var tokenResult struct {

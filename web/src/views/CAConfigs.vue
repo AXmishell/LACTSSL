@@ -206,6 +206,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
+import { withSecondaryVerify } from '../secondaryVerify'
 import { loadMeta, loadSettings } from '../store'
 import type { ACMECA, CAConfig, MessageResult, Meta, Settings } from '../types'
 
@@ -343,11 +344,12 @@ async function saveGeneric(): Promise<void> {
       eab_kid: genericForm.eab_kid.trim(),
       eab_hmac: genericForm.eab_hmac.trim()
     }
-    if (genericEditingId.value) {
-      await api.put(`/acme-cas/${genericEditingId.value}`, payload)
-    } else {
-      await api.post('/acme-cas', payload)
-    }
+    const saved = await withSecondaryVerify('acme_write', (headers) =>
+      genericEditingId.value
+        ? api.put(`/acme-cas/${genericEditingId.value}`, payload, headers)
+        : api.post('/acme-cas', payload, headers)
+    )
+    if (saved === null) return
     ElMessage.success(genericEditingId.value ? t('ca.genericUpdated') : t('ca.genericCreated'))
     genericDialogVisible.value = false
     await load()
@@ -369,7 +371,8 @@ async function deleteGeneric(row: ACMECA): Promise<void> {
     return
   }
   try {
-    await api.delete(`/acme-cas/${row.id}`)
+    const deleted = await withSecondaryVerify('acme_write', (headers) => api.delete(`/acme-cas/${row.id}`, headers))
+    if (deleted === null) return
     ElMessage.success(t('ca.genericDeleted'))
     await load()
   } catch (error: any) {
@@ -380,12 +383,15 @@ async function deleteGeneric(row: ACMECA): Promise<void> {
 async function saveACME(): Promise<void> {
   savingACME.value = true
   try {
-    await api.put('/settings', {
-      acme_email: acme.acme_email,
-      acme_ca: acme.acme_ca,
-      acme_key_type: acme.acme_key_type,
-      acme_renew_days: acme.acme_renew_days
-    })
+    const saved = await withSecondaryVerify('settings_write', (headers) =>
+      api.put('/settings', {
+        acme_email: acme.acme_email,
+        acme_ca: acme.acme_ca,
+        acme_key_type: acme.acme_key_type,
+        acme_renew_days: acme.acme_renew_days
+      }, headers)
+    )
+    if (saved === null) return
     ElMessage.success(t('ca.saved'))
     await load()
   } catch (error: any) {
@@ -404,6 +410,7 @@ function openConfig(ca: CAConfig): void {
 
 async function saveEAB(): Promise<void> {
   if (!editing.value) return
+  const currentCA = editing.value
   if (!form.eab_kid.trim()) {
     ElMessage.warning(t('ca.kidRequired'))
     return
@@ -414,10 +421,13 @@ async function saveEAB(): Promise<void> {
   }
   saving.value = true
   try {
-    const data = await api.put<MessageResult>(`/ca-configs/${editing.value.value}`, {
-      eab_kid: form.eab_kid.trim(),
-      eab_hmac: form.eab_hmac.trim()
-    })
+    const data = await withSecondaryVerify<MessageResult>('acme_write', (headers) =>
+      api.put<MessageResult>(`/ca-configs/${currentCA.value}`, {
+        eab_kid: form.eab_kid.trim(),
+        eab_hmac: form.eab_hmac.trim()
+      }, headers)
+    )
+    if (data === null) return
     ElMessage.success(data?.message || t('ca.eabSaved'))
     dialogVisible.value = false
     await load()
@@ -430,6 +440,7 @@ async function saveEAB(): Promise<void> {
 
 async function clearEAB(): Promise<void> {
   if (!editing.value) return
+  const currentCA = editing.value
   try {
     await ElMessageBox.confirm(t('ca.clearConfirm', { ca: editing.value.label }), t('ca.clearTitle'), {
       confirmButtonText: t('ca.clear'),
@@ -441,7 +452,10 @@ async function clearEAB(): Promise<void> {
   }
   saving.value = true
   try {
-    const data = await api.put<MessageResult>(`/ca-configs/${editing.value.value}`, { clear: true })
+    const data = await withSecondaryVerify<MessageResult>('acme_write', (headers) =>
+      api.put<MessageResult>(`/ca-configs/${currentCA.value}`, { clear: true }, headers)
+    )
+    if (data === null) return
     ElMessage.success(data?.message || t('ca.eabCleared'))
     dialogVisible.value = false
     await load()

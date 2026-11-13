@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"net"
@@ -104,16 +105,22 @@ func fetchCertificate(target string) (*x509.Certificate, []*x509.Certificate, er
 		return nil, nil, i18n.E("monitor.error.target_unresolvable")
 	}
 	addr := net.JoinHostPort(host, port)
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	raw, err := dialSafe(ctx, "tcp", addr)
+	if err != nil {
+		return nil, nil, i18n.E("monitor.error.connect_failed", "address", addr, "error", SafeError(err))
+	}
+	conn := tls.Client(raw, &tls.Config{
 		ServerName: host,
 		// 这里仍跳过握手阶段的链校验，以便读取已过期/自签证书的到期时间；
 		// 调用方随后会单独执行 verifyPeerChain 并报告不受信任状态。
 		InsecureSkipVerify: true,
 		MinVersion:         tls.VersionTLS12,
 	})
-	if err != nil {
-		return nil, nil, i18n.E("monitor.error.connect_failed", "address", addr, "error", err.Error())
+	if err := conn.HandshakeContext(ctx); err != nil {
+		_ = conn.Close()
+		return nil, nil, i18n.E("monitor.error.connect_failed", "address", addr, "error", SafeError(err))
 	}
 	defer conn.Close()
 	state := conn.ConnectionState()

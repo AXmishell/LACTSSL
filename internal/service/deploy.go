@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha1"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -293,7 +292,7 @@ func deployWebhook(cert *model.Certificate, cfg map[string]string) error {
 	if target == "" {
 		return i18n.E("service.deploy.webhook_url_required")
 	}
-	if err := ValidateOutboundURL(target); err != nil {
+	if err := ValidateWebhookURL(target); err != nil {
 		return err
 	}
 	payload := map[string]any{
@@ -318,13 +317,10 @@ func deployWebhook(cert *model.Certificate, cfg map[string]string) error {
 	if auth := strings.TrimSpace(cfg["auth_header"]); auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	if cfg["skip_verify"] == "true" {
-		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	}
+	client := newOutboundClient(30*time.Second, cfg["skip_verify"] == "true")
 	resp, err := client.Do(req)
 	if err != nil {
-		return i18n.E("service.deploy.callback_failed", "error", err.Error())
+		return i18n.E("service.deploy.callback_failed", "error", SafeError(err))
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))

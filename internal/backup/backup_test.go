@@ -32,7 +32,7 @@ func TestExportAndStage(t *testing.T) {
 	}
 
 	configPath := filepath.Join(dataDir, "config.yaml")
-	configContent := "security:\n  salt: test-salt\n  jwt_secret: test-jwt\n"
+	configContent := "security:\n  salt: 0123456789abcdef0123456789abcdef\n  jwt_secret: fedcba9876543210fedcba9876543210\n"
 	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("写入配置失败: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestEncryptedExportAndStage(t *testing.T) {
 		t.Fatalf("写入设置失败: %v", err)
 	}
 	configPath := filepath.Join(dataDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte("security:\n  salt: test-salt\n  jwt_secret: test-jwt\n"), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte("security:\n  salt: 0123456789abcdef0123456789abcdef\n  jwt_secret: fedcba9876543210fedcba9876543210\n"), 0o600); err != nil {
 		t.Fatalf("写入配置失败: %v", err)
 	}
 
@@ -201,5 +201,40 @@ func TestEncryptedExportAndStage(t *testing.T) {
 	pending, err := LoadPending(dataDir)
 	if err != nil || pending == nil || pending.DatabasePath == "" {
 		t.Fatalf("加密备份未生成待恢复文件: %+v, %v", pending, err)
+	}
+}
+
+func TestPendingCancelAndQuarantine(t *testing.T) {
+	dataDir := t.TempDir()
+	pending := PendingDir(dataDir)
+	if err := os.MkdirAll(pending, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pending, DatabaseName), []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadPending(dataDir)
+	if err != nil || loaded == nil {
+		t.Fatalf("应加载到待恢复内容: %v %+v", err, loaded)
+	}
+	if err := loaded.Quarantine(); err != nil {
+		t.Fatalf("隔离失败: %v", err)
+	}
+	if _, err := os.Stat(pending); !os.IsNotExist(err) {
+		t.Fatalf("原 pending 目录应已移走: %v", err)
+	}
+	matches, _ := filepath.Glob(pending + ".failed-*")
+	if len(matches) == 0 {
+		t.Fatal("未找到隔离后的目录")
+	}
+
+	if err := os.MkdirAll(pending, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := New(nil, dataDir, "", "", "test").CancelPending(); err != nil {
+		t.Fatalf("清理 pending 失败: %v", err)
+	}
+	if _, err := os.Stat(pending); !os.IsNotExist(err) {
+		t.Fatalf("pending 目录应已删除: %v", err)
 	}
 }

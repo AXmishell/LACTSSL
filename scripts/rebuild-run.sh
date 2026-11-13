@@ -42,15 +42,17 @@ kill_port() {
 echo "==> 构建前端 web/dist" >&2
 (cd web && npm run build)
 
-VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || echo dev)
-[ -n "$VERSION" ] || VERSION=dev
+VERSION="$(./scripts/version.sh)"
+if [ "$VERSION" != "dev" ]; then
+  VERSION="${VERSION}-dev"
+fi
 BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_ARCH=$(go env GOOS)/$(go env GOARCH)
 
 echo "==> 编译开发模式二进制 bin/lactssl-dev（不嵌入前端）" >&2
 mkdir -p bin
 go build -trimpath \
-  -ldflags "-s -w -X 'lactssl/internal/api.Version=${VERSION}-dev' -X 'lactssl/internal/api.BuildTime=${BUILD_TIME}' -X 'lactssl/internal/api.BuildArch=${BUILD_ARCH}'" \
+  -ldflags "-s -w -X 'lactssl/internal/api.Version=${VERSION}' -X 'lactssl/internal/api.BuildTime=${BUILD_TIME}' -X 'lactssl/internal/api.BuildArch=${BUILD_ARCH}'" \
   -o bin/lactssl-dev ./cmd/server
 
 echo "==> 停止占用 :$PORT 与 :5173 的旧进程" >&2

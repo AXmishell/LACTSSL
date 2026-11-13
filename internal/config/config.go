@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"lactssl/internal/util"
 )
 
 // DefaultPath 是默认配置文件路径（相对当前工作目录）。
@@ -176,14 +177,8 @@ func Load() (*Config, error) {
 	if publicURL == "" {
 		publicURL = strings.TrimRight(strings.TrimSpace(fc.Security.PublicURL), "/")
 	}
-	if publicURL != "" {
-		parsed, err := url.Parse(publicURL)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return nil, fmt.Errorf("security.public_url 必须是有效的 http 或 https 地址，且不能包含查询参数或片段")
-		}
-		if strings.TrimSpace(parsed.Path) != "" && strings.TrimRight(parsed.Path, "/") != "" {
-			return nil, fmt.Errorf("security.public_url 不能包含路径")
-		}
+	if err := validatePublicURL(publicURL); err != nil {
+		return nil, err
 	}
 
 	trustedProxies := fc.Server.TrustedProxies
@@ -235,11 +230,8 @@ func Load() (*Config, error) {
 	if acmeCfg.MTLSEnabled && acmeCfg.MTLSClientCA == "" {
 		return nil, fmt.Errorf("启用 acme.mtls 时必须配置 acme.mtls.client_ca")
 	}
-	if acmeCfg.BaseURL != "" {
-		parsed, err := url.Parse(acmeCfg.BaseURL)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			return nil, fmt.Errorf("acme.base_url 必须是有效的 http 或 https 地址")
-		}
+	if err := validateHTTPURL(acmeCfg.BaseURL, "acme.base_url"); err != nil {
+		return nil, err
 	}
 
 	return &Config{
@@ -290,6 +282,110 @@ func loadFile(path string) (*fileConfig, bool, error) {
 		return nil, false, fmt.Errorf("解析配置文件 %s 失败: %w", path, err)
 	}
 	return fc, false, nil
+}
+
+// ValidateFile 校验一份配置文件是否能在启动阶段被安全加载。
+// 该函数不做任何写入或密钥生成，供备份恢复等场景在落盘前做完整预检，
+// 避免把会导致下次启动失败的配置写入 restore-pending。
+func ValidateFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("读取配置文件 %s 失败: %w", path, err)
+	}
+	fc := defaults()
+	if err := yaml.Unmarshal(data, fc); err != nil {
+		return fmt.Errorf("解析配置文件 %s 失败: %w", path, err)
+	}
+	return validateFileValues(fc)
+}
+
+func validateFileValues(fc *fileConfig) error {
+	const minSecretLength = 32
+	// 为空表示启动时自动生成；非空则必须达到最小长度，否则 Load 会直接拒绝启动。
+	if value := strings.TrimSpace(fc.Security.JWTSecret); value != "" && len(value) < minSecretLength {
+		return fmt.Errorf("security.jwt_secret 长度至少需要 %d 个字符", minSecretLength)
+	}
+	if value := strings.TrimSpace(fc.Security.Salt); value != "" && len(value) < minSecretLength {
+		return fmt.Errorf("security.salt 长度至少需要 %d 个字符", minSecretLength)
+	}
+	if value := strings.TrimSpace(fc.Security.Entry); value != "" {
+		if _, err := util.ValidateEntry(value); err != nil {
+			return err
+		}
+	}
+	if err := validatePublicURL(strings.TrimRight(strings.TrimSpace(fc.Security.PublicURL), "/")); err != nil {
+		return err
+	}
+	if fc.Server.Port < 0 || fc.Server.Port > 65535 {
+		return fmt.Errorf("配置项 server.port 不正确: %d", fc.Server.Port)
+	}
+	if err := validateListenAddr(strings.TrimSpace(fc.Server.Addr), "server.addr"); err != nil {
+		return err
+	}
+	if err := validateListenAddr(strings.TrimSpace(fc.ACME.Addr), "acme.addr"); err != nil {
+		return err
+	}
+	if err := validateHTTPURL(strings.TrimRight(strings.TrimSpace(fc.ACME.BaseURL), "/"), "acme.base_url"); err != nil {
+		return err
+	}
+	if (strings.TrimSpace(fc.ACME.TLS.Cert) == "") != (strings.TrimSpace(fc.ACME.TLS.Key) == "") {
+		return fmt.Errorf("acme.tls.cert 与 acme.tls.key 必须同时配置")
+	}
+	if fc.ACME.MTLS.Enabled {
+		if strings.TrimSpace(fc.ACME.TLS.Cert) == "" || strings.TrimSpace(fc.ACME.TLS.Key) == "" {
+			return fmt.Errorf("启用 acme.mtls 时必须配置 acme.tls.cert 与 acme.tls.key")
+		}
+		if strings.TrimSpace(fc.ACME.MTLS.ClientCA) == "" {
+			return fmt.Errorf("启用 acme.mtls 时必须配置 acme.mtls.client_ca")
+		}
+	}
+	return nil
+}
+
+// validatePublicURL 校验对外访问地址：必须是 http(s) 且不能包含路径、查询参数或片段。
+func validatePublicURL(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("security.public_url 必须是有效的 http 或 https 地址，且不能包含查询参数或片段")
+	}
+	if strings.TrimSpace(parsed.Path) != "" && strings.TrimRight(parsed.Path, "/") != "" {
+		return fmt.Errorf("security.public_url 不能包含路径")
+	}
+	return nil
+}
+
+// validateHTTPURL 校验 ACME 等服务的 http(s) 基地址，允许带路径前缀。
+func validateHTTPURL(value, field string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		return fmt.Errorf("%s 必须是有效的 http 或 https 地址", field)
+	}
+	return nil
+}
+
+// validateListenAddr 校验 host:port 形式的监听地址。
+func validateListenAddr(value, field string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	host, port, err := net.SplitHostPort(value)
+	if err != nil || port == "" {
+		return fmt.Errorf("%s 格式不正确，应为 host:port: %s", field, value)
+	}
+	number, err := strconv.Atoi(port)
+	if err != nil || number < 1 || number > 65535 {
+		return fmt.Errorf("%s 端口不正确: %s", field, value)
+	}
+	if host != "" && strings.ContainsAny(host, " /\\\t\r\n") {
+		return fmt.Errorf("%s 主机名不正确: %s", field, value)
+	}
+	return nil
 }
 
 // resolveAddr 计算监听地址，环境变量优先于配置文件。

@@ -335,9 +335,10 @@ func (s *Store) GetACMEAccountByPublicID(endpointID int64, publicID string) (*mo
 	return scanACMEAccount(row)
 }
 
-// TouchACMEAccount 更新账户最近使用时间。
-func (s *Store) TouchACMEAccount(id int64) error {
-	_, err := s.DB.Exec(`UPDATE acme_accounts SET last_used_at=?,updated_at=? WHERE id=?`, nowUTC(), nowUTC(), id)
+// TouchACMEAccount 更新账户最近使用时间；cutoff 用于限制写入频率，避免每个 ACME 请求都写库。
+func (s *Store) TouchACMEAccount(id int64, now, cutoff time.Time) error {
+	_, err := s.DB.Exec(`UPDATE acme_accounts SET last_used_at=?,updated_at=?
+		WHERE id=? AND (last_used_at IS NULL OR last_used_at < ?)`, now, now, id, cutoff)
 	return err
 }
 

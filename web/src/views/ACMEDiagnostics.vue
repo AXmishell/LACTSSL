@@ -253,6 +253,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Back, CopyDocument, Delete, Refresh } from '@element-plus/icons-vue'
 import { api, copyText } from '../api'
+import { withSecondaryVerify } from '../secondaryVerify'
 import { formatDate } from '../utils'
 import type { ACMEAccount, ACMEEndpoint, ACMEOrder, ACMEOrderDetail } from '../types'
 
@@ -437,7 +438,10 @@ async function submitCleanup(): Promise<void> {
   }
   cleaning.value = true
   try {
-    const data = await api.post<{ orders: number; accounts: number }>('/acme-diagnostics/cleanup', cleanupPayload())
+    const data = await withSecondaryVerify<{ orders: number; accounts: number }>('acme_write', (headers) =>
+      api.post<{ orders: number; accounts: number }>('/acme-diagnostics/cleanup', cleanupPayload(), headers)
+    )
+    if (data === null) return
     ElMessage.success(t('acmeDiagnostics.cleanupDone', { orders: data?.orders || 0, accounts: data?.accounts || 0 }))
     cleanupVisible.value = false
     detailVisible.value = false

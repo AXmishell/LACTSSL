@@ -173,6 +173,9 @@ func parseACMECleanupBody(c *gin.Context) (acmeCleanupBody, bool) {
 
 // cleanupACMEDiagnostics 清理 ACME 诊断记录。默认仅清理失效订单，可叠加端点、时间等条件。
 func (s *Server) cleanupACMEDiagnostics(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionACMEWrite) {
+		return
+	}
 	body, okBody := parseACMECleanupBody(c)
 	if !okBody {
 		return

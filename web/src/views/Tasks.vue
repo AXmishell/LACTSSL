@@ -385,6 +385,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Close, Delete, Plus, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { api } from '../api'
+import { withSecondaryVerify } from '../secondaryVerify'
 import { loadMeta, loadSettings } from '../store'
 import { enabledNotifyChannels } from '../notifyChannels'
 import DeployConfigFields from '../components/DeployConfigFields.vue'
@@ -1085,13 +1086,13 @@ async function save(): Promise<void> {
   saving.value = true
   try {
     const payload = buildPayload()
-    if (editingId.value) {
-      await api.put(`/tasks/${editingId.value}`, payload)
-      ElMessage.success(t('tasks.saved'))
-    } else {
-      await api.post('/tasks', payload)
-      ElMessage.success(t('tasks.created'))
-    }
+    const saved = await withSecondaryVerify('task_write', (headers) =>
+      editingId.value
+        ? api.put(`/tasks/${editingId.value}`, payload, headers)
+        : api.post('/tasks', payload, headers)
+    )
+    if (saved === null) return
+    ElMessage.success(t(editingId.value ? 'tasks.saved' : 'tasks.created'))
     dialogVisible.value = false
     await loadAll()
   } catch (error: any) {
@@ -1212,7 +1213,8 @@ async function handleMore(command: string, row: Task): Promise<void> {
       return
     }
     try {
-      await api.delete(`/tasks/${row.id}`)
+      const deleted = await withSecondaryVerify('task_write', (headers) => api.delete(`/tasks/${row.id}`, headers))
+      if (deleted === null) return
       ElMessage.success(t('tasks.deleted'))
       await loadAll()
       clearSelection()
@@ -1223,7 +1225,10 @@ async function handleMore(command: string, row: Task): Promise<void> {
   }
   if (command === 'toggle') {
     try {
-      await api.put(`/tasks/${row.id}`, taskPayload(row, !row.enabled))
+      const saved = await withSecondaryVerify('task_write', (headers) =>
+        api.put(`/tasks/${row.id}`, taskPayload(row, !row.enabled), headers)
+      )
+      if (saved === null) return
       ElMessage.success(!row.enabled ? t('tasks.enabledMsg') : t('tasks.pausedMsg'))
       loadAll()
     } catch (error: any) {

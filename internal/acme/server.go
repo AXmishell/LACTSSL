@@ -14,7 +14,11 @@ import (
 	"lactssl/internal/store"
 )
 
-const maxACMEBody = 64 * 1024
+const (
+	maxACMEBody           = 64 * 1024
+	acmeRequestRateLimit  = 1200
+	acmeRequestRateWindow = time.Minute
+)
 
 // Server 实现 ACME v2 协议的服务端核心。
 type Server struct {
@@ -29,6 +33,7 @@ type Server struct {
 	validationSem  chan struct{}
 	accountLimiter *ipRateLimiter
 	pkiLimiter     *ipRateLimiter
+	requestLimiter *ipRateLimiter
 	// TrustedProxies 用于在反向代理后解析真实客户端 IP。
 	TrustedProxies []string
 
@@ -49,6 +54,8 @@ func NewServer(st *store.Store, baseURL string) *Server {
 		validationSem:  make(chan struct{}, 8),
 		accountLimiter: newIPRateLimiter(30, time.Hour),
 		pkiLimiter:     newIPRateLimiter(pkiRateLimit, pkiRateWin),
+		// 覆盖 new-nonce/directory 与非法 slug，避免匿名请求放大内存与 SQLite 读压力。
+		requestLimiter: newIPRateLimiter(acmeRequestRateLimit, acmeRequestRateWindow),
 		crlCache:       make(map[int64]crlCacheEntry),
 	}
 }
@@ -76,6 +83,10 @@ func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if !s.requestLimiter.Allow(s.clientIP(r)) {
+			writeProblemType(w, http.StatusTooManyRequests, ProblemRateLimited, "too many requests")
+			return
+		}
 		if nonce, err := s.Nonces.New(); err == nil {
 			w.Header().Set("Replay-Nonce", nonce)
 		}

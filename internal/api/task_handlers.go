@@ -299,6 +299,10 @@ func (s *Server) createTask(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
+	// 任务流程可以包含本地部署命令与部署路径，创建/修改需要二次验证。
+	if !s.requireSecondaryVerify(c, secondaryActionTaskWrite) {
+		return
+	}
 	if err := s.fillTaskBody(&body); err != nil {
 		failErr(c, http.StatusBadRequest, err)
 		return
@@ -341,6 +345,9 @@ func (s *Server) updateTask(c *gin.Context) {
 	var body taskBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionTaskWrite) {
 		return
 	}
 	if err := s.fillTaskBody(&body); err != nil {
@@ -389,6 +396,9 @@ func (s *Server) updateTask(c *gin.Context) {
 func (s *Server) deleteTask(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionTaskWrite) {
 		return
 	}
 	if err := s.Store.DeleteTask(id); err != nil {

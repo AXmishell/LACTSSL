@@ -113,20 +113,36 @@ func TestCertificateDownloadsAndPrivateCAKeyVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 查看私钥和下载证书均不再要求二次验证。
+	// 证书链/证书下载只依赖登录会话。
 	openCases := []struct {
 		path string
 		want string
 	}{
-		{"/secret-entry/api/certificates/" + itoa(cert.ID) + "/pem?type=key", "PRIVATE-KEY"},
 		{"/secret-entry/api/certificates/" + itoa(cert.ID) + "/download?type=fullchain", "CHAIN"},
 		{"/secret-entry/api/certificates/" + itoa(cert.ID) + "/download?type=cert", "CERT"},
-		{"/secret-entry/api/certificates/" + itoa(cert.ID) + "/download?type=key", "PRIVATE-KEY"},
 	}
 	for _, item := range openCases {
 		allowed := sessionRequest(t, router, http.MethodGet, item.path, "", []*http.Cookie{session}, nil)
 		if allowed.Code != http.StatusOK || !strings.Contains(allowed.Body.String(), item.want) {
 			t.Fatalf("%s 应直接允许访问: %d %s", item.path, allowed.Code, allowed.Body.String())
+		}
+	}
+
+	// 证书私钥查看与下载要求二次验证。
+	keyCases := []string{
+		"/secret-entry/api/certificates/" + itoa(cert.ID) + "/pem?type=key",
+		"/secret-entry/api/certificates/" + itoa(cert.ID) + "/download?type=key",
+	}
+	for _, path := range keyCases {
+		denied := sessionRequest(t, router, http.MethodGet, path, "", []*http.Cookie{session}, nil)
+		if denied.Code != http.StatusForbidden || !strings.Contains(denied.Body.String(), `"secondary_verify_required":true`) {
+			t.Fatalf("%s 未完成二次验证时应返回 403: %d %s", path, denied.Code, denied.Body.String())
+		}
+		certToken := secondaryVerifyToken(t, router, session, secondaryActionCertificateKeyView, "password1234", "")
+		allowed := sessionRequest(t, router, http.MethodGet, path, "", []*http.Cookie{session},
+			map[string]string{secondaryVerifyHeader: certToken})
+		if allowed.Code != http.StatusOK || !strings.Contains(allowed.Body.String(), "PRIVATE-KEY") {
+			t.Fatalf("%s 二次验证后应允许访问: %d %s", path, allowed.Code, allowed.Body.String())
 		}
 	}
 

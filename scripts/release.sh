@@ -20,7 +20,7 @@ usage() {
 用法: ./scripts/release.sh [tag] [选项]
 
 参数:
-  tag               要模拟发布的 tag，例如 v1.0.1；省略时读取 VERSION 并加 v 前缀
+  tag               要模拟发布的 tag，例如 v1.0.1；省略时使用最近一次 git tag
 
 选项:
   --no-web          跳过前端构建（复用已有 web/dist）
@@ -121,8 +121,13 @@ STAGE_ROOT="$ROOT/.release-work"
 step "meta: 解析 tag"
 tag="$TAG_ARG"
 if [ -z "$tag" ]; then
-  require go
-  tag="v$(tr -d '[:space:]' < VERSION)"
+  require git
+  tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  if [ -z "$tag" ]; then
+    echo "::error::未指定 tag，且仓库中不存在可用的 git tag；请显式传入 vX.Y.Z" >&2
+    exit 1
+  fi
+  echo "未指定 tag，使用最近一次 git tag: $tag"
 fi
 
 version="${tag#v}"

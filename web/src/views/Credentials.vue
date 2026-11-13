@@ -183,6 +183,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Delete, Plus, Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
+import { requestSecondaryVerification, secondaryVerifyHeader, withSecondaryVerify } from '../secondaryVerify'
 import { loadMeta } from '../store'
 import { formatDate, fromNow } from '../utils'
 import { providerLogo } from '../providerLogos'
@@ -349,11 +350,13 @@ async function save(): Promise<void> {
   else payload.type = form.type
   saving.value = true
   try {
-    if (editingId.value) {
-      await api.put(`${isDNS.value ? '/dns-accounts' : '/deploy-accounts'}/${editingId.value}`, payload)
-    } else {
-      await api.post(isDNS.value ? '/dns-accounts' : '/deploy-accounts', payload)
-    }
+    const base = isDNS.value ? '/dns-accounts' : '/deploy-accounts'
+    const saved = await withSecondaryVerify('account_write', (headers) =>
+      editingId.value
+        ? api.put(`${base}/${editingId.value}`, payload, headers)
+        : api.post(base, payload, headers)
+    )
+    if (saved === null) return
     ElMessage.success(t('credentials.saved'))
     dialogVisible.value = false
     load()
@@ -379,7 +382,9 @@ async function handleCommand(command: string, item: CredentialItem): Promise<voi
     return
   }
   try {
-    await api.delete(`${isDNS.value ? '/dns-accounts' : '/deploy-accounts'}/${item.id}`)
+    const base = isDNS.value ? '/dns-accounts' : '/deploy-accounts'
+    const deleted = await withSecondaryVerify('account_write', (headers) => api.delete(`${base}/${item.id}`, headers))
+    if (deleted === null) return
     ElMessage.success(t('credentials.deleted'))
     load()
   } catch (error: any) {
@@ -419,12 +424,15 @@ async function batchDelete(): Promise<void> {
   } catch (_) {
     return
   }
+  const token = await requestSecondaryVerification('account_write')
+  if (token === null) return
+  const verifyHeaders: Record<string, string> = token ? { [secondaryVerifyHeader]: token } : {}
   batchDeleting.value = true
   let failed = 0
   try {
     for (const id of ids) {
       try {
-        await api.delete(`${isDNS.value ? '/dns-accounts' : '/deploy-accounts'}/${id}`)
+        await api.delete(`${isDNS.value ? '/dns-accounts' : '/deploy-accounts'}/${id}`, verifyHeaders)
       } catch (error: any) {
         failed++
         const name = items.value.find((item) => item.id === id)?.name || id

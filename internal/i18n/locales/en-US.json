@@ -326,6 +326,8 @@
   "service.deploy.qiniu_kodo_cdn_domain": "Domain {domain} is a Qiniu Cloud CDN domain; use the Qiniu Cloud CDN target instead",
   "service.deploy.panel_url_required": "Panel URL is required",
   "service.url_invalid": "Invalid URL. Only http:// or https:// without embedded credentials is allowed: {url}",
+  "service.url_blocked": "Target address is not allowed (cloud metadata, link-local or reserved network): {url}",
+  "service.deploy.webhook_https_required": "Webhooks carry certificate private keys, so public endpoints must use https",
   "service.deploy.baota_secret_required": "BaoTa panel API secret is required",
   "service.deploy.baota_sites_empty": "No websites to deploy",
   "service.deploy.baota_request_failed": "BaoTa panel API request failed: {error}",

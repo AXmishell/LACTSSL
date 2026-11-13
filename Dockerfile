@@ -15,13 +15,14 @@ RUN go mod download
 COPY . .
 COPY --from=web /app/web/dist ./internal/webui/dist
 
-# TARGETOS/TARGETARCH 由 BuildKit 自动注入；VERSION 可由 --build-arg 覆盖
+# TARGETOS/TARGETARCH 由 BuildKit 自动注入；版本号由 release workflow、
+# scripts/release.sh 或 docker compose 通过 --build-arg VERSION 传入，缺省为 dev。
 ARG TARGETOS
 ARG TARGETARCH
-ARG VERSION
+ARG VERSION=dev
 
 RUN set -eu; \
-    build_version="${VERSION:-$(tr -d '[:space:]' < VERSION)}"; \
+    build_version="${VERSION:-dev}"; \
     build_os="${TARGETOS:-linux}"; \
     build_arch="${TARGETARCH:-$(go env GOARCH)}"; \
     build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \

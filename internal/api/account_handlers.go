@@ -102,6 +102,9 @@ func (b *dnsAccountBody) validate(current i18n.Locale, base map[string]string) e
 }
 
 func (s *Server) createDNSAccount(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionAccountWrite) {
+		return
+	}
 	var body dnsAccountBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -124,6 +127,9 @@ func (s *Server) createDNSAccount(c *gin.Context) {
 func (s *Server) updateDNSAccount(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionAccountWrite) {
 		return
 	}
 	var body dnsAccountBody
@@ -160,6 +166,9 @@ func (s *Server) updateDNSAccount(c *gin.Context) {
 func (s *Server) deleteDNSAccount(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionAccountWrite) {
 		return
 	}
 	tasks, _ := s.Store.ListTasks()
@@ -247,6 +256,9 @@ func (b *deployAccountBody) validate(current i18n.Locale, base map[string]string
 }
 
 func (s *Server) createDeployAccount(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionAccountWrite) {
+		return
+	}
 	var body deployAccountBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -269,6 +281,9 @@ func (s *Server) createDeployAccount(c *gin.Context) {
 func (s *Server) updateDeployAccount(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionAccountWrite) {
 		return
 	}
 	var body deployAccountBody
@@ -305,6 +320,9 @@ func (s *Server) updateDeployAccount(c *gin.Context) {
 func (s *Server) deleteDeployAccount(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionAccountWrite) {
 		return
 	}
 	tasks, _ := s.Store.ListTasks()

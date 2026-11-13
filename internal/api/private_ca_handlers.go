@@ -22,6 +22,9 @@ func (s *Server) listPrivateCAs(c *gin.Context) {
 }
 
 func (s *Server) createPrivateCA(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionPrivateCAWrite) {
+		return
+	}
 	// RSA 4096 生成开销较大，限制同一客户端的高频创建。
 	if allowed, wait := s.limiter.Allow("privateca:create:"+clientRateKey(c), 10, time.Minute); !allowed {
 		rateLimited(c, wait)
@@ -117,6 +120,9 @@ func (s *Server) createPrivateCA(c *gin.Context) {
 }
 
 func (s *Server) importPrivateCA(c *gin.Context) {
+	if !s.requireSecondaryVerify(c, secondaryActionPrivateCAWrite) {
+		return
+	}
 	var body struct {
 		Name     string `json:"name"`
 		CertPEM  string `json:"cert_pem"`
@@ -213,6 +219,9 @@ func (s *Server) downloadPrivateCA(c *gin.Context) {
 func (s *Server) deletePrivateCA(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireSecondaryVerify(c, secondaryActionPrivateCAWrite) {
 		return
 	}
 	ca, err := s.Store.GetPrivateCA(id)
