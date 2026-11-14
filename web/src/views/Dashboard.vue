@@ -104,14 +104,24 @@
           </div>
           <span class="tag-soft tag-blue">{{ t('dashboard.certCount', { count: trendTotal }) }}</span>
         </div>
-        <div class="bars">
-          <div v-for="(point, index) in data?.trend || []" :key="point.date" class="bar-col">
-            <el-tooltip :content="`${point.date} · ${t('dashboard.certCount', { count: point.count })}`" placement="top">
-              <div class="bar-track">
-                <div class="bar-fill" :style="{ height: trendHeight(point.count) }"></div>
-              </div>
-            </el-tooltip>
+        <div class="bars" @mouseleave="hoverIndex = -1">
+          <div
+            v-for="(point, index) in data?.trend || []"
+            :key="point.date"
+            class="bar-col"
+            @mouseenter="hoverIndex = index"
+          >
+            <div class="bar-track">
+              <div
+                v-if="point.count > 0"
+                class="bar-fill"
+                :style="{ height: trendHeight(point.count), background: trendColor(point.count) }"
+              ></div>
+            </div>
             <div class="bar-label">{{ index % 2 === 0 ? point.date.slice(5) : '' }}</div>
+            <div v-if="hoverIndex === index" class="bar-tip">
+              {{ point.date }} · {{ t('dashboard.certCount', { count: point.count }) }}
+            </div>
           </div>
         </div>
       </div>
@@ -173,6 +183,8 @@ const router = useRouter()
 const { t } = useI18n()
 const loading = ref(false)
 const data = ref<Dashboard | null>(null)
+// 悬停的柱状图列索引：整张趋势图只渲染一个原生气泡，避免逐个 el-tooltip 淡出叠加成拖影。
+const hoverIndex = ref(-1)
 let timer: ReturnType<typeof setInterval> | null = null
 
 const greeting = computed(() => {
@@ -195,9 +207,21 @@ function bucketColor(index: number): string {
   return ['#ef4444', '#f97316', '#f59e0b', '#3b82f6', '#10b981'][index] || '#3b82f6'
 }
 
+// 柱高按当日数量相对峰值计算，统一从轨道底部向上生长，保证所有柱子落在同一基线上。
+// 0 值不渲染柱子（见模板 v-if），因此这里只处理 count > 0 的情况。
 function trendHeight(count: number): string {
-  if (!count) return '2px'
   return `${Math.max(8, (count / maxTrend.value) * 100)}%`
+}
+
+// 颜色深浅同样反映数量，便于一眼看出哪几天更密集。
+function trendColor(count: number): string {
+  // 0→1 映射到 30%→100% 的色阶，保证少量数据也看得出差异。
+  const ratio = Math.min(1, count / maxTrend.value)
+  const t = 0.3 + 0.7 * ratio
+  const from = [147, 197, 253] // blue-300
+  const to = [37, 99, 235] // blue-600
+  const [r, g, b] = from.map((value, index) => Math.round(value + (to[index] - value) * t))
+  return `rgb(${r}, ${g}, ${b})`
 }
 
 function taskDot(status: string): string {

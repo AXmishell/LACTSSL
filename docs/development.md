@@ -5,7 +5,14 @@
 ```bash
 make dev          # Vite + Go 开发模式
 make rebuild-run  # 重新构建前端与后端二进制，并启动 Vite + Go
-make build        # 生产构建，产物 bin/lactssl
+make build        # 生产构建，产物 bin/lactssl（不内置 DNS 服务商）
+make build-full   # 全量构建，产物 bin/lactssl-full（全部 DNS 服务商）
+make backend      # 仅构建后端，产物 bin/lactssl（CGO_ENABLED=0 静态链接）
+make helper       # 构建 DNS exec helper（全部 194 家）
+make helper-extra # 构建插件版 DNS exec helper（全部 194 家）
+make helper-full  # 构建完整版 DNS exec helper（全部 194 家）
+make deploy-helper # 构建部署插件（FTP、Webhook、CDN、面板等非内置目标）
+make deploy-helper-install # 构建并安装到 data/plugins/deploy，重扫插件后生效
 make run          # 直接 go run ./cmd/server
 make test         # go test ./...
 make typecheck    # 前端 vue-tsc + scripts 的 tsc
@@ -14,6 +21,8 @@ make i18n-check   # 校验中英文翻译键一致
 make tidy         # go mod tidy + 前端依赖安装
 make clean        # 清理构建产物
 ```
+
+发布流程会把 `lactssl-dns-helper-extra` 嵌入精简版 `lactssl`（`embed_helper` 构建标签），首次启动自动安装到插件目录；普通 `make build` 为便于开发不嵌入 helper。
 
 `make ci` 等价于 `.github/workflows/ci.yml`，也可以用参数拆分：
 
@@ -51,7 +60,7 @@ make rebuild-run
 3. 结束占用配置端口（默认 `8080`）与 `5173` 的旧进程
 4. 启动 Vite（`5173`）与 Go 二进制（`8080`）
 
-访问 `http://<host>:5173/<entry>/`。安全入口默认读取 `config.yaml` 的 `security.entry`；入口只保存在数据库时，用环境变量覆盖：
+访问 `http://<host>:5173/<entry>/`。安全入口依次读取 `LACTSSL_ENTRY`、`config.yaml` 的 `security.entry` 和数据库中的持久化入口；也可以显式覆盖：
 
 ```bash
 LACTSSL_ENTRY=xxxxxxxx make rebuild-run
@@ -68,6 +77,8 @@ internal/auth/       JWT 与密码/TOTP 相关逻辑
 internal/config/     config.yaml 与环境变量加载
 internal/db/         SQLite 打开与迁移
 internal/i18n/       后端国际化与语言资源
+internal/logging/    进程日志、级别、格式与文件轮转
+internal/systemlog/  进程日志异步落库，供「系统日志」页面查询
 internal/model/      数据库实体与任务流程
 internal/acme/       内置 ACME 服务端协议（directory、nonce、账户、JWS、验证）
 internal/service/    ACME 客户端、部署、通知、监控、调度
@@ -87,7 +98,7 @@ scripts/             开发脚本与 CI（TypeScript，由 Node 直接运行）
 
 ## 前端开发
 
-`make dev` 会启动 Vite（`:5173`）和 Go（`:8080`）。Vite 开发服务器会模拟安全入口校验，并读取 `config.yaml` 中的 `security.entry`；也可以使用 `LACTSSL_ENTRY` 覆盖。
+`make dev` 会启动 Vite（`:5173`）和 Go（`:8080`）。Vite 开发服务器会模拟安全入口校验：入口依次读取 `LACTSSL_ENTRY`、`config.yaml` 的 `security.entry` 和数据库中的持久化入口。
 
 开发时请访问 Vite 地址，`/<entry>/api` 请求会被代理到 Go 服务。
 

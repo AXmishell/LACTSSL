@@ -12,6 +12,7 @@ import (
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"lactssl/internal/backup"
+	"lactssl/internal/model"
 )
 
 func secondaryVerifyRequest(t *testing.T, router http.Handler, session *http.Cookie, action, password, totp string, base ...string) *httptest.ResponseRecorder {
@@ -414,6 +415,113 @@ func TestRestoreBackupWithTOTPVerification(t *testing.T) {
 	pending, err := backup.LoadPending(dataDir)
 	if err != nil || pending == nil {
 		t.Fatalf("恢复请求应写入待恢复文件: %+v, %v", pending, err)
+	}
+}
+
+func TestVerifyModePasskeyFallsBackWithoutCredentials(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	// 直接写入通行密钥验证方式，模拟旧配置或凭据被删除后的状态。
+	if err := st.SetSetting(verifyModeSetting, verifyModePasskey); err != nil {
+		t.Fatal(err)
+	}
+	settings := sessionRequest(t, router, http.MethodGet, "/secret-entry/api/settings", "", []*http.Cookie{session}, nil)
+	if settings.Code != http.StatusOK || !strings.Contains(settings.Body.String(), `"verify_mode":"password"`) {
+		t.Fatalf("没有通行密钥时应回退密码: %d %s", settings.Code, settings.Body.String())
+	}
+	if !strings.Contains(settings.Body.String(), `"passkey_enabled":false`) {
+		t.Fatalf("设置接口应返回通行密钥状态: %s", settings.Body.String())
+	}
+
+	user, err := st.GetUserByEmail("admin@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreatePasskey(&model.Passkey{
+		UserID:       user.ID,
+		Name:         "Test Key",
+		CredentialID: "credential-test",
+		Credential:   `{"id":"credential-test"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	settings = sessionRequest(t, router, http.MethodGet, "/secret-entry/api/settings", "", []*http.Cookie{session}, nil)
+	if settings.Code != http.StatusOK || !strings.Contains(settings.Body.String(), `"verify_mode":"passkey"`) {
+		t.Fatalf("存在通行密钥时应启用通行密钥验证: %d %s", settings.Code, settings.Body.String())
+	}
+	if !strings.Contains(settings.Body.String(), `"passkey_enabled":true`) {
+		t.Fatalf("设置接口应返回通行密钥已启用: %s", settings.Body.String())
+	}
+
+	missing := secondaryVerifyRequest(t, router, session, secondaryActionEntryChange, "", "")
+	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), `"passkey_required":true`) {
+		t.Fatalf("通行密钥模式缺少证明应被拒绝: %d %s", missing.Code, missing.Body.String())
+	}
+}
+
+func TestRemovedPasswordPasskeyMode(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	// 组合验证方式已移除，不能再切换为该模式。
+	rejected := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/security/verify-mode",
+		`{"mode":"password_passkey","password":"password1234"}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), "api.error.verify_mode_invalid") {
+		t.Fatalf("已移除的组合验证方式应被拒绝: %d %s", rejected.Code, rejected.Body.String())
+	}
+
+	// 旧配置中的组合模式应按通行密钥验证处理，而不是静默降级为密码。
+	if err := st.SetSetting(verifyModeSetting, verifyModeLegacyPasswordPasskey); err != nil {
+		t.Fatal(err)
+	}
+	user, err := st.GetUserByEmail("admin@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreatePasskey(&model.Passkey{
+		UserID:       user.ID,
+		Name:         "Test Key",
+		CredentialID: "credential-legacy",
+		Credential:   `{"id":"credential-legacy"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := sessionRequest(t, router, http.MethodGet, "/secret-entry/api/settings", "", []*http.Cookie{session}, nil)
+	if settings.Code != http.StatusOK || !strings.Contains(settings.Body.String(), `"verify_mode":"passkey"`) {
+		t.Fatalf("旧组合模式应迁移为通行密钥验证: %d %s", settings.Code, settings.Body.String())
+	}
+
+	missing := secondaryVerifyRequest(t, router, session, secondaryActionEntryChange, "password1234", "")
+	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), `"passkey_required":true`) {
+		t.Fatalf("旧组合模式不应再接受密码单独验证: %d %s", missing.Code, missing.Body.String())
+	}
+}
+
+func TestStrongAuthSkipsSecondaryVerification(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	user, err := st.GetUserByEmail("admin@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 模拟通过通行密钥登录后写入强认证标记。
+	if _, err := st.DB.Exec(`UPDATE sessions SET strong_auth=1 WHERE user_id=?`, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	resp := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/deploy-accounts",
+		`{"name":"local","type":"local","config":{}}`, []*http.Cookie{session},
+		map[string]string{csrfHeaderName: "1"})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("通行密钥强认证会话不应再要求二次验证: %d %s", resp.Code, resp.Body.String())
+	}
+	me := sessionRequest(t, router, http.MethodGet, "/secret-entry/api/auth/me", "", []*http.Cookie{session}, nil)
+	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), `"strong_auth":true`) {
+		t.Fatalf("账户接口应返回强认证状态: %d %s", me.Code, me.Body.String())
 	}
 }
 

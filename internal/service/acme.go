@@ -14,18 +14,9 @@ import (
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge"
 	"github.com/go-acme/lego/v4/lego"
-	"github.com/go-acme/lego/v4/providers/dns/alidns"
-	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
-	"github.com/go-acme/lego/v4/providers/dns/digitalocean"
-	"github.com/go-acme/lego/v4/providers/dns/dnspod"
-	"github.com/go-acme/lego/v4/providers/dns/gandi"
-	"github.com/go-acme/lego/v4/providers/dns/godaddy"
-	"github.com/go-acme/lego/v4/providers/dns/hetzner"
-	"github.com/go-acme/lego/v4/providers/dns/linode"
-	"github.com/go-acme/lego/v4/providers/dns/namecheap"
-	"github.com/go-acme/lego/v4/providers/dns/tencentcloud"
-	"github.com/go-acme/lego/v4/providers/dns/vultr"
 	"github.com/go-acme/lego/v4/registration"
+	"lactssl/internal/dnsplugin"
+	_ "lactssl/internal/dnsplugin/builtin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
 	"lactssl/internal/store"
@@ -262,51 +253,35 @@ func pickLeaf(bundle []byte, domains []string) (*x509.Certificate, error) {
 	return certs[0], nil
 }
 
-// newDNSProvider 根据服务商构造 lego DNS Provider，并在结束后恢复环境变量。
+// newDNSProvider 根据服务商插件构造 lego DNS Provider。
+// 内置插件通过 FieldDef.Env 映射 lego 环境变量，并在结束后恢复；
+// 外部 exec 插件直接把配置交给 helper，不修改主进程环境变量。
 func newDNSProvider(name string, cfg map[string]string) (challenge.Provider, func(), error) {
-	if _, ok := DNSProviderInfo(name); !ok {
-		return nil, func() {}, i18n.E("service.acme.dns_provider_unsupported", "provider", name)
+	plugin, ok := dnsplugin.Lookup(name)
+	if !ok {
+		return nil, func() {}, i18n.E("service.acme.dns_provider_unavailable", "provider", name)
 	}
 
-	envs := map[string]string{}
-	switch name {
-	case "alidns":
-		envs["ALICLOUD_ACCESS_KEY"] = cfg["access_key_id"]
-		envs["ALICLOUD_SECRET_KEY"] = cfg["access_key_secret"]
-		envs["ALICLOUD_REGION_ID"] = cfg["region_id"]
-	case "cloudflare":
-		if string(cfg["api_token"]) != "" {
-			envs["CLOUDFLARE_DNS_API_TOKEN"] = cfg["api_token"]
-		} else {
-			envs["CLOUDFLARE_EMAIL"] = cfg["email"]
-			envs["CLOUDFLARE_API_KEY"] = cfg["api_key"]
+	restore := func() {}
+	if plugin.Source() == dnsplugin.SourceBuiltin {
+		def, found := DNSProviderInfo(plugin.ID())
+		if !found {
+			def = ProviderDef{Value: plugin.ID()}
 		}
-	case "dnspod":
-		envs["DNSPOD_API_KEY"] = cfg["api_key"]
-	case "tencentcloud":
-		envs["TENCENTCLOUD_SECRET_ID"] = cfg["secret_id"]
-		envs["TENCENTCLOUD_SECRET_KEY"] = cfg["secret_key"]
-		envs["TENCENTCLOUD_REGION"] = cfg["region"]
-	case "digitalocean":
-		envs["DO_AUTH_TOKEN"] = cfg["token"]
-	case "godaddy":
-		envs["GODADDY_API_KEY"] = cfg["api_key"]
-		envs["GODADDY_API_SECRET"] = cfg["api_secret"]
-	case "namecheap":
-		envs["NAMECHEAP_API_USER"] = cfg["api_user"]
-		envs["NAMECHEAP_API_KEY"] = cfg["api_key"]
-		envs["NAMECHEAP_SOURCE_IP"] = cfg["source_ip"]
-	case "vultr":
-		envs["VULTR_API_KEY"] = cfg["api_key"]
-	case "linode":
-		envs["LINODE_TOKEN"] = cfg["token"]
-	case "hetzner":
-		envs["HETZNER_API_KEY"] = cfg["api_key"]
-	case "gandi":
-		envs["GANDI_API_KEY"] = cfg["api_key"]
+		restore = applyProviderEnv(builtinProviderEnv(def, cfg))
 	}
 
-	// 未填写的字段不覆盖系统已有环境变量。
+	provider, err := plugin.New(cfg)
+	if err != nil {
+		restore()
+		return nil, func() {}, i18n.E("service.acme.dns_provider_init_failed", "error", err.Error())
+	}
+	return provider, restore, nil
+}
+
+// applyProviderEnv 设置服务商环境变量并返回恢复函数。
+// 未填写的字段不覆盖系统已有环境变量。
+func applyProviderEnv(envs map[string]string) func() {
 	keys := make([]string, 0, len(envs))
 	for k := range envs {
 		keys = append(keys, k)
@@ -326,7 +301,7 @@ func newDNSProvider(name string, cfg map[string]string) (challenge.Provider, fun
 		}
 		_ = os.Setenv(k, v)
 	}
-	restore := func() {
+	return func() {
 		for k, old := range backup {
 			if old == nil {
 				_ = os.Unsetenv(k)
@@ -335,38 +310,40 @@ func newDNSProvider(name string, cfg map[string]string) (challenge.Provider, fun
 			}
 		}
 	}
+}
 
-	var provider challenge.Provider
-	var err error
-	switch name {
-	case "alidns":
-		provider, err = alidns.NewDNSProvider()
-	case "cloudflare":
-		provider, err = cloudflare.NewDNSProvider()
-	case "dnspod":
-		provider, err = dnspod.NewDNSProvider()
-	case "tencentcloud":
-		provider, err = tencentcloud.NewDNSProvider()
-	case "digitalocean":
-		provider, err = digitalocean.NewDNSProvider()
-	case "godaddy":
-		provider, err = godaddy.NewDNSProvider()
-	case "namecheap":
-		provider, err = namecheap.NewDNSProvider()
-	case "vultr":
-		provider, err = vultr.NewDNSProvider()
-	case "linode":
-		provider, err = linode.NewDNSProvider()
-	case "hetzner":
-		provider, err = hetzner.NewDNSProvider()
-	case "gandi":
-		provider, err = gandi.NewDNSProvider()
-	default:
-		err = i18n.E("service.acme.dns_provider_unsupported", "provider", name)
+// EnvForProvider 返回内置服务商字段映射后的环境变量，供 exec helper 复用。
+// 外部插件没有内置字段映射，返回 false。
+func EnvForProvider(name string, cfg map[string]string) (map[string]string, bool) {
+	plugin, ok := dnsplugin.Lookup(name)
+	if !ok || plugin.Source() != dnsplugin.SourceBuiltin {
+		return nil, false
 	}
-	if err != nil {
-		restore()
-		return nil, func() {}, i18n.E("service.acme.dns_provider_init_failed", "error", err.Error())
+	def, found := DNSProviderInfo(plugin.ID())
+	if !found {
+		return nil, false
 	}
-	return provider, restore, nil
+	return builtinProviderEnv(def, cfg), true
+}
+
+// builtinProviderEnv 把内置服务商的表单字段转换为 lego 环境变量。
+func builtinProviderEnv(def ProviderDef, cfg map[string]string) map[string]string {
+	envs := make(map[string]string, len(def.Fields))
+	for _, field := range def.Fields {
+		if field.Env == "" {
+			continue
+		}
+		envs[field.Env] = cfg[field.Key]
+	}
+
+	// Cloudflare 的 API Token 与 Global API Key 是两套互斥凭据。
+	if def.Value == "cloudflare" {
+		if strings.TrimSpace(cfg["api_token"]) != "" {
+			delete(envs, "CLOUDFLARE_EMAIL")
+			delete(envs, "CLOUDFLARE_API_KEY")
+		} else {
+			delete(envs, "CLOUDFLARE_DNS_API_TOKEN")
+		}
+	}
+	return envs
 }

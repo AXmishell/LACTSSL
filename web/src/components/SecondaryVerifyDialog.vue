@@ -38,6 +38,16 @@
         />
         <div class="form-help">{{ t('settings.criticalVerifyTotpHint') }}</div>
       </el-form-item>
+      <el-form-item v-if="verifyModeNeedsPasskey(state.mode)" :label="t('settings.passkeyVerify')" required>
+        <div class="flex gap-10 wrap" style="align-items: center">
+          <el-button :loading="state.loading" :disabled="!passkeyUsable" @click="verifyWithPasskey">
+            {{ state.passkeyProof ? t('settings.passkeyVerified') : t('settings.passkeyVerifyAction') }}
+          </el-button>
+          <span v-if="state.passkeyProof" class="tag-soft tag-green">{{ t('settings.passkeyVerified') }}</span>
+        </div>
+        <div v-if="!passkeyUsable" class="form-help">{{ t('settings.passkeyUnavailable') }}</div>
+        <div v-else class="form-help">{{ t('settings.passkeyVerifyHint') }}</div>
+      </el-form-item>
     </el-form>
     <el-alert
       v-if="state.error"
@@ -64,11 +74,14 @@ import {
   secondaryActionLabelKeys,
   secondaryVerifyState as state,
   verifyModeNeedsPassword,
+  verifyModeNeedsPasskey,
   verifyModeNeedsTOTP,
   verifySecondary
 } from '../secondaryVerify'
+import { isPasskeyCancelled, passkeySecureContext, passkeySupported, requestPasskeyProof } from '../passkeys'
 
 const { t } = useI18n()
+const passkeyUsable = passkeySupported() && passkeySecureContext()
 
 async function submit(): Promise<void> {
   if (state.loading) return
@@ -80,14 +93,18 @@ async function submit(): Promise<void> {
     ElMessage.warning(t('settings.totpCodeInvalid'))
     return
   }
+  if (verifyModeNeedsPasskey(state.mode) && !state.passkeyProof) {
+    ElMessage.warning(t('settings.passkeyRequired'))
+    return
+  }
   state.loading = true
   state.error = ''
   try {
-    const token = await verifySecondary(state.action, state.password, state.totp)
+    const token = await verifySecondary(state.action, state.password, state.totp, state.passkeyProof)
     finishSecondaryVerify(token)
   } catch (error: any) {
-    if (error?.totpRequired) {
-      // 本地验证方式设置过期时，刷新后显示动态验证码输入框。
+    if (error?.totpRequired || error?.passkeyRequired) {
+      // 本地验证方式设置过期时，刷新后显示动态验证码或通行密钥按钮。
       try {
         state.mode = await currentVerifyMode()
       } catch (_) {
@@ -95,6 +112,24 @@ async function submit(): Promise<void> {
       }
     }
     state.error = error?.message || t('common.operationFailed')
+  } finally {
+    state.loading = false
+  }
+}
+
+async function verifyWithPasskey(): Promise<void> {
+  if (state.loading) return
+  state.loading = true
+  state.error = ''
+  try {
+    state.passkeyProof = await requestPasskeyProof()
+    // 纯通行密钥模式拿到证明后直接提交，减少一次确认点击。
+    if (!verifyModeNeedsPassword(state.mode)) {
+      state.loading = false
+      await submit()
+    }
+  } catch (error: any) {
+    state.error = isPasskeyCancelled(error) ? t('settings.passkeyCancelled') : error?.message || t('common.operationFailed')
   } finally {
     state.loading = false
   }

@@ -37,6 +37,7 @@ func (m *Manager) CheckMonitor(monitorID int64) error {
 		status = "error"
 		message = i18n.EncodeError(checkErr)
 		next = now.Add(time.Hour)
+		logger().Warn("证书监控失败", "monitor_id", monitor.ID, "target", monitor.Target, "error", SafeError(checkErr))
 	} else {
 		issuer = cert.Issuer.CommonName
 		if issuer == "" && len(cert.Issuer.Organization) > 0 {

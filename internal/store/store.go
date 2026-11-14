@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"lactssl/internal/i18n"
@@ -17,11 +18,31 @@ import (
 type Store struct {
 	DB     *sql.DB
 	Cipher *util.Cipher
+	// SystemLogRetentionDays 与 SystemLogMaxRows 控制 system_logs 的清理策略。
+	// 由 main 根据 log.system 配置注入；为 0 时不限制。
+	SystemLogRetentionDays int
+	SystemLogMaxRows       int
+
+	// systemLogMu 保证“清空”与异步批量写入不会互相穿插，
+	// 避免用户刚清空后队列中的旧日志又被写回。
+	systemLogMu        sync.RWMutex
+	systemLogClearedAt time.Time
 }
+
+// 系统日志默认保留策略，避免测试或未注入配置时无限增长。
+const (
+	DefaultSystemLogRetentionDays = 7
+	DefaultSystemLogMaxRows       = 20000
+)
 
 // New 创建数据访问对象。
 func New(db *sql.DB, cipher *util.Cipher) *Store {
-	return &Store{DB: db, Cipher: cipher}
+	return &Store{
+		DB:                     db,
+		Cipher:                 cipher,
+		SystemLogRetentionDays: DefaultSystemLogRetentionDays,
+		SystemLogMaxRows:       DefaultSystemLogMaxRows,
+	}
 }
 
 func nowUTC() time.Time { return time.Now().UTC() }
@@ -157,12 +178,22 @@ func (s *Store) ResetRunningTasks() {
 }
 
 // Maintenance 清理过期数据，避免数据库无限增长。
-func (s *Store) Maintenance() {
-	_, _ = s.DB.Exec(`DELETE FROM sessions WHERE expires_at < ?`, nowUTC())
-	_, _ = s.DB.Exec(`DELETE FROM sessions WHERE revoked_at IS NOT NULL AND revoked_at < ?`, nowUTC().AddDate(0, 0, -7))
-	_, _ = s.DB.Exec(`DELETE FROM password_resets WHERE expires_at < ?`, nowUTC())
-	_, _ = s.DB.Exec(`DELETE FROM logs WHERE created_at < ?`, nowUTC().AddDate(0, 0, -90))
-	_, _ = s.DB.Exec(`DELETE FROM deploy_records WHERE created_at < ?`, nowUTC().AddDate(0, 0, -180))
+func (s *Store) Maintenance() error {
+	var firstErr error
+	exec := func(query string, args ...any) {
+		if _, err := s.DB.Exec(query, args...); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	exec(`DELETE FROM sessions WHERE expires_at < ?`, nowUTC())
+	exec(`DELETE FROM sessions WHERE revoked_at IS NOT NULL AND revoked_at < ?`, nowUTC().AddDate(0, 0, -7))
+	exec(`DELETE FROM password_resets WHERE expires_at < ?`, nowUTC())
+	exec(`DELETE FROM logs WHERE created_at < ?`, nowUTC().AddDate(0, 0, -90))
+	exec(`DELETE FROM deploy_records WHERE created_at < ?`, nowUTC().AddDate(0, 0, -180))
+	if err := s.CleanupSystemLogs(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
 }
 
 func (s *Store) scanUser(row interface{ Scan(...any) error }) (*model.User, error) {
@@ -288,11 +319,21 @@ func (s *Store) ConsumePasswordReset(tokenHash string) (int64, error) {
 }
 
 // ResetPassword 通过密码重置流程更新密码：提升令牌版本、清理会话并关闭 TOTP，
-// 这样即使攻击者曾利用被盗会话绑定 TOTP，邮箱持有者仍能恢复账户。
+// 同时删除已绑定的通行密钥，这样即使攻击者曾利用被盗会话绑定验证方式，邮箱持有者仍能恢复账户。
 func (s *Store) ResetPassword(id int64, hash string) error {
-	_, err := s.DB.Exec(`UPDATE users SET password_hash=?, token_version=token_version+1,
-		totp_secret='', totp_enabled=0, updated_at=? WHERE id=?`, hash, nowUTC(), id)
-	return err
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.Exec(`UPDATE users SET password_hash=?, token_version=token_version+1,
+		totp_secret='', totp_enabled=0, updated_at=? WHERE id=?`, hash, nowUTC(), id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM passkeys WHERE user_id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // CleanExpiredResets 清理过期令牌。
@@ -1091,22 +1132,52 @@ func (s *Store) ListLogsByRef(source string, refID int64, limit int) ([]model.Lo
 	return list, rows.Err()
 }
 
-// ListLogs 分页查询日志。
-func (s *Store) ListLogs(source string, limit, offset int) ([]model.LogEntry, int64, error) {
+// LogFilter 是日志查询的过滤条件。
+// From/To 为左闭右开区间，零值表示不限制。
+type LogFilter struct {
+	Source string
+	Level  string
+	From   *time.Time
+	To     *time.Time
+}
+
+// logFilterWhere 构造过滤条件，供列表与导出复用。
+func logFilterWhere(filter LogFilter) (string, []any) {
+	clauses := make([]string, 0, 4)
+	args := make([]any, 0, 4)
+	if filter.Source != "" {
+		clauses = append(clauses, "source=?")
+		args = append(args, filter.Source)
+	}
+	if filter.Level != "" {
+		clauses = append(clauses, "level=?")
+		args = append(args, filter.Level)
+	}
+	if filter.From != nil {
+		clauses = append(clauses, "created_at>=?")
+		args = append(args, *filter.From)
+	}
+	if filter.To != nil {
+		clauses = append(clauses, "created_at<?")
+		args = append(args, *filter.To)
+	}
+	if len(clauses) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+// ListLogsFiltered 按过滤条件分页查询日志。
+func (s *Store) ListLogsFiltered(filter LogFilter, limit, offset int) ([]model.LogEntry, int64, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	where := ""
-	args := []any{}
-	if source != "" {
-		where = " WHERE source=?"
-		args = append(args, source)
-	}
+	where, whereArgs := logFilterWhere(filter)
 	var total int64
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM logs`+where, args...).Scan(&total); err != nil {
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM logs`+where, whereArgs...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	args = append(args, limit, offset)
+	args := append(append([]any{}, whereArgs...), limit, offset)
 	rows, err := s.DB.Query(`SELECT id,source,ref_id,level,message,created_at FROM logs`+where+` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, 0, err
@@ -1121,6 +1192,287 @@ func (s *Store) ListLogs(source string, limit, offset int) ([]model.LogEntry, in
 		list = append(list, l)
 	}
 	return list, total, rows.Err()
+}
+
+// ListLogs 分页查询日志，保留原有调用方式。
+func (s *Store) ListLogs(source string, limit, offset int) ([]model.LogEntry, int64, error) {
+	return s.ListLogsFiltered(LogFilter{Source: source}, limit, offset)
+}
+
+// MaxLogID 返回当前最大日志 ID，用于导出时固定快照上界。
+func (s *Store) MaxLogID() (int64, error) {
+	var id int64
+	if err := s.DB.QueryRow(`SELECT COALESCE(MAX(id),0) FROM logs`).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// ExportLogs 按 ID 游标倒序读取日志，避免导出时长时间持有结果集。
+// maxID 固定快照上界，beforeID 为上一批最后一条日志的 ID（0 表示从 maxID 开始）。
+func (s *Store) ExportLogs(filter LogFilter, maxID, beforeID int64, limit int) ([]model.LogEntry, error) {
+	if limit <= 0 || limit > 2000 {
+		limit = 1000
+	}
+	where, whereArgs := logFilterWhere(filter)
+	clauses := []string{"id<=?"}
+	args := []any{maxID}
+	if beforeID > 0 {
+		clauses = append(clauses, "id<?")
+		args = append(args, beforeID)
+	}
+	if where != "" {
+		clauses = append(clauses, strings.TrimPrefix(where, " WHERE "))
+		args = append(args, whereArgs...)
+	}
+	sql := `SELECT id,source,ref_id,level,message,created_at FROM logs WHERE ` + strings.Join(clauses, " AND ") + ` ORDER BY id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.DB.Query(sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]model.LogEntry, 0, limit)
+	for rows.Next() {
+		var l model.LogEntry
+		if err := rows.Scan(&l.ID, &l.Source, &l.RefID, &l.Level, &l.Message, &l.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, l)
+	}
+	return list, rows.Err()
+}
+
+// ---------------------------- 系统日志 ----------------------------
+
+// SystemLogFilter 是「系统日志」页面的筛选条件。
+// Query 同时匹配 message 与 fields；From/To 为左闭右开区间。
+type SystemLogFilter struct {
+	Level     string
+	Component string
+	Query     string
+	From      *time.Time
+	To        *time.Time
+}
+
+func systemLogFilterWhere(filter SystemLogFilter) (string, []any) {
+	clauses := make([]string, 0, 5)
+	args := make([]any, 0, 6)
+	if filter.Level != "" {
+		clauses = append(clauses, "level=?")
+		args = append(args, filter.Level)
+	}
+	if filter.Component != "" {
+		clauses = append(clauses, "component=?")
+		args = append(args, filter.Component)
+	}
+	if filter.Query != "" {
+		pattern := "%" + escapeLike(filter.Query) + "%"
+		clauses = append(clauses, `(message LIKE ? ESCAPE '\' OR fields LIKE ? ESCAPE '\')`)
+		args = append(args, pattern, pattern)
+	}
+	if filter.From != nil {
+		clauses = append(clauses, "created_at>=?")
+		args = append(args, *filter.From)
+	}
+	if filter.To != nil {
+		clauses = append(clauses, "created_at<?")
+		args = append(args, *filter.To)
+	}
+	if len(clauses) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+// ListSystemLogs 按筛选条件分页查询进程日志。
+func (s *Store) ListSystemLogs(filter SystemLogFilter, limit, offset int) ([]model.SystemLogEntry, int64, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	where, whereArgs := systemLogFilterWhere(filter)
+	var total int64
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM system_logs`+where, whereArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args := append(append([]any{}, whereArgs...), limit, offset)
+	rows, err := s.DB.Query(`SELECT id,level,component,message,fields,created_at FROM system_logs`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	list := make([]model.SystemLogEntry, 0, limit)
+	for rows.Next() {
+		var entry model.SystemLogEntry
+		if err := rows.Scan(&entry.ID, &entry.Level, &entry.Component, &entry.Message, &entry.Fields, &entry.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		list = append(list, entry)
+	}
+	return list, total, rows.Err()
+}
+
+// MaxSystemLogID 返回当前最大系统日志 ID，用于导出时固定快照上界。
+func (s *Store) MaxSystemLogID() (int64, error) {
+	var id int64
+	if err := s.DB.QueryRow(`SELECT COALESCE(MAX(id),0) FROM system_logs`).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// ExportSystemLogs 按 ID 游标倒序读取系统日志，避免导出时长时间持有结果集。
+// maxID 固定快照上界，beforeID 为上一批最后一条日志的 ID（0 表示从 maxID 开始）。
+func (s *Store) ExportSystemLogs(filter SystemLogFilter, maxID, beforeID int64, limit int) ([]model.SystemLogEntry, error) {
+	if limit <= 0 || limit > 2000 {
+		limit = 1000
+	}
+	where, whereArgs := systemLogFilterWhere(filter)
+	clauses := []string{"id<=?"}
+	args := []any{maxID}
+	if beforeID > 0 {
+		clauses = append(clauses, "id<?")
+		args = append(args, beforeID)
+	}
+	if where != "" {
+		clauses = append(clauses, strings.TrimPrefix(where, " WHERE "))
+		args = append(args, whereArgs...)
+	}
+	sql := `SELECT id,level,component,message,fields,created_at FROM system_logs WHERE ` +
+		strings.Join(clauses, " AND ") + ` ORDER BY id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.DB.Query(sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]model.SystemLogEntry, 0, limit)
+	for rows.Next() {
+		var entry model.SystemLogEntry
+		if err := rows.Scan(&entry.ID, &entry.Level, &entry.Component, &entry.Message, &entry.Fields, &entry.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, entry)
+	}
+	return list, rows.Err()
+}
+
+// AddSystemLogs 批量写入进程日志。单条失败会回滚整批，避免页面出现半截记录。
+func (s *Store) AddSystemLogs(entries []model.SystemLogEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	// 与 ClearSystemLogs 串行化：清空开始后，队列中时间戳早于清空时刻的记录不再写入。
+	s.systemLogMu.RLock()
+	defer s.systemLogMu.RUnlock()
+	clearedAt := s.systemLogClearedAt
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	stmt, err := tx.Prepare(`INSERT INTO system_logs(level,component,message,fields,created_at) VALUES(?,?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, entry := range entries {
+		level := strings.ToLower(strings.TrimSpace(entry.Level))
+		if level == "" {
+			level = "info"
+		}
+		component := strings.TrimSpace(entry.Component)
+		if component == "" {
+			component = "app"
+		}
+		createdAt := entry.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = nowUTC()
+		}
+		if !clearedAt.IsZero() && !createdAt.After(clearedAt) {
+			continue
+		}
+		if _, err := stmt.Exec(
+			truncateLogText(level, 16),
+			truncateLogText(component, 64),
+			truncateLogText(entry.Message, 2000),
+			truncateLogText(entry.Fields, 64000),
+			createdAt.UTC(),
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// SystemLogComponents 返回页面筛选下拉框使用的组件列表。
+func (s *Store) SystemLogComponents() ([]string, error) {
+	rows, err := s.DB.Query(`SELECT DISTINCT component FROM system_logs ORDER BY component`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]string, 0)
+	for rows.Next() {
+		var component string
+		if err := rows.Scan(&component); err != nil {
+			return nil, err
+		}
+		if component != "" {
+			list = append(list, component)
+		}
+	}
+	return list, rows.Err()
+}
+
+// ClearSystemLogs 删除全部系统日志，返回删除行数。
+func (s *Store) ClearSystemLogs() (int64, error) {
+	s.systemLogMu.Lock()
+	defer s.systemLogMu.Unlock()
+	s.systemLogClearedAt = nowUTC()
+	result, err := s.DB.Exec(`DELETE FROM system_logs`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// CleanupSystemLogs 按保留天数与最大行数清理系统日志。
+func (s *Store) CleanupSystemLogs() error {
+	var firstErr error
+	if s.SystemLogRetentionDays > 0 {
+		if _, err := s.DB.Exec(`DELETE FROM system_logs WHERE created_at < ?`,
+			nowUTC().AddDate(0, 0, -s.SystemLogRetentionDays)); err != nil {
+			firstErr = err
+		}
+	}
+	if s.SystemLogMaxRows > 0 {
+		if _, err := s.DB.Exec(`DELETE FROM system_logs WHERE id NOT IN (
+			SELECT id FROM system_logs ORDER BY id DESC LIMIT ?)`, s.SystemLogMaxRows); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// escapeLike 转义 LIKE 通配符，避免用户输入被当作模式。
+func escapeLike(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	value = strings.ReplaceAll(value, `_`, `\_`)
+	return value
+}
+
+// truncateLogText 按 rune 截断，避免把多字节字符切坏。
+func truncateLogText(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
 }
 
 // ---------------------------- 仪表盘 ----------------------------

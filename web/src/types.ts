@@ -4,8 +4,17 @@ export interface User {
   id: number
   email: string
   totp_enabled: boolean
+  strong_auth?: boolean
   created_at: string
   updated_at: string
+}
+
+export interface PasskeyInfo {
+  id: number
+  name: string
+  credential_id: string
+  created_at: string
+  last_used_at: string | null
 }
 
 export interface Session {
@@ -47,6 +56,9 @@ export interface ProviderDef {
   desc?: string
   fields: FieldDef[]
   deploy_fields?: FieldDef[]
+  available?: boolean
+  source?: 'builtin' | 'exec' | string
+  deprecated?: boolean
 }
 
 export interface CADef {
@@ -117,7 +129,7 @@ export interface Meta {
   deploy_types?: ProviderDef[]
 }
 
-export type VerifyMode = 'none' | 'password' | 'totp' | 'password_totp'
+export type VerifyMode = 'none' | 'password' | 'totp' | 'password_totp' | 'passkey'
 
 export type SecondaryVerifyAction =
   | 'backup_download'
@@ -134,11 +146,14 @@ export type SecondaryVerifyAction =
   | 'certificate_write'
   | 'monitor_write'
   | 'notification_test'
+  | 'plugin_upload'
 
 export interface Settings {
   entry?: string
   step_up?: Partial<Record<SecondaryVerifyAction, boolean>>
   verify_mode?: VerifyMode
+  passkey_enabled?: boolean
+  passkey_count?: number
   language?: string
   acme_email?: string
   acme_ca?: string
@@ -183,6 +198,48 @@ export interface DeployAccount {
 }
 
 export type Account = DNSAccount | DeployAccount
+
+export interface DeployPluginStatus {
+  enabled: boolean
+  dir: string
+  helpers: number
+  deployers: Array<{ id: string; name?: string; description?: string; version?: string; helper?: string; enabled: boolean }>
+  errors?: string[]
+  skipped?: string[]
+  disabled?: string[]
+  limits: { memory_limit_mb: number; timeout_seconds: number; max_output_kb: number }
+}
+
+export interface PluginProvider {
+  id: string
+  name?: string
+  description?: string
+  helper?: string
+  version?: string
+  enabled: boolean
+}
+
+export interface PluginStatus {
+  enabled: boolean
+  dir: string
+  helpers: number
+  providers: PluginProvider[]
+  errors?: string[]
+  skipped?: string[]
+  limits: { memory_limit_mb: number; timeout_seconds: number; max_output_kb: number }
+  deploy?: DeployPluginStatus
+}
+
+export interface PluginUploadResult {
+  kind: 'dns' | 'deploy'
+  file: string
+  name?: string
+  version?: string
+  sha256?: string
+  items: string[]
+  errors?: string[]
+  message?: string
+}
 
 export type PipelineNodeType = 'apply' | 'deploy' | 'notify'
 export type NotifyOn = 'always' | 'success' | 'failure'
@@ -379,6 +436,25 @@ export interface LogPage {
   total: number
 }
 
+export interface SystemLogEntry {
+  id: number
+  level: string
+  component: string
+  message: string
+  fields?: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface SystemLogPage {
+  items: SystemLogEntry[]
+  total: number
+  page: number
+  size: number
+  components: string[]
+  retention_days: number
+  enabled: boolean
+}
+
 export interface DeployResult {
   success: boolean
   name: string
@@ -399,6 +475,7 @@ export interface ApiError extends Error {
   totpRequired?: boolean
   reauthRequired?: boolean
   secondaryVerifyRequired?: boolean
+  passkeyRequired?: boolean
 }
 
 export interface ACMEEndpoint {

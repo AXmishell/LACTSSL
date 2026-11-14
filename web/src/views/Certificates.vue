@@ -481,7 +481,10 @@ function defaultDeployConfig(type?: string): Record<string, string> {
   return config
 }
 function normalizeDeployConfig(type: string | undefined, current: Record<string, string> | undefined): Record<string, string> {
-  const fields = deployTypeDef(type)?.deploy_fields || []
+  const def = deployTypeDef(type)
+  // 插件未安装时元数据不在列表中，保留原参数，避免编辑部署目标时误清空。
+  if (!def) return { ...(current || {}) }
+  const fields = def.deploy_fields || []
   const allowed = new Set(fields.map((field) => field.key))
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(current || {})) {

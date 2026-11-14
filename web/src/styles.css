@@ -196,6 +196,21 @@ a {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
+.about-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 9px 0;
+  border-bottom: 1px dashed #eef1f6;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.about-line:last-child {
+  border-bottom: none;
+}
+
 .break-all {
   word-break: break-all;
 }
@@ -288,13 +303,14 @@ a {
 /* ---------- 图表 ---------- */
 .bars {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 8px;
   height: 150px;
   padding-top: 12px;
 }
 
 .bar-col {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -309,22 +325,54 @@ a {
   display: flex;
   align-items: flex-end;
   border-radius: 6px;
-  background: #f1f5f9;
+  background: #f8fafc;
   overflow: hidden;
 }
 
 .bar-fill {
   width: 100%;
   border-radius: 6px 6px 0 0;
-  background: linear-gradient(180deg, #60a5fa, #2563eb);
+  background: #2563eb;
   min-height: 2px;
-  transition: height 0.4s ease;
+  transition: height 0.4s ease, background-color 0.4s ease;
 }
 
 .bar-label {
   font-size: 11px;
+  line-height: 16px;
+  min-height: 16px;
   color: var(--kp-muted);
   white-space: nowrap;
+}
+
+/* 趋势图悬停气泡：单节点渲染、无进出场过渡，避免多个 el-tooltip 同时淡出产生拖影 */
+.bar-tip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 4px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* 首尾两列靠边时把气泡拉回卡片内，避免溢出圆角 */
+.bar-col:first-child .bar-tip {
+  left: 0;
+  transform: none;
+}
+
+.bar-col:last-child .bar-tip {
+  left: auto;
+  right: 0;
+  transform: none;
 }
 
 .expiry-row {
@@ -758,6 +806,27 @@ a {
   color: var(--kp-muted);
   font-size: 12px;
   line-height: 1.7;
+}
+
+.passkey-login {
+  margin-top: 18px;
+}
+
+.passkey-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--kp-muted);
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+.passkey-divider::before,
+.passkey-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #eef1f6;
 }
 
 /* ---------- 布局 ---------- */

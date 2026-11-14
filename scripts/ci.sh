@@ -143,6 +143,15 @@ fi
 if [ "$RUN_BUILD" -eq 1 ]; then
   require go
 
+  step "生成 DNS 插件包装包"
+  go run scripts/gen_dns_plugins/main.go
+  if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+    if ! git diff --exit-code -- internal/dnsplugin >/dev/null 2>&1; then
+      echo "internal/dnsplugin 生成结果与仓库不一致，请运行 make gen-plugins 并提交" >&2
+      exit 1
+    fi
+  fi
+
   step "构建二进制（前端资源嵌入）"
   rm -rf internal/webui/dist
   cp -a web/dist internal/webui/dist
@@ -157,6 +166,22 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   step "校验产物"
   test -x bin/lactssl
   ls -lh bin/lactssl
+
+  step "构建全量版（dns_all）校验"
+  CGO_ENABLED=0 go build -trimpath -tags "embed dns_all" -o /dev/null ./cmd/server
+
+  step "构建 DNS helper 校验"
+  CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/dns-helper
+  CGO_ENABLED=0 go build -trimpath -tags dns_extra -o /dev/null ./cmd/dns-helper
+
+  step "构建内嵌 DNS helper 的主程序校验"
+  mkdir -p internal/dnsplugin/bundled
+  CGO_ENABLED=0 go build -trimpath -tags dns_extra -o internal/dnsplugin/bundled/lactssl-dns-helper-extra ./cmd/dns-helper
+  CGO_ENABLED=0 go build -trimpath -tags "embed embed_helper" -o /dev/null ./cmd/server
+  rm -f internal/dnsplugin/bundled/lactssl-dns-helper-extra
+
+  step "构建部署 helper 校验"
+  CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/deploy-helper
 fi
 
 trap - ERR

@@ -27,7 +27,7 @@ hide:
 
 <div class="feature-card" markdown>
 ### :material-file-export-outline: 多目标部署
-本地目录、SSH、FTP、Webhook，以及阿里云 CDN、七牛云、宝塔、1Panel、雷池 WAF 等目标。
+本地目录与 SSH 内置；FTP、Webhook、阿里云 CDN、七牛云、宝塔、1Panel、雷池 WAF 等目标可通过部署插件扩展。
 </div>
 
 <div class="feature-card" markdown>

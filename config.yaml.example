@@ -20,6 +20,38 @@ database:
   # 留空表示 <data_dir>/lactssl.db
   path: ""
 
+log:
+  # 进程日志级别：debug、info、warn、error
+  level: info
+  # 输出格式：text（默认）或 json
+  format: text
+  # 日志文件；留空仅输出到 stdout。相对路径基于当前工作目录。
+  # 建议设为 <data_dir>/logs/lactssl.log，并确保目录可写。
+  file: ""
+  # 写入文件时是否仍输出到 stdout；Docker 部署建议保持 true
+  also_stdout: true
+  # 单文件大小上限（MB），超过后轮转
+  max_size_mb: 20
+  # 保留历史文件数量，0 表示不限制
+  max_backups: 5
+  # 历史文件保留天数，0 表示不限制
+  max_age_days: 30
+  # 是否压缩历史文件
+  compress: true
+  # 是否记录 HTTP 访问日志（不记录查询参数与安全入口）
+  access_log: true
+  system:
+    # 是否把进程日志写入数据库，供「系统日志」页面查看
+    enabled: true
+    # 写入数据库的最低级别（不能低于上面的 log.level）
+    level: info
+    # 是否把 HTTP 访问日志也写入数据库；高频请求会快速占用数据库，默认关闭
+    access: false
+    # 系统日志保留天数
+    retention_days: 7
+    # 系统日志最大行数，超出后删除最旧记录
+    max_rows: 20000
+
 security:
   # 安全入口；留空则首次启动随机生成 20 位大小写字母与数字组合，并保存到数据库
   # 也可手动指定，至少 8 位，例如 "K7mQ2pX9vR4tY8nL6cWz"（支持带或不带首尾斜杠）
@@ -29,6 +61,7 @@ security:
   public_url: ""
   # JWT 签名密钥；留空则自动生成并写回本文件。手动配置时至少 32 个字符。
   # 建议与下面的 salt 使用不同的随机值（JWT 签名还会经 HKDF 派生独立子密钥）。
+  # 服务每次启动都会混入新的随机值并清空服务端会话，因此重启后需要重新登录。
   jwt_secret: ""
   # 数据库敏感字段加密盐（AES-256-GCM）；留空则自动生成并写回本文件。手动配置时至少 32 个字符。
   salt: ""
@@ -48,3 +81,29 @@ acme:
     # 启用 mTLS 时必须同时配置上面的 tls.cert / tls.key
     enabled: false
     client_ca: ""
+
+plugins:
+  # 是否加载 DNS exec helper 插件（默认开启）
+  # 主程序不再内置 DNS 服务商；迁移前内置的 35 家由 helper 提供并默认启用，
+  # 其余服务商默认停用。启用状态保存在数据库，可在「插件」页面中管理。
+  enabled: true
+  # 插件目录；留空表示 <data_dir>/plugins/dns
+  dir: ""
+  # 单个 helper 进程常驻内存（RSS）上限，0 表示不限制
+  memory_limit_mb: 128
+  # present/cleanup 单次执行超时（秒）
+  timeout_seconds: 60
+  # helper 输出日志上限（KB）
+  max_output_kb: 64
+
+deploy_plugins:
+  # 是否加载外部证书部署插件（默认关闭）。插件会接收证书私钥，仅启用可信 helper。
+  enabled: false
+  # 插件目录；留空表示 <data_dir>/plugins/deploy（与 DNS 插件目录分开）
+  dir: ""
+  # 单个 helper 进程常驻内存（RSS）上限，0 表示不限制
+  memory_limit_mb: 128
+  # deploy 单次执行超时（秒）；上传大文件时可调大
+  timeout_seconds: 300
+  # helper 输出日志上限（KB）
+  max_output_kb: 64

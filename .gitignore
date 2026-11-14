@@ -12,6 +12,7 @@
 # 构建产物
 /lactssl
 /lactssl-*
+/internal/dnsplugin/bundled/lactssl-dns-helper-extra*
 coverage.out
 coverage.html
 *.test

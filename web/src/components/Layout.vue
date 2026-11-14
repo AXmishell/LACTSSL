@@ -140,19 +140,29 @@ const menus: MenuGroup[] = [
       { path: '/certificates', label: 'nav.certificates', icon: 'Document' },
       { path: '/tasks', label: 'nav.tasks', icon: 'Promotion' },
       { path: '/monitors', label: 'nav.monitors', icon: 'Monitor' },
-      { path: '/dns', label: 'nav.dns', icon: DnsAccountIcon },
       { path: '/ca-configs', label: 'nav.caConfigs', icon: CAConfigIcon },
       { path: '/private-cas', label: 'nav.privateCA', icon: 'Lock' },
       { path: '/acme-server', label: 'nav.acmeServer', icon: 'Connection' },
-      { path: '/acme-diagnostics', label: 'nav.acmeDiagnostics', icon: 'DataAnalysis' },
+      { path: '/acme-diagnostics', label: 'nav.acmeDiagnostics', icon: 'DataAnalysis' }
+    ]
+  },
+  {
+    label: 'nav.groupCredentials',
+    items: [
+      { path: '/dns', label: 'nav.dns', icon: DnsAccountIcon },
       { path: '/deploy', label: 'nav.deploy', icon: 'UploadFilled' }
     ]
+  },
+  {
+    label: 'nav.groupPlugins',
+    items: [{ path: '/plugins', label: 'nav.dnsPlugins', icon: 'Box' }]
   },
   {
     label: 'nav.groupSystem',
     items: [
       { path: '/notifications', label: 'nav.notifications', icon: 'Bell' },
       { path: '/logs', label: 'nav.logs', icon: 'Tickets' },
+      { path: '/system-logs', label: 'nav.systemLogs', icon: 'Memo' },
       { path: '/sessions', label: 'nav.sessions', icon: 'Key' },
       { path: '/settings', label: 'nav.settings', icon: 'Setting' }
     ]

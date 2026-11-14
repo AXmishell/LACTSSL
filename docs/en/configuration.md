@@ -25,6 +25,23 @@ data_dir: "data"        # Data directory containing the SQLite database
 database:
   path: ""              # Empty means <data_dir>/lactssl.db
 
+log:
+  level: info           # Process log level: debug, info, warn, error
+  format: text          # Output format: text or json
+  file: ""              # Log file; empty means stdout only
+  also_stdout: true     # Keep writing to stdout when a file is configured
+  max_size_mb: 20       # Rotate when a file reaches this size
+  max_backups: 5        # Number of rotated files to keep; 0 means unlimited
+  max_age_days: 30      # Days to keep rotated files; 0 means unlimited
+  compress: true        # Compress rotated files
+  access_log: true      # Record HTTP access logs
+  system:
+    enabled: true       # Persist to the System Logs page
+    level: info         # Minimum level persisted
+    access: false       # Persist HTTP access logs too
+    retention_days: 7   # Retention in days
+    max_rows: 20000     # Maximum rows
+
 security:
   entry: ""             # Secret entry; randomly generated on first startup when empty
   public_url: ""        # Public URL, e.g. "https://ssl.example.com"
@@ -53,6 +70,52 @@ acme:
 
 The data directory stores the database. It is created with `0700` permissions. When `database.path` is empty, `<data_dir>/lactssl.db` is used.
 
+### `log`
+
+Process logs are separate from the UI operation log. Operation logs are stored in the database and shown on the Logs page; process logs cover startup, HTTP, scheduling, plugins, ACME, and other runtime troubleshooting information.
+
+- `level`: minimum level: `debug`, `info`, `warn`, or `error`. `debug` also includes the source location.
+- `format`: `text` for humans and Docker logs, or `json` for log collectors.
+- `file`: log file path. Empty means stdout only; relative paths are resolved from the process working directory. Missing directories are created with `0700`, and the file is written with `0600`.
+- `also_stdout`: keep writing to stdout when a file is configured. Recommended for Docker so `docker compose logs` still works.
+- `max_size_mb`: rotate after a file reaches this size (`1-1024`).
+- `max_backups`: number of rotated files to keep; `0` means unlimited.
+- `max_age_days`: days to keep rotated files; `0` means unlimited.
+- `compress`: gzip rotated files.
+- `access_log`: record HTTP access logs. Entries contain method, route template, status, latency, and client IP only; **query strings, request bodies, and authentication headers are never logged**. The secret entry is replaced with `:entry`, and every response includes `X-Request-ID` for correlation.
+
+Example: persist logs under the data directory and keep them for seven days:
+
+```yaml
+log:
+  level: info
+  file: "data/logs/lactssl.log"
+  also_stdout: true
+  max_size_mb: 20
+  max_backups: 10
+  max_age_days: 7
+  compress: true
+  access_log: true
+  system:
+    enabled: true
+    level: info
+    access: false
+    retention_days: 7
+    max_rows: 20000
+```
+
+#### System logs
+
+`log.system` controls which process logs are persisted to the database and shown on the System Logs page. It is independent of the operation log:
+
+- `enabled`: persist new process logs. When disabled, no new records are created, but historical records remain visible and can be cleared.
+- `level`: minimum level persisted. It cannot be lower than `log.level`; for example, with `log.level: info`, setting `level: debug` still will not record debug logs.
+- `access`: persist HTTP access logs as well. Defaults to `false` to avoid writing every request to SQLite; high traffic can fill the database quickly.
+- `retention_days`: retention in days (`1-365`).
+- `max_rows`: maximum rows (`100-1000000`); the oldest records are removed first.
+
+Writes use a bounded asynchronous queue, so a busy database never blocks requests. When the queue is full, new entries are dropped. System logs may contain client IPs, domains, and error details; treat them as operational data.
+
 ### `security`
 
 - `entry`: path segment of the admin secret entry. Manual values must be 8-32 letters, digits, underscores, or hyphens. When empty, a random 20-character mix of upper- and lowercase letters and digits is generated on first startup and saved to the database.
@@ -68,7 +131,7 @@ The data directory stores the database. It is created with `0700` permissions. W
 - `tls.cert` / `tls.key`: used when the dedicated ACME listener provides TLS directly; leave empty when a reverse proxy terminates TLS.
 - `mtls.enabled` / `mtls.client_ca`: enable when client certificates are required, and specify the client CA certificate. When mTLS is enabled, the ACME TLS certificate and private key must also be configured.
 
-> **Always back up `config.yaml`.** Losing `salt` makes encrypted credentials in the database unrecoverable; losing `jwt_secret` invalidates existing login sessions.
+> **Always back up `config.yaml`.** Losing `salt` makes encrypted credentials in the database unrecoverable; losing or changing `jwt_secret` invalidates existing login sessions. The service also rotates the JWT signing subkey on every start, so a restart requires signing in again.
 
 ## Environment variables
 
@@ -88,6 +151,20 @@ The data directory stores the database. It is created with `0700` permissions. W
 | `LACTSSL_ACME_TLS_KEY` | ACME TLS private key path |
 | `LACTSSL_ACME_MTLS_ENABLED` | Whether to require ACME client certificates |
 | `LACTSSL_ACME_MTLS_CLIENT_CA` | ACME client CA certificate path |
+| `LACTSSL_LOG_LEVEL` | Process log level, overrides `log.level` |
+| `LACTSSL_LOG_FORMAT` | Log format, overrides `log.format` |
+| `LACTSSL_LOG_FILE` | Log file path, overrides `log.file` |
+| `LACTSSL_LOG_ALSO_STDOUT` | Keep writing to stdout when a file is configured |
+| `LACTSSL_LOG_MAX_SIZE_MB` | Maximum size of a single log file in MB |
+| `LACTSSL_LOG_MAX_BACKUPS` | Number of rotated files to keep; `0` means unlimited |
+| `LACTSSL_LOG_MAX_AGE_DAYS` | Days to keep rotated files; `0` means unlimited |
+| `LACTSSL_LOG_COMPRESS` | Compress rotated files |
+| `LACTSSL_LOG_ACCESS` | Record HTTP access logs |
+| `LACTSSL_LOG_SYSTEM_ENABLED` | Persist process logs to the database |
+| `LACTSSL_LOG_SYSTEM_LEVEL` | Minimum level persisted |
+| `LACTSSL_LOG_SYSTEM_ACCESS` | Persist HTTP access logs too |
+| `LACTSSL_LOG_SYSTEM_RETENTION_DAYS` | System log retention in days |
+| `LACTSSL_LOG_SYSTEM_MAX_ROWS` | Maximum number of system log rows |
 | `LACTSSL_LANG` | CLI output language, such as `zh-CN` or `en-US` |
 
 Example:
@@ -100,6 +177,32 @@ LACTSSL_TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8 \
 ```
 
 The secret entry can also be changed after startup under "Settings → Secret entry" without restarting.
+
+## DNS plugins
+
+The `plugins` section controls DNS exec helpers; see [DNS plugins](dns-plugins.md). The default main binary compiles no DNS providers. The 35 former built-in providers are supplied by a helper and enabled by default; the remaining providers are disabled by default and can be enabled individually under the Plugins page (the state is stored in the database, not in this file).
+
+```yaml
+plugins:
+  enabled: true
+  dir: ""                 # empty means <data_dir>/plugins/dns
+  memory_limit_mb: 128
+  timeout_seconds: 60
+  max_output_kb: 64
+```
+
+## Deployment plugins
+
+The `deploy_plugins` section controls external certificate deployment plugins; see [Deployment plugins](deploy-plugins.md). These plugins receive the certificate private key and are disabled by default. DNS plugins and deployment plugins use separate subdirectories, `<data_dir>/plugins/dns` and `<data_dir>/plugins/deploy`, so the two kinds of helper are never mixed.
+
+```yaml
+deploy_plugins:
+  enabled: false
+  dir: ""                 # empty means <data_dir>/plugins/deploy
+  memory_limit_mb: 128
+  timeout_seconds: 300
+  max_output_kb: 64
+```
 
 ## Related documentation
 

@@ -27,7 +27,9 @@ func (m *Manager) Start(ctx context.Context) {
 			case <-ticker.C:
 				m.tick()
 			case <-maintenance.C:
-				m.Store.Maintenance()
+				if err := m.Store.Maintenance(); err != nil {
+					logger().Error("维护清理失败", "error", err)
+				}
 			}
 		}
 	}()
@@ -35,21 +37,28 @@ func (m *Manager) Start(ctx context.Context) {
 
 func (m *Manager) tick() {
 	now := time.Now().UTC()
-	if tasks, err := m.Store.DueTasks(now); err == nil {
+	tasks, err := m.Store.DueTasks(now)
+	if err != nil {
+		logger().Error("查询到期任务失败", "error", err)
+	} else {
 		for _, task := range tasks {
 			go func(id int64) {
 				if err := m.RunTask(id, "task.trigger.scheduled"); err != nil {
-					// 错误已记录到任务日志，这里仅输出到服务日志。
-					m.Store.AddLogKey("task", id, "error", "log.task.schedule_failed", map[string]any{"message": err.Error()})
+					// 错误已记录到任务日志，这里同时输出到进程日志便于排查。
+					m.Store.AddLogKey("task", id, "error", "log.task.schedule_failed", map[string]any{"message": SafeError(err)})
+					logger().Error("定时任务执行失败", "task_id", id, "error", SafeError(err))
 				}
 			}(task.ID)
 		}
 	}
-	if monitors, err := m.Store.DueMonitors(now); err == nil {
-		for _, monitor := range monitors {
-			go func(id int64) {
-				_ = m.CheckMonitor(id)
-			}(monitor.ID)
-		}
+	monitors, err := m.Store.DueMonitors(now)
+	if err != nil {
+		logger().Error("查询到期监控失败", "error", err)
+		return
+	}
+	for _, monitor := range monitors {
+		go func(id int64) {
+			_ = m.CheckMonitor(id)
+		}(monitor.ID)
 	}
 }

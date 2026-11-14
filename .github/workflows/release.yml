@@ -168,12 +168,35 @@ jobs:
 
           build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           mkdir -p out
-          CGO_ENABLED=0 go build -trimpath -tags embed \
+
+          # 插件版：默认主程序不内置服务商，该 helper 包含全部 194 家 lego 服务商。
+          CGO_ENABLED=0 go build -trimpath -tags dns_extra \
+            -ldflags "-s -w" \
+            -o "out/lactssl-dns-helper-extra${ext}" ./cmd/dns-helper
+
+          # 精简版把 helper 嵌入主程序，Release 包首次启动时自动安装。
+          mkdir -p internal/dnsplugin/bundled
+          cp "out/lactssl-dns-helper-extra${ext}" internal/dnsplugin/bundled/lactssl-dns-helper-extra
+          CGO_ENABLED=0 go build -trimpath -tags "embed embed_helper" \
             -ldflags "-s -w -X 'lactssl/internal/api.Version=${VERSION}' -X 'lactssl/internal/api.BuildTime=${build_time}' -X 'lactssl/internal/api.BuildArch=${GOOS}/${GOARCH}'" \
             -o "out/lactssl${ext}" ./cmd/server
+          rm -f internal/dnsplugin/bundled/lactssl-dns-helper-extra
+
+          CGO_ENABLED=0 go build -trimpath -tags "embed dns_all" \
+            -ldflags "-s -w -X 'lactssl/internal/api.Version=${VERSION}' -X 'lactssl/internal/api.BuildTime=${build_time}' -X 'lactssl/internal/api.BuildArch=${GOOS}/${GOARCH}'" \
+            -o "out/lactssl-full${ext}" ./cmd/server
+
+          # 部署插件：主程序只内置本地文件与 SSH，其余部署目标由该 helper 提供。
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X 'lactssl/internal/api.Version=${VERSION}'" \
+            -o "out/lactssl-deploy-helper${ext}" ./cmd/deploy-helper
 
           test -f "out/lactssl${ext}"
-          ls -lh "out/lactssl${ext}"
+          test -f "out/lactssl-full${ext}"
+          test -f "out/lactssl-dns-helper-extra${ext}"
+          test -f "out/lactssl-deploy-helper${ext}"
+          ls -lh "out/lactssl${ext}" "out/lactssl-full${ext}" \
+            "out/lactssl-dns-helper-extra${ext}" "out/lactssl-deploy-helper${ext}"
 
       - name: Package
         shell: bash
@@ -188,9 +211,15 @@ jobs:
 
           if [ "$GOOS" = "windows" ]; then
             cp out/lactssl.exe stage/
+            cp out/lactssl-full.exe stage/
+            cp out/lactssl-dns-helper-extra.exe stage/
+            cp out/lactssl-deploy-helper.exe stage/
             (cd stage && zip -q -r "../dist/${name}.zip" .)
           else
             cp out/lactssl stage/
+            cp out/lactssl-full stage/
+            cp out/lactssl-dns-helper-extra stage/
+            cp out/lactssl-deploy-helper stage/
             tar -czf "dist/${name}.tar.gz" -C stage .
           fi
 

@@ -27,7 +27,7 @@ Request single-domain, multi-domain, and wildcard certificates via DNS-01, with 
 
 <div class="feature-card" markdown>
 ### :material-file-export-outline: Multi-target deployment
-Deploy to local directories, SSH, FTP, and webhooks, as well as Alibaba Cloud CDN, Qiniu Cloud, BaoTa, 1Panel, SafeLine WAF, and more.
+Local directories and SSH are built in; FTP, Webhook, Alibaba Cloud CDN, Qiniu Cloud, BaoTa, 1Panel, SafeLine WAF, and more can be added through deployment plugins.
 </div>
 
 <div class="feature-card" markdown>

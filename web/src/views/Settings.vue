@@ -47,6 +47,36 @@
 
           <div class="setting-row">
             <div>
+              <div style="font-weight: 600; font-size: 14px">{{ t('settings.passkeys') }}</div>
+              <div class="muted" style="margin-top: 4px">{{ t('settings.passkeysSub') }}</div>
+            </div>
+            <div class="flex gap-10 wrap" style="align-items: center">
+              <span class="tag-soft" :class="passkeys.length ? 'tag-green' : 'tag-gray'">
+                {{ passkeys.length ? t('settings.passkeyCount', { count: passkeys.length }) : t('settings.disabled') }}
+              </span>
+              <el-button type="primary" plain :disabled="!passkeyUsable" @click="openPasskeyDialog">
+                {{ t('settings.addPasskey') }}
+              </el-button>
+            </div>
+          </div>
+          <div v-if="passkeys.length" class="passkey-list">
+            <div v-for="item in passkeys" :key="item.id" class="passkey-item">
+              <div style="min-width: 0">
+                <div class="passkey-name">{{ item.name }}</div>
+                <div class="muted" style="margin-top: 4px; font-size: 12px">
+                  {{ t('settings.passkeyCreated', { date: formatDate(item.created_at, false) }) }}
+                  <template v-if="item.last_used_at">
+                    · {{ t('settings.passkeyLastUsed', { date: formatDate(item.last_used_at, false) }) }}
+                  </template>
+                </div>
+              </div>
+              <el-button text type="danger" @click="openDeletePasskey(item)">{{ t('common.delete') }}</el-button>
+            </div>
+          </div>
+          <div v-if="!passkeyUsable" class="form-help">{{ t('settings.passkeyUnavailable') }}</div>
+
+          <div class="setting-row">
+            <div>
               <div style="font-weight: 600; font-size: 14px">{{ t('settings.criticalVerifyTitle') }}</div>
               <div class="muted" style="margin-top: 4px">{{ t('settings.criticalVerifySub') }}</div>
             </div>
@@ -83,18 +113,18 @@
               <el-input v-model="entryForm.entry" :placeholder="settings?.entry || t('settings.entryPlaceholder')" />
               <div class="form-help">{{ t('settings.entryHelp') }}</div>
             </el-form-item>
-            <el-form-item
-              v-if="verifyMode === 'password' || verifyMode === 'password_totp'"
-              :label="t('settings.currentPassword')"
-              required
-            >
+            <el-alert
+              v-if="sessionStrongAuth"
+              type="success"
+              :closable="false"
+              show-icon
+              :title="t('settings.strongAuthHint')"
+              style="margin-bottom: 16px"
+            />
+            <el-form-item v-else-if="verifyModeNeedsPassword(verifyMode)" :label="t('settings.currentPassword')" required>
               <el-input v-model="entryForm.password" type="password" show-password :placeholder="t('settings.confirmIdentity')" />
             </el-form-item>
-            <el-form-item
-              v-if="verifyMode === 'totp' || verifyMode === 'password_totp'"
-              :label="t('settings.totpCode')"
-              required
-            >
+            <el-form-item v-if="!sessionStrongAuth && verifyModeNeedsTOTP(verifyMode)" :label="t('settings.totpCode')" required>
               <el-input
                 v-model="entryForm.totp"
                 maxlength="6"
@@ -102,6 +132,19 @@
                 @keyup.enter="saveEntry"
               />
               <div class="form-help">{{ t('settings.criticalVerifyTotpHint') }}</div>
+            </el-form-item>
+            <el-form-item v-if="!sessionStrongAuth && verifyModeNeedsPasskey(verifyMode)" :label="t('settings.passkeyVerify')" required>
+              <div class="flex gap-10 wrap" style="align-items: center">
+                <el-button
+                  :loading="entryPasskeyLoading"
+                  :disabled="!passkeyUsable"
+                  @click="acquireEntryPasskeyProof"
+                >
+                  {{ entryPasskeyProof ? t('settings.passkeyVerified') : t('settings.passkeyVerifyAction') }}
+                </el-button>
+                <span v-if="entryPasskeyProof" class="tag-soft tag-green">{{ t('settings.passkeyVerified') }}</span>
+              </div>
+              <div class="form-help">{{ t('settings.passkeyVerifyHint') }}</div>
             </el-form-item>
             <el-button type="primary" :loading="savingEntry" @click="saveEntry">{{ t('settings.updateEntry') }}</el-button>
           </el-form>
@@ -208,22 +251,46 @@
         </div>
         <div class="k-card" style="margin-top: 18px">
           <div class="card-head"><h3>{{ t('settings.systemInfo') }}</h3></div>
-          <div class="about-line">
-            <span>{{ t('common.status') }}</span>
-            <span
-              class="tag-soft"
-              :class="status ? 'tag-green' : statusError ? 'tag-red' : 'tag-gray'"
-              :title="statusError || undefined"
-            >
-              {{ status ? t('settings.running') : statusError ? t('settings.statusError') : t('settings.loading') }}
-            </span>
+          <div class="about-table-wrap">
+            <table class="about-table about-table-h">
+              <thead>
+                <tr>
+                  <th scope="col">{{ t('common.status') }}</th>
+                  <th scope="col">{{ t('settings.uptime') }}</th>
+                  <th scope="col">{{ t('settings.startedAt') }}</th>
+                  <th scope="col">{{ t('settings.goroutines') }}</th>
+                  <th scope="col">{{ t('settings.threads') }}</th>
+                  <th scope="col">{{ t('settings.memory') }}</th>
+                  <th scope="col">{{ t('settings.vmRss') }}</th>
+                  <th scope="col">{{ t('settings.rssAnon') }}</th>
+                  <th scope="col">{{ t('settings.vmSize') }}</th>
+                  <th scope="col">{{ t('settings.vmSwap') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <span
+                      class="tag-soft"
+                      :class="status ? 'tag-green' : statusError ? 'tag-red' : 'tag-gray'"
+                      :title="statusError || undefined"
+                    >
+                      {{ status ? t('settings.running') : statusError ? t('settings.statusError') : t('settings.loading') }}
+                    </span>
+                  </td>
+                  <td class="mono">{{ uptimeText }}</td>
+                  <td class="mono">{{ status ? formatDate(status.started_at) : t('common.none') }}</td>
+                  <td class="mono">{{ status?.goroutines ?? t('common.none') }}</td>
+                  <td class="mono">{{ status?.threads ?? t('common.none') }}</td>
+                  <td class="mono">{{ memoryText }}</td>
+                  <td class="mono">{{ formatBytes(status?.memory_rss) }}</td>
+                  <td class="mono">{{ formatBytes(status?.memory_anon) }}</td>
+                  <td class="mono">{{ formatBytes(status?.memory_vsz) }}</td>
+                  <td class="mono">{{ formatBytes(status?.memory_swap) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div class="about-line"><span>{{ t('settings.uptime') }}</span><span class="mono">{{ uptimeText }}</span></div>
-          <div class="about-line"><span>{{ t('settings.startedAt') }}</span><span class="mono">{{ status ? formatDate(status.started_at) : t('common.none') }}</span></div>
-          <div class="about-line"><span>{{ t('settings.goroutines') }}</span><span class="mono">{{ status?.goroutines ?? t('common.none') }}</span></div>
-          <div class="about-line"><span>{{ t('settings.memory') }}</span><span class="mono">{{ memoryText }}</span></div>
-          <div class="about-line"><span>{{ t('settings.vmRss') }}</span><span class="mono">{{ formatBytes(status?.memory_rss) }}</span></div>
-          <div class="about-line"><span>{{ t('settings.vmSwap') }}</span><span class="mono">{{ formatBytes(status?.memory_swap) }}</span></div>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -305,6 +372,40 @@
       </template>
     </el-dialog>
 
+    <!-- 添加通行密钥 -->
+    <el-dialog v-model="passkeyVisible" :title="t('settings.addPasskeyTitle')" width="460px">
+      <p class="muted" style="margin-top: 0">{{ t('settings.addPasskeyDesc') }}</p>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.passkeyName')">
+          <el-input v-model="passkeyForm.name" maxlength="64" :placeholder="t('settings.passkeyNamePlaceholder')" />
+        </el-form-item>
+        <el-form-item :label="t('settings.currentPassword')">
+          <el-input v-model="passkeyForm.password" type="password" show-password autocomplete="current-password" />
+          <div class="form-help">{{ t('settings.passkeyPasswordHint') }}</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passkeyVisible = false">{{ t('settings.cancel') }}</el-button>
+        <el-button type="primary" :loading="passkeyLoading" @click="addPasskey">{{ t('settings.addPasskey') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 删除通行密钥 -->
+    <el-dialog v-model="passkeyDeleteVisible" :title="t('settings.deletePasskeyTitle')" width="420px">
+      <p class="muted" style="margin-top: 0">
+        {{ t('settings.deletePasskeyDesc', { name: passkeyDeleteTarget?.name || '' }) }}
+      </p>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.currentPassword')">
+          <el-input v-model="passkeyDeletePassword" type="password" show-password autocomplete="current-password" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passkeyDeleteVisible = false">{{ t('settings.cancel') }}</el-button>
+        <el-button type="danger" :loading="passkeyLoading" @click="deletePasskey">{{ t('common.delete') }}</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 二次验证方式 -->
     <el-dialog v-model="verifyModeVisible" :title="t('settings.criticalVerify')" width="680px" @closed="resetVerifyModeDialog">
       <p class="muted" style="margin-top: 0">{{ t('settings.criticalVerifySub') }}</p>
@@ -317,40 +418,58 @@
             <el-radio value="password_totp" :disabled="!user?.totp_enabled">
               {{ t('settings.verifyModePasswordTOTP') }}
             </el-radio>
+            <el-radio value="passkey" :disabled="!passkeys.length">{{ t('settings.verifyModePasskey') }}</el-radio>
           </el-radio-group>
           <div v-if="!user?.totp_enabled" class="form-help">{{ t('settings.verifyModeTotpDisabled') }}</div>
+          <div v-if="!passkeys.length" class="form-help">{{ t('settings.verifyModePasskeyDisabled') }}</div>
         </el-form-item>
-        <el-form-item
-          v-if="verifyMode === 'password' || verifyMode === 'password_totp'"
-          :label="t('settings.currentPassword')"
-          required
-        >
-          <el-input
-            v-model="verifyModeForm.password"
-            type="password"
-            show-password
-            autocomplete="current-password"
-          />
-        </el-form-item>
-        <el-form-item
-          v-if="verifyMode === 'totp' || verifyMode === 'password_totp'"
-          :label="t('settings.totpCode')"
-          required
-        >
-          <el-input v-model="verifyModeForm.totp" maxlength="6" :placeholder="t('settings.totpCodePlaceholder')" />
-        </el-form-item>
+        <template v-if="!sessionStrongAuth">
+          <el-form-item v-if="verifyModeNeedsPassword(verifyMode)" :label="t('settings.currentPassword')" required>
+            <el-input
+              v-model="verifyModeForm.password"
+              type="password"
+              show-password
+              autocomplete="current-password"
+            />
+          </el-form-item>
+          <el-form-item v-if="verifyModeNeedsTOTP(verifyMode)" :label="t('settings.totpCode')" required>
+            <el-input v-model="verifyModeForm.totp" maxlength="6" :placeholder="t('settings.totpCodePlaceholder')" />
+          </el-form-item>
+          <el-form-item v-if="verifyModeNeedsPasskey(verifyMode)" :label="t('settings.passkeyVerify')" required>
+            <div class="flex gap-10 wrap" style="align-items: center">
+              <el-button
+                :loading="verifyModePasskeyLoading"
+                :disabled="!passkeyUsable"
+                @click="acquireVerifyModePasskeyProof"
+              >
+                {{ verifyModePasskeyProof ? t('settings.passkeyVerified') : t('settings.passkeyVerifyAction') }}
+              </el-button>
+              <span v-if="verifyModePasskeyProof" class="tag-soft tag-green">{{ t('settings.passkeyVerified') }}</span>
+            </div>
+          </el-form-item>
+        </template>
+        <el-alert
+          v-else
+          type="success"
+          :closable="false"
+          show-icon
+          :title="t('settings.strongAuthHint')"
+          style="margin-bottom: 12px"
+        />
         <div v-if="verifyMode === 'none'" class="form-help">
           {{ t('settings.criticalVerifyNoneHint') }}
         </div>
       </el-form>
-      <el-divider content-position="left">{{ t('settings.stepUpTitle') }}</el-divider>
-      <p class="muted" style="margin: 0 0 10px">{{ t('settings.stepUpSub') }}</p>
-      <div class="step-up-list">
-        <div v-for="item in stepUpToggleDefs" :key="item.action" class="step-up-row">
-          <span>{{ t(item.labelKey) }}</span>
-          <el-switch v-model="stepUpForm[item.action]" />
+      <template v-if="verifyModeForm.mode !== 'none'">
+        <el-divider content-position="left">{{ t('settings.stepUpTitle') }}</el-divider>
+        <p class="muted" style="margin: 0 0 10px">{{ t('settings.stepUpSub') }}</p>
+        <div class="step-up-list">
+          <div v-for="item in stepUpToggleDefs" :key="item.action" class="step-up-row">
+            <span>{{ t(item.labelKey) }}</span>
+            <el-switch v-model="stepUpForm[item.action]" />
+          </div>
         </div>
-      </div>
+      </template>
       <el-alert
         v-if="verifyModeForm.mode === 'none' && verifyMode !== 'none'"
         type="warning"
@@ -446,8 +565,16 @@
         <span class="restore-file-name">{{ restoreFileName }}</span>
       </div>
       <el-form label-position="top" style="margin-top: 16px">
+        <el-alert
+          v-if="sessionStrongAuth"
+          type="success"
+          :closable="false"
+          show-icon
+          :title="t('settings.strongAuthHint')"
+          style="margin-bottom: 16px"
+        />
         <el-form-item
-          v-if="verifyMode === 'password' || verifyMode === 'password_totp'"
+          v-if="!sessionStrongAuth && verifyModeNeedsPassword(verifyMode)"
           :label="t('settings.restorePassword')"
           required
         >
@@ -459,7 +586,7 @@
           />
         </el-form-item>
         <el-form-item
-          v-if="verifyMode === 'totp' || verifyMode === 'password_totp'"
+          v-if="!sessionStrongAuth && verifyModeNeedsTOTP(verifyMode)"
           :label="t('settings.totpCode')"
           required
         >
@@ -469,6 +596,23 @@
             :placeholder="t('settings.totpCodePlaceholder')"
           />
           <div class="form-help">{{ t('settings.criticalVerifyTotpHint') }}</div>
+        </el-form-item>
+        <el-form-item
+          v-if="!sessionStrongAuth && verifyModeNeedsPasskey(verifyMode)"
+          :label="t('settings.passkeyVerify')"
+          required
+        >
+          <div class="flex gap-10 wrap" style="align-items: center">
+            <el-button
+              :loading="restorePasskeyLoading"
+              :disabled="!passkeyUsable"
+              @click="acquireRestorePasskeyProof"
+            >
+              {{ restorePasskeyProof ? t('settings.passkeyVerified') : t('settings.passkeyVerifyAction') }}
+            </el-button>
+            <span v-if="restorePasskeyProof" class="tag-soft tag-green">{{ t('settings.passkeyVerified') }}</span>
+          </div>
+          <div class="form-help">{{ t('settings.passkeyVerifyHint') }}</div>
         </el-form-item>
         <el-form-item :label="t('settings.restoreDecryptPassword')">
           <el-input
@@ -508,11 +652,15 @@ import { api, copyText, downloadFile, errorText } from '../api'
 import {
   requestSecondaryVerification,
   secondaryVerifyHeader,
+  verifyModeNeedsPassword,
+  verifyModeNeedsPasskey,
+  verifyModeNeedsTOTP,
   verifySecondary
 } from '../secondaryVerify'
+import { isPasskeyCancelled, passkeySecureContext, passkeySupported, registerPasskey, requestPasskeyProof } from '../passkeys'
 import { loadMeta, loadSettings, loadUser, logout, state } from '../store'
 import { formatDate } from '../utils'
-import type { AuthResult, BackupInfo, MessageResult, Meta, SecondaryVerifyAction, Settings as AppSettings, TOTPSetup, VerifyMode } from '../types'
+import type { AuthResult, BackupInfo, MessageResult, Meta, PasskeyInfo, SecondaryVerifyAction, Settings as AppSettings, TOTPSetup, VerifyMode } from '../types'
 
 interface ProgramStatus {
   version: string
@@ -522,10 +670,13 @@ interface ProgramStatus {
   uptime_seconds: number
   go_version: string
   goroutines: number
+  threads: number
   memory_alloc: number
   memory_heap: number
   memory_sys: number
   memory_rss: number
+  memory_anon: number
+  memory_vsz: number
   memory_swap: number
 }
 
@@ -541,10 +692,20 @@ const now = ref(Date.now())
 let statusTimer: number | undefined
 let clockTimer: number | undefined
 const user = computed(() => state.user)
+const sessionStrongAuth = computed(() => !!state.user?.strong_auth)
+const passkeys = ref<PasskeyInfo[]>([])
+const passkeyLoading = ref(false)
+const passkeyUsable = computed(() => passkeySupported() && passkeySecureContext())
 const verifyMode = computed<VerifyMode>(() => {
   const mode = settings.value?.verify_mode
   if (mode === 'none') return 'none'
   if ((mode === 'totp' || mode === 'password_totp') && user.value?.totp_enabled) {
+    return mode
+  }
+  if (
+    mode === 'passkey' &&
+    (settings.value?.passkey_enabled || passkeys.value.length > 0)
+  ) {
     return mode
   }
   return 'password'
@@ -558,6 +719,8 @@ const verifyModeLabel = computed(() => {
       return t('settings.verifyModeTOTP')
     case 'password_totp':
       return t('settings.verifyModePasswordTOTP')
+    case 'passkey':
+      return t('settings.verifyModePasskey')
     default:
       return t('settings.verifyModePassword')
   }
@@ -609,6 +772,18 @@ const totpPassword = ref('')
 const disableVisible = ref(false)
 const disableForm = reactive({ password: '', code: '' })
 
+const passkeyVisible = ref(false)
+const passkeyForm = reactive({ name: '', password: '' })
+const passkeyDeleteVisible = ref(false)
+const passkeyDeleteTarget = ref<PasskeyInfo | null>(null)
+const passkeyDeletePassword = ref('')
+const verifyModePasskeyProof = ref('')
+const verifyModePasskeyLoading = ref(false)
+const entryPasskeyProof = ref('')
+const entryPasskeyLoading = ref(false)
+const restorePasskeyProof = ref('')
+const restorePasskeyLoading = ref(false)
+
 const backup = ref<BackupInfo | null>(null)
 const backupDownloading = ref(false)
 const backupDialogVisible = ref(false)
@@ -623,11 +798,14 @@ const restoreTotp = ref('')
 const restoreBackupPassword = ref('')
 const restoring = ref(false)
 const restoreVerifyReady = computed(() => {
-  if (verifyMode.value === 'none') return true
-  if ((verifyMode.value === 'password' || verifyMode.value === 'password_totp') && !restorePassword.value) {
+  if (sessionStrongAuth.value || verifyMode.value === 'none') return true
+  if (verifyModeNeedsPassword(verifyMode.value) && !restorePassword.value) {
     return false
   }
-  if ((verifyMode.value === 'totp' || verifyMode.value === 'password_totp') && !/^\d{6}$/.test(restoreTotp.value)) {
+  if (verifyModeNeedsTOTP(verifyMode.value) && !/^\d{6}$/.test(restoreTotp.value)) {
+    return false
+  }
+  if (verifyModeNeedsPasskey(verifyMode.value) && !restorePasskeyProof.value) {
     return false
   }
   return true
@@ -697,12 +875,21 @@ async function loadBackupInfo(): Promise<void> {
   }
 }
 
+async function loadPasskeys(): Promise<void> {
+  try {
+    passkeys.value = await api.get<PasskeyInfo[]>('/auth/passkeys')
+  } catch (error) {
+    passkeys.value = []
+    console.warn('failed to load passkeys', error)
+  }
+}
+
 async function reload(): Promise<void> {
   try {
     const [metaData, settingData] = await Promise.all([loadMeta(true), loadSettings(true)])
     meta.value = metaData
     applySettings(settingData)
-    await Promise.all([loadStatus(), loadUser(true), loadBackupInfo()])
+    await Promise.all([loadStatus(), loadUser(true), loadBackupInfo(), loadPasskeys()])
   } catch (error: any) {
     ElMessage.error(error.message)
   }
@@ -710,16 +897,55 @@ async function reload(): Promise<void> {
 
 // verifyCredentialsValid 按当前验证方式校验表单中填写的关键操作凭证。
 // 返回 false 时已经提示用户具体缺少哪一项。
-function verifyCredentialsValid(mode: VerifyMode, password: string, code: string): boolean {
-  if ((mode === 'password' || mode === 'password_totp') && !password) {
+function verifyCredentialsValid(
+  mode: VerifyMode,
+  password: string,
+  code: string,
+  passkeyProof = ''
+): boolean {
+  if (sessionStrongAuth.value || mode === 'none') return true
+  if (verifyModeNeedsPassword(mode) && !password) {
     ElMessage.warning(t('settings.currentPasswordRequired'))
     return false
   }
-  if ((mode === 'totp' || mode === 'password_totp') && !/^\d{6}$/.test(code)) {
+  if (verifyModeNeedsTOTP(mode) && !/^\d{6}$/.test(code)) {
     ElMessage.warning(t('settings.totpCodeInvalid'))
     return false
   }
+  if (verifyModeNeedsPasskey(mode) && !passkeyProof) {
+    ElMessage.warning(t('settings.passkeyRequired'))
+    return false
+  }
   return true
+}
+
+// acquirePasskeyProof 供内联验证表单获取短期通行密钥证明。
+async function acquirePasskeyProof(target: { value: string }, loading: { value: boolean }): Promise<void> {
+  if (!passkeyUsable.value) {
+    ElMessage.warning(t('settings.passkeyUnavailable'))
+    return
+  }
+  loading.value = true
+  try {
+    target.value = await requestPasskeyProof()
+    ElMessage.success(t('settings.passkeyVerified'))
+  } catch (error: any) {
+    ElMessage.error(isPasskeyCancelled(error) ? t('settings.passkeyCancelled') : errorText(error))
+  } finally {
+    loading.value = false
+  }
+}
+
+function acquireVerifyModePasskeyProof(): Promise<void> {
+  return acquirePasskeyProof(verifyModePasskeyProof, verifyModePasskeyLoading)
+}
+
+function acquireEntryPasskeyProof(): Promise<void> {
+  return acquirePasskeyProof(entryPasskeyProof, entryPasskeyLoading)
+}
+
+function acquireRestorePasskeyProof(): Promise<void> {
+  return acquirePasskeyProof(restorePasskeyProof, restorePasskeyLoading)
 }
 
 async function saveEntry(): Promise<void> {
@@ -733,7 +959,7 @@ async function saveEntry(): Promise<void> {
     ElMessage.warning(t('settings.entryReserved', { entry }))
     return
   }
-  if (!verifyCredentialsValid(verifyMode.value, entryForm.password, entryForm.totp)) {
+  if (!verifyCredentialsValid(verifyMode.value, entryForm.password, entryForm.totp, entryPasskeyProof.value)) {
     return
   }
   try {
@@ -747,17 +973,18 @@ async function saveEntry(): Promise<void> {
   }
   savingEntry.value = true
   try {
-    const token = await verifySecondary('entry_change', entryForm.password, entryForm.totp)
+    const token = await verifySecondary('entry_change', entryForm.password, entryForm.totp, entryPasskeyProof.value)
     await api.post<MessageResult>('/security/entry', { entry }, { [secondaryVerifyHeader]: token })
     ElMessage.success(t('settings.entryUpdated'))
     entryForm.password = ''
     entryForm.totp = ''
+    entryPasskeyProof.value = ''
     setTimeout(() => {
       // 入口变更后重新加载，让服务端把新入口注入页面。
       window.location.replace('/dashboard')
     }, 700)
   } catch (error: any) {
-    if (error?.totpRequired) {
+    if (error?.totpRequired || error?.passkeyRequired) {
       await refreshVerifyMode()
     }
     ElMessage.error(error.message)
@@ -775,6 +1002,7 @@ function openVerifyModeDialog(): void {
   verifyModeForm.mode = verifyMode.value
   verifyModeForm.password = ''
   verifyModeForm.totp = ''
+  verifyModePasskeyProof.value = ''
   resetStepUpForm()
   verifyModeVisible.value = true
 }
@@ -782,6 +1010,7 @@ function openVerifyModeDialog(): void {
 function resetVerifyModeDialog(): void {
   verifyModeForm.password = ''
   verifyModeForm.totp = ''
+  verifyModePasskeyProof.value = ''
 }
 
 // 其他会话说切换验证方式后，本地设置可能过期；收到 totp_required 时重新拉取，
@@ -799,14 +1028,22 @@ async function saveVerifyMode(): Promise<void> {
     return
   }
   if (
-    (verifyModeForm.mode === 'totp' || verifyModeForm.mode === 'password_totp') &&
-    !user.value?.totp_enabled
+    verifyModeForm.mode === 'totp' ||
+    verifyModeForm.mode === 'password_totp'
   ) {
-    ElMessage.warning(t('settings.verifyModeTotpDisabled'))
-    return
+    if (!user.value?.totp_enabled) {
+      ElMessage.warning(t('settings.verifyModeTotpDisabled'))
+      return
+    }
+  }
+  if (verifyModeForm.mode === 'passkey') {
+    if (passkeys.value.length === 0) {
+      ElMessage.warning(t('settings.verifyModePasskeyDisabled'))
+      return
+    }
   }
   // 切换验证方式本身必须用“当前生效的验证方式”确认身份。
-  if (!verifyCredentialsValid(verifyMode.value, verifyModeForm.password, verifyModeForm.totp)) {
+  if (!verifyCredentialsValid(verifyMode.value, verifyModeForm.password, verifyModeForm.totp, verifyModePasskeyProof.value)) {
     return
   }
   savingVerifyMode.value = true
@@ -815,6 +1052,7 @@ async function saveVerifyMode(): Promise<void> {
       mode: verifyModeForm.mode,
       password: verifyModeForm.password,
       totp: verifyModeForm.totp,
+      passkey_proof: verifyModePasskeyProof.value,
       step_up: { ...stepUpForm }
     })
     settings.value = await loadSettings(true)
@@ -822,6 +1060,9 @@ async function saveVerifyMode(): Promise<void> {
     verifyModeVisible.value = false
     ElMessage.success(t('settings.verifyModeUpdated'))
   } catch (error: any) {
+    if (error?.passkeyRequired || error?.totpRequired) {
+      await refreshVerifyMode()
+    }
     ElMessage.error(error.message)
   } finally {
     savingVerifyMode.value = false
@@ -888,6 +1129,7 @@ function resetRestore(): void {
   restoreFileName.value = ''
   restorePassword.value = ''
   restoreTotp.value = ''
+  restorePasskeyProof.value = ''
   restoreBackupPassword.value = ''
   restoreUpload.value?.clearFiles()
 }
@@ -909,12 +1151,12 @@ async function restoreBackup(): Promise<void> {
     ElMessage.warning(t('settings.restoreFileRequired'))
     return
   }
-  if (!verifyCredentialsValid(verifyMode.value, restorePassword.value, restoreTotp.value)) {
+  if (!verifyCredentialsValid(verifyMode.value, restorePassword.value, restoreTotp.value, restorePasskeyProof.value)) {
     return
   }
   restoring.value = true
   try {
-    const token = await verifySecondary('backup_restore', restorePassword.value, restoreTotp.value)
+    const token = await verifySecondary('backup_restore', restorePassword.value, restoreTotp.value, restorePasskeyProof.value)
     const form = new FormData()
     form.append('file', restoreFile.value)
     form.append('backup_password', restoreBackupPassword.value)
@@ -996,6 +1238,65 @@ async function savePassword(): Promise<void> {
     ElMessage.error(error.message)
   } finally {
     savingAccount.value = false
+  }
+}
+
+function openPasskeyDialog(): void {
+  passkeyForm.name = ''
+  passkeyForm.password = ''
+  passkeyVisible.value = true
+}
+
+async function addPasskey(): Promise<void> {
+  if (!passkeyForm.password) {
+    ElMessage.warning(t('settings.currentPasswordRequired'))
+    return
+  }
+  if (!passkeyUsable.value) {
+    ElMessage.warning(t('settings.passkeyUnavailable'))
+    return
+  }
+  passkeyLoading.value = true
+  try {
+    await registerPasskey(passkeyForm.name.trim(), passkeyForm.password)
+    passkeyVisible.value = false
+    passkeyForm.password = ''
+    await Promise.all([loadPasskeys(), loadSettings(true), loadUser(true)])
+    ElMessage.success(t('settings.passkeyAdded'))
+  } catch (error: any) {
+    ElMessage.error(isPasskeyCancelled(error) ? t('settings.passkeyCancelled') : errorText(error))
+  } finally {
+    passkeyLoading.value = false
+  }
+}
+
+function openDeletePasskey(item: PasskeyInfo): void {
+  passkeyDeleteTarget.value = item
+  passkeyDeletePassword.value = ''
+  passkeyDeleteVisible.value = true
+}
+
+async function deletePasskey(): Promise<void> {
+  const item = passkeyDeleteTarget.value
+  if (!item) return
+  if (!passkeyDeletePassword.value) {
+    ElMessage.warning(t('settings.currentPasswordRequired'))
+    return
+  }
+  passkeyLoading.value = true
+  try {
+    await api.post(`/auth/passkeys/${item.id}/delete`, {
+      password: passkeyDeletePassword.value
+    })
+    passkeyDeleteVisible.value = false
+    passkeyDeleteTarget.value = null
+    passkeyDeletePassword.value = ''
+    await Promise.all([loadPasskeys(), loadSettings(true)])
+    ElMessage.success(t('settings.passkeyDeleted'))
+  } catch (error: any) {
+    ElMessage.error(errorText(error))
+  } finally {
+    passkeyLoading.value = false
   }
 }
 
@@ -1139,6 +1440,32 @@ onUnmounted(() => {
   margin-top: 6px;
   line-height: 1.6;
 }
+.passkey-list {
+  display: grid;
+  gap: 8px;
+  padding: 6px 2px 14px;
+  border-bottom: 1px dashed #eef1f6;
+}
+
+.passkey-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid #eef1f6;
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.passkey-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .totp-secret {
   display: flex;
   align-items: center;
@@ -1163,17 +1490,54 @@ onUnmounted(() => {
   padding: 7px 0;
   color: #334155;
 }
-.about-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 9px 0;
-  border-bottom: 1px dashed #eef1f6;
-  font-size: 13px;
-  color: #64748b;
+.about-table-wrap {
+  margin-top: 12px;
+  overflow-x: auto;
+  border: 1px solid #eef1f6;
+  border-radius: 10px;
 }
-.about-line:last-child {
+.about-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.about-table th,
+.about-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef1f6;
+}
+.about-table th {
+  background: #fbfcfe;
+  font-weight: 600;
+  color: #475569;
+  white-space: normal;
+  line-height: 1.35;
+}
+.about-table td {
+  color: #334155;
+}
+.about-table td.mono {
+  color: #334155;
+}
+/* 转置布局：指标名一行、指标值一行 */
+.about-table-h th,
+.about-table-h td {
+  text-align: center;
+  vertical-align: middle;
+  border-right: 1px solid #eef1f6;
+}
+.about-table-h td {
+  white-space: nowrap;
+}
+.about-table-h th:last-child,
+.about-table-h td:last-child {
+  border-right: none;
+}
+.about-table-h tbody tr td {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.about-table-h tbody tr:last-child td {
   border-bottom: none;
 }
 .step-up-list {

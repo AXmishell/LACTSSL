@@ -11,6 +11,11 @@ import (
 
 // issueSession 签发令牌、登记服务端会话并写入会话 Cookie。
 func (s *Server) issueSession(c *gin.Context, user *model.User) (time.Time, error) {
+	return s.issueSessionStrong(c, user, false)
+}
+
+// issueSessionStrong 签发会话，并记录该会话是否通过通行密钥完成强认证。
+func (s *Server) issueSessionStrong(c *gin.Context, user *model.User, strong bool) (time.Time, error) {
 	token, expire, id, err := s.Auth.IssueSession(user)
 	if err != nil {
 		return time.Time{}, err
@@ -21,6 +26,7 @@ func (s *Server) issueSession(c *gin.Context, user *model.User) (time.Time, erro
 		UserID:     user.ID,
 		IP:         c.ClientIP(),
 		UserAgent:  c.Request.UserAgent(),
+		StrongAuth: strong,
 		CreatedAt:  now,
 		LastSeenAt: now,
 		ExpiresAt:  expire.UTC(),
@@ -38,6 +44,17 @@ func currentSessionID(c *gin.Context) string {
 	value, _ := c.Get("session_id")
 	id, _ := value.(string)
 	return id
+}
+
+// sessionStrongAuth 表示当前会话是否通过通行密钥完成了强认证。
+// 强认证会话本身已满足二次验证要求，无需再次弹出验证框。
+func sessionStrongAuth(c *gin.Context) bool {
+	value, exists := c.Get("session_strong_auth")
+	if !exists {
+		return false
+	}
+	strong, _ := value.(bool)
+	return strong
 }
 
 // listSessions 返回当前账户的所有活跃会话。

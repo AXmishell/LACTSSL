@@ -51,10 +51,20 @@ func migrate(conn *sql.DB) error {
 			user_id INTEGER NOT NULL,
 			ip TEXT NOT NULL DEFAULT '',
 			user_agent TEXT NOT NULL DEFAULT '',
+			strong_auth INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			last_seen_at DATETIME NOT NULL,
 			expires_at DATETIME NOT NULL,
 			revoked_at DATETIME
+		)`,
+		`CREATE TABLE IF NOT EXISTS passkeys (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			credential_id TEXT NOT NULL UNIQUE,
+			credential TEXT NOT NULL,
+			created_at DATETIME NOT NULL,
+			last_used_at DATETIME
 		)`,
 		`CREATE TABLE IF NOT EXISTS password_resets (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -177,6 +187,14 @@ func migrate(conn *sql.DB) error {
 			message TEXT NOT NULL,
 			created_at DATETIME NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS system_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			level TEXT NOT NULL DEFAULT 'info',
+			component TEXT NOT NULL DEFAULT 'app',
+			message TEXT NOT NULL,
+			fields TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS acme_cas (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			public_id TEXT NOT NULL UNIQUE,
@@ -281,11 +299,16 @@ func migrate(conn *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, last_seen_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_passkeys_user ON passkeys(user_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_not_after ON certificates(not_after)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_task ON certificates(task_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_next_run ON tasks(next_run_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_monitor_next_run ON monitors(next_check_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_source_created ON logs(source, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_system_logs_level_created ON system_logs(level, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_system_logs_component_created ON system_logs(component, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_deploy_cert ON deploy_records(cert_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_acme_account_endpoint ON acme_accounts(endpoint_id, thumbprint)`,
 		`CREATE INDEX IF NOT EXISTS idx_acme_order_account ON acme_orders(account_id, status)`,
@@ -300,6 +323,10 @@ func migrate(conn *sql.DB) error {
 	}
 	// 兼容旧数据库：为已有 tasks 表补充任务流程字段。
 	if err := ensureColumn(conn, "tasks", "pipeline", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	// 兼容旧数据库：为已有 sessions 表补充通行密钥强认证标记。
+	if err := ensureColumn(conn, "sessions", "strong_auth", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
 	// 兼容旧 ACME 订单表：补充 ARI replaces 字段。

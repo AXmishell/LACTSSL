@@ -41,7 +41,26 @@ type Claims struct {
 // New 创建认证管理器。JWT 使用 HKDF 派生的独立子密钥，
 // 即使旧配置中 jwt_secret 与 salt 相同，也不会让 JWT 与数据库加密共享同一把密钥。
 func New(secret []byte) *Manager {
-	signKey, err := hkdf.Key(sha256.New, secret, nil, "lactssl/jwt-signing-v1", 32)
+	return newManager(secret, nil)
+}
+
+// NewBootScoped 创建进程级认证管理器：把本次启动生成的随机值混入
+// JWT 签名子密钥，使进程重启后旧登录令牌全部无法通过签名校验。
+//
+// 随机值只参与 JWT 签名，不参与门禁、CSRF 和二次验证的 HMAC，
+// 避免重启把这些短期凭证一起作废。调用方仍需清理 sessions 表，
+// 否则设置页会继续显示实际已不可用的历史会话。
+func NewBootScoped(secret []byte) (*Manager, error) {
+	nonce := make([]byte, 32)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return newManager(secret, nonce), nil
+}
+
+// newManager 使用指定 salt 派生 JWT 签名子密钥；nonce 为空时保持旧版行为。
+func newManager(secret, nonce []byte) *Manager {
+	signKey, err := hkdf.Key(sha256.New, secret, nonce, "lactssl/jwt-signing-v1", 32)
 	if err != nil || len(signKey) == 0 {
 		// hkdf 仅在参数非法时失败；回退到原始密钥，保证服务可用。
 		signKey = secret

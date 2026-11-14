@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 	"lactssl/internal/util"
@@ -22,16 +23,47 @@ const DefaultPath = "config.yaml"
 
 // Config 保存服务运行所需的全部基础配置。
 type Config struct {
-	Addr           string     // 监听地址，例如 :8080
-	DataDir        string     // 数据目录
-	DBPath         string     // SQLite 数据库文件
-	JWTSecret      []byte     // JWT 签名密钥
-	EncryptionKey  []byte     // 数据库敏感配置加密密钥（盐）
-	Entry          string     // 初始安全入口（可通过环境变量或配置文件覆盖）
-	PublicURL      string     // 对外访问地址（用于邮件链接等绝对地址）
-	TrustedProxies []string   // 可信反向代理 CIDR；为空表示不信任任何代理头
-	ACME           ACMEConfig // 内置 ACME 服务端配置
-	File           string     // 实际使用的配置文件路径
+	Addr           string        // 监听地址，例如 :8080
+	DataDir        string        // 数据目录
+	DBPath         string        // SQLite 数据库文件
+	JWTSecret      []byte        // JWT 签名密钥
+	EncryptionKey  []byte        // 数据库敏感配置加密密钥（盐）
+	Entry          string        // 初始安全入口（可通过环境变量或配置文件覆盖）
+	PublicURL      string        // 对外访问地址（用于邮件链接等绝对地址）
+	TrustedProxies []string      // 可信反向代理 CIDR；为空表示不信任任何代理头
+	ACME           ACMEConfig    // 内置 ACME 服务端配置
+	Plugins        PluginsConfig // 外部 DNS 插件配置
+	DeployPlugins  PluginsConfig // 外部证书部署插件配置
+	Log            LogConfig     // 进程底层日志配置
+	File           string        // 实际使用的配置文件路径
+}
+
+// LogConfig 是进程级结构化日志配置，与数据库中的操作日志相互独立。
+type LogConfig struct {
+	Level      string // debug、info、warn、error
+	Format     string // text、json
+	File       string // 日志文件路径；为空表示只输出 stdout
+	AlsoStdout bool   // 写文件时是否仍输出 stdout
+	MaxSizeMB  int    // 单文件大小上限
+	MaxBackups int    // 保留历史文件数量，0 表示不限制
+	MaxAgeDays int    // 历史文件保留天数，0 表示不限制
+	Compress   bool   // 是否压缩历史文件
+	AccessLog  bool   // 是否记录 HTTP 访问日志
+	// System 控制是否把进程日志写入数据库，供「系统日志」页面查看。
+	SystemEnabled       bool
+	SystemLevel         string
+	SystemAccess        bool
+	SystemRetentionDays int
+	SystemMaxRows       int
+}
+
+// PluginsConfig 是外部 exec helper 插件的运行配置（DNS 与部署插件各用一份）。
+type PluginsConfig struct {
+	Enabled       bool
+	Dir           string
+	MemoryLimitMB int
+	Timeout       time.Duration
+	MaxOutputKB   int
 }
 
 // ACMEConfig 是内置 ACME 服务端的监听与传输层配置。
@@ -77,6 +109,38 @@ type fileConfig struct {
 			ClientCA string `yaml:"client_ca"`
 		} `yaml:"mtls"`
 	} `yaml:"acme"`
+	Plugins struct {
+		Enabled        bool   `yaml:"enabled"`
+		Dir            string `yaml:"dir"`
+		MemoryLimitMB  int    `yaml:"memory_limit_mb"`
+		TimeoutSeconds int    `yaml:"timeout_seconds"`
+		MaxOutputKB    int    `yaml:"max_output_kb"`
+	} `yaml:"plugins"`
+	DeployPlugins struct {
+		Enabled        bool   `yaml:"enabled"`
+		Dir            string `yaml:"dir"`
+		MemoryLimitMB  int    `yaml:"memory_limit_mb"`
+		TimeoutSeconds int    `yaml:"timeout_seconds"`
+		MaxOutputKB    int    `yaml:"max_output_kb"`
+	} `yaml:"deploy_plugins"`
+	Log struct {
+		Level      string `yaml:"level"`
+		Format     string `yaml:"format"`
+		File       string `yaml:"file"`
+		AlsoStdout bool   `yaml:"also_stdout"`
+		MaxSizeMB  int    `yaml:"max_size_mb"`
+		MaxBackups int    `yaml:"max_backups"`
+		MaxAgeDays int    `yaml:"max_age_days"`
+		Compress   bool   `yaml:"compress"`
+		AccessLog  bool   `yaml:"access_log"`
+		System     struct {
+			Enabled       bool   `yaml:"enabled"`
+			Level         string `yaml:"level"`
+			Access        bool   `yaml:"access"`
+			RetentionDays int    `yaml:"retention_days"`
+			MaxRows       int    `yaml:"max_rows"`
+		} `yaml:"system"`
+	} `yaml:"log"`
 }
 
 // defaults 返回配置文件缺失字段时使用的默认值。
@@ -86,6 +150,32 @@ func defaults() *fileConfig {
 	fc.DataDir = "data"
 	// 内置 ACME 服务端默认开启；未创建端点时不会对外提供签发能力。
 	fc.ACME.Enabled = true
+	// 外部插件默认开启；目录为空时自动使用 <data_dir>/plugins/dns。
+	fc.Plugins.Enabled = true
+	fc.Plugins.MemoryLimitMB = 128
+	fc.Plugins.TimeoutSeconds = 60
+	fc.Plugins.MaxOutputKB = 64
+	// 部署插件会接收证书私钥，默认关闭，由管理员显式启用；
+	// 目录为空时使用 <data_dir>/plugins/deploy，与 DNS 插件目录分开。
+	fc.DeployPlugins.Enabled = false
+	fc.DeployPlugins.MemoryLimitMB = 128
+	fc.DeployPlugins.TimeoutSeconds = 300
+	fc.DeployPlugins.MaxOutputKB = 64
+	// 底层日志默认输出到 stdout，方便 Docker 采集；需要持久化时再配置 log.file。
+	fc.Log.Level = "info"
+	fc.Log.Format = "text"
+	fc.Log.AlsoStdout = true
+	fc.Log.MaxSizeMB = 20
+	fc.Log.MaxBackups = 5
+	fc.Log.MaxAgeDays = 30
+	fc.Log.Compress = true
+	fc.Log.AccessLog = true
+	// 系统日志页面默认记录 info 及以上级别，但不把 HTTP 访问日志写库。
+	fc.Log.System.Enabled = true
+	fc.Log.System.Level = "info"
+	fc.Log.System.Access = false
+	fc.Log.System.RetentionDays = 7
+	fc.Log.System.MaxRows = 20000
 	return fc
 }
 
@@ -234,6 +324,149 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	pluginsCfg := PluginsConfig{
+		Enabled:       fc.Plugins.Enabled,
+		Dir:           strings.TrimSpace(fc.Plugins.Dir),
+		MemoryLimitMB: fc.Plugins.MemoryLimitMB,
+		Timeout:       time.Duration(fc.Plugins.TimeoutSeconds) * time.Second,
+		MaxOutputKB:   fc.Plugins.MaxOutputKB,
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_PLUGINS_ENABLED")); raw != "" {
+		pluginsCfg.Enabled = parseBool(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_PLUGINS_DIR")); raw != "" {
+		pluginsCfg.Dir = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_PLUGINS_MEMORY_MB")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			pluginsCfg.MemoryLimitMB = value
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_PLUGINS_TIMEOUT_SECONDS")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			pluginsCfg.Timeout = time.Duration(value) * time.Second
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_PLUGINS_MAX_OUTPUT_KB")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			pluginsCfg.MaxOutputKB = value
+		}
+	}
+	if pluginsCfg.Dir == "" {
+		pluginsCfg.Dir = filepath.Join(dataDir, "plugins", "dns")
+	}
+	if err := validatePluginConfig("plugins", pluginsCfg); err != nil {
+		return nil, err
+	}
+
+	deployPluginsCfg := PluginsConfig{
+		Enabled:       fc.DeployPlugins.Enabled,
+		Dir:           strings.TrimSpace(fc.DeployPlugins.Dir),
+		MemoryLimitMB: fc.DeployPlugins.MemoryLimitMB,
+		Timeout:       time.Duration(fc.DeployPlugins.TimeoutSeconds) * time.Second,
+		MaxOutputKB:   fc.DeployPlugins.MaxOutputKB,
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_DEPLOY_PLUGINS_ENABLED")); raw != "" {
+		deployPluginsCfg.Enabled = parseBool(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_DEPLOY_PLUGINS_DIR")); raw != "" {
+		deployPluginsCfg.Dir = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_DEPLOY_PLUGINS_MEMORY_MB")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			deployPluginsCfg.MemoryLimitMB = value
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_DEPLOY_PLUGINS_TIMEOUT_SECONDS")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			deployPluginsCfg.Timeout = time.Duration(value) * time.Second
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_DEPLOY_PLUGINS_MAX_OUTPUT_KB")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			deployPluginsCfg.MaxOutputKB = value
+		}
+	}
+	if deployPluginsCfg.Dir == "" {
+		deployPluginsCfg.Dir = filepath.Join(dataDir, "plugins", "deploy")
+	}
+	if err := validatePluginConfig("deploy_plugins", deployPluginsCfg); err != nil {
+		return nil, err
+	}
+
+	logCfg := LogConfig{
+		Level:      strings.ToLower(strings.TrimSpace(fc.Log.Level)),
+		Format:     strings.ToLower(strings.TrimSpace(fc.Log.Format)),
+		File:       strings.TrimSpace(fc.Log.File),
+		AlsoStdout: fc.Log.AlsoStdout,
+		MaxSizeMB:  fc.Log.MaxSizeMB,
+		MaxBackups: fc.Log.MaxBackups,
+		MaxAgeDays: fc.Log.MaxAgeDays,
+		Compress:   fc.Log.Compress,
+		AccessLog:  fc.Log.AccessLog,
+
+		SystemEnabled:       fc.Log.System.Enabled,
+		SystemLevel:         strings.ToLower(strings.TrimSpace(fc.Log.System.Level)),
+		SystemAccess:        fc.Log.System.Access,
+		SystemRetentionDays: fc.Log.System.RetentionDays,
+		SystemMaxRows:       fc.Log.System.MaxRows,
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_LEVEL")); raw != "" {
+		logCfg.Level = strings.ToLower(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_FORMAT")); raw != "" {
+		logCfg.Format = strings.ToLower(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_FILE")); raw != "" {
+		logCfg.File = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_ALSO_STDOUT")); raw != "" {
+		logCfg.AlsoStdout = parseBool(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_MAX_SIZE_MB")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			logCfg.MaxSizeMB = value
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_MAX_BACKUPS")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			logCfg.MaxBackups = value
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_MAX_AGE_DAYS")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			logCfg.MaxAgeDays = value
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_COMPRESS")); raw != "" {
+		logCfg.Compress = parseBool(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_ACCESS")); raw != "" {
+		logCfg.AccessLog = parseBool(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_SYSTEM_ENABLED")); raw != "" {
+		logCfg.SystemEnabled = parseBool(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_SYSTEM_LEVEL")); raw != "" {
+		logCfg.SystemLevel = strings.ToLower(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_SYSTEM_ACCESS")); raw != "" {
+		logCfg.SystemAccess = parseBool(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_SYSTEM_RETENTION_DAYS")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			logCfg.SystemRetentionDays = value
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("LACTSSL_LOG_SYSTEM_MAX_ROWS")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil {
+			logCfg.SystemMaxRows = value
+		}
+	}
+	if err := validateLogConfig(logCfg); err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Addr:           addr,
 		DataDir:        dataDir,
@@ -244,8 +477,60 @@ func Load() (*Config, error) {
 		PublicURL:      publicURL,
 		TrustedProxies: trustedProxies,
 		ACME:           acmeCfg,
+		Plugins:        pluginsCfg,
+		DeployPlugins:  deployPluginsCfg,
+		Log:            logCfg,
 		File:           path,
 	}, nil
+}
+
+// validatePluginConfig 校验外部插件配置范围，避免误配导致子进程无法启动。
+func validatePluginConfig(section string, cfg PluginsConfig) error {
+	if cfg.MemoryLimitMB < 0 || cfg.MemoryLimitMB > 4096 {
+		return fmt.Errorf("%s.memory_limit_mb 必须在 0-4096 之间", section)
+	}
+	if cfg.Timeout < time.Second || cfg.Timeout > 10*time.Minute {
+		return fmt.Errorf("%s.timeout_seconds 必须在 1-600 之间", section)
+	}
+	if cfg.MaxOutputKB < 1 || cfg.MaxOutputKB > 1024 {
+		return fmt.Errorf("%s.max_output_kb 必须在 1-1024 之间", section)
+	}
+	return nil
+}
+
+// validateLogConfig 校验底层日志配置，避免非法值在启动后才暴露。
+func validateLogConfig(cfg LogConfig) error {
+	switch cfg.Level {
+	case "debug", "info", "warn", "warning", "error":
+	default:
+		return fmt.Errorf("log.level 必须是 debug、info、warn 或 error")
+	}
+	switch cfg.Format {
+	case "text", "json":
+	default:
+		return fmt.Errorf("log.format 必须是 text 或 json")
+	}
+	if cfg.MaxSizeMB < 1 || cfg.MaxSizeMB > 1024 {
+		return fmt.Errorf("log.max_size_mb 必须在 1-1024 之间")
+	}
+	if cfg.MaxBackups < 0 || cfg.MaxBackups > 100 {
+		return fmt.Errorf("log.max_backups 必须在 0-100 之间")
+	}
+	if cfg.MaxAgeDays < 0 || cfg.MaxAgeDays > 3650 {
+		return fmt.Errorf("log.max_age_days 必须在 0-3650 之间")
+	}
+	switch cfg.SystemLevel {
+	case "debug", "info", "warn", "warning", "error":
+	default:
+		return fmt.Errorf("log.system.level 必须是 debug、info、warn 或 error")
+	}
+	if cfg.SystemRetentionDays < 1 || cfg.SystemRetentionDays > 365 {
+		return fmt.Errorf("log.system.retention_days 必须在 1-365 之间")
+	}
+	if cfg.SystemMaxRows < 100 || cfg.SystemMaxRows > 1000000 {
+		return fmt.Errorf("log.system.max_rows 必须在 100-1000000 之间")
+	}
+	return nil
 }
 
 func parseBool(value string) bool {
@@ -338,6 +623,36 @@ func validateFileValues(fc *fileConfig) error {
 		if strings.TrimSpace(fc.ACME.MTLS.ClientCA) == "" {
 			return fmt.Errorf("启用 acme.mtls 时必须配置 acme.mtls.client_ca")
 		}
+	}
+	if err := validatePluginConfig("plugins", PluginsConfig{
+		Enabled:       fc.Plugins.Enabled,
+		Dir:           strings.TrimSpace(fc.Plugins.Dir),
+		MemoryLimitMB: fc.Plugins.MemoryLimitMB,
+		Timeout:       time.Duration(fc.Plugins.TimeoutSeconds) * time.Second,
+		MaxOutputKB:   fc.Plugins.MaxOutputKB,
+	}); err != nil {
+		return err
+	}
+	if err := validatePluginConfig("deploy_plugins", PluginsConfig{
+		Enabled:       fc.DeployPlugins.Enabled,
+		Dir:           strings.TrimSpace(fc.DeployPlugins.Dir),
+		MemoryLimitMB: fc.DeployPlugins.MemoryLimitMB,
+		Timeout:       time.Duration(fc.DeployPlugins.TimeoutSeconds) * time.Second,
+		MaxOutputKB:   fc.DeployPlugins.MaxOutputKB,
+	}); err != nil {
+		return err
+	}
+	if err := validateLogConfig(LogConfig{
+		Level:               strings.ToLower(strings.TrimSpace(fc.Log.Level)),
+		Format:              strings.ToLower(strings.TrimSpace(fc.Log.Format)),
+		MaxSizeMB:           fc.Log.MaxSizeMB,
+		MaxBackups:          fc.Log.MaxBackups,
+		MaxAgeDays:          fc.Log.MaxAgeDays,
+		SystemLevel:         strings.ToLower(strings.TrimSpace(fc.Log.System.Level)),
+		SystemRetentionDays: fc.Log.System.RetentionDays,
+		SystemMaxRows:       fc.Log.System.MaxRows,
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -469,6 +784,37 @@ database:
   # 留空表示 <data_dir>/lactssl.db
   path: %s
 
+log:
+  # 进程日志级别：debug、info、warn、error
+  level: %s
+  # 输出格式：text 或 json
+  format: %s
+  # 日志文件；留空仅输出到 stdout。相对路径基于当前工作目录。
+  file: %s
+  # 写入文件时是否仍输出到 stdout
+  also_stdout: %t
+  # 单文件大小上限（MB），超过后轮转
+  max_size_mb: %d
+  # 保留历史文件数量，0 表示不限制
+  max_backups: %d
+  # 历史文件保留天数，0 表示不限制
+  max_age_days: %d
+  # 是否压缩历史文件
+  compress: %t
+  # 是否记录 HTTP 访问日志（不记录查询参数与安全入口）
+  access_log: %t
+  system:
+    # 是否把进程日志写入数据库，供「系统日志」页面查看
+    enabled: %t
+    # 写入数据库的最低级别（不能低于上面的 log.level）
+    level: %s
+    # 是否把 HTTP 访问日志也写入数据库；高频请求会快速占用数据库
+    access: %t
+    # 系统日志保留天数
+    retention_days: %d
+    # 系统日志最大行数，超出后删除最旧记录
+    max_rows: %d
+
 security:
   # 安全入口；留空则首次启动随机生成并保存到数据库
   entry: %s
@@ -493,12 +839,50 @@ acme:
   mtls:
     enabled: %t
     client_ca: %s
+
+plugins:
+  # 是否加载外部 DNS exec helper 插件
+  enabled: %t
+  # 插件目录；留空表示 <data_dir>/plugins/dns
+  dir: %s
+  # 单个 helper 进程常驻内存上限（MB），0 表示不限制
+  memory_limit_mb: %d
+  # present/cleanup 单次执行超时（秒）
+  timeout_seconds: %d
+  # helper 输出日志上限（KB）
+  max_output_kb: %d
+
+deploy_plugins:
+  # 是否加载外部证书部署插件；插件会接收证书私钥，默认关闭
+  enabled: %t
+  # 插件目录；留空表示 <data_dir>/plugins/deploy（与 DNS 插件目录分开）
+  dir: %s
+  # 单个 helper 进程常驻内存上限（MB），0 表示不限制
+  memory_limit_mb: %d
+  # deploy 单次执行超时（秒）；覆盖上传大文件时可适当调大
+  timeout_seconds: %d
+  # helper 输出日志上限（KB）
+  max_output_kb: %d
 `,
 		quote(fc.Server.Addr),
 		quote(fc.Server.Host),
 		fc.Server.Port,
 		quote(fc.DataDir),
 		quote(fc.Database.Path),
+		quote(fc.Log.Level),
+		quote(fc.Log.Format),
+		quote(fc.Log.File),
+		fc.Log.AlsoStdout,
+		fc.Log.MaxSizeMB,
+		fc.Log.MaxBackups,
+		fc.Log.MaxAgeDays,
+		fc.Log.Compress,
+		fc.Log.AccessLog,
+		fc.Log.System.Enabled,
+		quote(fc.Log.System.Level),
+		fc.Log.System.Access,
+		fc.Log.System.RetentionDays,
+		fc.Log.System.MaxRows,
 		quote(fc.Security.Entry),
 		quote(fc.Security.PublicURL),
 		quote(fc.Security.JWTSecret),
@@ -510,6 +894,16 @@ acme:
 		quote(fc.ACME.TLS.Key),
 		fc.ACME.MTLS.Enabled,
 		quote(fc.ACME.MTLS.ClientCA),
+		fc.Plugins.Enabled,
+		quote(fc.Plugins.Dir),
+		fc.Plugins.MemoryLimitMB,
+		fc.Plugins.TimeoutSeconds,
+		fc.Plugins.MaxOutputKB,
+		fc.DeployPlugins.Enabled,
+		quote(fc.DeployPlugins.Dir),
+		fc.DeployPlugins.MemoryLimitMB,
+		fc.DeployPlugins.TimeoutSeconds,
+		fc.DeployPlugins.MaxOutputKB,
 	)
 	return writeFile(path, []byte(content))
 }

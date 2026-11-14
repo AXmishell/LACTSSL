@@ -80,7 +80,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /pki/{ca}/ocsp", s.handleOCSP)
 	mux.HandleFunc("GET /pki/{ca}/ocsp/{req}", s.handleOCSPGet)
 	mux.HandleFunc("/", s.handleNotFound)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.logRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if !s.requestLimiter.Allow(s.clientIP(r)) {
@@ -91,7 +91,7 @@ func (s *Server) Handler() http.Handler {
 			w.Header().Set("Replay-Nonce", nonce)
 		}
 		mux.ServeHTTP(w, r)
-	})
+	}))
 }
 
 func (s *Server) handleDirectory(w http.ResponseWriter, r *http.Request) {

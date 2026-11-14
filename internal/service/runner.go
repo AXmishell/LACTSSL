@@ -27,9 +27,11 @@ func (m *Manager) RunTask(taskID int64, trigger string) error {
 	start := time.Now().UTC()
 	_ = m.Store.UpdateTaskResult(task.ID, "running", i18n.Encode("task.status.running", map[string]any{"trigger": triggerText}), &start, nil, task.CertID)
 	m.Store.AddLogKey("task", task.ID, "info", "log.task.started", map[string]any{"name": task.Name, "domains": strings.Join(task.Domains, ", ")})
+	logger().Info("任务开始", "task_id", task.ID, "trigger", trigger, "domains", strings.Join(task.Domains, ","))
 
 	err = m.executeTask(task, pipeline)
 	if err != nil {
+		logger().Error("任务失败", "task_id", task.ID, "error", SafeError(err))
 		message := i18n.EncodeError(err)
 		if len(message) > 800 {
 			message = truncate(i18n.ErrorText(current, err), 800)
@@ -89,6 +91,7 @@ func (m *Manager) executeTask(task *model.Task, pipeline []model.PipelineNode) e
 	if err := m.Store.UpdateTaskResult(task.ID, status, message, &now, next, cert.ID); err != nil {
 		return i18n.E("task.error.update_status_failed", "error", err.Error())
 	}
+	logger().Info("任务完成", "task_id", task.ID, "status", status, "deployed", deployedCount)
 	m.notifyTaskResult(task, pipeline, cert, status, message)
 	return nil
 }
@@ -242,6 +245,7 @@ func (m *Manager) runDeployNodes(task *model.Task, cert *model.Certificate, pipe
 			record.Message = truncate(i18n.EncodeError(err), 800)
 			deployErrors = append(deployErrors, account.Name+": "+truncate(i18n.ErrorText(m.Locale(), err), 200))
 			m.Store.AddLogKey("deploy", task.ID, "error", "log.deploy.failed", map[string]any{"node": nodeName(node, m.Locale()), "account": account.Name, "message": i18n.ErrorText(m.Locale(), err)})
+			logger().Warn("部署失败", "task_id", task.ID, "cert_id", cert.ID, "account", account.Name, "node", nodeName(node, m.Locale()), "error", SafeError(err))
 		} else {
 			deployed++
 			record.Message = i18n.Encode("deploy.success", nil)

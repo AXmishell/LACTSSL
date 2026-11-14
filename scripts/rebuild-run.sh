@@ -2,11 +2,12 @@
 # 重新构建并运行开发环境：先构建前端，再编译未嵌入前端的 Go 二进制，
 # 最后同时启动 Vite（:5173，带 HMR）与 Go 服务（配置中的 port，默认 :8080）。
 # 用法: ./scripts/rebuild-run.sh
-# 安全入口可从 config.yaml 读取；入口只存在数据库时用 LACTSSL_ENTRY 覆盖。
+# 安全入口优先取 LACTSSL_ENTRY，其次 config.yaml，最后数据库中的持久化入口。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source "$ROOT/scripts/entry.sh"
 
 CONFIG_PATH="${CONFIG:-config.yaml}"
 if [ ! -f "$CONFIG_PATH" ]; then
@@ -22,10 +23,7 @@ fi
 
 PORT=$(awk '/^[[:space:]]*port:/{print $2; exit}' "$CONFIG_PATH")
 PORT="${PORT:-8080}"
-ENTRY=$(awk '/^[[:space:]]*entry:/{gsub(/["'\'']/,"",$2); print $2; exit}' "$CONFIG_PATH")
-ENTRY="${ENTRY#/}"
-ENTRY="${ENTRY%/}"
-ENTRY="${LACTSSL_ENTRY:-$ENTRY}"
+ENTRY=$(resolve_entry "$CONFIG_PATH")
 
 # 结束占用端口的旧进程，便于反复“重新构建运行”。
 kill_port() {
@@ -51,7 +49,7 @@ BUILD_ARCH=$(go env GOOS)/$(go env GOARCH)
 
 echo "==> 编译开发模式二进制 bin/lactssl-dev（不嵌入前端）" >&2
 mkdir -p bin
-go build -trimpath \
+CGO_ENABLED=0 go build -trimpath \
   -ldflags "-s -w -X 'lactssl/internal/api.Version=${VERSION}' -X 'lactssl/internal/api.BuildTime=${BUILD_TIME}' -X 'lactssl/internal/api.BuildArch=${BUILD_ARCH}'" \
   -o bin/lactssl-dev ./cmd/server
 

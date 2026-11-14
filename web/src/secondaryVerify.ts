@@ -20,7 +20,8 @@ export const secondaryActionLabelKeys: Record<SecondaryVerifyAction, string> = {
   private_ca_write: 'secondaryVerify.action.privateCaWrite',
   certificate_write: 'secondaryVerify.action.certificateWrite',
   monitor_write: 'secondaryVerify.action.monitorWrite',
-  notification_test: 'secondaryVerify.action.notificationTest'
+  notification_test: 'secondaryVerify.action.notificationTest',
+  plugin_upload: 'secondaryVerify.action.pluginUpload'
 }
 
 export interface SecondaryVerifyState {
@@ -29,6 +30,7 @@ export interface SecondaryVerifyState {
   mode: VerifyMode
   password: string
   totp: string
+  passkeyProof: string
   loading: boolean
   error: string
   resolve: ((token: string | null) => void) | null
@@ -40,6 +42,7 @@ export const secondaryVerifyState = reactive<SecondaryVerifyState>({
   mode: 'password',
   password: '',
   totp: '',
+  passkeyProof: '',
   loading: false,
   error: '',
   resolve: null
@@ -53,13 +56,20 @@ export function verifyModeNeedsTOTP(mode: VerifyMode): boolean {
   return mode === 'totp' || mode === 'password_totp'
 }
 
+export function verifyModeNeedsPasskey(mode: VerifyMode): boolean {
+  return mode === 'passkey'
+}
+
 // currentVerifyMode 与后端 effectiveVerifyMode 保持一致：
-// 需要 TOTP 的模式在 TOTP 未启用时回退到密码。
+// 需要 TOTP 或通行密钥的模式在对应验证方式未启用时回退到密码。
 export async function currentVerifyMode(): Promise<VerifyMode> {
   const [settings] = await Promise.all([loadSettings(true), loadUser()])
   const mode = settings.verify_mode
   if (mode === 'none') return 'none'
   if ((mode === 'totp' || mode === 'password_totp') && state.user?.totp_enabled) {
+    return mode
+  }
+  if (mode === 'passkey' && settings.passkey_enabled) {
     return mode
   }
   return 'password'
@@ -70,12 +80,14 @@ export async function currentVerifyMode(): Promise<VerifyMode> {
 export async function verifySecondary(
   action: SecondaryVerifyAction,
   password: string,
-  totp: string
+  totp: string,
+  passkeyProof = ''
 ): Promise<string> {
   const data = await api.post<{ token: string; expires_in: number }>('/auth/secondary-verify', {
     action,
     password,
-    totp
+    totp,
+    passkey_proof: passkeyProof
   })
   return data.token
 }
@@ -87,7 +99,9 @@ const tokenCache = new Map<SecondaryVerifyAction, { token: string; expiresAt: nu
 const TOKEN_CACHE_MS = 90_000
 
 // stepUpRequired 与后端 step_up 开关保持一致；未返回该字段时默认要求验证。
+// 通过通行密钥登录的会话已完成强认证，后端会直接放行，因此前端也不再弹窗。
 export function stepUpRequired(action: SecondaryVerifyAction): boolean {
+  if (state.user?.strong_auth) return false
   const map = state.settings?.step_up
   if (!map) return true
   if (!(action in map)) return true
@@ -133,6 +147,7 @@ export async function requestSecondaryVerification(
   secondaryVerifyState.mode = mode
   secondaryVerifyState.password = ''
   secondaryVerifyState.totp = ''
+  secondaryVerifyState.passkeyProof = ''
   secondaryVerifyState.loading = false
   secondaryVerifyState.error = ''
   return new Promise((resolve) => {

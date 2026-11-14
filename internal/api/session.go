@@ -195,13 +195,19 @@ func sessionIDForToken(claims *auth.Claims, token string) string {
 var errSessionInvalid = errors.New("session invalid")
 
 // ensureSession 校验令牌对应的服务端会话，必要时补登记旧版令牌。
-func (s *Server) ensureSession(c *gin.Context, claims *auth.Claims, token string) (string, error) {
+func (s *Server) ensureSession(c *gin.Context, claims *auth.Claims, token string) (string, *model.Session, error) {
 	id := sessionIDForToken(claims, token)
 	now := time.Now().UTC()
 	session, err := s.Store.GetSession(id)
 	if errors.Is(err, sql.ErrNoRows) {
+		// 只有旧版没有 jti 的令牌才允许补登记，避免升级后立即掉线。
+		// 新令牌缺失服务端记录说明会话已被撤销或随重启清理，
+		// 必须拒绝，不能凭一个仍然有效的 JWT 自动复活会话。
+		if claims.ID != "" {
+			return "", nil, errSessionInvalid
+		}
 		if claims.ExpiresAt == nil {
-			return "", errSessionInvalid
+			return "", nil, errSessionInvalid
 		}
 		created := &model.Session{
 			ID:         id,
@@ -213,18 +219,18 @@ func (s *Server) ensureSession(c *gin.Context, claims *auth.Claims, token string
 			ExpiresAt:  claims.ExpiresAt.Time.UTC(),
 		}
 		if err := s.Store.CreateSession(created); err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return id, nil
+		return id, created, nil
 	}
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if session.UserID != claims.UserID || session.RevokedAt != nil || !now.Before(session.ExpiresAt) {
-		return "", errSessionInvalid
+		return "", nil, errSessionInvalid
 	}
 	_ = s.Store.TouchSession(id, now, now.Add(-time.Minute))
-	return id, nil
+	return id, session, nil
 }
 
 // sessionToken 依次从 Authorization 头和会话 Cookie 取令牌。

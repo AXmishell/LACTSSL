@@ -8,6 +8,8 @@ services:
     #   # 镜像内没有 .git，版本号需显式传入：LACTSSL_VERSION=1.2.3 docker compose up -d --build
     #   args:
     #     VERSION: ${LACTSSL_VERSION:-dev}
+    #     # 全量 DNS 服务商镜像：TAGS: "embed dns_all"
+    #     TAGS: embed
     container_name: lactssl
     restart: unless-stopped
     # 根文件系统只读，仅数据/配置卷与 /tmp 可写，降低命令执行后的持久化能力。
@@ -38,6 +40,8 @@ services:
       # LACTSSL_ENTRY: my-secret-entry
       # 经过反向代理时，填写可信代理 CIDR，否则按 IP 限流会全部落到代理 IP 上
       # LACTSSL_TRUSTED_PROXIES: 127.0.0.1,10.0.0.0/8
+      # 临时排障可打开 debug 日志；文件日志建议在 config.yaml 的 log 段落配置
+      # LACTSSL_LOG_LEVEL: debug
     volumes:
       - ./data:/app/data
       - ./config:/app/config

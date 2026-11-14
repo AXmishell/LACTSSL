@@ -76,6 +76,7 @@ http.interceptors.response.use(
     err.totpRequired = !!data?.totp_required
     err.reauthRequired = !!data?.reauth_required
     err.secondaryVerifyRequired = !!data?.secondary_verify_required
+    err.passkeyRequired = !!data?.passkey_required
     return Promise.reject(err)
   }
 )

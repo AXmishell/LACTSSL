@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
+	"log/slog"
 	"math"
 	"mime"
 	"net"
@@ -25,6 +25,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/auth"
 	"lactssl/internal/backup"
+	"lactssl/internal/deployplugin"
+	"lactssl/internal/dnsplugin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
 	"lactssl/internal/service"
@@ -41,29 +43,60 @@ type Server struct {
 	PublicURL      string
 	TrustedProxies []string
 	ACMEBaseURL    string
+	// PluginsEnabled 与插件目录/限制由 main 从配置注入。
+	PluginsEnabled      bool
+	PluginDir           string
+	PluginMemoryLimitMB int
+	PluginTimeout       time.Duration
+	PluginMaxOutputKB   int
+	// DeployPlugins* 是证书部署插件配置，同样由 main 注入。
+	DeployPluginsEnabled      bool
+	DeployPluginDir           string
+	DeployPluginMemoryLimitMB int
+	DeployPluginTimeout       time.Duration
+	DeployPluginMaxOutputKB   int
 	// Restart 由 main 注入，用于在恢复备份后触发优雅退出，让进程管理器拉起新进程。
-	Restart   func()
-	entry     atomic.Value
-	limiter   *rateLimiter
-	startedAt time.Time
+	Restart func()
+	// AccessLog 控制是否记录 HTTP 访问日志；Logger 由 main 注入进程 logger。
+	AccessLog bool
+	Logger    *slog.Logger
+	// SystemLogEnabled 表示是否仍在把进程日志写入数据库。
+	SystemLogEnabled bool
+	entry            atomic.Value
+	limiter          *rateLimiter
+	startedAt        time.Time
+
+	pluginMu     sync.Mutex
+	pluginResult dnsplugin.DiscoverResult
+
+	// pluginUploadMu 串行化插件上传，避免并发写入同名文件或交错触发热加载。
+	pluginUploadMu sync.Mutex
+
+	deployPluginMu     sync.Mutex
+	deployPluginResult deployplugin.DiscoverResult
 
 	// reauth 记录会话最近一次通过账户密码（及 TOTP）重新认证的时间，
 	// 用于保护备份、私钥导出等高风险操作，降低会话被盗后的影响。
 	reauthMu sync.Mutex
 	reauth   map[string]time.Time
+
+	// passkeyCeremonies 暂存 WebAuthn 注册/登录/二次验证的挑战数据。
+	passkeyMu         sync.Mutex
+	passkeyCeremonies map[string]passkeyCeremony
 }
 
 // New 创建 API 服务。
 func New(st *store.Store, a *auth.Manager, mgr *service.Manager, entry string, webFS fs.FS, trustedProxies []string) *Server {
 	s := &Server{
-		Store:          st,
-		Auth:           a,
-		Manager:        mgr,
-		WebFS:          webFS,
-		TrustedProxies: trustedProxies,
-		limiter:        newRateLimiter(defaultLimiterMaxKeys),
-		startedAt:      time.Now(),
-		reauth:         make(map[string]time.Time),
+		Store:             st,
+		Auth:              a,
+		Manager:           mgr,
+		WebFS:             webFS,
+		TrustedProxies:    trustedProxies,
+		limiter:           newRateLimiter(defaultLimiterMaxKeys),
+		startedAt:         time.Now(),
+		reauth:            make(map[string]time.Time),
+		passkeyCeremonies: make(map[string]passkeyCeremony),
 	}
 	s.entry.Store(entry)
 	return s
@@ -87,10 +120,11 @@ func (s *Server) Router() *gin.Engine {
 	r.RedirectFixedPath = false
 	// 仅信任显式配置的反向代理；为空时 ClientIP 取 RemoteAddr，避免 X-Forwarded-For 伪造。
 	if err := r.SetTrustedProxies(s.TrustedProxies); err != nil {
-		log.Printf("可信代理配置无效，已禁用代理头信任: %v", err)
+		s.logger().Warn("可信代理配置无效，已禁用代理头信任", "error", err)
 		_ = r.SetTrustedProxies(nil)
 	}
-	r.Use(gin.Recovery(), s.bodyLimit(), s.localeMiddleware(), s.securityHeaders(), s.cors())
+	// 访问日志必须包在 recovery 外层，panic 被恢复并写入 500 后才能记录到正确状态码。
+	r.Use(s.requestID(), s.accessLog(), s.recovery(), s.bodyLimit(), s.localeMiddleware(), s.securityHeaders(), s.cors())
 
 	api := r.Group("/:entry/api")
 	api.Use(s.entryMiddleware(), s.originGuard())
@@ -103,6 +137,8 @@ func (s *Server) Router() *gin.Engine {
 		api.POST("/auth/forgot", s.handleForgotPassword)
 		api.POST("/auth/reset", s.handleResetPassword)
 		api.GET("/auth/reset/validate", s.handleValidateReset)
+		api.POST("/auth/passkey/login/begin", s.handlePasskeyLoginBegin)
+		api.POST("/auth/passkey/login/finish", s.handlePasskeyLoginFinish)
 	}
 
 	protected := r.Group("/:entry/api")
@@ -116,6 +152,12 @@ func (s *Server) Router() *gin.Engine {
 		protected.POST("/auth/totp/setup", s.handleTOTPSetup)
 		protected.POST("/auth/totp/enable", s.handleTOTPEnable)
 		protected.POST("/auth/totp/disable", s.handleTOTPDisable)
+		protected.GET("/auth/passkeys", s.listPasskeys)
+		protected.POST("/auth/passkeys/register/begin", s.handlePasskeyRegisterBegin)
+		protected.POST("/auth/passkeys/register/finish", s.handlePasskeyRegisterFinish)
+		protected.POST("/auth/passkeys/:id/delete", s.handlePasskeyDelete)
+		protected.POST("/auth/passkey/verify/begin", s.handlePasskeyVerifyBegin)
+		protected.POST("/auth/passkey/verify/finish", s.handlePasskeyVerifyFinish)
 
 		protected.GET("/sessions", s.listSessions)
 		protected.DELETE("/sessions/:id", s.revokeSession)
@@ -123,6 +165,13 @@ func (s *Server) Router() *gin.Engine {
 
 		protected.GET("/meta", s.handleMeta)
 		protected.GET("/status", s.handleStatus)
+		protected.GET("/plugins", s.listPlugins)
+		protected.POST("/plugins/rescan", s.rescanPlugins)
+		protected.POST("/plugins/upload", s.uploadPlugin)
+		protected.PUT("/plugins/providers", s.setPluginProvidersEnabled)
+		protected.PUT("/plugins/providers/:id", s.setPluginProviderEnabled)
+		protected.PUT("/plugins/deployers", s.setDeployPluginDeployersEnabled)
+		protected.PUT("/plugins/deployers/:id", s.setDeployPluginDeployerEnabled)
 		protected.GET("/dashboard", s.handleDashboard)
 
 		protected.GET("/ca-configs", s.caConfigs)
@@ -191,6 +240,10 @@ func (s *Server) Router() *gin.Engine {
 		protected.POST("/monitors/:id/check", s.checkMonitor)
 
 		protected.GET("/logs", s.listLogs)
+		protected.GET("/logs/export", s.exportLogs)
+		protected.GET("/system-logs", s.listSystemLogs)
+		protected.GET("/system-logs/export", s.exportSystemLogs)
+		protected.DELETE("/system-logs", s.clearSystemLogs)
 		protected.GET("/settings", s.getSettings)
 		protected.PUT("/settings", s.updateSettings)
 		protected.GET("/settings/backup", s.backupInfo)
@@ -231,7 +284,9 @@ func (s *Server) bodyLimit() gin.HandlerFunc {
 
 // isLargeUploadPath 判断是否为允许大文件上传的接口。
 func isLargeUploadPath(path string) bool {
-	return strings.HasSuffix(path, "/settings/backup/restore") || strings.HasSuffix(path, "/setup/restore")
+	return strings.HasSuffix(path, "/settings/backup/restore") ||
+		strings.HasSuffix(path, "/setup/restore") ||
+		strings.HasSuffix(path, "/plugins/upload")
 }
 
 const cspNonceKey = "lactssl.csp_nonce"
@@ -411,7 +466,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			failKey(c, http.StatusUnauthorized, "api.error.session_expired")
 			return
 		}
-		sessionID, err := s.ensureSession(c, claims, token)
+		sessionID, session, err := s.ensureSession(c, claims, token)
 		if errors.Is(err, errSessionInvalid) {
 			failKey(c, http.StatusUnauthorized, "api.error.session_expired")
 			return
@@ -422,6 +477,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		}
 		c.Set("user", user)
 		c.Set("session_id", sessionID)
+		c.Set("session_strong_auth", session.StrongAuth)
 		c.Next()
 	}
 }
@@ -445,7 +501,11 @@ func localize(c *gin.Context, text string) string { return i18n.Render(locale(c)
 func fail(c *gin.Context, status int, message string) {
 	// 终止后续处理，避免认证或入口校验失败后仍执行目标接口。
 	c.Abort()
-	c.JSON(status, gin.H{"success": false, "message": message})
+	payload := gin.H{"success": false, "message": message}
+	if id := c.GetString(requestIDKey); id != "" {
+		payload["request_id"] = id
+	}
+	c.JSON(status, payload)
 }
 
 // failKey 返回带语义 key 的可翻译错误。
@@ -460,12 +520,16 @@ func failKey(c *gin.Context, status int, key string, pairs ...any) {
 	}
 	// 终止后续处理，避免认证或入口校验失败后仍执行目标接口。
 	c.Abort()
-	c.JSON(status, gin.H{
+	payload := gin.H{
 		"success": false,
 		"code":    key,
 		"message": i18n.T(locale(c), key, params),
 		"params":  params,
-	})
+	}
+	if id := c.GetString(requestIDKey); id != "" {
+		payload["request_id"] = id
+	}
+	c.JSON(status, payload)
 }
 
 // failErr 优先使用可翻译错误，否则回退到错误原文。

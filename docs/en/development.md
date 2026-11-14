@@ -5,7 +5,14 @@
 ```bash
 make dev          # Vite + Go development mode
 make rebuild-run  # Rebuild the frontend and backend binary, then start Vite + Go
-make build        # Production build, output at bin/lactssl
+make build        # Production build, output at bin/lactssl (no built-in DNS providers)
+make build-full   # Full build, output at bin/lactssl-full (all DNS providers)
+make backend      # Backend only, output at bin/lactssl (CGO_ENABLED=0 static build)
+make helper       # Build the DNS exec helper (all 194 providers)
+make helper-extra # Build the plugin DNS exec helper (all 194 providers)
+make helper-full  # Build the full DNS exec helper (all 194 providers)
+make deploy-helper # Build the deployment plugin (FTP, Webhook, CDN, panels, etc.)
+make deploy-helper-install # Build and install into data/plugins/deploy; rescan plugins to activate
 make run          # Run go run ./cmd/server directly
 make test         # go test ./...
 make typecheck    # Frontend vue-tsc + tsc for scripts
@@ -14,6 +21,8 @@ make i18n-check   # Verify that Chinese and English translation keys match
 make tidy         # go mod tidy + install frontend dependencies
 make clean        # Remove build artifacts
 ```
+
+Release builds embed `lactssl-dns-helper-extra` into the lite `lactssl` binary (via the `embed_helper` tag) and install it into the plugin directory on first start. A regular `make build` does not embed the helper, which keeps development builds small.
 
 `make ci` is equivalent to `.github/workflows/ci.yml` and can also be split with arguments:
 
@@ -46,7 +55,7 @@ This is equivalent to `./scripts/rebuild-run.sh`, which performs the following i
 3. Stop old processes occupying the configured port (default `8080`) and `5173`
 4. Start Vite (`5173`) and the Go binary (`8080`)
 
-Open `http://<host>:5173/<entry>/`. The secret entry is read from `security.entry` in `config.yaml` by default; when the entry only exists in the database, override it with an environment variable:
+Open `http://<host>:5173/<entry>/`. The secret entry is resolved from `LACTSSL_ENTRY`, then `security.entry` in `config.yaml`, and finally the persisted entry in the database; you can still override it explicitly:
 
 ```bash
 LACTSSL_ENTRY=xxxxxxxx make rebuild-run
@@ -63,6 +72,8 @@ internal/auth/       JWT and password/TOTP logic
 internal/config/     config.yaml and environment variable loading
 internal/db/         SQLite opening and migrations
 internal/i18n/       Backend internationalization and language resources
+internal/logging/    Process logging, levels, formats, and file rotation
+internal/systemlog/  Async persistence of process logs for the System Logs page
 internal/model/      Database entities and task workflows
 internal/acme/       Built-in ACME server protocol (directory, nonce, accounts, JWS, validation)
 internal/service/    ACME client, deployment, notifications, monitoring, scheduling
@@ -82,7 +93,7 @@ scripts/             Development scripts and CI (TypeScript, run directly by Nod
 
 ## Frontend development
 
-`make dev` starts Vite (`:5173`) and Go (`:8080`). The Vite development server emulates secret entry validation and reads `security.entry` from `config.yaml`; it can also be overridden with `LACTSSL_ENTRY`.
+`make dev` starts Vite (`:5173`) and Go (`:8080`). The Vite development server emulates secret entry validation; the entry is resolved from `LACTSSL_ENTRY`, then `security.entry` in `config.yaml`, and finally the persisted entry in the database.
 
 During development, open the Vite address; `/<entry>/api` requests are proxied to the Go service.
 

@@ -220,7 +220,11 @@ func maskDeployAccount(item *model.DeployAccount) {
 	}
 	def, found := service.DeployTypeInfo(item.Type)
 	if !found {
-		item.Config = map[string]string{}
+		// 完全未知的插件类型无法判断哪些字段是密钥。保留字段名但清空全部值，
+		// 避免明文密钥经接口返回；同时不要删除配置，防止编辑保存后丢失数据。
+		for key := range item.Config {
+			item.Config[key] = ""
+		}
 		return
 	}
 	item.Config = service.MaskProviderConfig(def, item.Config)

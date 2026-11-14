@@ -13,7 +13,7 @@
       </div>
     </div>
 
-    <div class="k-card" style="padding: 8px 16px 16px">
+    <div class="k-card" style="padding: 0; overflow: hidden">
       <el-table :data="items" v-loading="loading" style="width: 100%">
         <el-table-column min-width="260" :label="t('sessions.device')">
           <template #default="{ row }">
@@ -61,7 +61,7 @@
           <div style="padding: 40px 0; color: #94a3b8">{{ t('sessions.empty') }}</div>
         </template>
       </el-table>
-      <div class="flex-between" style="margin-top: 16px">
+      <div class="flex-between session-foot">
         <span class="muted">{{ t('sessions.total', { count: items.length }) }}</span>
       </div>
     </div>
@@ -151,3 +151,10 @@ function deviceLabel(userAgent: string): string {
 
 onMounted(load)
 </script>
+
+<style scoped>
+/* 卡片内边距已取消，表格贴边显示，底部统计单独补回留白 */
+.session-foot {
+  padding: 12px 16px 16px;
+}
+</style>

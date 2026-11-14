@@ -120,22 +120,54 @@
           <el-input v-model="form.name" :placeholder="isDNS ? t('credentials.namePlaceholderDns') : t('credentials.namePlaceholderDeploy')" maxlength="60" />
         </el-form-item>
         <el-form-item :label="isDNS ? t('credentials.dnsProvider') : t('credentials.deployType')" required>
-          <el-select v-model="typeValue" style="width: 100%" @change="onTypeChange">
-            <el-option v-for="option in typeOptions" :key="option.value" :label="option.label" :value="option.value">
-              <div class="flex-between" style="gap: 20px">
-                <span>{{ option.label }}</span>
-                <span class="muted" style="font-size: 11px">{{ option.desc }}</span>
+          <el-select
+            v-model="typeValue"
+            style="width: 100%"
+            filterable
+            popper-class="provider-select-popper"
+            @change="onTypeChange"
+          >
+            <el-option
+              v-for="option in typeOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+              :disabled="isDNS && option.available === false"
+            >
+              <div class="provider-option">
+                <span class="provider-option-label">{{ option.label }}</span>
+                <span class="provider-option-desc">
+                  {{
+                    option.available === false && isDNS
+                      ? t('credentials.providerUnavailable')
+                      : option.desc
+                  }}
+                </span>
               </div>
             </el-option>
           </el-select>
         </el-form-item>
 
+        <el-alert
+          v-if="providerMissing"
+          :title="t('credentials.providerMissingHint')"
+          type="warning"
+          :closable="false"
+          style="margin-bottom: 18px"
+        />
+        <el-alert
+          v-else-if="providerUnavailable"
+          :title="t('credentials.providerUnavailableHint')"
+          type="warning"
+          :closable="false"
+          style="margin-bottom: 18px"
+        />
         <el-alert v-if="activeDef?.desc" :title="activeDef.desc" type="info" :closable="false" style="margin-bottom: 18px" />
         <div v-if="!isDNS" class="config-tip" style="margin-bottom: 18px">{{ t('credentials.deployAuthOnly') }}</div>
 
         <template v-for="field in visibleFields" :key="field.key">
           <el-form-item :label="field.label" :required="field.required">
-            <el-select v-if="field.type === 'select'" v-model="form.config[field.key]" style="width: 100%">
+            <el-select v-if="field.type === 'select'" v-model="form.config[field.key]" style="width: 100%" filterable>
               <el-option v-for="option in field.options || []" :key="option.value" :label="option.label" :value="option.value" />
             </el-select>
             <el-input
@@ -229,6 +261,10 @@ const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected
 
 const typeOptions = computed<ProviderDef[]>(() => (isDNS.value ? meta.value?.dns_providers : meta.value?.deploy_types) || [])
 const activeDef = computed(() => typeOptions.value.find((item) => item.value === form.type))
+const providerUnavailable = computed(() => isDNS.value && activeDef.value?.available === false)
+// 历史账户可能引用当前不可用的服务商或部署目标（未编译、插件未安装或已停用）；
+// 这些条目不会出现在列表中，但元数据与账户配置仍保留在服务端。
+const providerMissing = computed(() => !!form.type && !activeDef.value)
 
 const visibleFields = computed<FieldDef[]>(() => {
   const fields = activeDef.value?.fields || []
@@ -613,5 +649,47 @@ onMounted(load)
   .cred-actions {
     grid-area: actions;
   }
+}
+</style>
+
+<style>
+.provider-select-popper {
+  --provider-select-width: min(480px, calc(100vw - 32px));
+}
+
+.provider-select-popper .el-select-dropdown {
+  width: var(--provider-select-width);
+  min-width: var(--provider-select-width) !important;
+}
+
+.provider-select-popper .el-select-dropdown__item {
+  padding-right: 38px;
+}
+
+.provider-select-popper .provider-option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.provider-select-popper .provider-option-label {
+  flex: 0 0 auto;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.provider-select-popper .provider-option-desc {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 11px;
+  color: var(--kp-muted);
 }
 </style>

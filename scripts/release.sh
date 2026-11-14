@@ -226,15 +226,41 @@ if [ "$RUN_BUILD" -eq 1 ]; then
     ext=""
     [ "$goos" = "windows" ] && ext=".exe"
 
-    step "build: $goos/$goarch"
     build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     mkdir -p "out/$goos-$goarch"
-    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -tags embed \
+
+    # 默认主程序不内置 DNS 服务商；helper-extra 包含全部 194 家。
+    step "build: $goos/$goarch (dns helper extra)"
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -tags dns_extra \
+      -ldflags "-s -w" \
+      -o "out/$goos-$goarch/lactssl-dns-helper-extra${ext}" ./cmd/dns-helper
+
+    # 精简版把 helper 嵌入主程序，Release 包首次启动时自动安装。
+    step "build: $goos/$goarch (lite, embedded helper)"
+    mkdir -p internal/dnsplugin/bundled
+    cp "out/$goos-$goarch/lactssl-dns-helper-extra${ext}" internal/dnsplugin/bundled/lactssl-dns-helper-extra
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -tags "embed embed_helper" \
       -ldflags "-s -w -X 'lactssl/internal/api.Version=${version}' -X 'lactssl/internal/api.BuildTime=${build_time}' -X 'lactssl/internal/api.BuildArch=${goos}/${goarch}'" \
       -o "out/$goos-$goarch/lactssl${ext}" ./cmd/server
+    rm -f internal/dnsplugin/bundled/lactssl-dns-helper-extra
+
+    step "build: $goos/$goarch (full)"
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -tags "embed dns_all" \
+      -ldflags "-s -w -X 'lactssl/internal/api.Version=${version}' -X 'lactssl/internal/api.BuildTime=${build_time}' -X 'lactssl/internal/api.BuildArch=${goos}/${goarch}'" \
+      -o "out/$goos-$goarch/lactssl-full${ext}" ./cmd/server
+
+    step "build: $goos/$goarch (deploy helper)"
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+      -ldflags "-s -w -X 'lactssl/internal/api.Version=${version}'" \
+      -o "out/$goos-$goarch/lactssl-deploy-helper${ext}" ./cmd/deploy-helper
 
     test -f "out/$goos-$goarch/lactssl${ext}"
-    ls -lh "out/$goos-$goarch/lactssl${ext}"
+    test -f "out/$goos-$goarch/lactssl-full${ext}"
+    test -f "out/$goos-$goarch/lactssl-dns-helper-extra${ext}"
+    test -f "out/$goos-$goarch/lactssl-deploy-helper${ext}"
+    ls -lh "out/$goos-$goarch/lactssl${ext}" "out/$goos-$goarch/lactssl-full${ext}" \
+      "out/$goos-$goarch/lactssl-dns-helper-extra${ext}" \
+      "out/$goos-$goarch/lactssl-deploy-helper${ext}"
 
     step "package: $goos/$goarch"
     name="lactssl_${version}_${goos}_${goarch}"
@@ -244,9 +270,15 @@ if [ "$RUN_BUILD" -eq 1 ]; then
 
     if [ "$goos" = "windows" ]; then
       cp "out/$goos-$goarch/lactssl.exe" "$stage/"
+      cp "out/$goos-$goarch/lactssl-full.exe" "$stage/"
+      cp "out/$goos-$goarch/lactssl-dns-helper-extra.exe" "$stage/"
+      cp "out/$goos-$goarch/lactssl-deploy-helper.exe" "$stage/"
       make_zip "$stage" "$DIST/${name}.zip"
     else
       cp "out/$goos-$goarch/lactssl" "$stage/"
+      cp "out/$goos-$goarch/lactssl-full" "$stage/"
+      cp "out/$goos-$goarch/lactssl-dns-helper-extra" "$stage/"
+      cp "out/$goos-$goarch/lactssl-deploy-helper" "$stage/"
       make_tgz "$stage" "$DIST/${name}.tar.gz"
     fi
   done

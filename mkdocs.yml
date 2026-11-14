@@ -48,6 +48,8 @@ nav:
   - Home: index.md
   - Installation: install.md
   - Configuration: configuration.md
+  - DNS plugins: dns-plugins.md
+  - Deployment plugins: deploy-plugins.md
   - Features: features.md
   - Security: security.md
   - Operations: operations.md

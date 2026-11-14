@@ -21,9 +21,12 @@ import (
 	"lactssl/internal/backup"
 	"lactssl/internal/config"
 	"lactssl/internal/db"
+	"lactssl/internal/dnsplugin/bundled"
 	"lactssl/internal/i18n"
+	"lactssl/internal/logging"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
+	"lactssl/internal/systemlog"
 	"lactssl/internal/util"
 	"lactssl/internal/webui"
 )
@@ -52,6 +55,46 @@ func main() {
 		log.Println(cliText("cli.restore_applied"))
 	}
 
+	// 日志应尽早在配置确定后初始化，使后续所有组件的标准输出与标准库 log
+	// 都进入同一格式；恢复备份可能替换配置，因此放在恢复流程之后。
+	closeLog, err := logging.Init(logging.Config{
+		Level:      cfg.Log.Level,
+		Format:     cfg.Log.Format,
+		File:       cfg.Log.File,
+		AlsoStdout: cfg.Log.AlsoStdout,
+		MaxSizeMB:  cfg.Log.MaxSizeMB,
+		MaxBackups: cfg.Log.MaxBackups,
+		MaxAgeDays: cfg.Log.MaxAgeDays,
+		Compress:   cfg.Log.Compress,
+	})
+	if err != nil {
+		log.Fatalf("%s: %v", cliText("cli.error.init_log"), err)
+	}
+	defer func() {
+		if err := closeLog(); err != nil {
+			fmt.Fprintf(os.Stderr, "关闭日志文件失败: %v\n", err)
+		}
+	}()
+	logger := logging.Component("main")
+	logger.Info("进程启动",
+		"version", api.Version,
+		"pid", os.Getpid(),
+		"addr", cfg.Addr,
+		"data_dir", cfg.DataDir,
+		"log_level", cfg.Log.Level,
+		"log_file", cfg.Log.File,
+	)
+
+	// 发布版主程序内嵌 DNS helper；首次启动或内置版本变化时写入插件目录，
+	// 这样 Release 包无需手动复制 helper 即可使用内置服务商。
+	if cfg.Plugins.Enabled {
+		if path, installed, err := bundled.Install(cfg.Plugins.Dir); err != nil {
+			log.Printf("安装内置 DNS helper 失败: %v", err)
+		} else if installed {
+			log.Printf("已安装内置 DNS helper 到 %s", path)
+		}
+	}
+
 	conn, err := db.Open(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("%s: %v", cliText("cli.error.init_db"), err)
@@ -63,6 +106,29 @@ func main() {
 		log.Fatalf("%s: %v", cliText("cli.error.init_crypto"), err)
 	}
 	st := store.New(conn, cipher)
+	// 系统日志落库使用独立异步接收器，避免 SQLite 写入阻塞请求。
+	// 日志表在 db.Open 的迁移中已经创建，此时可以安全挂载接收器。
+	st.SystemLogRetentionDays = cfg.Log.SystemRetentionDays
+	st.SystemLogMaxRows = cfg.Log.SystemMaxRows
+	if cfg.Log.SystemEnabled {
+		systemSink := systemlog.New(st, systemlog.Options{
+			MinLevel:      logging.Level(cfg.Log.SystemLevel),
+			IncludeAccess: cfg.Log.SystemAccess,
+		})
+		logging.SetSink(systemSink.Write)
+		defer systemSink.Close()
+	} else {
+		// 丢弃数据库尚未就绪时暂存的启动日志。
+		logging.SetSink(nil)
+	}
+	if err := st.CleanupSystemLogs(); err != nil {
+		log.Printf("清理系统日志失败: %v", err)
+	}
+	// 进程重启后强制所有登录失效：清空服务端会话记录，
+	// 并配合下面的启动级 JWT 签名密钥，使旧令牌无法再通过校验。
+	if err := st.DeleteAllSessions(); err != nil {
+		log.Printf("清理历史登录会话失败: %v", err)
+	}
 	if err := st.MigrateTOTPSecrets(); err != nil {
 		log.Printf("迁移 TOTP 密钥加密失败: %v", err)
 	}
@@ -78,14 +144,52 @@ func main() {
 	ensureDefaults(st)
 	migrateLegacyEABSettings(st)
 
-	authManager := auth.New(cfg.JWTSecret)
+	// 每次启动都生成新的 JWT 签名子密钥，旧令牌在重启后必然签名校验失败。
+	authManager, err := auth.NewBootScoped(cfg.JWTSecret)
+	if err != nil {
+		log.Fatalf("%s: %v", cliText("cli.error.init_auth"), err)
+	}
 	manager := service.New(st)
 	if err := manager.MigrateDeployConfigSplit(); err != nil {
 		log.Fatalf("%s: %v", cliText("cli.error.init_db"), err)
 	}
 
 	server := api.New(st, authManager, manager, entry, webui.Assets(), cfg.TrustedProxies)
+	server.AccessLog = cfg.Log.AccessLog
+	server.Logger = logging.Component("http")
+	server.SystemLogEnabled = cfg.Log.SystemEnabled
 	server.PublicURL = cfg.PublicURL
+	server.PluginsEnabled = cfg.Plugins.Enabled
+	server.PluginDir = cfg.Plugins.Dir
+	server.PluginMemoryLimitMB = cfg.Plugins.MemoryLimitMB
+	server.PluginTimeout = cfg.Plugins.Timeout
+	server.PluginMaxOutputKB = cfg.Plugins.MaxOutputKB
+	server.DeployPluginsEnabled = cfg.DeployPlugins.Enabled
+	server.DeployPluginDir = cfg.DeployPlugins.Dir
+	server.DeployPluginMemoryLimitMB = cfg.DeployPlugins.MemoryLimitMB
+	server.DeployPluginTimeout = cfg.DeployPlugins.Timeout
+	server.DeployPluginMaxOutputKB = cfg.DeployPlugins.MaxOutputKB
+	dnsPlugins := server.DiscoverPlugins()
+	if dnsPlugins.Helpers > 0 || len(dnsPlugins.Errors) > 0 {
+		log.Printf("外部 DNS 插件: %d 个 helper / %d 个服务商，%d 个与内置实现重复已忽略（目录 %s）", dnsPlugins.Helpers, dnsPlugins.Providers, len(dnsPlugins.Skipped), dnsPlugins.Dir)
+		for _, message := range dnsPlugins.Errors {
+			log.Printf("外部 DNS 插件警告: %s", message)
+		}
+	} else if cfg.Plugins.Enabled {
+		// 主程序不再内置 DNS 服务商，没有 helper 时账户页的服务商列表为空。
+		log.Printf("未发现 DNS 插件 helper（目录 %s）；请安装 lactssl-dns-helper-extra 后在插件页重扫", dnsPlugins.Dir)
+	}
+	if result := server.DiscoverDeployPlugins(); result.Helpers > 0 || len(result.Errors) > 0 || len(result.Skipped) > 0 {
+		log.Printf("外部部署插件: %d 个 helper / %d 个部署目标，%d 个与内置实现重复已忽略（目录 %s）", result.Helpers, result.Deployers, len(result.Skipped), result.Dir)
+		for _, message := range result.Errors {
+			log.Printf("外部部署插件警告: %s", message)
+		}
+	}
+	// 合并后的部署目标只有在 helper 已提供规范 ID 时才迁移，避免旧 helper
+	// 安装环境下账号被改成不可用的新类型。
+	if err := manager.MigrateDeployTargets(); err != nil {
+		log.Fatalf("%s: %v", cliText("cli.error.init_db"), err)
+	}
 	server.ACMEBaseURL = cfg.ACME.BaseURL
 	if server.ACMEBaseURL == "" && cfg.ACME.Addr != "" {
 		scheme := "http"
@@ -174,6 +278,7 @@ func main() {
 
 	go func() {
 		printStartup(cfg, entry, st)
+		logger.Info("HTTP 服务监听", "addr", cfg.Addr, "acme_enabled", cfg.ACME.Enabled)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("%s: %v", cliText("cli.error.http_start"), err)
 		}

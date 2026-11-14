@@ -56,42 +56,74 @@ Private CA keys are encrypted before being written to the database, and list API
 
 ## DNS providers
 
-Add credentials under "DNS Accounts" first, then select them in request tasks. Supported providers:
+Add credentials under "DNS Accounts" first, then select them in request tasks. All DNS providers built into lego are supported (about 190; `manual` requires adding the TXT record by hand and is not part of the automated flow). The provider selector is searchable; common providers are listed below:
 
 | Provider | Main credentials |
 | --- | --- |
 | Alibaba Cloud DNS (alidns) | AccessKey ID / Secret, optional Region |
-| Cloudflare | API Token, or Email + Global API Key |
+| Alibaba Cloud ESA (aliesa) | AccessKey ID / Secret, optional Region |
+| Cloudflare | API Token, or Email + Global API Key, optional API upstream URL |
 | DNSPod | API Token |
 | Tencent Cloud (tencentcloud) | SecretId / SecretKey, optional Region |
+| Huawei Cloud (huaweicloud) | AccessKey ID / SecretAccessKey / Region |
+| Volcengine (volcengine) | AccessKey / SecretKey, optional Region, API host, and scheme |
+| Baidu AI Cloud (baiducloud) | AccessKey ID / SecretAccessKey |
+| JD Cloud (jdcloud) | AccessKey ID / AccessKey Secret, optional Region |
 | DigitalOcean | Token |
-| GoDaddy | API Key / Secret |
-| Namecheap | API User / API Key, optional Source IP |
 | Vultr | API Key |
 | Linode | Token |
 | Hetzner | API Key |
 | Gandi | API Key |
+| GoDaddy | API Key / Secret |
+| Namecheap | API User / API Key, optional Source IP |
+| NameSilo | API Key |
+| Porkbun | API Key / Secret API Key |
+| Spaceship | API Key / API Secret |
+| ClouDNS | Auth ID / Sub Auth ID / Auth Password |
+| Bunny DNS | API Key |
+| Rainyun | API Key |
+| West.cn (westcn) | Username / Password |
+| PowerDNS (pdns) | API URL / API Key, optional server name and API version |
+| DNSimple | OAuth Token, optional API upstream URL |
+| DNS Made Easy | API Key / Secret, optional Sandbox |
+| AWS Route 53 | AccessKey / SecretAccessKey, optional Region, Hosted Zone, private zone |
+| Google Cloud DNS | Service account JSON, optional project ID |
+| Azure DNS | Tenant ID / Client ID / Client Secret / Subscription ID / resource group |
+| Netlify | Token |
+| Vercel | API Token, optional team ID |
+| DuckDNS | Token |
+| FreeMyIP | Token |
+| Gandi LiveDNS v5 | Personal Access Token |
+| RFC 2136 dynamic update | DNS server, optional TSIG key / secret / algorithm and zone list |
+
+The remaining providers are also backed by lego's built-in implementations, and their form fields are generated from lego environment variables. The provider selector in "DNS Accounts" is the authoritative full list.
 
 Credentials are encrypted before being written to the database. Leaving a secret field empty while editing an account keeps the existing value.
 
+Providers that support a custom API endpoint, such as Cloudflare, DNSimple, PowerDNS, and Volcengine, expose a Base URL, API URL, or API host field. Use it for proxies, self-hosted services, or compatible gateways.
+
 ## Certificate deployment
 
-"Target credentials" only store authentication and connection details, such as host, port, username, password, panel URL, and API token. Parameters such as certificate paths, reload commands, deployment domains, and sites are configured on the "Certificate Request → Certificate Workflow → Deploy Certificate" node, so one credential can be reused by multiple tasks. Certificates can be deployed automatically after a successful issuance, or triggered manually. Supported targets:
+"Target credentials" only store authentication and connection details, such as host, port, username, password, panel URL, and API token. Parameters such as certificate paths, reload commands, deployment domains, and sites are configured on the "Certificate Request → Certificate Workflow → Deploy Certificate" node, so one credential can be reused by multiple tasks. Certificates can be deployed automatically after a successful issuance, or triggered manually.
+
+Deployment targets built into the main program:
 
 - **Local directory**: fill in certificate and private key paths on the deploy node, with an optional reload command (such as `systemctl reload nginx`).
 - **SSH / SFTP**: the credential stores host, port, username, and password or private key; the deploy node specifies remote certificate/private key paths and an optional remote reload command.
+
+The following targets are provided by [deployment plugins](deploy-plugins.md) and become available after installing and enabling the official helper:
+
 - **FTP / FTPS**: the credential stores host, port, username, and password; plain FTP, explicit TLS, and implicit TLS (FTPS) are supported, and the deploy node specifies remote certificate/private key paths.
 - **Webhook**: the credential stores the callback URL, custom authentication headers, and whether to skip TLS verification.
 - **Alibaba Cloud CDN**: the credential stores the AccessKey; the deploy node specifies the domain to update and a custom certificate name.
-- **Qiniu Cloud CDN**: the credential stores AccessKey / SecretKey; the deploy node specifies the accelerated domain and certificate name, and HTTPS is enabled automatically if the domain has not enabled it.
-- **Qiniu Cloud Kodo**: the credential stores AccessKey / SecretKey; the deploy node specifies the object storage custom origin domain and certificate name.
-- **BaoTa panel website**: the credential stores the panel URL and API Secret; the deploy node specifies the website name to deploy to.
-- **BaoTa panel SSL certificate**: the credential stores the panel URL and API Secret, and is used to replace the SSL certificate used by the BaoTa panel itself.
-- **1Panel website**: the credential stores the panel URL, API Key, and API version; the deploy node specifies the website domain, alias, or ID.
-- **1Panel panel**: the credential stores the panel URL, API Key, and API version; the deploy node selects Enable / Mux mode.
+- **Qiniu Cloud**: the credential stores AccessKey / SecretKey; the deploy node selects the domain type (CDN accelerated domain or Kodo custom origin domain) and specifies the domains and certificate name. HTTPS is enabled automatically for CDN domains that have not enabled it.
+- **BaoTa panel**: the credential stores the panel URL and API Secret; the deploy node selects the deploy target (website or the panel itself), and website mode specifies the website name.
+- **1Panel**: the credential stores the panel URL, API Key, and API version; the deploy node selects the deploy target (website or the panel itself). Website mode specifies the website domain, alias, or ID; panel mode selects Enable / Mux.
 - **SafeLine WAF**: the credential stores the panel URL and API Token; the deploy node can specify a certificate ID, or leave it empty to match by certificate domain.
 
 Every deployment creates a deployment record that can be viewed in certificate details and logs. Manual deployments prefer reusing the deployment node parameters of the certificate's task, and can also fill in parameters for that specific target.
+
+Plugins run as one-shot subprocesses and receive the certificate and private key; they are disabled by default and only trusted helpers should be enabled. When no plugin is installed or enabled, only local files and SSH appear as deployment types; existing credentials are preserved.
 
 ## Notifications
 
@@ -131,7 +163,7 @@ The task list supports select-all in the header and multi-select, allowing batch
 
 ## Dashboard and logs
 
-The dashboard summarizes the total number of certificates, expiring/expired counts, task and monitor status, deployment success rate, expiry distribution, and issuance trends. Task runs, deployments, notifications, monitoring, and settings changes are all written to the system log, which can be filtered in the UI.
+The dashboard summarizes the total number of certificates, expiring/expired counts, task and monitor status, deployment success rate, expiry distribution, and issuance trends. Task runs, deployments, notifications, monitoring, and settings changes are all written to the operation log, which can be filtered by source, level, and time range in the UI and exported as CSV or JSON. A separate System Logs page shows low-level process logs from startup, HTTP, scheduling, plugins, and ACME, filterable by level, component, keyword, and time range, and exportable as CSV or JSON.
 
 ## Interface
 

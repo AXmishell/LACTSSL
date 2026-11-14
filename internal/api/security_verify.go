@@ -19,6 +19,10 @@ const (
 	verifyModePassword     = "password"
 	verifyModeTOTP         = "totp"
 	verifyModePasswordTOTP = "password_totp"
+	verifyModePasskey      = "passkey"
+	// verifyModeLegacyPasswordPasskey 仅为兼容旧配置保留。
+	// 组合验证方式已移除，读取时统一按通行密钥验证处理。
+	verifyModeLegacyPasswordPasskey = "password_passkey"
 )
 
 // verifyModeNeedsTOTP 判断验证方式是否需要动态验证码。
@@ -31,8 +35,13 @@ func verifyModeNeedsPassword(mode string) bool {
 	return mode == verifyModePassword || mode == verifyModePasswordTOTP
 }
 
+// verifyModeNeedsPasskey 判断验证方式是否需要通行密钥。
+func verifyModeNeedsPasskey(mode string) bool {
+	return mode == verifyModePasskey
+}
+
 // effectiveVerifyMode 返回当前实际生效的验证方式。
-// TOTP 未启用、密钥缺失或设置异常时回退到密码，避免用户被锁死在无法完成的操作上。
+// TOTP 或通行密钥未启用时回退到密码，避免用户被锁死在无法完成的操作上。
 func (s *Server) effectiveVerifyMode(user *model.User) string {
 	mode := strings.TrimSpace(s.setting(verifyModeSetting, verifyModePassword))
 	switch mode {
@@ -41,6 +50,13 @@ func (s *Server) effectiveVerifyMode(user *model.User) string {
 	case verifyModeTOTP, verifyModePasswordTOTP:
 		if user != nil && user.TOTPEnabled && user.TOTPSecret != "" {
 			return mode
+		}
+		return verifyModePassword
+	case verifyModePasskey, verifyModeLegacyPasswordPasskey:
+		if user != nil {
+			if count, err := s.Store.CountPasskeys(user.ID); err == nil && count > 0 {
+				return verifyModePasskey
+			}
 		}
 		return verifyModePassword
 	default:
@@ -59,12 +75,16 @@ func (s *Server) allowVerifyFailure(c *gin.Context, user *model.User) bool {
 	return true
 }
 
-// verifySensitive 按当前“二次验证”方式校验密码或 TOTP。
+// verifySensitive 按当前“二次验证”方式校验密码、TOTP 或通行密钥。
 // 返回 true 表示验证通过；失败时已写入 HTTP 响应。
-func (s *Server) verifySensitive(c *gin.Context, user *model.User, password, code string) bool {
+func (s *Server) verifySensitive(c *gin.Context, user *model.User, password, code, passkeyProof string) bool {
 	if user == nil {
 		failKey(c, http.StatusUnauthorized, "api.error.not_logged_in")
 		return false
+	}
+	// 通过通行密钥登录的会话已经完成强认证，登录后不再重复要求二次验证。
+	if sessionStrongAuth(c) {
+		return true
 	}
 	mode := s.effectiveVerifyMode(user)
 	if mode == verifyModeNone {
@@ -101,6 +121,25 @@ func (s *Server) verifySensitive(c *gin.Context, user *model.User, password, cod
 			return false
 		}
 	}
+	if verifyModeNeedsPasskey(mode) {
+		if strings.TrimSpace(passkeyProof) == "" {
+			c.Abort()
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success":          false,
+				"code":             "api.error.passkey_required",
+				"message":          i18n.T(locale(c), "api.error.passkey_required", nil),
+				"passkey_required": true,
+			})
+			return false
+		}
+		if !s.validPasskeyProof(user, currentSessionID(c), passkeyProof) {
+			if !s.allowVerifyFailure(c, user) {
+				return false
+			}
+			failKey(c, http.StatusBadRequest, "api.error.passkey_verify_failed")
+			return false
+		}
+	}
 	s.resetReauth(c, user)
 	return true
 }
@@ -114,10 +153,11 @@ func (s *Server) changeVerifyMode(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Mode     string          `json:"mode"`
-		Password string          `json:"password"`
-		TOTP     string          `json:"totp"`
-		StepUp   map[string]bool `json:"step_up"`
+		Mode         string          `json:"mode"`
+		Password     string          `json:"password"`
+		TOTP         string          `json:"totp"`
+		PasskeyProof string          `json:"passkey_proof"`
+		StepUp       map[string]bool `json:"step_up"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -131,7 +171,7 @@ func (s *Server) changeVerifyMode(c *gin.Context) {
 	}
 	mode := strings.TrimSpace(body.Mode)
 	switch mode {
-	case verifyModeNone, verifyModePassword, verifyModeTOTP, verifyModePasswordTOTP:
+	case verifyModeNone, verifyModePassword, verifyModeTOTP, verifyModePasswordTOTP, verifyModePasskey:
 	default:
 		failKey(c, http.StatusBadRequest, "api.error.verify_mode_invalid")
 		return
@@ -140,7 +180,18 @@ func (s *Server) changeVerifyMode(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.totp_not_enabled")
 		return
 	}
-	if !s.verifySensitive(c, user, body.Password, body.TOTP) {
+	if verifyModeNeedsPasskey(mode) {
+		count, err := s.Store.CountPasskeys(user.ID)
+		if err != nil {
+			failErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		if count == 0 {
+			failKey(c, http.StatusBadRequest, "api.error.passkey_not_enabled")
+			return
+		}
+	}
+	if !s.verifySensitive(c, user, body.Password, body.TOTP, body.PasskeyProof) {
 		return
 	}
 	if err := s.Store.SetSetting(verifyModeSetting, mode); err != nil {

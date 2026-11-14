@@ -14,7 +14,7 @@ import (
 func (s *Server) handleStatus(c *gin.Context) {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	rss, swap := processMemory()
+	stats := readProcessStats()
 	buildVersion, buildTime, buildArch := buildInfo()
 	ok(c, gin.H{
 		"version":        buildVersion,
@@ -24,26 +24,40 @@ func (s *Server) handleStatus(c *gin.Context) {
 		"uptime_seconds": int64(time.Since(s.startedAt).Seconds()),
 		"go_version":     runtime.Version(),
 		"goroutines":     runtime.NumGoroutine(),
+		"threads":        stats.threads,
 		"memory_alloc":   mem.Alloc,
 		"memory_heap":    mem.HeapInuse,
 		"memory_sys":     mem.Sys,
-		"memory_rss":     rss,
-		"memory_swap":    swap,
+		"memory_rss":     stats.rss,
+		"memory_anon":    stats.anon,
+		"memory_vsz":     stats.vsz,
+		"memory_swap":    stats.swap,
 	})
 }
 
-// processMemory 读取当前进程的物理内存与交换内存占用，单位为字节。
-// 非 Linux 平台没有 /proc/self/status，返回 0。
-func processMemory() (rss, swap uint64) {
-	data, err := os.ReadFile("/proc/self/status")
-	if err != nil {
-		return 0, 0
-	}
-	return parseProcessMemory(string(data))
+// processStats 是进程的内存与线程快照，内存单位均为字节。
+type processStats struct {
+	rss     uint64
+	anon    uint64
+	vsz     uint64
+	swap    uint64
+	threads int
 }
 
-// parseProcessMemory 从 /proc/self/status 内容中解析 VmRSS 与 VmSwap。
-func parseProcessMemory(status string) (rss, swap uint64) {
+// readProcessStats 读取当前进程的物理内存、匿名内存、虚拟内存、交换内存与线程数。
+// 非 Linux 平台没有 /proc/self/status，返回零值。
+func readProcessStats() processStats {
+	data, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return processStats{}
+	}
+	return parseProcessStats(string(data))
+}
+
+// parseProcessStats 从 /proc/self/status 内容中解析内存与线程字段。
+// 其中 VmRSS、RssAnon、VmSize、VmSwap 以 kB 为单位，转换后返回字节数。
+func parseProcessStats(status string) processStats {
+	var stats processStats
 	for _, line := range strings.Split(status, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
@@ -55,10 +69,16 @@ func parseProcessMemory(status string) (rss, swap uint64) {
 		}
 		switch fields[0] {
 		case "VmRSS:":
-			rss = value * 1024
+			stats.rss = value * 1024
+		case "RssAnon:":
+			stats.anon = value * 1024
+		case "VmSize:":
+			stats.vsz = value * 1024
 		case "VmSwap:":
-			swap = value * 1024
+			stats.swap = value * 1024
+		case "Threads:":
+			stats.threads = int(value)
 		}
 	}
-	return rss, swap
+	return stats
 }

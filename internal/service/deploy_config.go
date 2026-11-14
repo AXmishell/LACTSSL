@@ -22,8 +22,9 @@ func ExtractDeployConfig(def ProviderDef, cfg map[string]string) map[string]stri
 			out[field.Key] = value
 		}
 	}
-	// 兼容七牛云 Kodo 早期的单域名写法。
-	if def.Value == "qiniu_kodo" && strings.TrimSpace(out["domains"]) == "" {
+	// 兼容七牛云 Kodo 早期的单域名写法。合并后的 qiniu 目标同样接受
+	// 历史凭据中的 domain 字段，避免迁移顺序变化导致配置丢失。
+	if (def.Value == "qiniu_kodo" || def.Value == "qiniu") && strings.TrimSpace(out["domains"]) == "" {
 		if value := strings.TrimSpace(cfg["domain"]); value != "" {
 			out["domains"] = value
 		}

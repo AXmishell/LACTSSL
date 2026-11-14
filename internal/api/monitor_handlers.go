@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -134,22 +133,4 @@ func (s *Server) checkMonitor(c *gin.Context) {
 	}
 	go func() { _ = s.Manager.CheckMonitor(id) }()
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.monitor_check_started", nil)})
-}
-
-func (s *Server) listLogs(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "50"))
-	if page < 1 {
-		page = 1
-	}
-	if size < 1 || size > 200 {
-		size = 50
-	}
-	source := strings.TrimSpace(c.Query("source"))
-	list, total, err := s.Store.ListLogs(source, size, (page-1)*size)
-	if err != nil {
-		failErr(c, http.StatusInternalServerError, err)
-		return
-	}
-	ok(c, gin.H{"items": localizeLogs(c, list), "total": total, "page": page, "size": size})
 }

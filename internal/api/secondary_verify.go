@@ -31,6 +31,9 @@ const (
 	secondaryActionCertificateWrite   = "certificate_write"
 	secondaryActionMonitorWrite       = "monitor_write"
 	secondaryActionNotificationTest   = "notification_test"
+	// secondaryActionPluginUpload 用于安装外部 plugin helper。
+	// 上传的 helper 会以服务账号执行，因此始终要求二次验证，且不提供开关。
+	secondaryActionPluginUpload = "plugin_upload"
 )
 
 // toggleableStepUpActions 是允许在系统设置中单独开启/关闭二次验证的操作。
@@ -88,7 +91,8 @@ func validSecondaryAction(action string) bool {
 		secondaryActionPrivateCAWrite,
 		secondaryActionCertificateWrite,
 		secondaryActionMonitorWrite,
-		secondaryActionNotificationTest:
+		secondaryActionNotificationTest,
+		secondaryActionPluginUpload:
 		return true
 	default:
 		return false
@@ -109,9 +113,10 @@ func (s *Server) handleSecondaryVerify(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Action   string `json:"action"`
-		Password string `json:"password"`
-		TOTP     string `json:"totp"`
+		Action       string `json:"action"`
+		Password     string `json:"password"`
+		TOTP         string `json:"totp"`
+		PasskeyProof string `json:"passkey_proof"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -122,7 +127,7 @@ func (s *Server) handleSecondaryVerify(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.secondary_action_invalid")
 		return
 	}
-	if !s.verifySensitive(c, user, body.Password, body.TOTP) {
+	if !s.verifySensitive(c, user, body.Password, body.TOTP, body.PasskeyProof) {
 		return
 	}
 	expires := time.Now().Add(secondaryVerifyTTL)
@@ -136,6 +141,10 @@ func (s *Server) handleSecondaryVerify(c *gin.Context) {
 
 // requireSecondaryVerify 校验业务请求携带的二次验证 token。
 func (s *Server) requireSecondaryVerify(c *gin.Context, action string) bool {
+	// 通过通行密钥登录的会话已完成强认证，不再重复要求二次验证。
+	if sessionStrongAuth(c) {
+		return true
+	}
 	// 系统设置允许逐项关闭二次验证；关键操作（备份/入口/私有 CA 私钥）
 	// 不在 toggleableStepUpActions 中，始终要求验证。
 	if !s.stepUpEnabled(action) {

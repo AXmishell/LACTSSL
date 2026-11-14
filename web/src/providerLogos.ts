@@ -25,6 +25,7 @@ const providerLogos: Record<string, string> = {
   hetzner,
   gandi,
   aliyun_cdn: alidns,
+  qiniu,
   qiniu_cdn: qiniu,
   qiniu_kodo: qiniu
 }

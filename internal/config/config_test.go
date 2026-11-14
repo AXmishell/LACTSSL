@@ -10,7 +10,7 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"LACTSSL_CONFIG", "LACTSSL_DATA", "LACTSSL_ADDR", "LACTSSL_PORT", "LACTSSL_ENTRY", "LACTSSL_PUBLIC_URL", "LACTSSL_TRUSTED_PROXIES", "LACTSSL_ACME_ENABLED", "LACTSSL_ACME_ADDR", "LACTSSL_ACME_BASE_URL", "LACTSSL_ACME_TLS_CERT", "LACTSSL_ACME_TLS_KEY", "LACTSSL_ACME_MTLS_ENABLED", "LACTSSL_ACME_MTLS_CLIENT_CA"} {
+	for _, key := range []string{"LACTSSL_CONFIG", "LACTSSL_DATA", "LACTSSL_ADDR", "LACTSSL_PORT", "LACTSSL_ENTRY", "LACTSSL_PUBLIC_URL", "LACTSSL_TRUSTED_PROXIES", "LACTSSL_ACME_ENABLED", "LACTSSL_ACME_ADDR", "LACTSSL_ACME_BASE_URL", "LACTSSL_ACME_TLS_CERT", "LACTSSL_ACME_TLS_KEY", "LACTSSL_ACME_MTLS_ENABLED", "LACTSSL_ACME_MTLS_CLIENT_CA", "LACTSSL_PLUGINS_ENABLED", "LACTSSL_PLUGINS_DIR", "LACTSSL_PLUGINS_MEMORY_MB", "LACTSSL_PLUGINS_TIMEOUT_SECONDS", "LACTSSL_PLUGINS_MAX_OUTPUT_KB", "LACTSSL_DEPLOY_PLUGINS_ENABLED", "LACTSSL_DEPLOY_PLUGINS_DIR", "LACTSSL_DEPLOY_PLUGINS_MEMORY_MB", "LACTSSL_DEPLOY_PLUGINS_TIMEOUT_SECONDS", "LACTSSL_DEPLOY_PLUGINS_MAX_OUTPUT_KB", "LACTSSL_LOG_LEVEL", "LACTSSL_LOG_FORMAT", "LACTSSL_LOG_FILE", "LACTSSL_LOG_ALSO_STDOUT", "LACTSSL_LOG_MAX_SIZE_MB", "LACTSSL_LOG_MAX_BACKUPS", "LACTSSL_LOG_MAX_AGE_DAYS", "LACTSSL_LOG_COMPRESS", "LACTSSL_LOG_ACCESS", "LACTSSL_LOG_SYSTEM_ENABLED", "LACTSSL_LOG_SYSTEM_LEVEL", "LACTSSL_LOG_SYSTEM_ACCESS", "LACTSSL_LOG_SYSTEM_RETENTION_DAYS", "LACTSSL_LOG_SYSTEM_MAX_ROWS"} {
 		t.Setenv(key, "")
 	}
 }
@@ -379,6 +379,27 @@ security:
 `,
 			wantErr: true,
 		},
+		{
+			name: "invalid log level",
+			content: `log:
+  level: verbose
+security:
+  jwt_secret: "` + validSecret + `"
+  salt: "` + validSalt + `"
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid system log level",
+			content: `log:
+  system:
+    level: verbose
+security:
+  jwt_secret: "` + validSecret + `"
+  salt: "` + validSalt + `"
+`,
+			wantErr: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -394,5 +415,176 @@ security:
 				t.Fatalf("合法配置被拒绝: %v", err)
 			}
 		})
+	}
+}
+
+func TestLoadDeployPluginsConfig(t *testing.T) {
+	clearEnv(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	dataDir := filepath.Join(dir, "data")
+	content := fmt.Sprintf(`data_dir: %q
+security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+deploy_plugins:
+  enabled: true
+  dir: %q
+  memory_limit_mb: 96
+  timeout_seconds: 120
+  max_output_kb: 32
+`, dataDir, filepath.Join(dir, "deploy-plugins"))
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LACTSSL_CONFIG", cfgPath)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.DeployPlugins.Enabled || cfg.DeployPlugins.Dir != filepath.Join(dir, "deploy-plugins") {
+		t.Fatalf("unexpected deploy plugin config: %+v", cfg.DeployPlugins)
+	}
+	if cfg.DeployPlugins.MemoryLimitMB != 96 || cfg.DeployPlugins.Timeout.Seconds() != 120 || cfg.DeployPlugins.MaxOutputKB != 32 {
+		t.Fatalf("unexpected deploy plugin limits: %+v", cfg.DeployPlugins)
+	}
+
+	// 环境变量优先于配置文件。
+	t.Setenv("LACTSSL_DEPLOY_PLUGINS_ENABLED", "false")
+	t.Setenv("LACTSSL_DEPLOY_PLUGINS_DIR", filepath.Join(dir, "env-plugins"))
+	t.Setenv("LACTSSL_DEPLOY_PLUGINS_MEMORY_MB", "64")
+	t.Setenv("LACTSSL_DEPLOY_PLUGINS_TIMEOUT_SECONDS", "90")
+	t.Setenv("LACTSSL_DEPLOY_PLUGINS_MAX_OUTPUT_KB", "16")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DeployPlugins.Enabled {
+		t.Fatal("environment should disable deploy plugins")
+	}
+	if cfg.DeployPlugins.Dir != filepath.Join(dir, "env-plugins") || cfg.DeployPlugins.MemoryLimitMB != 64 {
+		t.Fatalf("environment override not applied: %+v", cfg.DeployPlugins)
+	}
+	if cfg.DeployPlugins.Timeout.Seconds() != 90 || cfg.DeployPlugins.MaxOutputKB != 16 {
+		t.Fatalf("environment limits not applied: %+v", cfg.DeployPlugins)
+	}
+}
+
+func TestLoadLogConfig(t *testing.T) {
+	clearEnv(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	dataDir := filepath.Join(dir, "data")
+	content := fmt.Sprintf(`data_dir: %q
+security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+log:
+  level: debug
+  format: json
+  file: %q
+  also_stdout: false
+  max_size_mb: 8
+  max_backups: 3
+  max_age_days: 14
+  compress: false
+  access_log: false
+  system:
+    enabled: false
+    level: warn
+    access: true
+    retention_days: 3
+    max_rows: 500
+`, dataDir, filepath.Join(dir, "logs", "app.log"))
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LACTSSL_CONFIG", cfgPath)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Log.Level != "debug" || cfg.Log.Format != "json" || cfg.Log.AlsoStdout || cfg.Log.Compress || cfg.Log.AccessLog {
+		t.Fatalf("unexpected log config: %+v", cfg.Log)
+	}
+	if cfg.Log.File != filepath.Join(dir, "logs", "app.log") || cfg.Log.MaxSizeMB != 8 || cfg.Log.MaxBackups != 3 || cfg.Log.MaxAgeDays != 14 {
+		t.Fatalf("unexpected log limits: %+v", cfg.Log)
+	}
+	if cfg.Log.SystemEnabled || cfg.Log.SystemLevel != "warn" || !cfg.Log.SystemAccess || cfg.Log.SystemRetentionDays != 3 || cfg.Log.SystemMaxRows != 500 {
+		t.Fatalf("unexpected system log config: %+v", cfg.Log)
+	}
+
+	// 环境变量优先于配置文件。
+	t.Setenv("LACTSSL_LOG_LEVEL", "warn")
+	t.Setenv("LACTSSL_LOG_FORMAT", "text")
+	t.Setenv("LACTSSL_LOG_FILE", filepath.Join(dir, "env.log"))
+	t.Setenv("LACTSSL_LOG_ALSO_STDOUT", "true")
+	t.Setenv("LACTSSL_LOG_MAX_SIZE_MB", "16")
+	t.Setenv("LACTSSL_LOG_MAX_BACKUPS", "0")
+	t.Setenv("LACTSSL_LOG_MAX_AGE_DAYS", "0")
+	t.Setenv("LACTSSL_LOG_COMPRESS", "true")
+	t.Setenv("LACTSSL_LOG_ACCESS", "true")
+	t.Setenv("LACTSSL_LOG_SYSTEM_ENABLED", "true")
+	t.Setenv("LACTSSL_LOG_SYSTEM_LEVEL", "error")
+	t.Setenv("LACTSSL_LOG_SYSTEM_ACCESS", "false")
+	t.Setenv("LACTSSL_LOG_SYSTEM_RETENTION_DAYS", "30")
+	t.Setenv("LACTSSL_LOG_SYSTEM_MAX_ROWS", "1000")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Log.Level != "warn" || cfg.Log.Format != "text" || !cfg.Log.AlsoStdout || !cfg.Log.Compress || !cfg.Log.AccessLog {
+		t.Fatalf("environment override not applied: %+v", cfg.Log)
+	}
+	if cfg.Log.File != filepath.Join(dir, "env.log") || cfg.Log.MaxSizeMB != 16 || cfg.Log.MaxBackups != 0 || cfg.Log.MaxAgeDays != 0 {
+		t.Fatalf("environment log limits not applied: %+v", cfg.Log)
+	}
+	if !cfg.Log.SystemEnabled || cfg.Log.SystemLevel != "error" || cfg.Log.SystemAccess || cfg.Log.SystemRetentionDays != 30 || cfg.Log.SystemMaxRows != 1000 {
+		t.Fatalf("environment system log config not applied: %+v", cfg.Log)
+	}
+}
+
+func TestLoadRejectsInvalidLogConfig(t *testing.T) {
+	clearEnv(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	content := fmt.Sprintf(`data_dir: %q
+security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+log:
+  level: verbose
+`, filepath.Join(dir, "data"))
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LACTSSL_CONFIG", cfgPath)
+	if _, err := Load(); err == nil {
+		t.Fatal("非法日志级别应导致启动失败")
+	}
+}
+
+func TestDeployPluginsDefaultDisabled(t *testing.T) {
+	clearEnv(t)
+	dir := t.TempDir()
+	t.Setenv("LACTSSL_CONFIG", filepath.Join(dir, "config.yaml"))
+	t.Setenv("LACTSSL_DATA", filepath.Join(dir, "data"))
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DeployPlugins.Enabled {
+		t.Fatal("deploy plugins should be disabled by default")
+	}
+	if cfg.Plugins.Dir != filepath.Join(dir, "data", "plugins", "dns") {
+		t.Fatalf("unexpected default DNS plugin dir: %s", cfg.Plugins.Dir)
+	}
+	if cfg.DeployPlugins.Dir != filepath.Join(dir, "data", "plugins", "deploy") {
+		t.Fatalf("unexpected default deploy plugin dir: %s", cfg.DeployPlugins.Dir)
+	}
+	if cfg.DeployPlugins.Timeout.Seconds() != 300 {
+		t.Fatalf("unexpected default timeout: %s", cfg.DeployPlugins.Timeout)
 	}
 }

@@ -54,6 +54,8 @@ nav:
   - 首页: index.md
   - 安装与启动: install.md
   - 配置: configuration.md
+  - DNS 插件: dns-plugins.md
+  - 部署插件: deploy-plugins.md
   - 功能说明: features.md
   - 安全: security.md
   - 运维: operations.md

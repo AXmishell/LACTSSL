@@ -17,7 +17,7 @@ Two parts need to be backed up:
 - **Restore backup**: upload a ZIP backup or a standalone `.db` database file and confirm with the current password; encrypted backups also require the backup decryption password. The service writes the restored contents to `data/restore-pending/` and restarts automatically. Docker deployments are brought back by `restart: unless-stopped`; when running the binary directly, restart the process yourself.
 - **Import on the setup page**: before the system is initialized, import a backup directly from "Advanced options" on `/install` to skip administrator creation. After importing, sign in with the account from the backup.
 
-After restoring, sign in again with the administrator account from the backup. If the `config.yaml` in the backup uses a different `jwt_secret`, existing login sessions become invalid; if it uses a different `salt`, encrypted credentials in the database can only be decrypted with the matching configuration file, so always restore with the complete ZIP backup. If the backup's secret entry differs from the current one, check the new entry address in the startup log after restoring.
+After restoring, sign in again with the administrator account from the backup. Every service start clears login sessions and rotates the JWT signing subkey, so all previous logins become invalid after any restart, including a restore. If the `config.yaml` in the backup uses a different `jwt_secret`, old tokens also fail validation; if it uses a different `salt`, encrypted credentials in the database can only be decrypted with the matching configuration file, so always restore with the complete ZIP backup. If the backup's secret entry differs from the current one, check the new entry address in the startup log after restoring.
 
 Backup packages contain keys and encrypted credentials; store them as confidential files.
 
@@ -127,9 +127,20 @@ Back up `config.yaml` and `data/` before upgrading. The database schema is migra
 
 ## Logs
 
-- UI "Logs" page: task runs, certificate issuance, deployment, notifications, monitoring, and settings changes.
-- Process output: startup information, secret entry, HTTP errors, and scheduler status.
-- Docker: `docker compose logs -f lactssl`.
+The system has two independent log types:
+
+- **Operation log** (UI "Logs" page): task runs, certificate issuance, deployment, notifications, monitoring, and settings changes. Filter by source, level, and time range, then export the current result set as CSV or JSON. CSV includes a UTF-8 BOM so Excel/WPS opens text correctly. Exports are limited to the last 90 days. Export timestamps follow the browser time zone when available; otherwise the server `TZ` is used (Docker defaults to `Asia/Shanghai`).
+- **System logs** (UI "System Logs" page): selected process logs are persisted asynchronously to the database and can be filtered by level, component, keyword, and time range, exported as CSV or JSON, then cleared; clearing is recorded in the operation log. Defaults to `info` and above, keeping 7 days or 20,000 rows; HTTP access logs are not persisted by default and can be enabled under `log.system`.
+- **Process log** (stdout or `log.file`): startup information, HTTP access, scheduler, plugins, ACME, and panic stacks for troubleshooting and log collection. Defaults to `info` level, `text` format, stdout only; configure it in the `log` section of `config.yaml` or with environment variables.
+
+Process log details:
+
+- When `log.file` is empty, logs go to stdout only. When a file is configured, stdout is kept by default, so `docker compose logs -f lactssl` still works in Docker.
+- Files rotate at `max_size_mb` and are cleaned up by `max_backups` / `max_age_days`, with optional gzip compression.
+- With `log.access_log: true`, each HTTP request is logged with `request_id`, method, route template, status, latency, and client IP. **Query strings, request bodies, and authentication headers are never logged**, and the secret entry in paths is shown as `:entry`.
+- Every HTTP response includes `X-Request-ID`. Use it to correlate access logs, panics, and later errors for the same request.
+- For temporary debugging, set `LACTSSL_LOG_LEVEL=debug` and restart; `debug` adds source locations. Return to `info` afterwards.
+- Process logs may contain client IPs, domains, and error details. Treat them as operational data and avoid sharing them publicly.
 
 ## FAQ
 

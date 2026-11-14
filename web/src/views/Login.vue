@@ -54,12 +54,35 @@
             </el-input>
           </el-form-item>
 
-          <el-alert v-if="errorMessage" :title="errorMessage" type="error" :closable="false" show-icon style="margin-bottom: 16px" />
+          <el-alert
+            v-if="errorMessage"
+            :title="errorMessage"
+            :type="totpNotice ? 'success' : 'error'"
+            :closable="false"
+            :show-icon="!totpNotice"
+            style="margin-bottom: 16px"
+          />
 
           <el-button type="primary" size="large" style="width: 100%" :loading="loading" @click="submit">
             {{ totpRequired ? t('auth.verifyLogin') : t('auth.login') }}
           </el-button>
         </el-form>
+
+        <div v-if="!needsSetup && passkeyAvailable" class="passkey-login">
+          <div class="passkey-divider"><span>{{ t('auth.or') }}</span></div>
+          <el-button
+            size="large"
+            style="width: 100%"
+            :loading="passkeyLoading"
+            :disabled="!passkeyUsable"
+            @click="submitPasskey"
+          >
+            <el-icon style="margin-right: 6px"><Key /></el-icon>
+            {{ t('auth.passkeyLogin') }}
+          </el-button>
+          <div v-if="!passkeyUsable" class="form-help">{{ t('settings.passkeyUnavailable') }}</div>
+          <div v-else class="form-help">{{ t('auth.passkeyLoginHint') }}</div>
+        </div>
 
         <div v-if="!needsSetup" class="flex-between" style="margin-top: 18px">
           <span class="muted">{{ t('auth.forgot') }}</span>
@@ -91,13 +114,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, nextTick } from 'vue'
+import { onMounted, ref, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { api, installPath } from '../api'
 import { state, loadUser } from '../store'
 import { beginLoading, endLoading } from '../loading'
+import { isPasskeyCancelled, loginWithPasskey, passkeySecureContext, passkeySupported } from '../passkeys'
 import type { AuthResult, MessageResult, SetupStatus } from '../types'
 
 // 登录成功后保留的过渡加载时长（含 200ms 淡出），只用于 /login → 控制台，
@@ -108,8 +132,13 @@ const LOGIN_LOADING_FADE_MS = 200
 const router = useRouter()
 const { t } = useI18n()
 const loading = ref(false)
+const passkeyLoading = ref(false)
+const passkeyAvailable = computed(() => passkeySupported())
+const passkeyUsable = computed(() => passkeySupported() && passkeySecureContext())
 const totpRequired = ref(false)
 const errorMessage = ref('')
+// 两步验证提示使用绿色提示样式，其余错误仍使用红色错误样式。
+const totpNotice = ref(false)
 const needsSetup = ref(false)
 const totpInput = ref<{ focus: () => void } | null>(null)
 
@@ -134,10 +163,10 @@ onMounted(async () => {
       // 不做自动跳转：在登录页给出明确提示和按钮，由用户决定何时进入初始化。
       needsSetup.value = true
     } else if (typeof status.initialized !== 'boolean') {
-      errorMessage.value = t('auth.cannotGetStatus')
+      showError(t('auth.cannotGetStatus'))
     }
   } catch (error: any) {
-    errorMessage.value = error?.message || t('auth.cannotGetStatus')
+    showError(error?.message || t('auth.cannotGetStatus'))
   }
 })
 
@@ -145,49 +174,96 @@ function goInstall(): void {
   router.push(installPath)
 }
 
+// 普通错误提示：红色错误样式。
+function showError(message: string): void {
+  totpNotice.value = false
+  errorMessage.value = message
+}
+
+// 两步验证提示：绿色提示样式，不带图标。
+function showTotpNotice(message: string): void {
+  totpNotice.value = true
+  errorMessage.value = message
+}
+
+function clearError(): void {
+  totpNotice.value = false
+  errorMessage.value = ''
+}
+
 async function submit(): Promise<void> {
   if (!form.value.email || !form.value.password) {
-    errorMessage.value = t('auth.fillEmailPassword')
+    showError(t('auth.fillEmailPassword'))
     return
   }
   if (totpRequired.value && !form.value.totp) {
-    errorMessage.value = t('auth.enterTotp')
+    showError(t('auth.enterTotp'))
     return
   }
   loading.value = true
-  errorMessage.value = ''
+  clearError()
   try {
     const data = await api.post<AuthResult>('/auth/login', {
       email: form.value.email.trim(),
       password: form.value.password,
       totp: form.value.totp
     })
-    state.user = data.user
-    state.settings = null
-    state.meta = null
-    // 登录成功使用全局默认加载层（同样的延迟显示、文案与动画），
-    // 仅把展示时长保留为约 900ms；控制台内部切换不套用该时长。
-    const startedAt = performance.now()
-    beginLoading()
-    try {
-      await router.replace('/dashboard')
-      const remaining = LOGIN_LOADING_MS - LOGIN_LOADING_FADE_MS - (performance.now() - startedAt)
-      if (remaining > 0) await new Promise((resolve) => window.setTimeout(resolve, remaining))
-    } finally {
-      endLoading()
-    }
+    await finishLogin(data)
     ElMessage.success(t('auth.loginSuccess'))
   } catch (error: any) {
     if (error.totpRequired) {
       totpRequired.value = true
-      errorMessage.value = t('auth.totpRequiredNotice')
+      showTotpNotice(t('auth.totpRequiredNotice'))
       await nextTick()
       totpInput.value?.focus()
     } else {
-      errorMessage.value = error.message
+      showError(error.message)
     }
   } finally {
     loading.value = false
+  }
+}
+
+async function submitPasskey(): Promise<void> {
+  if (passkeyLoading.value) return
+  if (!passkeyUsable.value) {
+    showError(t('settings.passkeyUnavailable'))
+    return
+  }
+  passkeyLoading.value = true
+  clearError()
+  try {
+    const data = await loginWithPasskey()
+    await finishLogin(data)
+    ElMessage.success(t('auth.loginSuccess'))
+  } catch (error: any) {
+    if (isPasskeyCancelled(error)) {
+      showError(t('settings.passkeyCancelled'))
+    } else if (error?.status === 401 || error?.status === 400) {
+      showError(error?.message || t('auth.passkeyLoginFailed'))
+    } else {
+      showError(error?.message || t('auth.passkeyLoginFailed'))
+    }
+  } finally {
+    passkeyLoading.value = false
+  }
+}
+
+// finishLogin 统一处理密码登录与通行密钥登录成功后的跳转与加载层。
+async function finishLogin(data: AuthResult): Promise<void> {
+  state.user = data.user
+  state.settings = null
+  state.meta = null
+  // 登录成功使用全局默认加载层（同样的延迟显示、文案与动画），
+  // 仅把展示时长保留为约 900ms；控制台内部切换不套用该时长。
+  const startedAt = performance.now()
+  beginLoading()
+  try {
+    await router.replace('/dashboard')
+    const remaining = LOGIN_LOADING_MS - LOGIN_LOADING_FADE_MS - (performance.now() - startedAt)
+    if (remaining > 0) await new Promise((resolve) => window.setTimeout(resolve, remaining))
+  } finally {
+    endLoading()
   }
 }
 

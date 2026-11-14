@@ -37,6 +37,35 @@ func TestPasswordAndJWT(t *testing.T) {
 	}
 }
 
+// TestBootScopedManagerInvalidatesTokens 验证启动级签名密钥会让旧令牌失效，
+// 同时门禁/CSRF 等基于原始 secret 的短期签名跨重启仍然有效。
+func TestBootScopedManagerInvalidatesTokens(t *testing.T) {
+	first, err := NewBootScoped([]byte("jwt-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := first.Issue(&model.User{ID: 7, TokenVersion: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Parse(token); err != nil {
+		t.Fatalf("同一进程内令牌应通过校验: %v", err)
+	}
+
+	second, err := NewBootScoped([]byte("jwt-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.Parse(token); err == nil {
+		t.Fatal("重启后旧令牌不应继续通过校验")
+	}
+
+	signature := first.SignValue("entry-gate", "my-entry")
+	if !second.VerifyValue("entry-gate", "my-entry", signature) {
+		t.Fatal("门禁签名不应随启动轮换而失效")
+	}
+}
+
 func TestSignValue(t *testing.T) {
 	manager := New([]byte("jwt-secret"))
 	signature := manager.SignValue("entry-gate", "my-entry")

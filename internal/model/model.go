@@ -5,14 +5,29 @@ import "time"
 
 // User 是系统唯一的个人账户。
 type User struct {
-	ID           int64     `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	TOTPSecret   string    `json:"-"`
-	TOTPEnabled  bool      `json:"totp_enabled"`
-	TokenVersion int       `json:"-"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           int64  `json:"id"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"-"`
+	TOTPSecret   string `json:"-"`
+	TOTPEnabled  bool   `json:"totp_enabled"`
+	TokenVersion int    `json:"-"`
+	// StrongAuth 表示当前请求的会话已通过通行密钥登录。
+	// 仅用于接口返回，不落库到用户表。
+	StrongAuth bool      `json:"strong_auth,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// Passkey 保存一个通行密钥（WebAuthn 凭据）。
+// Credential 是 webauthn.Credential 的 JSON 序列化结果，包含公钥、计数器等非敏感信息。
+type Passkey struct {
+	ID           int64      `json:"id"`
+	UserID       int64      `json:"-"`
+	Name         string     `json:"name"`
+	CredentialID string     `json:"credential_id"`
+	Credential   string     `json:"-"`
+	CreatedAt    time.Time  `json:"created_at"`
+	LastUsedAt   *time.Time `json:"last_used_at"`
 }
 
 // Session 是一次登录对应的服务端会话记录。
@@ -22,6 +37,7 @@ type Session struct {
 	UserID     int64      `json:"-"`
 	IP         string     `json:"ip"`
 	UserAgent  string     `json:"user_agent"`
+	StrongAuth bool       `json:"-"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastSeenAt time.Time  `json:"last_seen_at"`
 	ExpiresAt  time.Time  `json:"expires_at"`
@@ -158,6 +174,17 @@ type LogEntry struct {
 	RefID     int64     `json:"ref_id"`
 	Level     string    `json:"level"`
 	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// SystemLogEntry 是进程底层日志，供「系统日志」页面查看。
+// Fields 是附加字段的 JSON 文本，接口层解析后返回给前端。
+type SystemLogEntry struct {
+	ID        int64     `json:"id"`
+	Level     string    `json:"level"`
+	Component string    `json:"component"`
+	Message   string    `json:"message"`
+	Fields    string    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

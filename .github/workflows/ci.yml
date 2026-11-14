@@ -147,6 +147,20 @@ jobs:
           test -x bin/lactssl
           ls -lh bin/lactssl
 
+      - name: Verify full build and helpers
+        run: |
+          CGO_ENABLED=0 go build -trimpath -tags "embed dns_all" -o /dev/null ./cmd/server
+          CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/dns-helper
+          CGO_ENABLED=0 go build -trimpath -tags dns_extra -o /dev/null ./cmd/dns-helper
+          CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/deploy-helper
+
+      - name: Verify embedded DNS helper build
+        run: |
+          mkdir -p internal/dnsplugin/bundled
+          CGO_ENABLED=0 go build -trimpath -tags dns_extra -o internal/dnsplugin/bundled/lactssl-dns-helper-extra ./cmd/dns-helper
+          CGO_ENABLED=0 go build -trimpath -tags "embed embed_helper" -o /dev/null ./cmd/server
+          rm -f internal/dnsplugin/bundled/lactssl-dns-helper-extra
+
       - name: Upload binary
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

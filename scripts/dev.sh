@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+source "$ROOT/scripts/entry.sh"
 
 CONFIG_PATH="${CONFIG:-config.yaml}"
 if [ ! -f "$CONFIG_PATH" ]; then
@@ -17,9 +19,7 @@ fi
 
 PORT=$(awk '/^[[:space:]]*port:/{print $2; exit}' "$CONFIG_PATH")
 PORT="${PORT:-8080}"
-ENTRY=$(awk '/^[[:space:]]*entry:/{gsub(/["'\'']/,"",$2); print $2; exit}' "$CONFIG_PATH")
-ENTRY="${ENTRY#/}"
-ENTRY="${ENTRY%/}"
+ENTRY=$(resolve_entry "$CONFIG_PATH")
 LAN_IPS=$(hostname -I 2>/dev/null || true)
 
 echo "============================================================"
@@ -28,7 +28,8 @@ echo "------------------------------------------------------------"
 if [ -n "$ENTRY" ]; then
   echo " Entrance  : http://<host>:5173/$ENTRY/"
 else
-  echo " Entrance  : generated on first start; see the Go log"
+  echo " Entrance  : 未找到安全入口（config.yaml 与数据库均为空）"
+  echo "             首次启动后入口只保存在数据库，可设置 LACTSSL_ENTRY 覆盖"
 fi
 echo " Localhost : http://127.0.0.1:5173"
 for ip in $LAN_IPS; do
@@ -46,7 +47,7 @@ echo " Vite runs on :5173 and proxies /<entry>/api to Go on :$PORT."
 echo " Open the Vite URL above during development; production serves from :$PORT."
 echo "============================================================"
 
-(cd web && npm run dev) &
+(cd web && LACTSSL_ENTRY="$ENTRY" npm run dev) &
 VITE_PID=$!
 
 cleanup() {
@@ -54,4 +55,4 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-go run ./cmd/server
+CGO_ENABLED=0 go run ./cmd/server

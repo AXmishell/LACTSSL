@@ -107,10 +107,14 @@ func (s *Server) getSettings(c *gin.Context) {
 	for _, action := range toggleableStepUpActions {
 		stepUp[action] = s.stepUpEnabled(action)
 	}
+	user := getUser(c)
+	passkeyCount, _ := s.Store.CountPasskeys(user.ID)
 	ok(c, gin.H{
 		"step_up":                stepUp,
 		"entry":                  s.Entry(),
-		"verify_mode":            s.effectiveVerifyMode(getUser(c)),
+		"verify_mode":            s.effectiveVerifyMode(user),
+		"passkey_enabled":        passkeyCount > 0,
+		"passkey_count":          passkeyCount,
 		"language":               s.setting("language", string(i18n.Default)),
 		"acme_email":             s.setting("acme.email", ""),
 		"acme_ca":                s.setting("acme.ca", "letsencrypt"),

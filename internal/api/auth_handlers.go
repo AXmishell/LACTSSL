@@ -224,6 +224,7 @@ func (s *Server) handleMe(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.not_logged_in")
 		return
 	}
+	user.StrongAuth = sessionStrongAuth(c)
 	ok(c, user)
 }
 
@@ -241,6 +242,15 @@ func (s *Server) handleReauth(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	// 通行密钥登录的会话已完成强认证，无需再次输入密码或验证码。
+	if sessionStrongAuth(c) {
+		s.markReauth(currentSessionID(c))
+		ok(c, gin.H{
+			"message":    i18n.T(locale(c), "api.ok.reauth_success", nil),
+			"expires_in": int(reauthTTL.Seconds()),
+		})
 		return
 	}
 	if !s.allowReauth(c, user) {
@@ -359,11 +369,12 @@ func (s *Server) handleChangeEmail(c *gin.Context) {
 	updated, _ := s.Store.GetUserByID(user.ID)
 	// 换邮箱会提升 TokenVersion，旧令牌全部失效，同时清理旧会话记录。
 	_ = s.Store.DeleteUserSessions(user.ID)
-	expire, err := s.issueSession(c, updated)
+	expire, err := s.issueSessionStrong(c, updated, sessionStrongAuth(c))
 	if err != nil {
 		failKey(c, http.StatusInternalServerError, "api.error.token_failed")
 		return
 	}
+	updated.StrongAuth = sessionStrongAuth(c)
 	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.email_changed", map[string]any{"email": email})
 	ok(c, gin.H{"expire_at": expire, "user": updated})
 }
@@ -458,8 +469,10 @@ func (s *Server) handleTOTPDisable(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.disable_totp_failed")
 		return
 	}
-	// 关闭 TOTP 后关键操作验证方式回退到密码，避免设置与用户状态不一致。
-	_ = s.Store.SetSetting(verifyModeSetting, verifyModePassword)
+	// 关闭 TOTP 后仅当验证方式依赖 TOTP 时回退到密码，避免覆盖通行密钥等其他验证方式。
+	if verifyModeNeedsTOTP(strings.TrimSpace(s.setting(verifyModeSetting, verifyModePassword))) {
+		_ = s.Store.SetSetting(verifyModeSetting, verifyModePassword)
+	}
 	s.resetReauth(c, user)
 	s.Store.AddLogKey("auth", user.ID, "warning", "log.auth.totp_disabled", nil)
 	ok(c, gin.H{"enabled": false})

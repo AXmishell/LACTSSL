@@ -37,8 +37,10 @@ const routes: RouteRecordRaw[] = [
       { path: 'acme-server', component: () => import('./views/ACMEServer.vue'), meta: { titleKey: 'nav.acmeServer', subtitleKey: 'acmeServer.subtitle' } },
       { path: 'acme-diagnostics', component: () => import('./views/ACMEDiagnostics.vue'), meta: { titleKey: 'acmeDiagnostics.title', subtitleKey: 'acmeDiagnostics.subtitle' } },
       { path: 'deploy', component: () => import('./views/Credentials.vue'), meta: { titleKey: 'nav.deploy', subtitleKey: 'credentials.deploySubtitle', tab: 'deploy' } },
+      { path: 'plugins', component: () => import('./views/Plugins.vue'), meta: { titleKey: 'nav.dnsPlugins', subtitleKey: 'plugins.subtitle' } },
       { path: 'notifications', component: () => import('./views/Notifications.vue'), meta: { titleKey: 'nav.notifications', subtitleKey: 'notifications.subtitle' } },
       { path: 'logs', component: () => import('./views/Logs.vue'), meta: { titleKey: 'nav.logs', subtitleKey: 'logs.subtitle' } },
+      { path: 'system-logs', component: () => import('./views/SystemLogs.vue'), meta: { titleKey: 'nav.systemLogs', subtitleKey: 'systemLogs.subtitle' } },
       { path: 'sessions', component: () => import('./views/Sessions.vue'), meta: { titleKey: 'nav.sessions', subtitleKey: 'sessions.subtitle' } },
       { path: 'settings', component: () => import('./views/Settings.vue'), meta: { titleKey: 'nav.settings', subtitleKey: 'settings.subtitle' } },
       // 未匹配的地址保留控制台框架，展示 404 页面而不是静默跳回仪表盘。

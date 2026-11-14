@@ -56,42 +56,74 @@ LACTSSL 把证书生命周期拆成几个模块：用 ACME 申请证书、部署
 
 ## DNS 服务商
 
-先在「DNS 账户」中添加凭据，再在申请任务中选择。支持：
+先在「DNS 账户」中添加凭据，再在申请任务中选择。内置支持 lego 的全部 DNS 服务商（约 190 家；`manual` 需要人工添加 TXT 记录，未纳入自动流程）。凭据页的服务商下拉框支持搜索，常见服务商如下：
 
 | 服务商 | 主要凭据 |
 | --- | --- |
 | 阿里云 DNS（alidns） | AccessKey ID / Secret，可选 Region |
-| Cloudflare | API Token，或 Email + Global API Key |
+| 阿里云 ESA（aliesa） | AccessKey ID / Secret，可选 Region |
+| Cloudflare | API Token，或 Email + Global API Key，可选 API 上游地址 |
 | DNSPod | API Token |
 | 腾讯云（tencentcloud） | SecretId / SecretKey，可选 Region |
+| 华为云（huaweicloud） | AccessKey ID / SecretAccessKey / Region |
+| 火山引擎（volcengine） | AccessKey / SecretKey，可选 Region、API 主机与协议 |
+| 百度智能云（baiducloud） | AccessKey ID / SecretAccessKey |
+| 京东云（jdcloud） | AccessKey ID / AccessKey Secret，可选 Region |
 | DigitalOcean | Token |
-| GoDaddy | API Key / Secret |
-| Namecheap | API User / API Key，可选 Source IP |
 | Vultr | API Key |
 | Linode | Token |
 | Hetzner | API Key |
 | Gandi | API Key |
+| GoDaddy | API Key / Secret |
+| Namecheap | API User / API Key，可选 Source IP |
+| NameSilo | API Key |
+| Porkbun | API Key / Secret API Key |
+| Spaceship | API Key / API Secret |
+| ClouDNS | Auth ID / Sub Auth ID / Auth Password |
+| Bunny DNS | API Key |
+| 雨云（rainyun） | API Key |
+| 西部数码（westcn） | 用户名 / 密码 |
+| PowerDNS（pdns） | API 地址 / API Key，可选 Server 名称与 API 版本 |
+| DNSimple | OAuth Token，可选 API 上游地址 |
+| DNS Made Easy | API Key / Secret，可选 Sandbox |
+| AWS Route 53 | AccessKey / SecretAccessKey，可选 Region、Hosted Zone、私有区域 |
+| Google Cloud DNS | 服务账号 JSON，可选项目 ID |
+| Azure DNS | Tenant ID / Client ID / Client Secret / Subscription ID / 资源组 |
+| Netlify | Token |
+| Vercel | API Token，可选团队 ID |
+| DuckDNS | Token |
+| FreeMyIP | Token |
+| Gandi LiveDNS v5 | Personal Access Token |
+| RFC 2136 动态更新 | DNS 服务器，可选 TSIG Key / Secret / 算法与 Zone 列表 |
+
+其余服务商同样由 lego 内置实现提供，表单字段根据 lego 环境变量自动生成；完整列表以凭据页的服务商下拉框为准。
 
 凭据在写入数据库前会加密。编辑账户时留空密钥字段表示保留原值。
 
+Cloudflare、DNSimple、PowerDNS、火山引擎等支持自定义 API 上游地址或主机的服务商，可以在凭据中填写对应的 Base URL / API 地址，用于代理、自建服务或兼容网关。
+
 ## 证书部署
 
-「目标凭据」只保存认证与连接信息，例如主机、端口、用户名、密码、面板地址和 API Token。证书路径、重载命令、部署域名、站点等参数在「证书申请 → 证书流程 → 部署证书」节点中填写，因此同一个凭据可以被多个任务复用。任务成功签发后可自动部署，也可以手动触发。支持：
+「目标凭据」只保存认证与连接信息，例如主机、端口、用户名、密码、面板地址和 API Token。证书路径、重载命令、部署域名、站点等参数在「证书申请 → 证书流程 → 部署证书」节点中填写，因此同一个凭据可以被多个任务复用。任务成功签发后可自动部署，也可以手动触发。
+
+主程序内置的部署目标：
 
 - **本地目录**：在部署节点填写证书与私钥路径，可选执行重载命令（如 `systemctl reload nginx`）。
 - **SSH / SFTP**：凭据保存主机、端口、用户名及密码或私钥；部署节点填写远程证书/私钥路径，可选远程重载命令。
+
+以下目标由[部署插件](deploy-plugins.md)提供，安装并启用官方 helper 后可用：
+
 - **FTP / FTPS**：凭据保存主机、端口、用户名和密码；支持普通 FTP、显式 TLS 与隐式 TLS（FTPS），部署节点填写远程证书/私钥路径。
 - **Webhook**：凭据保存回调地址、自定义认证头与是否跳过 TLS 校验。
 - **阿里云 CDN**：凭据保存 AccessKey；部署节点填写要更新的域名与自定义证书名称。
-- **七牛云 CDN**：凭据保存 AccessKey / SecretKey；部署节点填写加速域名与证书名称，域名未开启 HTTPS 时会自动开启。
-- **七牛云 Kodo**：凭据保存 AccessKey / SecretKey；部署节点填写对象存储自定义源站域名与证书名称。
-- **宝塔面板网站**：凭据保存面板地址与 API Secret；部署节点填写要部署的网站名称。
-- **宝塔面板 SSL 证书**：凭据保存面板地址与 API Secret，用于替换宝塔面板自身使用的 SSL 证书。
-- **1Panel 网站**：凭据保存面板地址、API Key 与 API 版本；部署节点填写网站域名、别名或 ID。
-- **1Panel 面板**：凭据保存面板地址、API Key 与 API 版本；部署节点选择 Enable / Mux 模式。
+- **七牛云**：凭据保存 AccessKey / SecretKey；部署节点选择域名类型（CDN 加速域名或 Kodo 自定义源站域名）并填写域名与证书名称，CDN 域名未开启 HTTPS 时会自动开启。
+- **宝塔面板**：凭据保存面板地址与 API Secret；部署节点选择部署对象（网站或面板自身），网站模式填写网站名称。
+- **1Panel**：凭据保存面板地址、API Key 与 API 版本；部署节点选择部署对象（网站或面板自身），网站模式填写网站域名、别名或 ID，面板模式选择 Enable / Mux。
 - **雷池 WAF**：凭据保存面板地址与 API Token；部署节点可指定证书 ID，留空时按证书域名自动匹配。
 
 每次部署都会生成部署记录，可在证书详情和日志中查看结果。手动部署时会优先复用证书所属任务的部署节点参数，也可以按目标单独填写本次部署参数。
+
+部署插件以一次性子进程运行，会接收证书与私钥；默认关闭，只应启用可信 helper。未安装或未启用插件时，部署类型中只会出现本地文件与 SSH，历史凭据仍会保留。
 
 ## 通知
 
@@ -131,7 +163,7 @@ ntfy、GoCQHTTP、PushDeer、Bark、Telegram、钉钉、企业微信机器人、
 
 ## 仪表盘与日志
 
-首页汇总证书总数、即将过期/已过期数量、任务与监控状态、部署成功率、到期分布和签发趋势。任务执行、部署、通知、监控和设置变更都会写入系统日志，可在界面中筛选查看。
+首页汇总证书总数、即将过期/已过期数量、任务与监控状态、部署成功率、到期分布和签发趋势。任务执行、部署、通知、监控和设置变更都会写入操作日志，可在界面中按来源、级别和时间范围筛选，并导出为 CSV 或 JSON。另有独立的「系统日志」页面，用于查看启动、HTTP、调度、插件与 ACME 等进程底层日志，可按级别、组件、关键字和时间范围筛选，并导出为 CSV 或 JSON。
 
 ## 界面
 

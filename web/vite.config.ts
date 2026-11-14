@@ -55,7 +55,11 @@ function entryGuardPlugin(entry: string): Plugin {
     },
     configureServer(server) {
       if (!entry) {
-        server.config.logger.warn('[lactssl] 未设置 LACTSSL_ENTRY，开发服务器不会校验安全入口')
+        server.config.logger.warn(
+          '[lactssl] 未设置 LACTSSL_ENTRY，开发服务器不会校验安全入口；' +
+            '前端将请求裸 /api，请求会落到 SPA 回退并提示“非 JSON 响应”。' +
+            '请使用 LACTSSL_ENTRY=<入口> npm run dev（或 make dev）重新启动'
+        )
         return
       }
       server.config.logger.info(`[lactssl] 安全入口: ${prefix}/`)

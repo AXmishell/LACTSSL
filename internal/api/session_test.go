@@ -24,9 +24,8 @@ func newSessionTestServer(t *testing.T) *gin.Engine {
 	return router
 }
 
-func newSessionTestServerWithStore(t *testing.T) (*gin.Engine, *store.Store) {
+func newSessionTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 
 	conn, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -38,16 +37,28 @@ func newSessionTestServerWithStore(t *testing.T) (*gin.Engine, *store.Store) {
 	if err != nil {
 		t.Fatalf("初始化加密组件失败: %v", err)
 	}
-	st := store.New(conn, cipher)
+	return store.New(conn, cipher)
+}
+
+func newSessionTestServerWithAuth(t *testing.T, st *store.Store, authManager *auth.Manager) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
 	s := New(
 		st,
-		auth.New([]byte("jwt-secret")),
+		authManager,
 		service.New(st),
 		"secret-entry",
 		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
 		nil,
 	)
-	return s.Router(), st
+	return s.Router()
+}
+
+func newSessionTestServerWithStore(t *testing.T) (*gin.Engine, *store.Store) {
+	t.Helper()
+	st := newSessionTestStore(t)
+	return newSessionTestServerWithAuth(t, st, auth.New([]byte("jwt-secret"))), st
 }
 
 // sessionIndexHTML 模拟构建后的 index.html，包含首屏启动层和模块脚本，
@@ -370,6 +381,100 @@ func TestChangePasswordInvalidatesAllSessions(t *testing.T) {
 		`{"email":"admin@example.com","password":"newpassword1234"}`, nil, nil)
 	if newLogin.Code != http.StatusOK {
 		t.Fatalf("新密码应能登录: %d %s", newLogin.Code, newLogin.Body.String())
+	}
+}
+
+// TestRestartInvalidatesAllSessions 验证进程重启后旧会话 Cookie 失效：
+// 启动级 JWT 签名密钥发生变化，且启动时清空服务端会话记录。
+func TestRestartInvalidatesAllSessions(t *testing.T) {
+	st := newSessionTestStore(t)
+
+	firstAuth, err := auth.NewBootScoped([]byte("jwt-secret"))
+	if err != nil {
+		t.Fatalf("初始化首次启动认证组件失败: %v", err)
+	}
+	firstRouter := newSessionTestServerWithAuth(t, st, firstAuth)
+
+	setup := sessionRequest(t, firstRouter, http.MethodPost, "/secret-entry/api/setup",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if setup.Code != http.StatusOK {
+		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
+	}
+	oldSession := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+
+	me := sessionRequest(t, firstRouter, http.MethodGet, "/secret-entry/api/auth/me", "",
+		[]*http.Cookie{oldSession}, nil)
+	if me.Code != http.StatusOK {
+		t.Fatalf("重启前会话应可用: %d %s", me.Code, me.Body.String())
+	}
+
+	// 模拟进程重启：启动时清理 sessions 表，并生成新的启动级 JWT 签名密钥。
+	if err := st.DeleteAllSessions(); err != nil {
+		t.Fatalf("清理会话记录失败: %v", err)
+	}
+	secondAuth, err := auth.NewBootScoped([]byte("jwt-secret"))
+	if err != nil {
+		t.Fatalf("初始化重启后认证组件失败: %v", err)
+	}
+	secondRouter := newSessionTestServerWithAuth(t, st, secondAuth)
+
+	oldMe := sessionRequest(t, secondRouter, http.MethodGet, "/secret-entry/api/auth/me", "",
+		[]*http.Cookie{oldSession}, nil)
+	if oldMe.Code != http.StatusUnauthorized {
+		t.Fatalf("重启后旧会话应失效: %d %s", oldMe.Code, oldMe.Body.String())
+	}
+
+	login := sessionRequest(t, secondRouter, http.MethodPost, "/secret-entry/api/auth/login",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("重启后应能重新登录: %d %s", login.Code, login.Body.String())
+	}
+	newSession := findCookie(t, login.Result().Cookies(), sessionCookieName)
+
+	list := sessionRequest(t, secondRouter, http.MethodGet, "/secret-entry/api/sessions", "",
+		[]*http.Cookie{newSession}, nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("获取会话列表失败: %d %s", list.Code, list.Body.String())
+	}
+	var payload struct {
+		Data []model.Session `json:"data"`
+	}
+	if err := json.Unmarshal(list.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("解析会话列表失败: %v", err)
+	}
+	if len(payload.Data) != 1 || !payload.Data[0].Current {
+		t.Fatalf("重启后应只剩重新登录产生的会话: %+v", payload.Data)
+	}
+}
+
+// TestDeletedSessionCannotBeRestoredByToken 验证服务端会话记录被删除后，
+// 即使 JWT 本身仍在有效期内，也不能通过 ensureSession 自动补登记复活。
+func TestDeletedSessionCannotBeRestoredByToken(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+
+	setup := sessionRequest(t, router, http.MethodPost, "/secret-entry/api/setup",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if setup.Code != http.StatusOK {
+		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
+	}
+	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+
+	if err := st.DeleteAllSessions(); err != nil {
+		t.Fatalf("清理会话记录失败: %v", err)
+	}
+
+	me := sessionRequest(t, router, http.MethodGet, "/secret-entry/api/auth/me", "",
+		[]*http.Cookie{session}, nil)
+	if me.Code != http.StatusUnauthorized {
+		t.Fatalf("服务端会话删除后令牌不应继续访问接口: %d %s", me.Code, me.Body.String())
+	}
+
+	var count int
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&count); err != nil {
+		t.Fatalf("统计会话记录失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("失效令牌不应被自动补登记，实际会话记录数 %d", count)
 	}
 }
 
