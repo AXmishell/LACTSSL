@@ -1,0 +1,42 @@
+name: Dependabot auto-merge
+
+# 当 Dependabot 创建或更新 PR 时，自动开启 auto-merge（仅 minor/patch）。
+# 合并仍会等待 main 分支规则集中要求的 CI 状态检查通过；
+# 合并成功后由仓库设置 delete_branch_on_merge 自动删除 Dependabot 分支。
+#
+# 使用 pull_request_target 的原因：Dependabot 触发的 pull_request 事件中
+# GITHUB_TOKEN 只有只读权限，无法开启 auto-merge。本工作流不检出 PR 代码，
+# 只通过 API 操作 PR，因此不存在执行不可信代码的风险。
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 大版本升级（如 node 25 非 LTS、前端工具链 peer 依赖变化）仍需人工评估。
+      - name: Enable auto-merge for minor/patch updates
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        shell: bash
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --squash "$PR_URL"
