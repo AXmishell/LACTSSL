@@ -1,0 +1,75 @@
+name: Pages
+
+# 将 docs/ 通过 Zensical 构建为静态站点并发布到 GitHub Pages。
+# 首次使用需要在仓库 Settings → Pages → Build and deployment 中把 Source 设为 GitHub Actions。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "mkdocs.zh.yml"
+      - "requirements-docs.txt"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只保留一次 Pages 部署，避免并发覆盖站点。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-docs.txt
+
+      - name: Build site (English, default)
+        # 英文站点作为默认首页构建到根目录；
+        # Zensical 仍处于快速迭代期，使用 --clean 避免旧构建缓存影响产物。
+        run: zensical build --strict --clean
+
+      - name: Build site (Chinese)
+        # 中文站点使用独立配置，输出到 site/zh。
+        run: zensical build -f mkdocs.zh.yml --strict
+
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: site
+          # v5 默认排除隐藏文件，v3 会打包隐藏文件；显式保持原有行为。
+          include-hidden-files: true
+
+  deploy:
+    name: Deploy site
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

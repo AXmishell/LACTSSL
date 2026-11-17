@@ -1,0 +1,62 @@
+# 运行时数据
+/data/
+/bin/
+*.log
+
+# 本地配置（包含密钥，勿提交）
+/config.yaml
+*.db
+*.db-shm
+*.db-wal
+
+# 构建产物
+/lactssl
+/lactssl-*
+/server
+/internal/dnsplugin/bundled/lactssl-dns-helper-extra*
+coverage.out
+coverage.html
+*.test
+*.exe
+/site/
+# 本地 release 流程（scripts/release.sh）
+/dist/
+/out/
+/.release-work/
+
+# 前端
+/web/node_modules/
+/web/dist/
+/internal/webui/dist/
+/web/.vite/
+/web/.cache/
+
+# 文档站点构建缓存
+/.cache/
+
+# Python（生成 favicon 等脚本）
+__pycache__/
+*.py[cod]
+
+# 临时文件
+/tmp/
+*.tmp
+*.bak
+*.orig
+
+# Go 本地工作区
+go.work
+go.work.sum
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# 文档预览服务运行时文件（scripts/docs-serve.sh）
+/.docs-serve/
+/.venv/

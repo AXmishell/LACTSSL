@@ -1,0 +1,90 @@
+APP := lactssl
+GO := go
+# 统一使用静态链接构建，不依赖目标机器的 glibc 版本。
+BUILD_ENV := CGO_ENABLED=0
+NPM := npm
+MODULE := lactssl
+VERSION := $(shell ./scripts/version.sh 2>/dev/null)
+ifeq ($(VERSION),)
+VERSION := dev
+endif
+BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILD_ARCH := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
+LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)'
+TAGS := embed
+.PHONY: all build web backend server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test typecheck tidy clean ci release i18n-check docs-build docs-serve
+
+all: build
+
+web:
+	cd web && $(NPM) install && $(NPM) run build
+	rm -rf internal/webui/dist
+	cp -a web/dist internal/webui/dist
+
+backend:
+	mkdir -p bin
+	$(BUILD_ENV) $(GO) build -trimpath -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o bin/$(APP) ./cmd/server
+
+# 开发模式二进制：不嵌入前端，运行时读取 web/dist，供 Vite 热更新使用。
+server-dev:
+	mkdir -p bin
+	$(BUILD_ENV) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(APP)-dev ./cmd/server
+
+build: web backend
+
+run:
+	$(BUILD_ENV) $(GO) run ./cmd/server
+
+dev:
+	./scripts/dev.sh start
+
+dev-up:
+	./scripts/dev.sh start
+
+dev-down:
+	./scripts/dev.sh stop
+
+dev-restart:
+	./scripts/dev.sh restart
+
+dev-status:
+	./scripts/dev.sh status
+
+dev-logs:
+	./scripts/dev.sh logs
+
+dev-api:
+	$(BUILD_ENV) $(GO) run ./cmd/server
+
+dev-web:
+	cd web && $(NPM) run dev
+
+test:
+	$(GO) test ./...
+
+typecheck:
+	cd web && $(NPM) run typecheck
+	cd web && ./node_modules/.bin/tsc -p ../scripts/tsconfig.json
+
+ci:
+	./scripts/ci.sh
+
+release:
+	./scripts/release.sh $(TAG)
+
+i18n-check:
+	node scripts/check-i18n.ts
+
+docs-build:
+	zensical build --strict --clean
+	zensical build -f mkdocs.zh.yml --strict
+
+docs-serve:
+	./scripts/docs-serve.sh $(PORT)
+
+tidy:
+	$(GO) mod tidy
+	cd web && $(NPM) install
+
+clean:
+	rm -rf bin web/dist internal/webui/dist lactssl

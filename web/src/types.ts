@@ -1,0 +1,953 @@
+// 前后端共享的数据结构定义，字段与 Go 侧的 JSON 输出保持一致。
+
+export interface User {
+  id: number
+  email: string
+  totp_enabled: boolean
+  strong_auth?: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface PasskeyInfo {
+  id: number
+  name: string
+  credential_id: string
+  created_at: string
+  last_used_at: string | null
+}
+
+export interface Session {
+  id: string
+  ip: string
+  user_agent: string
+  created_at: string
+  last_seen_at: string
+  expires_at: string
+  current: boolean
+}
+
+export interface APIKey {
+  id: number
+  name: string
+  prefix: string
+  scopes: string[]
+  enabled: boolean
+  expires_at: string | null
+  last_used_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface APIKeyScope {
+  value: string
+  group: string
+  label: string
+  description: string
+  sensitive: boolean
+}
+
+export interface APIKeyScopeGroup {
+  value: string
+  label: string
+}
+
+export interface APIKeyScopeResponse {
+  scopes: APIKeyScope[]
+  groups: APIKeyScopeGroup[]
+}
+
+export interface APIKeyCreateResult {
+  api_key: APIKey
+  token: string
+}
+
+export interface FieldOption {
+  label: string
+  value: string
+}
+
+export interface FieldCondition {
+  key: string
+  value: string
+}
+
+export interface FieldDef {
+  key: string
+  label: string
+  type: 'text' | 'password' | 'textarea' | 'number' | 'select' | 'switch'
+  required?: boolean
+  secret?: boolean
+  placeholder?: string
+  help?: string
+  options?: FieldOption[]
+  default?: string
+  show_if?: FieldCondition
+}
+
+export interface ProviderDef {
+  value: string
+  label: string
+  desc?: string
+  fields: FieldDef[]
+  deploy_fields?: FieldDef[]
+  available?: boolean
+  source?: 'builtin' | 'exec' | string
+  deprecated?: boolean
+}
+
+export interface CADef {
+  value: string
+  label: string
+  url?: string
+  protocol?: 'v1' | 'v2' | string
+  custom?: boolean
+  eab?: boolean
+  desc?: string
+}
+
+export interface ACMECA {
+  id: number
+  public_id: string
+  name: string
+  directory_url: string
+  protocol: 'v1' | 'v2' | string
+  eab_required: boolean
+  eab_kid: string
+  eab_hmac_set: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CAConfig extends CADef {
+  eab_kid: string
+  eab_hmac_set: boolean
+  is_default: boolean
+}
+
+export interface PrivateCA {
+  id: number
+  name: string
+  common_name: string
+  organization: string
+  country: string
+  key_type: string
+  source: 'generated' | 'imported' | string
+  serial: string
+  parent_id: number
+  parent_name: string
+  ca_type: 'root' | 'intermediate' | string
+  path_len: number
+  cert_pem?: string
+  not_before: string
+  not_after: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PrivateCAOption {
+  value: string
+  label: string
+  ca_type?: string
+  path_len?: number
+  not_after?: string
+}
+
+export interface Meta {
+  version?: string
+  language?: string
+  languages?: FieldOption[]
+  cas?: CADef[]
+  private_cas?: PrivateCAOption[]
+  key_types?: FieldOption[]
+  dns_providers?: ProviderDef[]
+  deploy_types?: ProviderDef[]
+}
+
+export interface Settings {
+  entry?: string
+  passkey_enabled?: boolean
+  passkey_count?: number
+  language?: string
+  acme_email?: string
+  acme_ca?: string
+  acme_key_type?: string
+  acme_renew_days?: number
+  smtp_host?: string
+  smtp_port?: number
+  smtp_username?: string
+  smtp_from?: string
+  smtp_ssl?: boolean
+  smtp_password_set?: boolean
+  notify_enabled?: boolean
+  notify_to?: string
+  notify_channels?: Record<string, Record<string, any>>
+  notify_channel_defs?: Array<{
+    id: string
+    name?: string
+    description?: string
+    fields?: NotifyChannelField[]
+  }>
+}
+
+export interface DNSAccount {
+  id: number
+  name: string
+  provider: string
+  config: Record<string, string>
+  remark: string
+  created_at: string
+  updated_at: string
+}
+
+export interface DeployAccount {
+  id: number
+  name: string
+  type: string
+  config: Record<string, string>
+  remark: string
+  created_at: string
+  updated_at: string
+}
+
+export type Account = DNSAccount | DeployAccount
+
+export interface PluginFile {
+  kind: 'dns' | 'deploy' | 'notify'
+  file: string
+  name?: string
+  size: number
+  modified?: string
+  source: 'repo' | 'manual' | 'legacy'
+  id?: string
+  version?: string
+  enabled: boolean
+  items: string[]
+}
+
+// PluginItem 是插件提供的可启用条目（服务商、部署目标或通知渠道）的公共视图。
+export interface PluginItem {
+  id: string
+  name?: string
+  helper?: string
+  version?: string
+  enabled: boolean
+  // file_enabled=false 表示所属 helper 文件已停用，条目不可单独启用。
+  file_enabled?: boolean
+}
+
+// PluginGroup 把同一个 helper 文件提供的条目聚合成一行。
+// file 缺失表示条目找不到对应的插件文件（例如文件被删除或目录不可读）。
+export interface PluginGroup {
+  key: string
+  file?: PluginFile
+  items: PluginItem[]
+}
+
+export interface DeployPluginStatus {
+  enabled: boolean
+  dir: string
+  helpers: number
+  deployers: Array<{ id: string; name?: string; description?: string; version?: string; helper?: string; enabled: boolean; file_enabled?: boolean }>
+  files?: PluginFile[]
+  errors?: string[]
+  skipped?: string[]
+  disabled?: string[]
+  disabled_files?: string[]
+  limits: { memory_limit_mb: number; timeout_seconds: number; max_output_kb: number }
+}
+
+export interface NotifyChannelField {
+  key: string
+  label?: string
+  label_key?: string
+  type?: 'text' | 'password' | 'textarea' | 'number' | 'select' | 'switch'
+  required?: boolean
+  secret?: boolean
+  placeholder?: string
+  help?: string
+  default?: string
+  options?: Array<{ value: string; label?: string; label_key?: string }>
+}
+
+export interface NotifyPluginChannel {
+  id: string
+  name?: string
+  description?: string
+  fields?: NotifyChannelField[]
+  version?: string
+  helper?: string
+  enabled: boolean
+  file_enabled?: boolean
+}
+
+export interface NotifyPluginStatus {
+  enabled: boolean
+  dir: string
+  helpers: number
+  channels: NotifyPluginChannel[]
+  files?: PluginFile[]
+  errors?: string[]
+  skipped?: string[]
+  disabled?: string[]
+  disabled_files?: string[]
+  limits: { memory_limit_mb: number; timeout_seconds: number; max_output_kb: number }
+}
+
+export interface PluginProvider {
+  id: string
+  name?: string
+  description?: string
+  helper?: string
+  version?: string
+  enabled: boolean
+  file_enabled?: boolean
+}
+
+export interface PluginStatus {
+  enabled: boolean
+  dir: string
+  helpers: number
+  providers: PluginProvider[]
+  files?: PluginFile[]
+  errors?: string[]
+  skipped?: string[]
+  disabled_files?: string[]
+  limits: { memory_limit_mb: number; timeout_seconds: number; max_output_kb: number }
+  deploy?: DeployPluginStatus
+  notify?: NotifyPluginStatus
+}
+
+export interface PluginRepoStatus {
+  enabled: boolean
+  url: string
+  channel: string
+  auto_update: boolean
+  public_key_set: boolean
+  public_key_valid: boolean
+  public_key_fingerprint?: string
+  signature_verified: boolean
+  timeout_seconds: number
+  max_download_mb: number
+  platform: string
+  host_version: string
+  checked_at: string
+  plugins: number
+  error?: string
+}
+
+export interface PluginRepoItem {
+  kind: 'dns' | 'deploy' | 'notify'
+  id: string
+  name?: string
+  description?: string
+  version: string
+  protocol: string
+  min_host?: string
+  bundle?: boolean
+  provider_count?: number
+  icon?: string
+  compatible: boolean
+  platform_available: boolean
+  installed: boolean
+  installed_version?: string
+  source?: string
+  update_available: boolean
+  size?: number
+  download_size?: number
+}
+
+export interface LegacyPluginFile {
+  kind: 'dns' | 'deploy' | 'notify'
+  file: string
+  path: string
+  size: number
+}
+
+export interface PluginUploadResult {
+  kind: 'dns' | 'deploy' | 'notify'
+  file: string
+  name?: string
+  version?: string
+  sha256?: string
+  items: string[]
+  errors?: string[]
+  message?: string
+}
+
+export type PipelineNodeType = 'apply' | 'deploy' | 'notify'
+export type NotifyOn = 'always' | 'success' | 'failure'
+
+export interface PipelineConfig {
+  domains?: string[]
+  dns_account_id?: number
+  ca?: string
+  key_type?: string
+  auto_renew?: boolean
+  renew_days?: number
+  deploy_account_id?: number
+  deploy_config?: Record<string, string>
+  notify_channel?: string
+  notify_channels?: string[]
+  notify_on?: NotifyOn
+  subject?: string
+}
+
+export interface PipelineNode {
+  id: string
+  type: PipelineNodeType
+  name: string
+  enabled: boolean
+  config: PipelineConfig
+}
+
+export interface Task {
+  id: number
+  name: string
+  domains: string[]
+  challenge: string
+  dns_account_id: number
+  ca: string
+  key_type: string
+  auto_renew: boolean
+  renew_days: number
+  deploy_ids: number[]
+  pipeline: PipelineNode[]
+  enabled: boolean
+  status: string
+  message: string
+  last_run_at: string | null
+  next_run_at: string | null
+  cert_id: number
+  created_at: string
+  updated_at: string
+}
+
+export interface Certificate {
+  id: number
+  task_id: number
+  domains: string[]
+  primary_domain: string
+  issuer: string
+  ca: string
+  source?: string
+  cert_pem: string
+  fullchain_pem: string
+  serial: string
+  not_before: string
+  not_after: string
+  status: string
+  revoked_at?: string
+  created_at: string
+}
+
+export interface ChainItem {
+  subject: string
+  issuer: string
+  is_ca: boolean
+  not_before: string
+  not_after: string
+  signature_algorithm: string
+  public_key: string
+  serial_number: string
+}
+
+export interface CertificateAnalysis {
+  subject: string
+  issuer: string
+  serial: string
+  signature_algorithm: string
+  public_key_algorithm: string
+  key_bits: number
+  not_before: string
+  not_after: string
+  days_left: number
+  dns_names: string[]
+  is_wildcard: boolean
+  chain: ChainItem[]
+  issues: string[]
+  level: string
+  score: number
+  validity_days: number
+}
+
+export interface DeployRecord {
+  id: number
+  cert_id: number
+  deploy_account_id: number
+  account_name: string
+  task_id: number
+  status: string
+  message: string
+  created_at: string
+}
+
+export interface Monitor {
+  id: number
+  name: string
+  target: string
+  interval_hours: number
+  enabled: boolean
+  status: string
+  message: string
+  expires_at: string | null
+  issuer: string
+  last_check_at: string | null
+  next_check_at: string | null
+  created_at: string
+}
+
+export interface LogEntry {
+  id: number
+  source: string
+  ref_id: number
+  level: string
+  message: string
+  created_at: string
+}
+
+export interface ExpiryBucket {
+  label: string
+  count: number
+}
+
+export interface TrendPoint {
+  date: string
+  count: number
+}
+
+export interface Dashboard {
+  cert_total: number
+  cert_expiring: number
+  cert_expired: number
+  task_total: number
+  task_enabled: number
+  monitor_total: number
+  monitor_issue: number
+  deploy_total: number
+  success_rate: number
+  expiry_buckets: ExpiryBucket[]
+  trend: TrendPoint[]
+  recent_tasks: Task[]
+  recent_certs: Certificate[]
+  recent_logs: LogEntry[]
+}
+
+// 会话令牌通过 HttpOnly Cookie 下发，响应体只返回用户信息。
+export interface AuthResult {
+  user: User
+}
+
+export interface MessageResult {
+  message?: string
+  entry?: string
+  restarting?: boolean
+}
+
+export interface TaskBatchResult {
+  started?: number
+  skipped?: number
+  updated?: number
+  skipped_ids?: number[]
+  message?: string
+}
+
+export interface BackupInfo {
+  database_size: number
+  config_size: number
+  config_included: boolean
+  pending_restore: boolean
+  last_backup_at: string | null
+}
+
+export interface TOTPSetup {
+  secret: string
+  url: string
+}
+
+export interface LogPage {
+  items: LogEntry[]
+  total: number
+}
+
+export interface SystemLogEntry {
+  id: number
+  level: string
+  component: string
+  message: string
+  fields?: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface SystemLogPage {
+  items: SystemLogEntry[]
+  total: number
+  page: number
+  size: number
+  components: string[]
+  retention_days: number
+  enabled: boolean
+}
+
+export interface DeployResult {
+  success: boolean
+  name: string
+  message: string
+}
+
+export interface DeployResponse {
+  results: DeployResult[]
+}
+
+export interface SetupStatus {
+  initialized: boolean
+}
+
+export interface SetupPluginRuntimeConfig {
+  enabled: boolean
+  memory_limit_mb: number
+  timeout_seconds: number
+  max_output_kb: number
+}
+
+export interface SetupConfig {
+  server: {
+    addr: string
+    host: string
+    port: number
+  }
+  trusted_proxies: string[]
+  public_url: string
+  session_persistence: boolean
+  acme: {
+    enabled: boolean
+    addr: string
+    base_url: string
+    tls: {
+      cert: string
+      key: string
+    }
+    mtls: {
+      enabled: boolean
+      client_ca: string
+    }
+  }
+  log: {
+    level: string
+    format: string
+    also_stdout: boolean
+    max_size_mb: number
+    max_backups: number
+    max_age_days: number
+    compress: boolean
+    access_log: boolean
+    system: {
+      enabled: boolean
+      level: string
+      access: boolean
+      retention_days: number
+      max_rows: number
+    }
+  }
+  upgrade: {
+    auto: boolean
+    auto_optimize: boolean
+    vacuum: boolean
+    program: {
+      enabled: boolean
+      channel: string
+      check_interval_hours: number
+      max_download_mb: number
+    }
+  }
+  plugins: SetupPluginRuntimeConfig & {
+    repo: {
+      enabled: boolean
+      url: string
+      channel: string
+      auto_update: boolean
+      timeout_seconds: number
+      max_download_mb: number
+      check_interval_hours: number
+    }
+  }
+  deploy_plugins: SetupPluginRuntimeConfig
+  notify_plugins: SetupPluginRuntimeConfig
+}
+
+export interface SetupConfigResult {
+  config: SetupConfig
+}
+
+export interface SetupConfigSaveResult {
+  message?: string
+  restart_required: boolean
+}
+
+export interface ApiError extends Error {
+  data?: unknown
+  status?: number
+  totpRequired?: boolean
+  passkeyRequired?: boolean
+}
+
+export interface ACMEEndpoint {
+  id: number
+  public_id: string
+  name: string
+  slug: string
+  ca_id: number
+  ca_name: string
+  enabled: boolean
+  eab_required: boolean
+  allowed_domains: string[]
+  allow_wildcard: boolean
+  allow_ip: boolean
+  allowed_ip_cidrs: string[]
+  http01_enabled: boolean
+  dns01_enabled: boolean
+  tls_alpn_01_enabled: boolean
+  allow_private_http01: boolean
+  allow_private_tls_alpn_01: boolean
+  http01_allowed_cidrs: string[]
+  tls_alpn_01_allowed_cidrs: string[]
+  validity_days: number
+  max_orders_per_hour: number
+  directory_url: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ACMEEABCredential {
+  id: number
+  public_id: string
+  endpoint_id: number
+  kid: string
+  label: string
+  hmac_set: boolean
+  used_at?: string | null
+  expires_at?: string | null
+  created_at: string
+}
+
+export interface ACMEEABCreated {
+  id: number
+  kid: string
+  label: string
+  hmac_key: string
+  hmac_set: boolean
+  expires_at?: string | null
+  created_at: string
+}
+
+export interface ACMEAccount {
+  id: number
+  public_id: string
+  endpoint_id: number
+  endpoint_name: string
+  kid: string
+  thumbprint: string
+  contact: string[]
+  status: string
+  eab_id: number
+  last_used_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ACMEOrder {
+  id: number
+  public_id: string
+  endpoint_id: number
+  endpoint_name: string
+  account_id: number
+  account_kid: string
+  status: string
+  identifiers: string[]
+  replaces?: string
+  expires_at?: string | null
+  certificate_id: number
+  certificate_state?: string
+  error: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ACMEChallenge {
+  id: number
+  public_id: string
+  authz_id: number
+  type: string
+  token: string
+  status: string
+  validated_at?: string | null
+  error: string
+  attempts: number
+  next_check_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ACMEAuthorization {
+  id: number
+  public_id: string
+  order_id: number
+  identifier: string
+  identifier_type: string
+  wildcard: boolean
+  status: string
+  expires_at?: string | null
+  created_at: string
+  updated_at: string
+  challenges: ACMEChallenge[]
+}
+
+export interface ACMEOrderDetail {
+  order: ACMEOrder
+  authorizations: ACMEAuthorization[]
+  certificate?: Certificate | null
+}
+
+export interface UpgradeStepStatus {
+  id: string
+  version: number
+  title_key: string
+  desc_key: string
+  status: 'done' | 'skipped' | 'pending' | 'failed'
+  changed?: boolean
+  detail?: string
+  last_applied?: string
+}
+
+export interface UpgradeConfigChange {
+  key: string
+  action: 'added' | 'normalized'
+  before?: string
+  after?: string
+}
+
+export interface UpgradeConfigReport {
+  path: string
+  changed: boolean
+  applied: boolean
+  changes: UpgradeConfigChange[]
+  warnings: string[]
+}
+
+export interface UpgradeDatabaseStats {
+  file_size: number
+  wal_size: number
+  page_size: number
+  page_count: number
+  free_pages: number
+  used_bytes: number
+  free_bytes: number
+  journal_mode: string
+  integrity: string
+  tables: number
+  indexes: number
+}
+
+export interface UpgradeRunRecord {
+  source: string
+  app_version: string
+  from_version: number
+  to_version: number
+  started_at: string
+  finished_at: string
+  step_count: number
+  changed_steps: number
+  config_changes: number
+  reclaimed_bytes: number
+  warnings?: string[]
+  error?: string
+}
+
+export interface UpgradeStatus {
+  app_version: string
+  stored_version: number
+  current_version: number
+  version_label: string
+  needs_upgrade: boolean
+  auto_enabled: boolean
+  vacuum_allowed: boolean
+  steps: UpgradeStepStatus[]
+  last_run?: UpgradeRunRecord
+  database: UpgradeDatabaseStats
+  config: UpgradeConfigReport
+  warnings: string[]
+  checked_at: string
+}
+
+export interface UpgradeOptimizeResult {
+  before: UpgradeDatabaseStats
+  after: UpgradeDatabaseStats
+  actions: string[]
+  warnings: string[]
+  reclaimed_bytes: number
+  duration: number
+}
+
+export interface UpgradeRunReport {
+  source: string
+  app_version: string
+  from_version: number
+  to_version: number
+  started_at: string
+  finished_at: string
+  steps: UpgradeStepStatus[]
+  config: UpgradeConfigReport
+  database: UpgradeOptimizeResult
+  backup_dir?: string
+  warnings: string[]
+  error?: string
+}
+
+export interface ProgramAsset {
+  name: string
+  url: string
+  size: number
+  sha256?: string
+}
+
+export interface ProgramRelease {
+  version: string
+  tag: string
+  name?: string
+  notes?: string
+  url?: string
+  published_at: string
+  prerelease: boolean
+  asset: ProgramAsset
+  checksum: ProgramAsset
+}
+
+export interface ProgramRunReport {
+  from_version: string
+  to_version: string
+  asset?: string
+  sha256?: string
+  backup_path?: string
+  started_at: string
+  finished_at: string
+  restart_required: boolean
+  restart_mode?: string
+  error?: string
+}
+
+export interface ProgramStatus {
+  enabled: boolean
+  repo: string
+  channel: string
+  current_version: string
+  platform: string
+  latest?: ProgramRelease
+  update_available: boolean
+  can_update: boolean
+  reason?: string
+  restart_mode: 'exec' | 'exit'
+  checked_at: string
+  check_error?: string
+  last_run?: ProgramRunReport
+  restart_pending: boolean
+}

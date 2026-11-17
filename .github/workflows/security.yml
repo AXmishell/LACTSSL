@@ -1,0 +1,110 @@
+name: Security
+
+on:
+  schedule:
+    # 每天 03:17 UTC（北京时间 11:17）扫描一次，捕获代码未变但新披露的漏洞
+    - cron: "17 3 * * *"
+  push:
+    branches: [main]
+    paths:
+      - go.mod
+      - go.sum
+      - .github/workflows/security.yml
+  pull_request:
+    paths:
+      - go.mod
+      - go.sum
+      - .github/workflows/security.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFLAGS: -mod=readonly
+  GOVULNCHECK_VERSION: v1.9.0
+  GOVULNCHECK: ${{ github.workspace }}/.bin/govulncheck
+
+jobs:
+  govulncheck:
+    name: govulncheck (dependency vulnerabilities)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # 上传 SARIF 到 Code scanning 需要
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$GOVULNCHECK")"
+          GOBIN="$(dirname "$GOVULNCHECK")" go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          "$GOVULNCHECK" -version
+
+      - name: Scan (SARIF)
+        shell: bash
+        run: |
+          "$GOVULNCHECK" -format sarif ./... > govulncheck.sarif
+          python3 -c "import json;d=json.load(open('govulncheck.sarif'));print('SARIF runs:',len(d.get('runs',[])))"
+
+      - name: Upload SARIF to code scanning
+        # fork PR 的 token 只读，无法上传，跳过即可
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          sarif_file: govulncheck.sarif
+          category: govulncheck
+
+      - name: Fail on findings
+        # sarif 格式始终返回 0，这里用 text 模式做门禁（有漏洞时退出码 3）
+        shell: bash
+        run: '"$GOVULNCHECK" ./...'
+
+  gosec:
+    name: gosec (static analysis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # 上传 SARIF 到 Code scanning
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gosec
+        shell: bash
+        run: |
+          mkdir -p .bin
+          GOBIN="$PWD/.bin" go install github.com/securego/gosec/v2/cmd/gosec@v2.30.0
+
+      - name: Scan (SARIF)
+        # 先用报告模式观察存量告警（多为 TLS/证书路径等已评估的误报），
+        # 清理到基线后再去掉 `|| true` 启用门禁。
+        shell: bash
+        run: ./.bin/gosec -quiet -fmt sarif -out gosec.sarif ./... || true
+
+      - name: Upload SARIF to code scanning
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          sarif_file: gosec.sarif
+          category: gosec

@@ -1,0 +1,195 @@
+# DNS 插件
+
+DNS 插件为公共 CA 的 DNS-01 验证提供域名服务商 API 接入。企业选型时重点不是“支持多少家”，而是**凭据最小权限、可轮换、可审计、可离线部署**。
+
+## 1. 使用前提
+
+- 已在「DNS 账户」中创建对应服务商的凭据。
+- 已在「插件」页安装并启用 DNS 插件及具体服务商。
+- 域名所在 Zone 对该凭据可见，且允许创建/删除 TXT 记录。
+- 出站可访问服务商 API；如经代理，确认 Go HTTP 客户端代理配置。
+
+未安装任何 DNS 插件时，DNS 服务商列表为空。历史 DNS 账户不会丢失，但服务商不可用时签发会给出明确错误。
+
+## 2. 插件包选择
+
+官方仓库 [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) 为全部约 194 家服务商提供三个 DNS 包：
+
+| 包 | 覆盖 | 解压后 | 适用 |
+| --- | --- | ---: | --- |
+| DNS 常用 | 184 个常用服务商 | 约 21 MiB | 大多数企业 |
+| DNS 大型云厂商 | 10 个重型 SDK 服务商 | 约 39 MiB | 需要 Google Cloud、Azure、Route53 等 |
+| DNS 全量·重构 | 194 个服务商 | 约 18 MiB | 想用单包覆盖全部服务商 |
+
+- 每个包共享一份 Go 运行时，避免逐服务商打包的磁盘和进程开销。
+- 主程序发布包不内置任何服务商；按需安装。
+- 服务商图标随插件包和仓库索引下发，安装后缓存在 `<data_dir>/plugin-icons/`。
+
+## 3. 安装与启用
+
+1. 打开「插件」页，确认仓库地址，点击「刷新索引」。
+2. 打开「插件市场」，筛选 DNS，安装需要的包。
+3. 在 DNS 服务商列表中启用具体服务商；新安装条目默认停用。
+4. 在「DNS 账户」中创建凭据，选择该服务商。
+
+合并包不会被行首开关一次性全开；一次启用超过 10 个条目会要求确认。文件级停用后，其中的条目不会注册到运行时，但已有勾选会保留。
+
+安装、更新、卸载只需登录会话或 `plugins:write`。插件包会校验索引签名（如配置公钥）、asset SHA-256、`plugin.json` 与 manifest 中的服务商 ID，任一不符都会拒绝安装并回滚。
+
+## 4. 凭据治理
+
+### 4.1 最小权限
+
+- 使用专用子账号或 API Token，不使用个人账号、全局管理员密钥。
+- 只授予目标 Zone 的 DNS 读写权限；不要授予账户级支付、域名注册、删除 Zone 等权限。
+- 如果服务商支持按域名/项目授权，限制到实际需要签发的域名。
+- 为测试、生产使用不同凭据和不同 DNS 子账号。
+
+### 4.2 轮换
+
+- 记录凭据责任人、创建时间、权限范围、轮换周期。
+- 轮换时先在 LACTSSL 更新凭据，再在服务商侧吊销旧凭据。
+- 轮换后运行一条测试任务，确认 TXT 创建/清理正常。
+- 人员离职、密钥泄露或服务商安全事件后立即轮换。
+
+### 4.3 保管
+
+- 凭据在写入数据库前使用 AES-256-GCM 加密；接口返回时脱敏。
+- 编辑账户时留空密钥字段表示保留原值。
+- 不要把凭据写入任务名、备注、工单或日志。
+- 备份包包含加密凭据，按机密文件管理。
+
+## 5. 常见服务商
+
+| 服务商 | 主要凭据 | 备注 |
+| --- | --- | --- |
+| 阿里云 DNS（alidns） | AccessKey ID / Secret | 可选 Region |
+| 阿里云 ESA（aliesa） | AccessKey ID / Secret | 可选 Region |
+| Cloudflare | API Token，或 Email + Global API Key | 可选 API 上游地址 |
+| DNSPod | API Token | |
+| 腾讯云（tencentcloud） | SecretId / SecretKey | 可选 Region |
+| 华为云（huaweicloud） | AccessKey ID / SecretAccessKey / Region | |
+| 火山引擎（volcengine） | AccessKey / SecretKey | 可选 Region、API 主机与协议 |
+| 百度智能云（baiducloud） | AccessKey ID / SecretAccessKey | |
+| 京东云（jdcloud） | AccessKey ID / AccessKey Secret | 可选 Region |
+| AWS Route 53 | AccessKey / SecretAccessKey | 可选 Region、Hosted Zone、私有区域 |
+| Google Cloud DNS | 服务账号 JSON | 可选项目 ID |
+| Azure DNS | Tenant ID / Client ID / Client Secret / Subscription ID / 资源组 | |
+| DigitalOcean / Vultr / Linode / Hetzner | API Token / API Key | |
+| Gandi / GoDaddy / Namecheap / NameSilo / Porkbun | 各服务商 API 凭据 | |
+| PowerDNS（pdns） | API 地址 / API Key | 可选 Server 名称与 API 版本 |
+| RFC 2136 动态更新 | DNS 服务器 | 可选 TSIG Key / Secret / 算法与 Zone 列表 |
+
+- 安装官方 DNS 插件后支持 lego 的全部服务商（约 190 家）。
+- `manual` 服务商需要人工添加 TXT 记录，不纳入自动流程。
+- Cloudflare、DNSimple、PowerDNS、火山引擎等支持自定义 API 上游地址，可用于代理、自建服务或兼容网关。
+- 完整服务商列表以「DNS 账户」页的下拉框为准。
+
+## 6. 离线与手动安装
+
+- 在「插件」页上传单个 helper 可执行文件，最大 256 MB。
+- 上传后先以临时文件探测 `manifest`，校验协议、服务商 ID 和 SHA-256，通过后才写入插件目录并重扫。
+- 默认拒绝覆盖同名文件；升级时勾选“允许覆盖同名插件”，旧文件会先备份。
+- 或把 `plugins.repo.url` 指向内部镜像索引：
+
+```yaml
+plugins:
+  repo:
+    url: "file:///srv/lactssl-plugins/index.json"
+```
+
+手动上传的多服务商 bundle 仍可加载，但会标记为 `manual`，不参与官方仓库升级。
+
+## 7. 验证与排障
+
+### 7.1 验证
+
+1. 创建 DNS 账户，保存成功。
+2. 创建测试任务，选择该账户和测试域名。
+3. 运行任务，观察 TXT 创建、CA 验证、TXT 清理。
+4. 检查任务日志和操作日志。
+5. 删除测试证书或保留按需。
+
+### 7.2 常见问题
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| 服务商下拉框为空 | 未安装/未启用插件 | 安装 DNS 包并启用服务商 |
+| 凭据保存失败 | 必填字段缺失/格式错误 | 按表单和日志提示修正 |
+| TXT 创建失败 | 权限/Zone/配额 | 检查 API 权限、域名和配额 |
+| TXT 清理失败 | 权限或记录已被删除 | 手动清理残留 TXT |
+| 验证超时 | DNS 传播慢/权威 DNS 未更新 | 检查 TTL、权威解析和 CAA |
+| 自定义 API 地址失败 | 地址不可达/证书不受信 | 检查网络、TLS 和上游地址 |
+| 插件加载失败 | 权限/摘要/协议 | 检查目录权限和安装记录 |
+
+## 8. Helper 协议 v1（集成开发）
+
+本节面向插件开发者；运维人员通常不需要了解。
+
+helper 是一个可执行文件，支持三个子命令：
+
+```bash
+dns-helper manifest   # 输出 JSON 清单
+dns-helper present    # 从 stdin 读取请求，添加 TXT 记录
+dns-helper cleanup    # 从 stdin 读取请求，删除 TXT 记录
+```
+
+`manifest` 输出示例：
+
+```json
+{
+  "protocol": "v1",
+  "name": "example dns helper",
+  "version": "1.0.0",
+  "sha256": "可选的 helper 文件校验和",
+  "providers": [
+    {
+      "id": "example-dns",
+      "name": "Example DNS",
+      "description": "示例服务商",
+      "aliases": ["example"],
+      "fields": [
+        {"key": "api_token", "label": "API Token", "type": "password", "required": true}
+      ]
+    }
+  ]
+}
+```
+
+`present` / `cleanup` 的 stdin：
+
+```json
+{
+  "action": "present",
+  "provider": "example-dns",
+  "config": {"api_token": "..."},
+  "domain": "example.com",
+  "token": "acme-token",
+  "key_auth": "key-authorization"
+}
+```
+
+约定：
+
+- 退出码 `0` 表示成功，非 `0` 表示失败；stderr 会进入任务日志（敏感值会被脱敏）。
+- stdout 保持为空；`present/cleanup` 的输出会被视为错误。
+- helper 从 `LACTSSL_PLUGIN_MEMORY_LIMIT`（字节）获得内存预算。
+- 主程序周期性检查 helper 的 `VmRSS`，超过 `plugins.memory_limit_mb` 时结束进程并记录错误。
+- 主程序只传递最小环境变量集合（PATH、HOME、代理、TLS 证书等），不会泄漏服务端密钥。
+- helper 文件不能允许其他用户写入；`manifest.sha256` 非空时会校验文件摘要。
+- `version` 表示 helper/服务商实现自身版本，不是 LACTSSL 构建版本。
+
+## 9. 安全建议
+
+- 插件目录只允许服务运行用户写入，优先 `0700`。
+- 只安装可信来源的 helper，并在 manifest 中填写 `sha256`。
+- 设置合理的 `memory_limit_mb` 与 `timeout_seconds`，避免异常插件拖垮主机。
+- 插件以服务账号运行，不要给 `lactssl` 用户额外权限。
+- 生产使用内部镜像，固定版本，关闭自动更新。
+
+## 相关文档
+
+- [插件治理](plugins.md)
+- [产品能力](features.md)
+- [部署插件](deploy-plugins.md)
+- [通知插件](notify-plugins.md)

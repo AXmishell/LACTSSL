@@ -1,0 +1,189 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFLAGS: -mod=readonly
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+
+jobs:
+  backend:
+    name: Backend (gofmt + vet + test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Read plugins version
+        id: plugins
+        shell: bash
+        run: |
+          version="$(awk '$1=="github.com/AXmishell/LACTSSL-Plugins"{print $2}' go.mod)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout plugins
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: AXmishell/LACTSSL-Plugins
+          ref: ${{ steps.plugins.outputs.version }}
+          path: .plugins
+
+      - name: Use local plugins checkout
+        run: go mod edit -replace github.com/AXmishell/LACTSSL-Plugins=./.plugins
+
+      - name: Check gofmt
+        shell: bash
+        run: |
+          mapfile -t files < <(git ls-files -z '*.go' | xargs -0 gofmt -l)
+          if [ "${#files[@]}" -gt 0 ]; then
+            echo "以下文件未通过 gofmt，请运行 gofmt -w 后重新提交："
+            printf '  %s\n' "${files[@]}"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -n 1
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Typecheck scripts
+        run: ./node_modules/.bin/tsc -p ../scripts/tsconfig.json
+
+      - name: Check i18n locales
+        working-directory: .
+        run: node scripts/check-i18n.ts
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  build:
+    name: Build binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [backend, frontend]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # 需要完整历史与 tag，供 scripts/version.sh 通过 git describe 推导版本号。
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: web-dist
+          path: internal/webui/dist
+
+      - name: Read plugins version
+        id: plugins
+        shell: bash
+        run: |
+          version="$(awk '$1=="github.com/AXmishell/LACTSSL-Plugins"{print $2}' go.mod)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout plugins
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: AXmishell/LACTSSL-Plugins
+          ref: ${{ steps.plugins.outputs.version }}
+          path: .plugins
+
+      - name: Use local plugins checkout
+        run: go mod edit -replace github.com/AXmishell/LACTSSL-Plugins=./.plugins
+
+      - name: Build
+        run: |
+          BUILD_VERSION=$(./scripts/version.sh)
+          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          BUILD_ARCH=$(go env GOOS)/$(go env GOARCH)
+          mkdir -p bin
+          CGO_ENABLED=0 go build -trimpath -tags embed \
+            -ldflags "-s -w -X 'lactssl/internal/api.Version=$BUILD_VERSION' -X 'lactssl/internal/api.BuildTime=$BUILD_TIME' -X 'lactssl/internal/api.BuildArch=$BUILD_ARCH'" \
+            -o bin/lactssl ./cmd/server
+
+      - name: Verify binary
+        run: |
+          test -x bin/lactssl
+          ls -lh bin/lactssl
+
+      - name: Upload binary
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: lactssl-linux-amd64
+          path: bin/lactssl
+          retention-days: 7

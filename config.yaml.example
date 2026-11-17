@@ -1,0 +1,168 @@
+# LACTSSL 配置文件示例
+# 复制为 config.yaml 后按需修改；文件不存在时服务会自动生成。
+# 默认读取当前工作目录的 config.yaml；也可在启动时用 -config 指定其他路径。
+# 修改后需重启服务生效；所有运行配置只从本文件读取。
+# 注意：jwt_secret 与 salt 用于令牌签名和敏感配置加密，请勿泄露并做好备份。
+
+server:
+  # 完整监听地址，例如 ":8080"、"127.0.0.1:8080"；留空则使用 host + port
+  addr: ""
+  # 监听网卡，留空表示监听所有网卡
+  host: ""
+  port: 8080
+  # 可信反向代理 CIDR；留空表示不信任任何代理头（直连部署推荐）
+  # 例如：["127.0.0.1", "10.0.0.0/8"]
+  trusted_proxies: []
+
+# 数据目录：存放 SQLite 数据库
+data_dir: "data"
+
+database:
+  # 留空表示 <data_dir>/lactssl.db
+  path: ""
+
+log:
+  # 进程日志级别：debug、info、warn、error
+  level: info
+  # 输出格式：text（默认）或 json
+  format: text
+  # 日志文件；留空仅输出到 stdout。相对路径基于当前工作目录。
+  # 建议设为 <data_dir>/logs/lactssl.log，并确保目录可写。
+  file: ""
+  # 写入文件时是否仍输出到 stdout；Docker 部署建议保持 true
+  also_stdout: true
+  # 单文件大小上限（MB），超过后轮转
+  max_size_mb: 20
+  # 保留历史文件数量，0 表示不限制
+  max_backups: 5
+  # 历史文件保留天数，0 表示不限制
+  max_age_days: 30
+  # 是否压缩历史文件
+  compress: true
+  # 是否记录 HTTP 访问日志（不记录查询参数与门禁入口）
+  access_log: true
+  system:
+    # 是否把进程日志写入数据库，供「系统日志」页面查看
+    enabled: true
+    # 写入数据库的最低级别（不能低于上面的 log.level）
+    level: info
+    # 是否把 HTTP 访问日志也写入数据库；高频请求会快速占用数据库，默认关闭
+    access: false
+    # 系统日志保留天数
+    retention_days: 7
+    # 系统日志最大行数，超出后删除最旧记录
+    max_rows: 20000
+
+upgrade:
+  # 启动时自动执行数据库/配置的历史遗留迁移；关闭后可在 /upgrade 页面手动执行。
+  auto: true
+  # 启动时执行低成本优化（补充索引、更新统计、WAL checkpoint），不执行 VACUUM。
+  auto_optimize: true
+  # 在 /upgrade 页面手动优化时允许 VACUUM 回收磁盘空间（会短暂独占数据库）。
+  vacuum: true
+  # 程序自升级：从 GitHub Release 下载并替换当前二进制。
+  # 只读容器（例如官方 compose 的 read_only: true）会在页面上提示不支持。
+  program:
+    enabled: true
+    # GitHub 仓库，格式为 owner/repo
+    repo: "AXmishell/LACTSSL"
+    # stable 仅正式版；beta 包含预发布版本
+    channel: stable
+    # 自动检查新版本的最小间隔（小时）
+    check_interval_hours: 6
+    # 发布包下载大小上限（MB）
+    max_download_mb: 128
+    # 发布签名公钥（base64 Ed25519）；配置后强制校验 release 中的 checksums.txt.sig。
+    # 发布流程需配置 ED25519_PRIVATE_KEY 密钥；留空表示仅依赖 HTTPS 与 SHA-256。
+    public_key: ""
+    # 可选的 GitHub API token，用于提高版本检查的速率上限；留空表示匿名请求。
+    token: ""
+
+security:
+  # 门禁入口；留空则首次启动随机生成 20 位大小写字母与数字组合，并保存到数据库
+  # 也可手动指定，至少 8 位，例如 "K7mQ2pX9vR4tY8nL6cWz"（支持带或不带首尾斜杠）
+  entry: ""
+  # 对外访问地址，例如 "https://ssl.example.com"（不要带路径）。
+  # 密码重置邮件中的链接必须基于该固定地址生成；未配置时仅允许本机回环请求按 Host 推导。
+  public_url: ""
+  # 会话保持（默认 false）：为 true 时进程重启后保留登录会话，浏览器可直接继续使用，
+  # 无需重新登录。开启后 JWT 签名不再随启动轮换，请妥善保管 jwt_secret。
+  session_persistence: false
+  # JWT 签名密钥；留空则自动生成并写回本文件。手动配置时至少 32 个字符。
+  # 建议与下面的 salt 使用不同的随机值（JWT 签名还会经 HKDF 派生独立子密钥）。
+  # 默认每次启动都会混入新的随机值并清空服务端会话，因此重启后需要重新登录；
+  # 启用 session_persistence 后改为使用固定密钥，重启不会中断登录状态。
+  jwt_secret: ""
+  # 数据库敏感字段加密盐（AES-256-GCM）；留空则自动生成并写回本文件。手动配置时至少 32 个字符。
+  salt: ""
+
+acme:
+  # 是否启用内置 ACME 服务端（默认开启）；端点、EAB、域名白名单在管理接口中配置
+  enabled: true
+  # 独立监听地址，例如 ":14000"；留空则挂载到主端口的 /acme
+  addr: ""
+  # 对外访问地址，例如 "https://pki.example.com:14000"；留空则按请求 Host 推导
+  base_url: ""
+  tls:
+    # 直接由 ACME 监听提供 TLS 时填写；反向代理终止 TLS 时留空
+    cert: ""
+    key: ""
+  mtls:
+    # 启用 mTLS 时必须同时配置上面的 tls.cert / tls.key
+    enabled: false
+    client_ca: ""
+
+plugins:
+  # 是否加载 DNS 插件（默认开启）
+  # 主程序不再内置或随包分发任何服务商；请在「插件」页从插件仓库按需安装。
+  enabled: true
+  # 插件目录；留空表示 <data_dir>/plugins/dns
+  dir: ""
+  # 单个 helper 进程常驻内存（RSS）上限，0 表示不限制
+  memory_limit_mb: 128
+  # present/cleanup 单次执行超时（秒）
+  timeout_seconds: 60
+  # helper 输出日志上限（KB）
+  max_output_kb: 64
+  repo:
+    # 插件仓库默认启用；首次进入插件页会拉取索引。
+    enabled: true
+    # 索引地址；支持 http、https 与 file:// 离线镜像
+    url: "https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json"
+    # stable 或 beta
+    channel: stable
+    # 自动更新已安装插件（默认关闭）
+    auto_update: false
+    # 索引签名公钥（base64 Ed25519）；默认内置官方仓库公钥。
+    # 清空后只校验 HTTPS 与 asset sha256，生产环境不建议关闭。
+    public_key: "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
+    # 拉取索引/下载插件超时（秒）
+    timeout_seconds: 30
+    # 单个插件包大小上限（MB）
+    max_download_mb: 256
+    # 自动检查间隔（小时）
+    check_interval_hours: 24
+
+deploy_plugins:
+  # 是否加载外部证书部署插件（默认关闭）。插件会接收证书私钥，仅启用可信 helper。
+  enabled: false
+  # 插件目录；留空表示 <data_dir>/plugins/deploy（与 DNS 插件目录分开）
+  dir: ""
+  # 单个 helper 进程常驻内存（RSS）上限，0 表示不限制
+  memory_limit_mb: 128
+  # deploy 单次执行超时（秒）；上传大文件时可调大
+  timeout_seconds: 300
+  # helper 输出日志上限（KB）
+  max_output_kb: 64
+
+notify_plugins:
+  # 是否加载外部通知插件（默认开启）。主程序只内置邮件，其余渠道由 helper 提供。
+  enabled: true
+  # 插件目录；留空表示 <data_dir>/plugins/notify（与 DNS/部署插件目录分开）
+  dir: ""
+  # 单个 helper 进程常驻内存（RSS）上限，0 表示不限制
+  memory_limit_mb: 128
+  # send 单次执行超时（秒）
+  timeout_seconds: 30
+  # helper 输出日志上限（KB）
+  max_output_kb: 64
