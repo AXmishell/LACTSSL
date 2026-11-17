@@ -86,7 +86,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout tag
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.meta.outputs.tag }}
 
@@ -138,7 +138,7 @@ jobs:
             goarch: amd64
     steps:
       - name: Checkout tag
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.meta.outputs.tag }}
 
@@ -162,7 +162,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Checkout plugins
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AXmishell/LACTSSL-Plugins
           ref: ${{ steps.plugins.outputs.version }}
@@ -229,7 +229,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout tag
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.meta.outputs.tag }}
 
@@ -276,7 +276,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout tag
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.meta.outputs.tag }}
 
