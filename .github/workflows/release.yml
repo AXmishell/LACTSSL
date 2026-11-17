@@ -249,9 +249,10 @@ jobs:
       # 配置 ED25519_PRIVATE_KEY_B64 后为 checksums.txt 生成分离签名；
       # 主程序可通过 upgrade.program.public_key 强制校验 checksums.txt.sig。
       - name: Sign checksums.txt
-        if: ${{ secrets.ED25519_PRIVATE_KEY_B64 != '' }}
+        # step 级 if 不允许直接引用 secrets，先注入 env 再判断
         env:
           ED25519_PRIVATE_KEY_B64: ${{ secrets.ED25519_PRIVATE_KEY_B64 }}
+        if: env.ED25519_PRIVATE_KEY_B64 != ''
         run: node scripts/sign-checksums.mjs dist/checksums.txt dist/checksums.txt.sig
 
       - name: Upload checksums

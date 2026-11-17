@@ -65,6 +65,17 @@ updates:
     labels:
       - dependencies
       - frontend
+    # 前端工具链的大版本必须成对升级，单独升级会直接破坏构建：
+    # - vite 8+ 的 peer 要求 @vitejs/plugin-vue 6+，只升 vite 会导致 npm ci ERESOLVE；
+    # - typescript 7 移除了 typescript/lib/tsc，vue-tsc 仍依赖该入口。
+    # 在完成配套升级前，这两项只接受 minor/patch 更新。
+    ignore:
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "vite"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
       prefix: chore
       include: scope
