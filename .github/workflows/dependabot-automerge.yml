@@ -40,8 +40,9 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 幂等：重复触发时不要重复开启
-          if [ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest')" != "null" ]; then
+          # 幂等：重复触发时不要重复开启（autoMergeRequest 为 null 时 gh --jq 输出空串）
+          state="$(gh pr view "$PR_URL" --json autoMergeRequest --jq 'if .autoMergeRequest then "enabled" else "disabled" end')"
+          if [ "$state" = "enabled" ]; then
             echo "auto-merge 已启用，跳过"
             exit 0
           fi
