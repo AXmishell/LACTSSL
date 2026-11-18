@@ -86,7 +86,8 @@ jobs:
         run: npm ci
 
       - name: npm audit
-        run: npm audit --audit-level=high
+        # 高危/严重漏洞默认阻断；上游暂无修复版本的工具链漏洞需在 scripts/npm-audit.mjs 登记豁免。
+        run: npm run audit
 
       - name: Typecheck
         run: npm run typecheck

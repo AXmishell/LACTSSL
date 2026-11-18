@@ -45,6 +45,9 @@
 /.cache/
 /.docs-serve/
 
+# 内部文档（不公开发布，不进 git）
+/docs-internal/
+
 # Python（生成 favicon 等脚本、文档站点虚拟环境）
 __pycache__/
 *.py[cod]
