@@ -367,7 +367,7 @@ The response contains per-check results, so callers can tell authentication fail
 
 Behavior:
 
-- DNS verification defaults to `write`: it creates a random `_acme-challenge` TXT record and removes it immediately, covering authentication, zone lookup, and write permission. `mode=read` returns `unsupported` under the current plugin protocol.
+- DNS verification defaults to `auto`: when the plugin declares `verify-v1`, it performs a read-only zone listing and domain ownership check; otherwise it falls back to a write test that creates and immediately removes a random `_acme-challenge` TXT record. `mode=read` forces read-only and returns `unsupported` when the plugin cannot do it.
 - Saved accounts use only the configuration stored in the database. Unsaved configurations must include secrets explicitly; stored secrets are never reused, so changing an endpoint cannot redirect a credential to another server.
 - Target credential verification supports built-in `local`/`ssh`: it connects and authenticates, creates and removes a temporary file in the target directory, and never executes `reload_command`. Other deployment plugins return `unsupported` until they implement the `verify` capability.
 - Pass `deploy_config` to verify the scope of a specific deployment node (site, directory, bucket, or domain). This is the recommended way to check whether newly granted permissions are usable.

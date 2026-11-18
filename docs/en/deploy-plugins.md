@@ -127,11 +127,13 @@ Verification checklist:
 
 ## 8. Helper protocol v1 (integration development)
 
-A helper is an executable that supports two subcommands:
+A helper is an executable that supports the following subcommands:
 
 ```bash
 deploy-helper manifest   # print the JSON manifest
 deploy-helper deploy     # read a request from stdin and perform the deployment
+deploy-helper options    # read dynamic select options (optional)
+deploy-helper verify     # read-only authentication and scope probe (optional)
 ```
 
 Example `manifest` output:
@@ -139,6 +141,7 @@ Example `manifest` output:
 ```json
 {
   "protocol": "v1",
+  "capabilities": ["verify-v1"],
   "name": "example deploy helper",
   "version": "1.0.0",
   "sha256": "optional helper file checksum",
@@ -147,6 +150,7 @@ Example `manifest` output:
       "id": "example-panel",
       "name": "Example Panel",
       "name_i18n": {"zh-CN": "示例面板", "en-US": "Example Panel"},
+      "capabilities": ["verify-v1"],
       "description": "Push certificates to an Example panel",
       "description_i18n": {
         "zh-CN": "把证书推送到 Example 面板",

@@ -1,6 +1,8 @@
 package dnsplugin
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	pluginproto "lactssl/internal/plugin/proto"
 )
 
 const testManifest = `{"protocol":"v1","name":"test helper","version":"1.0.0","providers":[{"id":"fakedns","name":"Fake DNS","description":"test provider","aliases":["fake"],"fields":[{"key":"api_token","label":"API Token","type":"password","required":true}]}]}`
@@ -339,4 +343,91 @@ esac
 func dnspluginEnabled(id string) bool {
 	info, found := ExternalProviderInfo(id)
 	return found && info.Enabled
+}
+
+// TestVerifyReadOnlyCapability 验证只有声明 verify-v1 的 helper 才会收到
+// verify 子进程调用，且结果按协议解析。
+func TestVerifyReadOnlyCapability(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "verify.json")
+	manifest := `{"protocol":"v1","capabilities":["verify-v1"],"name":"verify helper","version":"1.0.0","providers":[{"id":"verifydns","name":"Verify DNS","capabilities":["verify-v1"]}]}`
+	script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+manifest)
+  cat <<'JSON'
+%s
+JSON
+  ;;
+verify)
+  cat > %q
+  printf '{"ok":true,"checks":[{"key":"zone","status":"ok","message":"example.com"}]}'
+  ;;
+*)
+  exit 2
+  ;;
+esac
+`, manifest, output)
+	writeHelper(t, dir, "verify-helper", script)
+
+	result := Discover(DiscoverConfig{Dir: dir, MemoryLimitMB: 128, Timeout: 2 * time.Second, EnabledProviders: []string{"verifydns"}})
+	t.Cleanup(func() { UnregisterSource(SourceExec) })
+	if result.Providers != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	plugin, ok := Lookup("verifydns")
+	if !ok {
+		t.Fatal("provider not registered")
+	}
+	verifier, ok := plugin.(Verifier)
+	if !ok {
+		t.Fatal("plugin should implement Verifier")
+	}
+	response, err := verifier.Verify(context.Background(), map[string]string{"api_token": "secret"}, "example.com", "read", "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || len(response.Checks) != 1 || response.Checks[0].Status != pluginproto.VerifyStatusOK {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"action":"verify"`, `"mode":"read"`, `"locale":"zh-CN"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("verify request missing %s: %s", want, data)
+		}
+	}
+}
+
+// TestVerifyUnsupportedWithoutCapability 验证旧 helper 不会被调用 verify。
+func TestVerifyUnsupportedWithoutCapability(t *testing.T) {
+	dir := t.TempDir()
+	script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+manifest)
+  cat <<'JSON'
+%s
+JSON
+  ;;
+verify)
+  echo unexpected >&2
+  exit 3
+  ;;
+*)
+  exit 2
+  ;;
+esac
+`, testManifest)
+	writeHelper(t, dir, "legacy-helper", script)
+	Discover(DiscoverConfig{Dir: dir, MemoryLimitMB: 128, Timeout: 2 * time.Second, EnabledProviders: []string{"fakedns"}})
+	t.Cleanup(func() { UnregisterSource(SourceExec) })
+	plugin, _ := Lookup("fakedns")
+	verifier, ok := plugin.(Verifier)
+	if !ok {
+		t.Fatal("plugin should implement Verifier")
+	}
+	if _, err := verifier.Verify(context.Background(), nil, "example.com", "read", "zh-CN"); !errors.Is(err, ErrVerifyUnsupported) {
+		t.Fatalf("expected ErrVerifyUnsupported, got %v", err)
+	}
 }

@@ -16,6 +16,8 @@ const (
 	ProtocolEnv = "LACTSSL_PLUGIN_PROTOCOL"
 	// DeployFeaturesEnv 是主程序声明的部署插件特性列表（逗号分隔）。
 	DeployFeaturesEnv = "LACTSSL_DEPLOY_PLUGIN_FEATURES"
+	// DNSFeaturesEnv 是主程序声明的 DNS 插件特性列表（逗号分隔）。
+	DNSFeaturesEnv = "LACTSSL_DNS_PLUGIN_FEATURES"
 )
 
 // FeatureMergedDeployers 告知部署 helper 只输出合并后的规范目标。

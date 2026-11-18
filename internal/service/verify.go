@@ -126,13 +126,18 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 	// 写测试，显式 read 模式则明确返回不支持。
 	if mode == "read" || mode == "auto" {
 		if verifier, ok := plugin.(dnsplugin.Verifier); ok {
+			res.Mode = "read"
 			response, err := verifier.Verify(ctx, cfg, domain, "read", string(loc))
 			if err == nil {
-				res.Mode = "read"
-				appendVerifyChecks(res, response.Checks, response.OK)
-				return *res
-			}
-			if !errors.Is(err, dnsplugin.ErrVerifyUnsupported) {
+				// helper 声明了能力但该服务商实际返回 unsupported 时，
+				// auto 模式仍回退到写测试，避免把“不支持”当成最终结论。
+				if onlyUnsupportedChecks(response.Checks) && mode != "read" {
+					// fall through to write
+				} else {
+					appendVerifyChecks(res, response.Checks, response.OK)
+					return *res
+				}
+			} else if !errors.Is(err, dnsplugin.ErrVerifyUnsupported) {
 				res.add("read", VerifyStatusFailed, i18n.T(loc, "service.verify.read_failed", map[string]any{"error": err.Error()}))
 				return *res
 			}
@@ -192,12 +197,31 @@ func randomVerifyToken() (string, string, error) {
 
 // appendVerifyChecks 把 helper 返回的检查项写入结果。
 // helper 明确返回 ok=false 但没有任何失败项时补一条汇总失败，避免误判为通过。
+// onlyUnsupportedChecks 判断 helper 是否只返回了 unsupported/skipped 检查项。
+func onlyUnsupportedChecks(checks []pluginproto.VerifyCheck) bool {
+	unsupported := false
+	for _, check := range checks {
+		switch check.Status {
+		case VerifyStatusUnsupported:
+			unsupported = true
+		case VerifyStatusSkipped:
+		default:
+			return false
+		}
+	}
+	return unsupported
+}
+
 func appendVerifyChecks(res *VerifyResult, checks []pluginproto.VerifyCheck, ok bool) {
 	for _, check := range checks {
 		res.add(check.Key, check.Status, check.Message)
 	}
-	if !ok && len(checks) == 0 {
-		res.add("verify", VerifyStatusFailed, "")
+	if len(checks) == 0 {
+		status := VerifyStatusOK
+		if !ok {
+			status = VerifyStatusFailed
+		}
+		res.add("verify", status, "")
 	}
 }
 

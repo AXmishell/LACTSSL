@@ -9,6 +9,7 @@ import (
 	"github.com/go-acme/lego/v4/challenge"
 	"lactssl/internal/i18n"
 	dnsplugin "lactssl/internal/plugin/dns"
+	pluginproto "lactssl/internal/plugin/proto"
 )
 
 type fakeChallengeProvider struct {
@@ -157,5 +158,61 @@ func TestVerifyPluginDeployReturnsUnsupported(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("应返回 unsupported: %+v", result.Checks)
+	}
+}
+
+type fakeVerifyingDNSPlugin struct {
+	fakeDNSPlugin
+	response  pluginproto.VerifyResponse
+	err       error
+	readCalls int
+}
+
+func (p *fakeVerifyingDNSPlugin) Verify(_ context.Context, _ map[string]string, domain, mode, locale string) (pluginproto.VerifyResponse, error) {
+	p.readCalls++
+	if mode != "read" {
+		return pluginproto.VerifyResponse{}, nil
+	}
+	return p.response, p.err
+}
+
+func TestVerifyDNSAccountUsesReadOnlyWhenAvailable(t *testing.T) {
+	fake := &fakeChallengeProvider{}
+	plugin := &fakeVerifyingDNSPlugin{
+		fakeDNSPlugin: fakeDNSPlugin{provider: fake},
+		response: pluginproto.VerifyResponse{OK: true, Checks: []pluginproto.VerifyCheck{
+			{Key: "zone", Status: pluginproto.VerifyStatusOK, Message: "example.com"},
+		}},
+	}
+	if err := dnsplugin.RegisterExternal(plugin); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dnsplugin.UnregisterSource(dnsplugin.SourceExec) })
+
+	m := New(nil)
+	result := m.VerifyDNSAccount(context.Background(), i18n.ZhCN, "", "verify-fake", nil, "example.com", "read")
+	if !result.OK || result.Mode != "read" {
+		t.Fatalf("只读验证应通过: %+v", result)
+	}
+	if fake.presentCalls != 0 || fake.cleanupCalls != 0 {
+		t.Fatalf("只读模式不应写入记录: present=%d cleanup=%d", fake.presentCalls, fake.cleanupCalls)
+	}
+	if plugin.readCalls != 1 {
+		t.Fatalf("readCalls = %d", plugin.readCalls)
+	}
+
+	// auto 模式优先只读，同样不写记录。
+	result = m.VerifyDNSAccount(context.Background(), i18n.ZhCN, "", "verify-fake", nil, "example.com", "auto")
+	if !result.OK || result.Mode != "read" || fake.presentCalls != 0 {
+		t.Fatalf("auto 模式应优先只读: %+v", result)
+	}
+
+	// helper 声明了能力但实际返回 unsupported 时，auto 模式回退到写测试。
+	plugin.response = pluginproto.VerifyResponse{OK: true, Checks: []pluginproto.VerifyCheck{
+		{Key: "verify", Status: pluginproto.VerifyStatusUnsupported},
+	}}
+	result = m.VerifyDNSAccount(context.Background(), i18n.ZhCN, "", "verify-fake", nil, "example.com", "auto")
+	if !result.OK || result.Mode != "write" || fake.presentCalls != 1 || fake.cleanupCalls != 1 {
+		t.Fatalf("unsupported 应回退到写测试: %+v present=%d cleanup=%d", result, fake.presentCalls, fake.cleanupCalls)
 	}
 }

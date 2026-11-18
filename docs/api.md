@@ -367,7 +367,7 @@ curl -X POST \
 
 行为说明：
 
-- DNS 验证默认使用 `write` 模式：写入一条随机 `_acme-challenge` TXT 记录后立即删除，同时验证认证、域名归属与写权限；`mode=read` 在当前插件协议下会返回 `unsupported`。
+- DNS 验证默认使用 `auto` 模式：插件声明 `verify-v1` 时优先只读列出 zone 并检查域名归属；未声明或返回不支持时回退到写测试（写入随机 `_acme-challenge` TXT 后立即删除）。`mode=read` 强制只读，插件不支持时返回 `unsupported`。
 - 已保存账户只使用数据库中的配置；未保存配置必须显式提交密钥，不会复用已保存密钥，避免通过修改 endpoint 把凭据发往其他服务器。
 - 目标凭据验证支持内置 `local`/`ssh`：连接并认证，在目标目录创建并删除临时文件，不执行 `reload_command`。其他部署插件在实现 `verify` 能力前返回 `unsupported`。
 - 传入 `deploy_config` 可验证具体部署节点的作用域（站点、目录、桶、域名），这是“新增权限是否可用”的推荐用法。

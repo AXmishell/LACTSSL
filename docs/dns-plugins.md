@@ -21,6 +21,7 @@ DNS 插件为公共 CA 的 DNS-01 验证提供域名服务商 API 接入。企�
 | DNS 大型云厂商 | 10 个重型 SDK 服务商 | 约 39 MiB | 需要 Google Cloud、Azure、Route53 等 |
 | DNS 全量·重构 | 194 个服务商 | 约 18 MiB | 想用单包覆盖全部服务商 |
 
+- 只读验证（`verify-v1`）仅在「DNS 全量·重构」包中由原生实现提供；使用其他包时，`auto` 模式会自动回退到 TXT 写测试。
 - 每个包共享一份 Go 运行时，避免逐服务商打包的磁盘和进程开销。
 - 主程序发布包不内置任何服务商；按需安装。
 - 服务商图标随插件包和仓库索引下发，安装后缓存在 `<data_dir>/plugin-icons/`。
@@ -126,12 +127,13 @@ plugins:
 
 本节面向插件开发者；运维人员通常不需要了解。
 
-helper 是一个可执行文件，支持三个子命令：
+helper 是一个可执行文件，支持四个子命令：
 
 ```bash
 dns-helper manifest   # 输出 JSON 清单
 dns-helper present    # 从 stdin 读取请求，添加 TXT 记录
 dns-helper cleanup    # 从 stdin 读取请求，删除 TXT 记录
+dns-helper verify     # 从 stdin 读取请求，执行只读探测（可选）
 ```
 
 `manifest` 输出示例：
@@ -139,6 +141,7 @@ dns-helper cleanup    # 从 stdin 读取请求，删除 TXT 记录
 ```json
 {
   "protocol": "v1",
+  "capabilities": ["verify-v1"],
   "name": "example dns helper",
   "version": "1.0.0",
   "sha256": "可选的 helper 文件校验和",
@@ -148,6 +151,7 @@ dns-helper cleanup    # 从 stdin 读取请求，删除 TXT 记录
       "name": "Example DNS",
       "description": "示例服务商",
       "aliases": ["example"],
+      "capabilities": ["verify-v1"],
       "fields": [
         {"key": "api_token", "label": "API Token", "type": "password", "required": true}
       ]
@@ -169,10 +173,23 @@ dns-helper cleanup    # 从 stdin 读取请求，删除 TXT 记录
 }
 ```
 
+`verify` 的 stdin / stdout：
+
+```json
+{"action": "verify", "provider": "example-dns", "config": {"api_token": "..."}, "domain": "example.com", "mode": "read", "locale": "zh-CN"}
+```
+
+```json
+{"ok": true, "checks": [{"key": "zone", "status": "ok", "message": "example.com"}]}
+```
+
 约定：
 
 - 退出码 `0` 表示成功，非 `0` 表示失败；stderr 会进入任务日志（敏感值会被脱敏）。
 - stdout 保持为空；`present/cleanup` 的输出会被视为错误。
+- `verify` 必须是只读操作：只允许列 zone / 查记录，不得创建、修改或删除任何记录。
+- 只有声明 `verify-v1` 能力的服务商才会收到 `verify` 调用；未声明的服务商由主程序回退到 `present/cleanup` 写测试（`mode=auto`），显式 `mode=read` 时返回不支持。
+- `checks[].status` 取值：`ok`、`failed`、`skipped`、`unsupported`、`error`。
 - helper 从 `LACTSSL_PLUGIN_MEMORY_LIMIT`（字节）获得内存预算。
 - 主程序周期性检查 helper 的 `VmRSS`，超过 `plugins.memory_limit_mb` 时结束进程并记录错误。
 - 主程序只传递最小环境变量集合（PATH、HOME、代理、TLS 证书等），不会泄漏服务端密钥。

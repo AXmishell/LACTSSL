@@ -678,6 +678,7 @@ export default {
     verifyCheck: {
       init: 'Credential initialization',
       domain: 'Test domain',
+      zone: 'Zone membership',
       write: 'Write TXT record',
       cleanup: 'Remove TXT record',
       read: 'Read-only verification',

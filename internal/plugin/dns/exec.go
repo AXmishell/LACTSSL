@@ -514,7 +514,10 @@ func (p *externalPlugin) Verify(ctx context.Context, cfg map[string]string, doma
 		Timeout:       timeout,
 		MemoryLimitMB: p.settings.memoryLimitMB,
 		MaxOutputKB:   p.settings.maxOutputKB,
-		Env:           []string{"LACTSSL_PLUGIN_PROTOCOL=" + execProtocol},
+		Env: []string{
+			"LACTSSL_PLUGIN_PROTOCOL=" + execProtocol,
+			"LACTSSL_DNS_PLUGIN_FEATURES=" + pluginproto.FeatureVerify,
+		},
 	})
 	if errors.Is(err, pluginexec.ErrTimeout) {
 		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 验证超时（%s）", p.provider.ID, timeout)
@@ -609,7 +612,10 @@ func runHelper(path, action string, stdin []byte, timeout time.Duration, cfg Dis
 		Timeout:       timeout,
 		MemoryLimitMB: cfg.MemoryLimitMB,
 		MaxOutputKB:   cfg.MaxOutputKB,
-		Env:           []string{"LACTSSL_PLUGIN_PROTOCOL=" + execProtocol},
+		Env: []string{
+			"LACTSSL_PLUGIN_PROTOCOL=" + execProtocol,
+			"LACTSSL_DNS_PLUGIN_FEATURES=" + pluginproto.FeatureVerify,
+		},
 	})
 	if errors.Is(err, pluginexec.ErrTimeout) {
 		err = fmt.Errorf("插件执行超时（%s）", timeout)

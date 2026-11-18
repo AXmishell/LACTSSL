@@ -21,6 +21,7 @@ The official [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) rep
 | DNS heavy cloud providers | 10 providers with heavy SDKs | about 39 MiB | Google Cloud, Azure, Route 53, and similar |
 | DNS full (refactored) | 194 providers | about 18 MiB | A single package covering every provider |
 
+- Read-only verification (`verify-v1`) is provided by native implementations in the "DNS full (refactored)" package. Other packages fall back to the TXT write test in `auto` mode.
 - Each package shares one Go runtime, avoiding the disk and process overhead of packaging providers individually.
 - Main release packages bundle no providers; install them on demand.
 - Provider icons are delivered with the plugin package and repository index, then cached under `<data_dir>/plugin-icons/` after installation.
@@ -126,12 +127,13 @@ A manually uploaded multi-provider bundle still loads, but is marked `manual` an
 
 This section is intended for plugin developers; operations staff generally do not need it.
 
-A helper is an executable that supports three subcommands:
+A helper is an executable that supports four subcommands:
 
 ```bash
 dns-helper manifest   # print the JSON manifest
 dns-helper present    # read a request from stdin and add the TXT record
 dns-helper cleanup    # read a request from stdin and delete the TXT record
+dns-helper verify     # read a request from stdin and run a read-only probe (optional)
 ```
 
 Example `manifest` output:
@@ -139,6 +141,7 @@ Example `manifest` output:
 ```json
 {
   "protocol": "v1",
+  "capabilities": ["verify-v1"],
   "name": "example dns helper",
   "version": "1.0.0",
   "sha256": "optional helper file checksum",
@@ -148,6 +151,7 @@ Example `manifest` output:
       "name": "Example DNS",
       "description": "Example provider",
       "aliases": ["example"],
+      "capabilities": ["verify-v1"],
       "fields": [
         {"key": "api_token", "label": "API Token", "type": "password", "required": true}
       ]
@@ -169,10 +173,23 @@ Example `manifest` output:
 }
 ```
 
+`verify` stdin / stdout:
+
+```json
+{"action": "verify", "provider": "example-dns", "config": {"api_token": "..."}, "domain": "example.com", "mode": "read", "locale": "zh-CN"}
+```
+
+```json
+{"ok": true, "checks": [{"key": "zone", "status": "ok", "message": "example.com"}]}
+```
+
 Conventions:
 
 - Exit code `0` means success; a non-zero exit means failure. stderr is written to the task log (sensitive values are redacted).
 - stdout must remain empty; output from `present/cleanup` is treated as an error.
+- `verify` must be read-only: it may list zones or read records, but must never create, update, or delete records.
+- Only providers that declare `verify-v1` receive `verify` calls. Others fall back to a `present/cleanup` write test in `mode=auto`; explicit `mode=read` reports unsupported.
+- `checks[].status` values: `ok`, `failed`, `skipped`, `unsupported`, `error`.
 - The helper receives its memory budget from `LACTSSL_PLUGIN_MEMORY_LIMIT` (bytes).
 - The main program periodically checks the helper's `VmRSS` and terminates the process, logging an error, when it exceeds `plugins.memory_limit_mb`.
 - The main program passes only a minimal set of environment variables (PATH, HOME, proxy, TLS certificates, and similar); server secrets are not exposed.

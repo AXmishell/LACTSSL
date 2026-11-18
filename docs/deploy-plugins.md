@@ -127,11 +127,13 @@ curl -X POST -H "Authorization: Bearer $LACTSSL_TOKEN" \
 
 ## 8. Helper 协议 v1（集成开发）
 
-helper 是一个可执行文件，支持两个子命令：
+helper 是一个可执行文件，支持以下子命令：
 
 ```bash
 deploy-helper manifest   # 输出 JSON 清单
 deploy-helper deploy     # 从 stdin 读取请求并执行部署
+deploy-helper options    # 读取动态下拉选项（可选）
+deploy-helper verify     # 只读验证认证与目标作用域（可选）
 ```
 
 `manifest` 输出示例：
@@ -139,6 +141,7 @@ deploy-helper deploy     # 从 stdin 读取请求并执行部署
 ```json
 {
   "protocol": "v1",
+  "capabilities": ["verify-v1"],
   "name": "example deploy helper",
   "version": "1.0.0",
   "sha256": "可选的 helper 文件校验和",
@@ -147,6 +150,7 @@ deploy-helper deploy     # 从 stdin 读取请求并执行部署
       "id": "example-panel",
       "name": "Example Panel",
       "name_i18n": {"zh-CN": "示例面板", "en-US": "Example Panel"},
+      "capabilities": ["verify-v1"],
       "description": "把证书推送到 Example 面板",
       "description_i18n": {
         "zh-CN": "把证书推送到 Example 面板",
@@ -216,10 +220,23 @@ deploy-helper deploy     # 从 stdin 读取请求并执行部署
 }
 ```
 
+`verify` 的 stdin / stdout：
+
+```json
+{"action": "verify", "provider": "example-panel", "auth": {"panel_url": "...", "api_token": "..."}, "config": {"sites": "example.com"}, "mode": "read", "locale": "zh-CN"}
+```
+
+```json
+{"ok": false, "checks": [{"key": "auth", "status": "failed", "message": "invalid token"}]}
+```
+
 约定：
 
 - 退出码 `0` 表示成功，非 `0` 表示失败；stderr 会进入部署记录（敏感值会被脱敏）。
 - stdout 可以为空，或输出一行 JSON：`{"ok": true, "message": "..."}`；`ok` 为 `false` 时按失败处理。
+- `verify` 必须是只读操作：不得写入证书、创建持久对象或执行 `reload_command`；只有 `mode=write` 的显式写入测试才允许创建并清理唯一临时对象。
+- 只有声明 `verify-v1` 能力的部署目标才会收到 `verify` 调用；未声明的目标由主程序显示“插件版本不支持验证”。
+- `checks` 用于区分连接、认证、作用域与权限问题；`status` 取值：`ok`、`failed`、`skipped`、`unsupported`、`error`。
 - 非法 JSON 会视为错误；调试日志请写入 stderr。
 - helper 从 `LACTSSL_PLUGIN_MEMORY_LIMIT`（字节）获得内存预算。
 - 主程序周期性检查 helper 的 `VmRSS`，超过 `memory_limit_mb` 时结束整个进程组并记录错误。

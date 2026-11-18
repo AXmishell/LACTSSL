@@ -678,6 +678,7 @@ export default {
     verifyCheck: {
       init: '凭据初始化',
       domain: '测试域名',
+      zone: 'Zone 归属',
       write: '写入 TXT 记录',
       cleanup: '清理 TXT 记录',
       read: '只读验证',

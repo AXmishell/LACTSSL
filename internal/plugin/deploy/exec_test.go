@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	pluginproto "lactssl/internal/plugin/proto"
 )
 
 const testManifest = `{"protocol":"v1","name":"test deploy helper","version":"1.0.0","deployers":[{"id":"fakepanel","name":"Fake Panel","name_i18n":{"zh-CN":"模拟面板","en-US":"Fake Panel"},"description":"test target","description_i18n":{"zh-CN":"测试目标","en-US":"test target"},"aliases":["fakep"],"fields":[{"key":"api_token","label":"API Token","label_i18n":{"zh-CN":"API 令牌","en-US":"API Token"},"type":"password","secret":true,"required":true}],"deploy_fields":[{"key":"sites","label":"Sites","label_i18n":{"zh-CN":"站点","en-US":"Sites"},"type":"text","required":true}]}]}`
@@ -387,5 +389,91 @@ func TestValidateManifest(t *testing.T) {
 		if err := validateManifest(manifest); err == nil {
 			t.Fatalf("case %d: expected error", index)
 		}
+	}
+}
+
+// TestVerifyExternalDeployer 验证 verify-v1 能力位与结构化检查结果。
+func TestVerifyExternalDeployer(t *testing.T) {
+	resetExternalState(t)
+	dir := t.TempDir()
+	output := filepath.Join(dir, "verify.json")
+	manifest := `{"protocol":"v1","capabilities":["verify-v1"],"name":"verify helper","version":"1.0.0","deployers":[{"id":"verifypanel","name":"Verify Panel","capabilities":["verify-v1"],"fields":[{"key":"api_token","label":"API Token","type":"password"}]}]}`
+	script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+manifest)
+  cat <<'JSON'
+%s
+JSON
+  ;;
+verify)
+  cat > %q
+  printf '{"ok":false,"checks":[{"key":"auth","status":"failed","message":"bad token"}]}'
+  ;;
+*)
+  exit 2
+  ;;
+esac
+`, manifest, output)
+	writeHelper(t, dir, "verify-helper", script, 0o700)
+	result := Discover(DiscoverConfig{Dir: dir, MemoryLimitMB: 128, Timeout: 2 * time.Second, EnabledDeployers: []string{"verifypanel"}})
+	if result.Deployers != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	plugin, ok := Lookup("verifypanel")
+	if !ok {
+		t.Fatal("deployer not registered")
+	}
+	verifier, ok := plugin.(Verifier)
+	if !ok {
+		t.Fatal("deployer should implement Verifier")
+	}
+	response, err := verifier.Verify(context.Background(), Request{Auth: map[string]string{"api_token": "secret"}, Locale: "zh-CN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.OK || len(response.Checks) != 1 || response.Checks[0].Status != pluginproto.VerifyStatusFailed {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"action":"verify"`, `"mode":"read"`, `"locale":"zh-CN"`, `"api_token":"secret"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("verify request missing %s: %s", want, data)
+		}
+	}
+}
+
+// TestVerifyUnsupportedDeployer 验证未声明能力的旧 helper 不会被调用。
+func TestVerifyUnsupportedDeployer(t *testing.T) {
+	resetExternalState(t)
+	dir := t.TempDir()
+	writeHelper(t, dir, "legacy-helper", fmt.Sprintf(`#!/bin/sh
+case "$1" in
+manifest)
+  cat <<'JSON'
+%s
+JSON
+  ;;
+verify)
+  exit 3
+  ;;
+*)
+  exit 2
+  ;;
+esac
+`, testManifest), 0o700)
+	Discover(DiscoverConfig{Dir: dir, MemoryLimitMB: 128, Timeout: 2 * time.Second, EnabledDeployers: []string{"fakepanel"}})
+	plugin, ok := Lookup("fakepanel")
+	if !ok {
+		t.Fatal("deployer not registered")
+	}
+	verifier, ok := plugin.(Verifier)
+	if !ok {
+		t.Fatal("deployer should implement Verifier")
+	}
+	if _, err := verifier.Verify(context.Background(), Request{}); !errors.Is(err, ErrVerifyUnsupported) {
+		t.Fatalf("expected ErrVerifyUnsupported, got %v", err)
 	}
 }

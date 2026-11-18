@@ -323,7 +323,7 @@ func inspectHelper(path string, cfg DiscoverConfig) (Manifest, error) {
 		MaxOutputKB:   manifestOutputKB,
 		Env: []string{
 			"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol,
-			"LACTSSL_DEPLOY_PLUGIN_FEATURES=" + FeatureMergedDeployers + "," + FeatureDynamicOptions,
+			"LACTSSL_DEPLOY_PLUGIN_FEATURES=" + FeatureMergedDeployers + "," + FeatureDynamicOptions + "," + pluginproto.FeatureVerify,
 		},
 	})
 	if errors.Is(err, pluginexec.ErrTimeout) {
