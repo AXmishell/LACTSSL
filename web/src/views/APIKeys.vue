@@ -20,8 +20,16 @@
     />
 
     <div class="k-card" style="padding: 0; overflow: hidden">
-      <el-table :data="items" v-loading="loading" style="width: 100%">
-        <el-table-column min-width="200" :label="t('apiKeys.name')">
+      <el-table
+        ref="tableRef"
+        :data="items"
+        row-key="id"
+        v-loading="loading"
+        style="width: 100%"
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
+        <el-table-column width="150" :label="t('apiKeys.name')">
           <template #default="{ row }">
             <div class="key-name">{{ row.name }}</div>
             <div class="key-prefix mono">{{ row.prefix }}…</div>
@@ -51,23 +59,23 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column width="110" :label="t('common.status')">
+        <el-table-column width="80" :label="t('common.status')">
           <template #default="{ row }">
             <span class="tag-soft" :class="statusOf(row).className">{{ statusOf(row).label }}</span>
           </template>
         </el-table-column>
-        <el-table-column width="160" :label="t('apiKeys.lastUsed')">
+        <el-table-column width="80" :label="t('apiKeys.lastUsed')">
           <template #default="{ row }">
             <span v-if="row.last_used_at">{{ fromNow(row.last_used_at) }}</span>
             <span v-else class="muted">{{ t('apiKeys.neverUsed') }}</span>
           </template>
         </el-table-column>
-        <el-table-column width="170" :label="t('apiKeys.expiresAt')">
+        <el-table-column width="80" :label="t('apiKeys.expiresAt')">
           <template #default="{ row }">
             <span :class="{ muted: !row.expires_at }">{{ row.expires_at ? formatDate(row.expires_at) : t('apiKeys.neverExpires') }}</span>
           </template>
         </el-table-column>
-        <el-table-column width="170" :label="t('apiKeys.createdAt')">
+        <el-table-column width="120" :label="t('apiKeys.createdAt')">
           <template #default="{ row }">
             <span class="muted">{{ formatDate(row.created_at) }}</span>
           </template>
@@ -86,6 +94,16 @@
       <div class="flex-between key-foot">
         <span class="muted">{{ t('apiKeys.total', { count: items.length }) }}</span>
       </div>
+    </div>
+
+    <div v-if="showBatchBar && selectedIds.length" class="batch-bar">
+      <div class="batch-actions">
+        <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchRemove">
+          {{ t('apiKeys.batchDelete') }}
+        </el-button>
+        <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('apiKeys.clearSelection') }}</el-button>
+      </div>
+      <span class="batch-count">{{ t('apiKeys.batchSelected', { count: selectedIds.length }) }}</span>
     </div>
 
     <!-- 创建 / 编辑 -->
@@ -225,8 +243,9 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CopyDocument, Plus, Refresh, Search, WarningFilled } from '@element-plus/icons-vue'
+import { Close, CopyDocument, Delete, Plus, Refresh, Search, WarningFilled } from '@element-plus/icons-vue'
 import { api, apiBase, copyText } from '../api'
+import { useDelayedBatchBar } from '../batchBar'
 import { SCOPE_ALL_GROUP, SCOPE_MODULES, moduleOfGroup } from '../scopeCatalog'
 import { formatDate, fromNow } from '../utils'
 import type { APIKey, APIKeyCreateResult, APIKeyScope, APIKeyScopeGroup } from '../types'
@@ -255,6 +274,10 @@ const loading = ref(false)
 const saving = ref(false)
 const items = ref<APIKey[]>([])
 const scopes = ref<APIKeyScope[]>([])
+const tableRef = ref<{ clearSelection: () => void } | null>(null)
+const selectedIds = ref<number[]>([])
+const batchDeleting = ref(false)
+const showBatchBar = useDelayedBatchBar(() => selectedIds.value.length > 0)
 
 const formVisible = ref(false)
 const editing = ref<APIKey | null>(null)
@@ -503,6 +526,47 @@ async function remove(key: APIKey): Promise<void> {
   }
 }
 
+function onSelectionChange(rows: APIKey[]): void {
+  selectedIds.value = rows.map((row) => row.id)
+}
+
+function clearSelection(): void {
+  tableRef.value?.clearSelection()
+  selectedIds.value = []
+}
+
+async function batchRemove(): Promise<void> {
+  const list = [...selectedIds.value]
+  if (!list.length) return
+  try {
+    await ElMessageBox.confirm(t('apiKeys.batchDeleteConfirm', { count: list.length }), t('apiKeys.batchDeleteTitle'), {
+      confirmButtonText: t('common.delete'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning'
+    })
+  } catch (_) {
+    return
+  }
+  batchDeleting.value = true
+  let failed = 0
+  try {
+    for (const id of list) {
+      try {
+        await api.delete(`/api-keys/${id}`)
+      } catch (error: any) {
+        failed++
+        ElMessage.error(error.message)
+      }
+    }
+  } finally {
+    batchDeleting.value = false
+  }
+  if (failed) ElMessage.warning(t('apiKeys.batchDeleteFailed', { count: failed }))
+  else ElMessage.success(t('apiKeys.batchDeleted', { count: list.length }))
+  clearSelection()
+  await load()
+}
+
 function showToken(token: string): void {
   issuedToken.value = token
   tokenVisible.value = true
@@ -538,6 +602,35 @@ onMounted(load)
 
 .key-foot {
   padding: 12px 16px 16px;
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid #dbe7fb;
+  border-radius: 12px;
+  background: #f5f9ff;
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.batch-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+.batch-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d4ed8;
 }
 
 /* 名称与过期时间并排，省下约 70px 高度留给权限矩阵。 */
