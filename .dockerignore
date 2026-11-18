@@ -57,7 +57,7 @@ __pycache__
 requirements-docs.txt
 mkdocs.yml
 mkdocs.zh.yml
-docker-compose.yml
+docker-compose*.yml
 README.md
 
 # 本地 go workspace（如临时启用）

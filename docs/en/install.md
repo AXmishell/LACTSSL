@@ -1,6 +1,6 @@
 # Installation and startup
 
-This document provides production-ready installation steps. For a first evaluation, read [Evaluation and rollout](getting-started.md) first to confirm the scenario and acceptance criteria, then deploy using this guide.
+This document provides production-ready installation steps. For a first evaluation, read [Getting started and rollout](getting-started.md) first to confirm the scenario and acceptance criteria, then deploy using this guide. Individuals and small teams can skip the evaluation and deploy directly with Docker in section 2.
 
 ## 1. Requirements
 
@@ -9,11 +9,14 @@ This document provides production-ready installation steps. For a first evaluati
 | Operating system | Linux amd64 / arm64; release packages are also available for FreeBSD, macOS, and Windows |
 | Containers | Docker and Docker Compose v2 (recommended) |
 | Building from source | Go 1.27+, Node.js 22.12+, npm |
-| Host resources | See [Deployment architecture](architecture.md) for capacity planning; 2 vCPU / 1 GB is a suggested starting point |
+| Host resources | See [Deployment architecture](architecture.md) for capacity planning; 2 vCPU / 1 GB is a suggested starting point, and 1 vCPU / 1 GB is enough for a single-domain personal site |
 | Network | Admin entry through an HTTPS reverse proxy; outbound access to DNS APIs, CAs, SMTP, and deployment targets |
 | Domains | One admin domain and its TLS certificate; an optional dedicated domain for the ACME server |
 
 The main program does not require an external database, Redis, or a message queue. All state resides in the `data/` directory.
+
+!!! tip "Individuals and small teams"
+    You do not need the enterprise evaluation process: start with Docker in section 2, initialize in section 4, and install plugins in section 6.3. Panel-hosted sites (BaoTa, 1Panel) require the matching deployment plugin, and automatic renewal depends on DNS APIs, so use a dedicated sub-account authorized only for the domains you need. Plugin installs and updates cause brief memory spikes, so do not cap container memory at exactly the idle footprint.
 
 ## 2. Option 1: Docker Compose (recommended)
 
@@ -34,10 +37,10 @@ The `docker-compose.yml` included in the repository uses the GHCR image by defau
 --8<-- "docker-compose.yml"
 ```
 
-If you are not using 1Panel, change `1panel-network` at the end of the file to the default network; otherwise `docker compose up` fails because the external network does not exist:
+The default file uses 1Panel's external `1panel-network`. If you are not using 1Panel, remove the service-level `networks` and the top-level `networks` block at the end of the file so Compose uses its default network; alternatively, create the network first:
 
-```yaml
-# Remove the networks configuration to let Compose use the default network
+```bash
+docker network create 1panel-network
 ```
 
 ### 2.2 Start
@@ -48,6 +51,9 @@ docker compose up -d
 docker compose logs -f lactssl
 ```
 
+!!! note "Image and network"
+    The GHCR image is available starting from the first stable release. If `docker compose pull` reports that the image does not exist, build it locally as described in section 2.4. Compose publishes port 8080 on all host interfaces by default; on a public host, restrict the source with a firewall or change `ports` to `127.0.0.1:8080:8080` so that only a local reverse proxy can reach it.
+
 Default mounts:
 
 - `./config/config.yaml`: configuration file
@@ -57,21 +63,23 @@ Inside the container, `/app/config/config.yaml` is always read as the configurat
 
 ### 2.3 Pin the version
 
-Do not run `latest` long term. Pin the version through an environment variable or by editing the image tag directly:
+Do not run `latest` long term. Edit the image tag in `docker-compose.yml` directly:
 
-```bash
-LACTSSL_VERSION=1.2.3 docker compose up -d
+```yaml
+image: ghcr.io/axmishell/lactssl:1.2.3
 ```
 
 Stable tags include `<version>`, `<major>.<minor>`, `<major>`, and `latest`; pre-release versions are published only with the full version tag.
 
 ### 2.4 Build the image locally
 
-Build locally after modifying the source:
+Uncomment the `build:` block in `docker-compose.yml`, then build after modifying the source:
 
 ```bash
 LACTSSL_VERSION=1.2.3 docker compose up -d --build
 ```
+
+`LACTSSL_VERSION` only sets the program version; it does not change the local image tag. Edit `image` as well if you need distinct local tags.
 
 Or build manually:
 
@@ -312,7 +320,7 @@ Export a backup before uninstalling. Deleting `data/` permanently loses the data
 
 | Symptom | Cause | Resolution |
 | --- | --- | --- |
-| `docker compose up` reports that an external network does not exist | Depends on `1panel-network` by default | Switch to the default network or create that network first |
+| `docker compose up` reports that an external network does not exist | Depends on `1panel-network` by default | Remove both `networks` sections to use the default network, or create the network first |
 | Accessing the root path returns 404 | Not using the secure entry | Use the entry address from the startup log |
 | Cookies behave incorrectly or rate limiting is inaccurate after login | Trusted proxies are not configured | Configure `trusted_proxies` and pass forwarding headers |
 | Password reset links point to the wrong domain | `public_url` is not configured | Set a fixed external address |

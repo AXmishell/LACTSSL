@@ -63,9 +63,9 @@ LACTSSL has accumulated historical data formats and compatibility branches acros
 ### 4.1 Docker (Recommended)
 
 ```bash
-# Pin the target version
-LACTSSL_VERSION=1.2.3 docker compose pull
-LACTSSL_VERSION=1.2.3 docker compose up -d
+# Pin the target version by editing the image tag in docker-compose.yml first
+docker compose pull
+docker compose up -d
 docker compose logs -f lactssl
 ```
 

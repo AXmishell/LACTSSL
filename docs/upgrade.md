@@ -63,9 +63,9 @@ LACTSSL 在长期迭代中积累了一批历史数据格式和兼容分支。`in
 ### 4.1 Docker（推荐）
 
 ```bash
-# 固定目标版本
-LACTSSL_VERSION=1.2.3 docker compose pull
-LACTSSL_VERSION=1.2.3 docker compose up -d
+# 固定目标版本：先把 docker-compose.yml 中的 image 标签改为 1.2.3
+docker compose pull
+docker compose up -d
 docker compose logs -f lactssl
 ```
 

@@ -1,6 +1,6 @@
 # 安装与启动
 
-本文给出生产可用的安装步骤。第一次评估建议先看[评估与上线](getting-started.md)，确定场景和验收标准后再按本文部署。
+本文给出生产可用的安装步骤。第一次评估建议先看[快速上手与上线](getting-started.md)，确定场景和验收标准后再按本文部署。个人站点和小团队可以跳过评估，直接按第 2 节用 Docker 部署。
 
 ## 1. 环境要求
 
@@ -9,11 +9,14 @@
 | 操作系统 | Linux amd64 / arm64；也支持 FreeBSD、macOS 和 Windows 的发布包 |
 | 容器 | Docker 及 Docker Compose v2（推荐） |
 | 源码构建 | Go 1.27+、Node.js 22.12+、npm |
-| 主机资源 | 参考[部署架构](architecture.md)，起步建议 2 vCPU / 1 GB |
+| 主机资源 | 参考[部署架构](architecture.md)；起步建议 2 vCPU / 1 GB，个人单域名场景 1 vCPU / 1 GB 也可运行 |
 | 网络 | 管理入口经 HTTPS 反向代理；出站可访问 DNS API、CA、SMTP、部署目标 |
 | 域名 | 一个管理域名和对应 TLS 证书；ACME 服务端可选独立域名 |
 
 主程序不需要外部数据库、Redis 或消息队列。所有状态都在 `data/` 目录中。
+
+!!! tip "个人 / 小团队"
+    不需要走企业评估流程：按第 2 节 Docker 启动、第 4 节完成初始化、第 6.3 节安装插件即可。宝塔、1Panel 等面板建站需要安装对应的部署插件；自动续期依赖 DNS API，建议使用只授权所需域名的专用子账号。插件安装/更新会有瞬时内存峰值，不要把容器内存限制到刚好等于空闲占用。
 
 ## 2. 方式一：Docker Compose（推荐）
 
@@ -34,10 +37,10 @@ chmod 700 data
 --8<-- "docker-compose.yml"
 ```
 
-如果不用 1Panel，请把文件末尾的 `1panel-network` 改为默认网络，否则 `docker compose up` 会因外部网络不存在而失败：
+默认文件沿用 1Panel 的 `1panel-network` 外部网络。不使用 1Panel 时，删除服务下的 `networks` 和文件末尾的 `networks` 段，让 Compose 使用默认网络；也可以先创建该网络：
 
-```yaml
-# 删除 networks 配置，让 Compose 使用默认网络
+```bash
+docker network create 1panel-network
 ```
 
 ### 2.2 启动
@@ -48,6 +51,9 @@ docker compose up -d
 docker compose logs -f lactssl
 ```
 
+!!! note "镜像与网络"
+    GHCR 镜像从首个正式 Release 起可用；如果 `docker compose pull` 提示镜像不存在，请按 2.4 节在本地构建。Compose 默认把 8080 发布到宿主机所有网卡；公网主机建议用防火墙限制来源，或把 `ports` 改为 `127.0.0.1:8080:8080`，只允许本机反向代理访问。
+
 默认挂载：
 
 - `./config/config.yaml`：配置文件
@@ -57,21 +63,23 @@ docker compose logs -f lactssl
 
 ### 2.3 固定版本
 
-不要长期使用 `latest`。通过环境变量或直接修改镜像标签固定版本：
+不要长期使用 `latest`。直接修改 `docker-compose.yml` 中的镜像标签：
 
-```bash
-LACTSSL_VERSION=1.2.3 docker compose up -d
+```yaml
+image: ghcr.io/axmishell/lactssl:1.2.3
 ```
 
 稳定标签包括 `<version>`、`<major>.<minor>`、`<major>` 和 `latest`；预发布版本只推送完整版本标签。
 
 ### 2.4 本地构建镜像
 
-修改源码后本地构建：
+先在 `docker-compose.yml` 中取消 `build:` 段的注释，再修改源码并构建：
 
 ```bash
 LACTSSL_VERSION=1.2.3 docker compose up -d --build
 ```
+
+`LACTSSL_VERSION` 只注入程序版本号，不会改变本地镜像标签；需要区分镜像时请同时修改 `image`。
 
 或手动构建：
 
@@ -312,7 +320,7 @@ sudo systemctl start lactssl
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| `docker compose up` 报外部网络不存在 | 默认依赖 `1panel-network` | 改为默认网络或先创建该网络 |
+| `docker compose up` 报外部网络不存在 | 默认依赖 `1panel-network` | 删除两处 `networks` 使用默认网络，或先创建该网络 |
 | 访问根路径返回 404 | 未通过门禁入口 | 使用启动日志中的入口地址 |
 | 登录后 Cookie 异常/限流不准 | 未配置可信代理 | 配置 `trusted_proxies` 并传递转发头 |
 | 密码重置链接指向错误域名 | 未配置 `public_url` | 设置固定对外地址 |

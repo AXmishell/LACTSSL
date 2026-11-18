@@ -91,7 +91,8 @@
 
         <div class="auth-hint">
           {{ t('auth.hint1') }}<br />
-          {{ t('auth.hint2') }}
+          {{ t('auth.hint2') }}<br />
+          {{ t('auth.hint3') }}
         </div>
       </div>
     </section>

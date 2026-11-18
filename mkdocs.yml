@@ -3,7 +3,7 @@
 # 因为 `zensical serve` 一次只能构建一种配置。
 site_name: LACTSSL
 site_url: https://lactssl.gpcn.cc/
-site_description: "Self-hosted SSL certificate management for enterprise IT, security, and operations teams: ACME issuance and auto-renewal, deployment, endpoint monitoring, private CA, and internal ACME."
+site_description: "Self-hosted SSL certificate management for enterprise teams and individuals / small teams: ACME issuance and auto-renewal, deployment, endpoint monitoring, private CA, and internal ACME."
 repo_url: https://github.com/AXmishell/LACTSSL
 repo_name: AXmishell/LACTSSL
 edit_uri: edit/main/docs/en/
@@ -46,8 +46,8 @@ theme:
 
 nav:
   - Home: index.md
-  - Evaluate and deploy:
-      - Evaluate and roll out: getting-started.md
+  - Get started and deploy:
+      - Getting started and rollout: getting-started.md
       - Installation: install.md
       - Architecture: architecture.md
   - Administration:

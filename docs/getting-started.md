@@ -1,6 +1,25 @@
-# 评估与上线
+# 快速上手与上线
 
-本文面向第一次在企业内引入 LACTSSL 的团队，目标是用最短路径回答三个问题：**能不能满足场景、需要哪些外部依赖、如何安全地上生产**。
+本文面向第一次引入 LACTSSL 的团队和个人用户，目标是用最短路径回答三个问题：**能不能满足场景、需要哪些外部依赖、如何安全地上生产**。个人站点和小团队可以直接跳到下面的快速路径，不需要走完整的企业评估流程。
+
+## 快速路径：个人 / 小团队
+
+适用场景：个人博客与站点、家庭实验室、小团队内部服务。你需要的只是**一台能跑 Docker 的 Linux 主机（VPS、NAS 或小主机）、一个域名和 DNS API 凭据、一个部署目标**。
+
+四步跑通，通常 30 分钟内完成：
+
+1. 按[安装与启动](install.md)用 Docker 启动实例，通过启动日志中的门禁入口完成初始化。
+2. 进入「插件」页刷新索引，安装一个 DNS 插件；需要面板/CDN 等部署目标就再装部署插件，需要提醒就装通知插件。
+3. 创建 DNS 账户 → 在「证书申请」创建任务，选择公共 CA 和域名 → 添加「部署证书」节点（本地目录、SSH 或面板）→ 可选添加通知节点。
+4. 手动运行一次，确认证书文件已更新且服务已重载；之后观察一次自动续期或手动触发续期验证。
+
+个人场景的最小安全基线：
+
+- 用 HTTPS 域名访问管理页，并启用 TOTP 或通行密钥。
+- 备份密码与 `config.yaml` 分开保管；丢失 `salt` 后数据库中的加密凭据无法解密。
+- DNS API 使用专用子账号，只授权需要的域名。
+
+> 企业引入仍需按下面的 1–7 节完成适用性确认、试点和生产上线检查表。
 
 ## 1. 先确认适用性
 
@@ -43,12 +62,13 @@ Docker 方式最适合评估：
 ```bash
 git clone https://github.com/AXmishell/LACTSSL.git
 cd LACTSSL
-cp config.yaml.example config.yaml && chmod 600 config.yaml
+mkdir -p config data
+cp config.yaml.example config/config.yaml && chmod 600 config/config.yaml
 docker compose up -d
 docker compose logs -f lactssl
 ```
 
-如果未使用 1Panel，仓库默认的 `1panel-network` 外部网络可能不存在；先按[安装与启动](install.md)把网络改为默认网络。也可以直接下载 Release 二进制或从源码构建。试点阶段可以用 `http://127.0.0.1:8080` 访问；涉及通行密钥（WebAuthn）时必须使用 HTTPS 域名或 localhost。
+仓库默认沿用 1Panel 的 `1panel-network` 外部网络；不使用 1Panel 时删除 `docker-compose.yml` 中服务下的 `networks` 和末尾的 `networks` 段，或先执行 `docker network create 1panel-network`。GHCR 镜像从首个正式 Release 起可用，未发布时可按[安装与启动](install.md)在本地构建。试点阶段可以用 `http://127.0.0.1:8080` 访问；涉及通行密钥（WebAuthn）时必须使用 HTTPS 域名或 localhost。
 
 ### 3.2 完成初始化
 

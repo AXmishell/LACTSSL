@@ -9,6 +9,12 @@
         <h2>{{ t('setup.title') }}</h2>
         <div class="sub">{{ t('setup.subtitle') }}</div>
 
+        <div class="setup-steps">
+          <span class="setup-step"><b>1</b>{{ t('setup.stepAccount') }}</span>
+          <span class="setup-step"><b>2</b>{{ t('setup.stepPlugins') }}</span>
+          <span class="setup-step"><b>3</b>{{ t('setup.stepCert') }}</span>
+        </div>
+
         <el-form :model="form" label-position="top" @submit.prevent="submit">
           <el-form-item :label="t('setup.setupToken')">
             <el-input v-model="setupToken" size="large" autocomplete="off" :placeholder="t('setup.setupTokenPlaceholder')">
@@ -888,6 +894,35 @@ async function restoreBackup(): Promise<void> {
 </script>
 
 <style scoped>
+.setup-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+.setup-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.setup-step b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
 .install-advanced {
   margin-top: 18px;
   border-top: 1px dashed #e2e8f0;

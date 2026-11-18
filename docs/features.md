@@ -1,6 +1,6 @@
 # 产品能力
 
-本文按业务能力说明 LACTSSL 能做什么、关键参数和限制，便于方案设计和验收。具体操作步骤分散在[评估与上线](getting-started.md)、[管理工作台](administration.md)和[API 集成](api.md)中。
+本文按业务能力说明 LACTSSL 能做什么、关键参数和限制，便于方案设计和验收。具体操作步骤分散在[快速上手与上线](getting-started.md)、[管理工作台](administration.md)和[API 集成](api.md)中。
 
 ## 能力地图
 

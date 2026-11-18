@@ -28,6 +28,17 @@
       </div>
     </section>
 
+    <div v-if="(data?.cert_total || 0) === 0" class="first-run">
+      <div class="first-run-main">
+        <div class="first-run-title">{{ t('dashboard.firstRunTitle') }}</div>
+        <div class="first-run-desc">{{ t('dashboard.firstRunDesc') }}</div>
+      </div>
+      <div class="first-run-actions">
+        <el-button @click="router.push('/plugins')">{{ t('dashboard.firstRunPlugins') }}</el-button>
+        <el-button type="primary" @click="router.push('/tasks')">{{ t('dashboard.firstRunTask') }}</el-button>
+      </div>
+    </div>
+
     <div class="grid grid-4 mt-20">
       <div class="stat-card">
         <div class="top">
@@ -346,6 +357,44 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 7px;
+}
+
+.first-run {
+  margin-top: 20px;
+  padding: 18px 22px;
+  border: 1px solid #e0e7ff;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.first-run-title {
+  color: #312e81;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.first-run-desc {
+  margin-top: 6px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.first-run-actions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 760px) {
+  .first-run {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 .empty-mini {

@@ -1,6 +1,25 @@
-# Evaluation and rollout
+# Getting started and rollout
 
-This guide is for teams introducing LACTSSL into an enterprise for the first time. Its goal is to answer three questions as directly as possible: **whether it fits the scenario, which external dependencies are required, and how to move to production safely.**
+This guide is for teams and individuals introducing LACTSSL for the first time. Its goal is to answer three questions as directly as possible: **whether it fits the scenario, which external dependencies are required, and how to move to production safely.** Individuals and small teams can skip straight to the quick path below instead of running the full enterprise evaluation.
+
+## Quick path: individuals and small teams
+
+Typical scenarios: personal blogs and sites, home labs, and internal services for a small team. All you need is **a Linux host that runs Docker (VPS, NAS, or small machine), a domain with DNS API credentials, and a deployment target**.
+
+Four steps, usually within 30 minutes:
+
+1. Start an instance with Docker as described in [Installation](install.md), and complete initialization through the secure entry printed in the startup logs.
+2. Open the **Plugins** page, refresh the index, and install a DNS plugin; add deployment plugins for panel/CDN targets, and a notification plugin if you want alerts.
+3. Create a DNS account → create a task under **Certificate request**, select a public CA and your domain → add a **Deploy certificate** node (local directory, SSH, or panel) → optionally add a notify node.
+4. Run the task manually and confirm the certificate files were updated and the service reloaded; then observe one automatic renewal or trigger a renewal manually.
+
+Minimum security baseline for personal use:
+
+- Access the admin UI through an HTTPS domain and enable TOTP or a passkey.
+- Keep the backup password separate from `config.yaml`; without `salt`, encrypted credentials in the database cannot be decrypted.
+- Use a dedicated DNS sub-account that is authorized only for the domains you need.
+
+> Enterprise adoption still requires the fit assessment, pilot, and production checklist in sections 1–7 below.
 
 ## 1. Confirm fit first
 
@@ -43,12 +62,13 @@ Docker is the most suitable option for evaluation:
 ```bash
 git clone https://github.com/AXmishell/LACTSSL.git
 cd LACTSSL
-cp config.yaml.example config.yaml && chmod 600 config.yaml
+mkdir -p config data
+cp config.yaml.example config/config.yaml && chmod 600 config/config.yaml
 docker compose up -d
 docker compose logs -f lactssl
 ```
 
-If you are not using 1Panel, the repository's default `1panel-network` external network may not exist; switch to the default network as described in [Installation](install.md). Alternatively, download the release binary or build from source. During the pilot you can use `http://127.0.0.1:8080`; passkeys (WebAuthn) require an HTTPS domain or localhost.
+The repository uses 1Panel's external `1panel-network` by default. If you are not using 1Panel, remove the service-level `networks` and the top-level `networks` block in `docker-compose.yml`, or run `docker network create 1panel-network` first. The GHCR image is available starting from the first stable release; if it is not published yet, build locally as described in [Installation](install.md). During the pilot you can use `http://127.0.0.1:8080`; passkeys (WebAuthn) require an HTTPS domain or localhost.
 
 ### 3.2 Complete initialization
 

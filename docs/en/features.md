@@ -1,6 +1,6 @@
 # Features
 
-This document describes LACTSSL capabilities by business domain, including key parameters and limitations, to support solution design and acceptance. Detailed procedures are covered in [Evaluation and rollout](getting-started.md), [Administration](administration.md), and [API integration](api.md).
+This document describes LACTSSL capabilities by business domain, including key parameters and limitations, to support solution design and acceptance. Detailed procedures are covered in [Getting started and rollout](getting-started.md), [Administration](administration.md), and [API integration](api.md).
 
 ## Capability map
 
