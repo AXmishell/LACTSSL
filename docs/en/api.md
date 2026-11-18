@@ -291,6 +291,21 @@ Notes:
 - Use the `csr.allowed_domains` setting to restrict requestable domains. Separate multiple domains with commas or whitespace.
 - `key_available` is `false` for these certificates, so private-key download and private-key-dependent deployments are disabled.
 
+The repository includes a ready-to-use Python client, `scripts/csr_client.py`. It generates the private key and CSR locally, submits the request, polls for completion, and verifies that the downloaded certificate matches the private key:
+
+```bash
+export LACTSSL_URL="https://ssl.example.com"
+export LACTSSL_TOKEN="lactssl_xxxxxxxxxxxxxxxx"
+
+python3 scripts/csr_client.py \
+  --domains example.com,www.example.com \
+  --dns-account-id 3 \
+  --ca letsencrypt \
+  --out-dir ./certs
+```
+
+The script uploads only the CSR; the private key never leaves the client. Outputs include `.key`, `.csr`, `.crt`, `.fullchain.crt`, and `.request.json`. If the request was created but the download was interrupted, resume with `--request-id csr_xxxxxxxx`.
+
 ## 7. CI/CD Examples
 
 ### 7.1 Distributing Certificates After Renewal
