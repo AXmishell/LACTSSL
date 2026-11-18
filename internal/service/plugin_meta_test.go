@@ -6,105 +6,58 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AXmishell/LACTSSL-Plugins/catalog"
-	plugini18n "github.com/AXmishell/LACTSSL-Plugins/i18n"
-	"lactssl/internal/dnsplugin"
 	"lactssl/internal/i18n"
+	"lactssl/internal/plugin/dns"
+	"lactssl/internal/plugin/meta"
 )
 
 func TestLocalizeDNSProvidersMarksAvailability(t *testing.T) {
+	dnsplugin.UnregisterSource(dnsplugin.SourceExec)
+	t.Cleanup(func() { dnsplugin.UnregisterSource(dnsplugin.SourceExec) })
+
 	defs := LocalizeDNSProviders(i18n.ZhCN)
-	builtins := dnsplugin.ListBySource(dnsplugin.SourceBuiltin)
-	// 默认构建不编译任何服务商，列表应只包含当前可用的插件服务商。
-	// 测试环境未扫描插件目录时，列表为空。
-	if len(defs) != len(builtins) {
-		t.Fatalf("catalog should only contain available providers: %d definitions, %d built-ins", len(defs), len(builtins))
+	// 没有已启用插件时，列表为空；历史账号的元数据由 manifest 缓存提供。
+	if len(defs) != 0 {
+		t.Fatalf("expected no available DNS providers, got %d", len(defs))
 	}
-	byID := make(map[string]ProviderDef, len(defs))
-	for _, def := range defs {
-		byID[def.Value] = def
-	}
-	// 所有编译进主程序的内置服务商都应出现在列表中且可用。
-	for _, plugin := range builtins {
-		def, exists := byID[plugin.ID()]
-		if !exists {
-			t.Fatalf("built-in provider %s missing from list", plugin.ID())
-		}
-		if !def.Available || def.Source != string(dnsplugin.SourceBuiltin) {
-			t.Fatalf("built-in provider %s = %+v", plugin.ID(), def)
-		}
-	}
-	// 未编译且没有插件提供的服务商不应作为条目出现。
-	// 元数据仍保留在 DNSProviders 中，供 helper 与历史账号使用。
-	if !dnsplugin.Has("ovh") {
-		if _, exists := byID["ovh"]; exists {
-			t.Fatal("uncompiled provider without plugin should not be listed")
-		}
-		if _, exists := DNSProviderInfo("ovh"); !exists {
-			t.Fatal("ovh metadata should still be available for accounts")
-		}
+	if _, exists := DNSProviderInfo("ovh"); !exists {
+		t.Fatal("ovh metadata should still be available from manifest cache")
 	}
 }
 
-// TestCatalogMetadataUsesPluginTranslations 确保插件目录的元数据直接使用插件仓库文案，
-// 而不是依赖主程序语言包。新增部署目标或字段时主程序无需再同步 meta.* 翻译。
-func TestCatalogMetadataUsesPluginTranslations(t *testing.T) {
-	for _, locale := range i18n.Supported() {
-		pluginLocale := plugini18n.Normalize(string(locale))
-		if !plugini18n.Has(pluginLocale) {
-			t.Fatalf("host locale %s is not supported by plugin i18n", locale)
-		}
+// TestCachedProviderMetadataTranslations 验证 manifest 缓存中的多语言字段
+// 能正确转换为主程序 ProviderDef，不再依赖插件仓库的 catalog/i18n。
+func TestCachedProviderMetadataTranslations(t *testing.T) {
+	provider, ok := pluginmeta.Provider("ovh")
+	if !ok {
+		t.Fatal("cached ovh metadata missing")
 	}
-
-	check := func(kind string, def ProviderDef, item catalog.Provider) {
-		t.Helper()
-		for _, locale := range i18n.Supported() {
-			pluginLocale := plugini18n.Normalize(string(locale))
-			localized := def.Localized(locale)
-			if want := item.LocalizedName(pluginLocale); localized.Label != want {
-				t.Errorf("%s %s %s label = %q, want %q", locale, kind, item.Value, localized.Label, want)
-			}
-			if want := item.LocalizedDesc(pluginLocale); localized.Desc != want {
-				t.Errorf("%s %s %s desc = %q, want %q", locale, kind, item.Value, localized.Desc, want)
-			}
-			fields := append(append([]FieldDef{}, localized.Fields...), localized.DeployFields...)
-			catalogFields := append(append([]catalog.Field{}, item.Fields...), item.DeployFields...)
-			if len(fields) != len(catalogFields) {
-				t.Fatalf("%s %s %s field count = %d, want %d", locale, kind, item.Value, len(fields), len(catalogFields))
-			}
-			for index, field := range fields {
-				source := catalogFields[index]
-				if want := source.LocalizedLabel(pluginLocale); field.Label != want {
-					t.Errorf("%s %s %s.%s label = %q, want %q", locale, kind, item.Value, field.Key, field.Label, want)
-				}
-				if want := source.LocalizedPlaceholder(pluginLocale); field.Placeholder != want {
-					t.Errorf("%s %s %s.%s placeholder = %q, want %q", locale, kind, item.Value, field.Key, field.Placeholder, want)
-				}
-				if want := source.LocalizedHelp(pluginLocale); field.Help != want {
-					t.Errorf("%s %s %s.%s help = %q, want %q", locale, kind, item.Value, field.Key, field.Help, want)
-				}
-				for optionIndex, option := range field.Options {
-					if want := source.Options[optionIndex].LocalizedLabel(pluginLocale); option.Label != want {
-						t.Errorf("%s %s %s.%s option %s label = %q, want %q", locale, kind, item.Value, field.Key, option.Value, option.Label, want)
-					}
-				}
-			}
+	def := manifestProviderDef(provider)
+	for _, tc := range []struct {
+		locale i18n.Locale
+		label  string
+		desc   string
+		field  string
+		help   string
+		option string
+	}{
+		{i18n.ZhCN, "OVH", "OVH DNS", "接入点", "选择 OVH 区域", "欧洲"},
+		{i18n.EnUS, "OVH Cloud", "OVH DNS API", "Endpoint", "Select the OVH region", "Europe"},
+	} {
+		localized := def.Localized(tc.locale)
+		if localized.Label != tc.label || localized.Desc != tc.desc {
+			t.Fatalf("%s label/desc = %q/%q", tc.locale, localized.Label, localized.Desc)
 		}
-	}
-
-	for _, item := range catalog.DNSProviders() {
-		def, found := DNSProviderInfo(item.Value)
-		if !found {
-			t.Fatalf("DNS provider %s missing from catalog bridge", item.Value)
+		if len(localized.Fields) != 1 {
+			t.Fatalf("%s fields = %+v", tc.locale, localized.Fields)
 		}
-		check("dns", def, item)
-	}
-	for _, item := range catalog.Deployers() {
-		def, found := PluginDeployTypeInfo(item.Value)
-		if !found {
-			t.Fatalf("deploy type %s missing from catalog bridge", item.Value)
+		field := localized.Fields[0]
+		if field.Label != tc.field || field.Help != tc.help {
+			t.Fatalf("%s field label/help = %q/%q", tc.locale, field.Label, field.Help)
 		}
-		check("deploy", def, item)
+		if len(field.Options) != 1 || field.Options[0].Label != tc.option {
+			t.Fatalf("%s options = %+v", tc.locale, field.Options)
+		}
 	}
 }
 
@@ -131,9 +84,8 @@ func TestBuiltinDNSProviderIDs(t *testing.T) {
 }
 
 func TestLocalizeDNSProvidersHidesDisabledPluginProviders(t *testing.T) {
-	if dnsplugin.Has("ovh") {
-		t.Skip("ovh is compiled in this build")
-	}
+	dnsplugin.UnregisterSource(dnsplugin.SourceExec)
+	t.Cleanup(func() { dnsplugin.Discover(dnsplugin.DiscoverConfig{}) })
 	dir := t.TempDir()
 	script := `#!/bin/sh
 case "$1" in
@@ -150,7 +102,6 @@ esac
 	}
 	// 未启用白名单：两个插件服务商默认都停用。
 	result := dnsplugin.Discover(dnsplugin.DiscoverConfig{Dir: dir})
-	t.Cleanup(func() { dnsplugin.Discover(dnsplugin.DiscoverConfig{}) })
 	if result.Providers != 0 || len(result.Disabled) != 2 {
 		t.Fatalf("discover result: %+v", result)
 	}
@@ -186,7 +137,7 @@ esac
 
 func TestNewDNSProviderUnavailable(t *testing.T) {
 	if dnsplugin.Has("ovh") {
-		t.Skip("ovh is compiled in this build")
+		t.Skip("ovh is registered in this test")
 	}
 	_, _, err := newDNSProvider("ovh", nil)
 	if err == nil || !strings.Contains(err.Error(), "ovh") {

@@ -34,3 +34,15 @@ type PluginFileMeta struct {
 	SHA256    string            `json:"sha256,omitempty"`
 	UpdatedAt time.Time         `json:"updated_at"`
 }
+
+// PluginMetadata 缓存单个插件条目的完整 manifest。
+// 用于 helper 文件停用或插件卸载后，历史账号仍能展示字段并按密钥字段脱敏。
+// Manifest 是该条目的规范化 JSON，只用于展示与校验，不参与插件执行。
+type PluginMetadata struct {
+	Kind      string    `json:"kind"`
+	ID        string    `json:"id"`
+	Version   string    `json:"version,omitempty"`
+	Name      string    `json:"name,omitempty"`
+	Manifest  string    `json:"manifest"`
+	UpdatedAt time.Time `json:"updated_at"`
+}

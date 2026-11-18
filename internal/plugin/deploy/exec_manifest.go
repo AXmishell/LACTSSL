@@ -3,27 +3,27 @@ package deployplugin
 import (
 	"time"
 
-	"github.com/AXmishell/LACTSSL-Plugins/protocol"
+	"lactssl/internal/plugin/proto"
 )
 
 // FeatureMergedDeployers 告知 helper 只输出合并后的规范部署目标。
 // 旧版主程序不会传入该特性，helper 会继续输出旧 ID，保证前后端版本错配时可用。
-const FeatureMergedDeployers = protocol.FeatureMergedDeployers
+const FeatureMergedDeployers = pluginproto.FeatureMergedDeployers
 
 // Manifest 是外部 exec helper 通过 `manifest` 子命令输出的协议描述。
-type Manifest = protocol.DeployManifest
+type Manifest = pluginproto.DeployManifest
 
 // ManifestDeployer 描述一个由 helper 提供的部署目标。
-type ManifestDeployer = protocol.Deployer
+type ManifestDeployer = pluginproto.Deployer
 
 // ManifestField 描述外部部署目标的配置字段，与内置 FieldDef 的 JSON 结构保持兼容。
-type ManifestField = protocol.DeployField
+type ManifestField = pluginproto.DeployField
 
 // ManifestOption 是下拉选项。
-type ManifestOption = protocol.DeployOption
+type ManifestOption = pluginproto.DeployOption
 
 // ManifestCondition 描述字段显示条件。
-type ManifestCondition = protocol.DeployCondition
+type ManifestCondition = pluginproto.DeployCondition
 
 // DiscoverConfig 是外部部署插件扫描配置。
 type DiscoverConfig struct {

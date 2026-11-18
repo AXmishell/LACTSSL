@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/go-acme/lego/v4/challenge"
-	"lactssl/internal/pluginexec"
+	"lactssl/internal/plugin/exec"
 )
 
 const (
@@ -27,22 +27,26 @@ const (
 )
 
 var (
-	idPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
-	keyPattern   = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
-	fieldTypes   = map[string]bool{"": true, "text": true, "password": true, "textarea": true, "number": true, "select": true, "switch": true}
-	maxProviders = 512
-	maxFields    = 64
+	idPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+	keyPattern    = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
+	localePattern = regexp.MustCompile(`^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$`)
+	fieldTypes    = map[string]bool{"": true, "text": true, "password": true, "textarea": true, "number": true, "select": true, "switch": true}
+	maxProviders  = 512
+	maxFields     = 64
+	maxLocales    = 32
 )
 
 // ExternalProvider 是由 exec helper 提供的服务商元数据。
 type ExternalProvider struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name,omitempty"`
-	Description string          `json:"description,omitempty"`
-	Aliases     []string        `json:"aliases,omitempty"`
-	Fields      []ManifestField `json:"fields,omitempty"`
-	Helper      string          `json:"helper"`
-	Version     string          `json:"version,omitempty"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name,omitempty"`
+	NameI18n        map[string]string `json:"name_i18n,omitempty"`
+	Description     string            `json:"description,omitempty"`
+	DescriptionI18n map[string]string `json:"description_i18n,omitempty"`
+	Aliases         []string          `json:"aliases,omitempty"`
+	Fields          []ManifestField   `json:"fields,omitempty"`
+	Helper          string            `json:"helper"`
+	Version         string            `json:"version,omitempty"`
 	// Enabled 表示该服务商已在管理界面启用并注册到运行时。
 	Enabled bool `json:"enabled"`
 	// FileEnabled 表示该服务商所属的 helper 文件未被管理员停用。
@@ -203,15 +207,17 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 			}
 			externalState.Lock()
 			externalState.providers[provider.ID] = ExternalProvider{
-				ID:          provider.ID,
-				Name:        provider.Name,
-				Description: provider.Description,
-				Aliases:     provider.Aliases,
-				Fields:      provider.Fields,
-				Helper:      item.path,
-				Version:     item.manifest.Version,
-				Enabled:     enabled,
-				FileEnabled: true,
+				ID:              provider.ID,
+				Name:            provider.Name,
+				NameI18n:        provider.NameI18n,
+				Description:     provider.Description,
+				DescriptionI18n: provider.DescriptionI18n,
+				Aliases:         provider.Aliases,
+				Fields:          provider.Fields,
+				Helper:          item.path,
+				Version:         item.manifest.Version,
+				Enabled:         enabled,
+				FileEnabled:     true,
 			}
 			externalState.Unlock()
 			accepted++
@@ -252,12 +258,22 @@ func ExternalEnabledProviders() []ExternalProvider {
 	return out
 }
 
-// ExternalProviderInfo 查找外部服务商元数据。
+// ExternalProviderInfo 查找外部服务商元数据，支持别名。
 func ExternalProviderInfo(id string) (ExternalProvider, bool) {
+	key := normalize(id)
 	externalState.RLock()
 	defer externalState.RUnlock()
-	provider, ok := externalState.providers[normalize(id)]
-	return provider, ok
+	if provider, ok := externalState.providers[key]; ok {
+		return provider, true
+	}
+	for _, provider := range externalState.providers {
+		for _, alias := range provider.Aliases {
+			if normalize(alias) == key {
+				return provider, true
+			}
+		}
+	}
+	return ExternalProvider{}, false
 }
 
 // ExternalHelpers 返回已加载的 helper 数量。
@@ -334,6 +350,12 @@ func validateManifest(manifest Manifest) error {
 		if len(provider.Fields) > maxFields {
 			return fmt.Errorf("服务商 %s 的字段数量超过 %d", provider.ID, maxFields)
 		}
+		if err := validateI18nMap(provider.ID, "名称", provider.NameI18n, 128); err != nil {
+			return err
+		}
+		if err := validateI18nMap(provider.ID, "描述", provider.DescriptionI18n, 1024); err != nil {
+			return err
+		}
 		for _, field := range provider.Fields {
 			if !keyPattern.MatchString(field.Key) {
 				return fmt.Errorf("服务商 %s 的字段 key 非法: %q", provider.ID, field.Key)
@@ -344,9 +366,43 @@ func validateManifest(manifest Manifest) error {
 			if len(field.Label) > 128 || len(field.Help) > 1024 || len(field.Placeholder) > 256 {
 				return fmt.Errorf("服务商 %s 的字段 %s 文本过长", provider.ID, field.Key)
 			}
+			if err := validateI18nMap(provider.ID, "字段 "+field.Key+" 标签", field.LabelI18n, 128); err != nil {
+				return err
+			}
+			if err := validateI18nMap(provider.ID, "字段 "+field.Key+" 占位符", field.PlaceholderI18n, 256); err != nil {
+				return err
+			}
+			if err := validateI18nMap(provider.ID, "字段 "+field.Key+" 帮助", field.HelpI18n, 1024); err != nil {
+				return err
+			}
 			if len(field.Options) > 64 {
 				return fmt.Errorf("服务商 %s 的字段 %s 选项过多", provider.ID, field.Key)
 			}
+			for _, option := range field.Options {
+				if len(option.Label) > 128 || len(option.Value) > 128 {
+					return fmt.Errorf("服务商 %s 的字段 %s 选项文本过长", provider.ID, field.Key)
+				}
+				if err := validateI18nMap(provider.ID, "字段 "+field.Key+" 选项", option.LabelI18n, 128); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateI18nMap 限制 manifest 中多语言表的语言数量、语言标识与文本长度。
+// 新字段是可选的，但恶意 helper 仍可能通过超大映射消耗宿主内存或数据库空间。
+func validateI18nMap(providerID, what string, values map[string]string, maxLen int) error {
+	if len(values) > maxLocales {
+		return fmt.Errorf("服务商 %s 的%s语言数量超过 %d", providerID, what, maxLocales)
+	}
+	for locale, text := range values {
+		if len(locale) > 32 || !localePattern.MatchString(locale) {
+			return fmt.Errorf("服务商 %s 的%s语言标识非法: %q", providerID, what, locale)
+		}
+		if len(text) > maxLen {
+			return fmt.Errorf("服务商 %s 的%s文本过长: %s", providerID, what, locale)
 		}
 	}
 	return nil

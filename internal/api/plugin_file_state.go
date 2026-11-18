@@ -9,11 +9,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"lactssl/internal/deployplugin"
-	"lactssl/internal/dnsplugin"
 	"lactssl/internal/model"
-	"lactssl/internal/notifyplugin"
-	"lactssl/internal/plugininstall"
+	"lactssl/internal/plugin/deploy"
+	"lactssl/internal/plugin/dns"
+	"lactssl/internal/plugin/install"
+	"lactssl/internal/plugin/notify"
 	"lactssl/internal/service"
 )
 

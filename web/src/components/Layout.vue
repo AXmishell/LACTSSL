@@ -155,14 +155,15 @@ const menus: MenuGroup[] = [
   },
   {
     label: 'nav.groupPlugins',
-    items: [{ path: '/plugins', label: 'nav.dnsPlugins', icon: 'Box' }]
+    items: [
+      { path: '/plugins', label: 'nav.dnsPlugins', icon: 'Box' },
+      { path: '/logs', label: 'nav.logs', icon: 'Tickets' }
+    ]
   },
   {
     label: 'nav.groupSystem',
     items: [
       { path: '/notifications', label: 'nav.notifications', icon: 'Bell' },
-      { path: '/logs', label: 'nav.logs', icon: 'Tickets' },
-      { path: '/system-logs', label: 'nav.systemLogs', icon: 'Memo' },
       { path: '/sessions', label: 'nav.sessions', icon: 'Key' },
       { path: '/api-keys', label: 'nav.apiKeys', icon: 'Ticket' },
       { path: '/upgrade', label: 'nav.upgrade', icon: 'MagicStick' },
@@ -180,6 +181,8 @@ watch(
 
 
 function isActive(path: string): boolean {
+  // 旧地址 /system-logs 复用统一日志页，仍高亮「日志」菜单。
+  if (path === '/logs' && route.path === '/system-logs') return true
   return route.path === path
 }
 

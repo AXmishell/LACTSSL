@@ -243,16 +243,18 @@ The UI supports Simplified Chinese and English and can be switched in settings. 
 - Deployment success rate.
 - Expiry distribution and issuance trends.
 
-### 9.2 Operation logs
+### 9.2 Logs: Operation
 
+- Shares the Misc → Logs page with system logs, switched via tabs.
 - Records task execution, certificate issuance, deployments, notifications, monitors, and settings changes.
 - Supports filtering by source, level, and time range.
 - Can export CSV or JSON; CSV includes a UTF-8 BOM and opens directly in Excel/WPS.
 - Export is limited to the most recent 90 days.
 - Export times follow the browser time zone by default; if unavailable, the server `TZ` is used.
 
-### 9.3 System logs
+### 9.3 Logs: System
 
+- Shares the Misc → Logs page with operation logs, switched via tabs.
 - Filtered from process logs and written asynchronously to the database.
 - Can be filtered by level, component, keyword, and time range.
 - Can be exported as CSV/JSON and cleared; clearing writes an entry to the operation log.

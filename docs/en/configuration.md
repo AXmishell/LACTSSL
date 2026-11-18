@@ -79,7 +79,7 @@ log:
   compress: true        # Whether to compress historical files
   access_log: true      # Whether to record HTTP access logs
   system:
-    enabled: true       # Whether to write to the database for the System Logs page
+    enabled: true       # Whether to write to the database for the Logs → System tab
     level: info         # Minimum level written to the database
     access: false       # Whether to also write HTTP access logs to the database
     retention_days: 7   # Retention in days
@@ -169,7 +169,7 @@ The data directory stores the database, plugins, logs, and upgrade backups. It i
 
 ## 5. `log`
 
-Process-level logging and the operation logs in the UI are independent: operation logs are written to the database and can be viewed on the Logs page, while process logs are used for runtime troubleshooting of startup, HTTP, scheduling, plugins, ACME, and other components.
+Process-level logging and operation logs serve different purposes: operation logs record who did what and appear on the Logs → Operation tab; process logs are for runtime troubleshooting, can be written asynchronously to the database for the Logs → System tab, and are also emitted to stdout/files.
 
 - `level`: minimum output level; supports `debug`, `info`, `warn`, and `error`. `debug` includes source locations and is intended for temporary troubleshooting.
 - `format`: `text` for direct reading and Docker logs; `json` for log collection systems.
@@ -180,7 +180,7 @@ Process-level logging and the operation logs in the UI are independent: operatio
 - `max_age_days`: number of days to keep historical files; `0` means unlimited.
 - `compress`: whether to compress rotated historical files as `.gz`.
 - `access_log`: whether to record HTTP access logs. Logs contain only the method, route template, status code, latency, client IP, and similar fields; query parameters, request bodies, and authentication headers are not recorded. The secure entry is uniformly replaced with `:entry` in paths. Every response carries an `X-Request-ID`.
-- `system.enabled`: whether to write to the database for viewing on the System Logs page.
+- `system.enabled`: whether to write to the database for viewing on the Logs → System tab.
 - `system.level`: minimum level written to the database. It cannot be lower than `log.level`; otherwise lower-level logs are not generated.
 - `system.access`: whether to also write HTTP access logs to the database. Defaults to `false` to avoid writing to SQLite on every request.
 - `system.retention_days`: retention in days, range `1–365`.

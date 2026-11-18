@@ -14,9 +14,9 @@ import (
 	"github.com/go-acme/lego/v4/challenge"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
-	"lactssl/internal/dnsplugin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/plugin/dns"
 	"lactssl/internal/store"
 )
 

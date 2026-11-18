@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"lactssl/internal/pluginrepo"
+	"lactssl/internal/plugin/repo"
 	"lactssl/internal/service"
 )
 

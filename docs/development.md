@@ -11,11 +11,11 @@ internal/auth/       JWT 与密码/TOTP 相关逻辑
 internal/config/     config.yaml 加载与校验
 internal/db/         SQLite 打开与迁移
 internal/i18n/       后端国际化与语言资源
-internal/logging/    进程日志、级别、格式与文件轮转
-internal/systemlog/  进程日志异步落库，供「系统日志」页面查询
+internal/logging/    进程日志、级别、格式、文件轮转与异步落库
 internal/model/      数据库实体与任务流程
 internal/acme/       内置 ACME 服务端协议
 internal/service/    ACME 客户端、部署、通知、监控、调度
+internal/plugin/     插件宿主：dns/deploy/notify、exec、install、meta、proto、repo
 internal/store/      数据访问层
 internal/util/       加密、校验等工具
 internal/webui/      嵌入的前端构建产物
@@ -25,7 +25,7 @@ docs/                中文文档
 docs/en/             英文文档
 ```
 
-插件实现、官方 helper、插件协议与元数据位于独立仓库 [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins)，主仓库通过 `go.mod` 固定版本。
+插件实现、官方 helper、插件协议与元数据位于独立仓库 [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins)。主仓库在宿主内实现协议 v1 的 manifest 解码，两个仓库通过签名索引与 `min_host` 做运行期兼容，构建期不再互相依赖。
 
 ## 2. 本地开发
 
@@ -203,13 +203,13 @@ make release TAG=v1.0.1
 
 ## 8. 插件联调
 
-插件源码、构建工具与仓库索引在 `LACTSSL-Plugins`。本地同时开发两个仓库时：
+插件源码、构建工具和索引位于 `LACTSSL-Plugins`。两个仓库不再共享 Go 模块，主仓库可以独立构建；需要同时修改插件实现并做端到端验证时，可临时创建 `go.work`：
 
 ```bash
 go work init . ../LACTSSL-Plugins
 ```
 
-修改插件实现后，在插件仓库执行 `make gen` 与 `make plugin KIND=dns GOOS=linux GOARCH=amd64` 构建 DNS 合并包；提交前移除 `go.work` 或确认未提交（该文件已被 gitignore）。
+修改插件实现后，在插件仓库执行 `make gen` 与 `make plugin KIND=dns GOOS=linux GOARCH=amd64` 构建合并包；联调结束后删除 `go.work`（该文件已被 gitignore）。
 
 插件协议、字段和签名见[插件开发](plugin-development.md)。
 

@@ -158,6 +158,7 @@ Memory considerations:
 Storage considerations:
 
 - Database growth mainly comes from certificates, task logs, operation logs, system logs, and ACME orders.
+- Operation logs and system logs share the `logs` table and are separated by `category`; retention and clearing policies remain isolated per category, so clearing system logs never removes operation logs.
 - Certificates, logs, and ACME diagnostic data all have cleanup entry points; system logs have `retention_days` and `max_rows`.
 - `data/upgrade-backups/` retains the five most recent migration snapshots by default, and program upgrades retain three old binaries by default.
 - Do not write backup files back to the same data directory; reserve backup space at several times the database size.

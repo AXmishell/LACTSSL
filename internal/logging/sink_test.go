@@ -1,4 +1,4 @@
-package systemlog
+package logging
 
 import (
 	"log/slog"
@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"lactssl/internal/db"
-	"lactssl/internal/logging"
 	"lactssl/internal/store"
 	"lactssl/internal/util"
 )
@@ -28,12 +27,12 @@ func newTestStore(t *testing.T) *store.Store {
 
 func TestSinkFiltersAndPersists(t *testing.T) {
 	st := newTestStore(t)
-	sink := New(st, Options{MinLevel: slog.LevelInfo, IncludeAccess: false})
+	sink := NewDBSink(st, DBSinkOptions{MinLevel: slog.LevelInfo, IncludeAccess: false})
 	now := time.Now().UTC()
-	sink.Write(logging.Entry{Time: now, Level: slog.LevelDebug, Component: "service", Message: "debug"})
-	sink.Write(logging.Entry{Time: now, Level: slog.LevelInfo, Component: "service", Message: "task failed", Fields: map[string]any{"task_id": int64(7)}})
-	sink.Write(logging.Entry{Time: now, Level: slog.LevelInfo, Component: "http", Message: "http request"})
-	sink.Write(logging.Entry{Time: now, Level: slog.LevelError, Component: "http", Message: "panic recovered", Fields: map[string]any{"request_id": "abc"}})
+	sink.Write(Entry{Time: now, Level: slog.LevelDebug, Component: "service", Message: "debug"})
+	sink.Write(Entry{Time: now, Level: slog.LevelInfo, Component: "service", Message: "task failed", Fields: map[string]any{"task_id": int64(7)}})
+	sink.Write(Entry{Time: now, Level: slog.LevelInfo, Component: "http", Message: "http request"})
+	sink.Write(Entry{Time: now, Level: slog.LevelError, Component: "http", Message: "panic recovered", Fields: map[string]any{"request_id": "abc"}})
 	if err := sink.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -58,8 +57,8 @@ func TestSinkFiltersAndPersists(t *testing.T) {
 
 func TestSinkCanIncludeAccessLogs(t *testing.T) {
 	st := newTestStore(t)
-	sink := New(st, Options{MinLevel: slog.LevelDebug, IncludeAccess: true})
-	sink.Write(logging.Entry{Time: time.Now().UTC(), Level: slog.LevelInfo, Component: "http", Message: "http request"})
+	sink := NewDBSink(st, DBSinkOptions{MinLevel: slog.LevelDebug, IncludeAccess: true})
+	sink.Write(Entry{Time: time.Now().UTC(), Level: slog.LevelInfo, Component: "http", Message: "http request"})
 	if err := sink.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +76,7 @@ func TestBuildEntrySanitizesFields(t *testing.T) {
 	for len(long) < 9000 {
 		long = append(long, 'x')
 	}
-	entry := buildEntry(logging.Entry{
+	entry := buildEntry(Entry{
 		Time:      time.Now().UTC(),
 		Level:     slog.LevelError,
 		Component: " ",
@@ -103,3 +102,23 @@ func TestBuildEntrySanitizesFields(t *testing.T) {
 type testError struct{}
 
 func (e *testError) Error() string { return "test error" }
+
+func TestBuildEntryExtractsRefAndRequestID(t *testing.T) {
+	entry := buildEntry(Entry{
+		Time:      time.Now().UTC(),
+		Level:     slog.LevelError,
+		Component: "service",
+		Message:   "task failed",
+		Fields: map[string]any{
+			"task_id":    int64(7),
+			"request_id": "req-1",
+			"error":      "boom",
+		},
+	})
+	if entry.RefType != "task" || entry.RefID != 7 {
+		t.Fatalf("ref not extracted: %+v", entry)
+	}
+	if entry.RequestID != "req-1" {
+		t.Fatalf("request id not extracted: %q", entry.RequestID)
+	}
+}

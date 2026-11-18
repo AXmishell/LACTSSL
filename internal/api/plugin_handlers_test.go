@@ -14,9 +14,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/db"
-	"lactssl/internal/deployplugin"
-	"lactssl/internal/dnsplugin"
 	"lactssl/internal/model"
+	"lactssl/internal/plugin/deploy"
+	"lactssl/internal/plugin/dns"
 	"lactssl/internal/store"
 	"lactssl/internal/util"
 )
@@ -38,7 +38,7 @@ func newPluginTestServer(t *testing.T) (*Server, *gin.Engine, string) {
 case "$1" in
 manifest)
   cat <<'JSON'
-{"protocol":"v1","name":"test helper","version":"1.0.0","providers":[{"id":"alphadns","name":"Alpha DNS"},{"id":"betadns","name":"Beta DNS"}]}
+{"protocol":"v1","name":"test helper","version":"1.0.0","providers":[{"id":"alphadns","name":"Alpha DNS","fields":[{"key":"token","label":"Token","type":"password","secret":true}]},{"id":"betadns","name":"Beta DNS"}]}
 JSON
   ;;
 esac

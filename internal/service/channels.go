@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"lactssl/internal/notifyplugin"
+	"lactssl/internal/plugin/notify"
 )
 
 // NotifyChannelConfig 是单个通知渠道的配置。

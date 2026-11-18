@@ -3,24 +3,24 @@ package dnsplugin
 import (
 	"time"
 
-	"github.com/AXmishell/LACTSSL-Plugins/protocol"
+	"lactssl/internal/plugin/proto"
 )
 
 // Manifest 是外部 exec helper 通过 `manifest` 子命令输出的协议描述。
-// 结构由 protocol 包统一维护，宿主与插件仓库共用同一份定义。
-type Manifest = protocol.DNSManifest
+// 结构由宿主本地协议包维护，避免编译期依赖插件仓库。
+type Manifest = pluginproto.DNSManifest
 
 // ManifestProvider 描述一个由 helper 提供的 DNS 服务商。
-type ManifestProvider = protocol.DNSProvider
+type ManifestProvider = pluginproto.DNSProvider
 
 // ManifestField 描述外部服务商的配置字段，与内置 FieldDef 的 JSON 结构保持兼容。
-type ManifestField = protocol.DNSField
+type ManifestField = pluginproto.DNSField
 
 // ManifestOption 是下拉选项。
-type ManifestOption = protocol.DNSOption
+type ManifestOption = pluginproto.DNSOption
 
 // ManifestCondition 描述字段显示条件。
-type ManifestCondition = protocol.DNSCondition
+type ManifestCondition = pluginproto.DNSCondition
 
 // DiscoverConfig 是外部插件扫描配置。
 type DiscoverConfig struct {

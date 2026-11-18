@@ -34,7 +34,11 @@ func Open(path string) (*sql.DB, error) {
 
 // schemaVersion 是基础表结构的版本，写入 SQLite 的 PRAGMA user_version。
 // 结构已是最新时跳过建表与 ensureColumn 检查，避免每次启动重复扫描表结构。
-const schemaVersion = 3
+//
+// 版本历史：
+//   - 4：插件化阶段；
+//   - 5：logs 表合并进程日志（category/ref_type/fields/request_id）。
+const schemaVersion = 5
 
 func migrate(conn *sql.DB) error {
 	var version int
@@ -82,6 +86,15 @@ func migrate(conn *sql.DB) error {
 			sha256 TEXT NOT NULL DEFAULT '',
 			updated_at DATETIME NOT NULL,
 			PRIMARY KEY (kind, filename)
+		)`,
+		`CREATE TABLE IF NOT EXISTS plugin_metadata (
+			kind TEXT NOT NULL,
+			id TEXT NOT NULL,
+			version TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL DEFAULT '',
+			manifest TEXT NOT NULL DEFAULT '',
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (kind, id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS sessions (
 			id TEXT PRIMARY KEY,
@@ -231,12 +244,18 @@ func migrate(conn *sql.DB) error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			category TEXT NOT NULL DEFAULT 'operation',
 			source TEXT NOT NULL,
+			ref_type TEXT NOT NULL DEFAULT '',
 			ref_id INTEGER NOT NULL DEFAULT 0,
 			level TEXT NOT NULL DEFAULT 'info',
 			message TEXT NOT NULL,
+			fields TEXT NOT NULL DEFAULT '',
+			request_id TEXT NOT NULL DEFAULT '',
 			created_at DATETIME NOT NULL
 		)`,
+		// system_logs 已合并到 logs(category='runtime')。保留旧表一个版本，
+		// 仅用于降级/回滚；新代码不再读写，历史数据由 upgrade.logs_unified 复制。
 		`CREATE TABLE IF NOT EXISTS system_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			level TEXT NOT NULL DEFAULT 'info',
@@ -375,6 +394,33 @@ func migrate(conn *sql.DB) error {
 	// 兼容旧数据库：为已有 tasks 表补充任务流程字段。
 	if err := ensureColumn(conn, "tasks", "pipeline", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	// 兼容旧数据库：logs 表合并进程日志所需字段。
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{"category", `TEXT NOT NULL DEFAULT 'operation'`},
+		{"ref_type", `TEXT NOT NULL DEFAULT ''`},
+		{"fields", `TEXT NOT NULL DEFAULT ''`},
+		{"request_id", `TEXT NOT NULL DEFAULT ''`},
+	} {
+		if err := ensureColumn(conn, "logs", column.name, column.definition); err != nil {
+			return fmt.Errorf("升级数据库结构失败: %w", err)
+		}
+	}
+	// 新索引依赖上面的列，必须在 ensureColumn 之后创建；旧库执行到这里时
+	// 才具备 category/ref_type/fields/request_id。
+	for _, stmt := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_logs_category_created ON logs(category, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_category_source_created ON logs(category, source, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_category_level_created ON logs(category, level, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_category_id ON logs(category, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_ref ON logs(ref_type, ref_id, created_at)`,
+	} {
+		if _, err := conn.Exec(stmt); err != nil {
+			return fmt.Errorf("创建日志索引失败: %w", err)
+		}
 	}
 	// 兼容旧数据库：为已有 sessions 表补充通行密钥强认证标记。
 	if err := ensureColumn(conn, "sessions", "strong_auth", `INTEGER NOT NULL DEFAULT 0`); err != nil {

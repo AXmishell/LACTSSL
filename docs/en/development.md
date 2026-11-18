@@ -11,11 +11,11 @@ internal/auth/       JWT and password/TOTP logic
 internal/config/     config.yaml loading and validation
 internal/db/         SQLite opening and migrations
 internal/i18n/       Backend internationalization and language resources
-internal/logging/    Process logging, levels, formats, and file rotation
-internal/systemlog/  Async persistence of process logs for the System Logs page
+internal/logging/    Process logging, levels, formats, file rotation, and async persistence
 internal/model/      Database entities and task workflows
 internal/acme/       Built-in ACME server protocol
 internal/service/    ACME client, deployment, notifications, monitoring, scheduling
+internal/plugin/     plugin host: dns/deploy/notify, exec, install, meta, proto, repo
 internal/store/      Data access layer
 internal/util/       Encryption, validation, and other utilities
 internal/webui/      Embedded frontend build output
@@ -25,7 +25,7 @@ docs/                Chinese documentation
 docs/en/             English documentation
 ```
 
-Plugin implementations, official helpers, the plugin protocol, and plugin metadata live in the separate [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) repository. The main repository pins its version in `go.mod`.
+Plugin implementations, official helpers, the plugin protocol, and plugin metadata live in the separate [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) repository. The host implements protocol v1 manifest decoding locally; the repositories integrate at runtime through the signed index and `min_host`, not through a shared Go module.
 
 ## 2. Local development
 
@@ -203,13 +203,13 @@ make release TAG=v1.0.1
 
 ## 8. Plugin integration
 
-Plugin sources, build tooling, and the repository index live in `LACTSSL-Plugins`. When developing both repositories locally:
+Plugin sources, build tooling, and the repository index live in `LACTSSL-Plugins`. The host builds independently; when you need to change plugin implementations and verify end to end, temporarily create a workspace:
 
 ```bash
 go work init . ../LACTSSL-Plugins
 ```
 
-After changing a plugin implementation, run `make gen` and `make plugin KIND=dns GOOS=linux GOARCH=amd64` in the plugin repository to build the merged DNS bundle. Remove `go.work` or confirm it is not committed before committing (the file is gitignored).
+After changing a plugin implementation, run `make gen` and `make plugin KIND=dns GOOS=linux GOARCH=amd64` in the plugin repository to build the merged DNS bundle. Delete `go.work` after verification (the file is gitignored).
 
 For plugin protocol, fields, and signing, see [Plugin development](plugin-development.md).
 

@@ -154,23 +154,6 @@ jobs:
           name: web-dist
           path: internal/webui/dist
 
-      - name: Read plugins version
-        id: plugins
-        shell: bash
-        run: |
-          version="$(awk '$1=="github.com/AXmishell/LACTSSL-Plugins"{print $2}' go.mod)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout plugins
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: AXmishell/LACTSSL-Plugins
-          ref: ${{ steps.plugins.outputs.version }}
-          path: .plugins
-
-      - name: Use local plugins checkout
-        run: go mod edit -replace github.com/AXmishell/LACTSSL-Plugins=./.plugins
-
       - name: Build binary
         shell: bash
         env:

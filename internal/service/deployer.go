@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"lactssl/internal/deployplugin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/plugin/deploy"
 )
 
 // builtinDeployFunc 是内置部署目标的统一签名。
@@ -16,7 +16,7 @@ type builtinDeployFunc func(ctx context.Context, manager *Manager, cert *model.C
 
 // builtinDeployers 把主程序内置的部署类型映射到具体实现。
 // 只有本地文件与 SSH 属于内置目标；FTP、Webhook、CDN、面板等目标
-// 由部署插件（internal/deployplugin/providers）提供。
+// 由部署插件（internal/plugin/deploy/providers）提供。
 var builtinDeployers = map[string]builtinDeployFunc{
 	"local": func(ctx context.Context, _ *Manager, cert *model.Certificate, cfg map[string]string, _ *model.DeployAccount) error {
 		return deployLocal(ctx, cert, cfg)
@@ -77,7 +77,7 @@ func (m *Manager) deployerFor(id string) (deployplugin.Deployer, bool) {
 }
 
 // DeployBuiltin 调用主程序内置的部署实现（本地文件与 SSH）。
-// 插件目标由 internal/deployplugin 的注册表负责，不经过该函数。
+// 插件目标由 internal/plugin/deploy 的注册表负责，不经过该函数。
 func DeployBuiltin(ctx context.Context, id string, cert *model.Certificate, auth, deployCfg map[string]string) error {
 	id = strings.ToLower(strings.TrimSpace(id))
 	fn, ok := builtinDeployers[id]

@@ -3,21 +3,21 @@ package notifyplugin
 import (
 	"time"
 
-	"github.com/AXmishell/LACTSSL-Plugins/protocol"
+	"lactssl/internal/plugin/proto"
 )
 
 // Field 描述通知渠道的配置字段。
-type Field = protocol.NotifyField
+type Field = pluginproto.NotifyField
 
 // Option 是下拉选项。
-type Option = protocol.NotifyOption
+type Option = pluginproto.NotifyOption
 
 // Manifest 是外部 exec helper 通过 `manifest` 子命令输出的协议描述。
-// 结构由 protocol 包统一维护，宿主与插件仓库共用同一份定义。
-type Manifest = protocol.NotifyManifest
+// 结构由宿主本地协议包维护，避免编译期依赖插件仓库。
+type Manifest = pluginproto.NotifyManifest
 
 // ManifestChannel 描述一个由 helper 提供的通知渠道。
-type ManifestChannel = protocol.NotifyChannel
+type ManifestChannel = pluginproto.NotifyChannel
 
 // DiscoverConfig 是外部通知插件扫描配置。
 type DiscoverConfig struct {

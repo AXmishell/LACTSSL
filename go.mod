@@ -3,7 +3,6 @@ module lactssl
 go 1.27.4
 
 require (
-	github.com/AXmishell/LACTSSL-Plugins v1.3.3
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-acme/lego/v4 v4.35.2
 	github.com/go-jose/go-jose/v4 v4.1.9

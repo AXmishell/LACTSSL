@@ -1,28 +1,71 @@
+# 版本控制与 CI：镜像构建不需要
 .git
+.github
 .gitignore
+.dockerignore
+
+# 本地运行时数据与配置（由容器卷提供）
 data
 config
 config.yaml
-web/node_modules
-web/dist
-internal/webui/dist
+config.yaml.example
+.env
+.env.*
+
+# 本地构建产物、测试与日志
 bin
 lactssl
+lactssl-*
 server
-*.log
-internal/dnsplugin/bundled/lactssl-dns-helper-extra*
-*.log
-# 本地构建产物与文档站点输出，避免进入构建上下文
 dist
 out
 .release-work
 site
-.cache
 coverage.out
 coverage.html
-# 本地 go workspace 指向同级的 LACTSSL-Plugins，镜像内不存在
+coverage.txt
+*.coverprofile
+*.prof
+*.test
+*.exe
+**/*.log
+**/*.pid
+**/*.tmp
+**/*.bak
+**/*.orig
+**/*.rej
+
+# 前端依赖与本地构建结果（镜像内重新构建）
+web/node_modules
+web/dist
+web/coverage
+web/.vite
+web/.cache
+internal/webui/dist
+
+# 文档、工具与本地开发环境：镜像构建不需要
+docs
+docs-internal
+.cache
+.docs-serve
+.venv
+__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+requirements-docs.txt
+mkdocs.yml
+mkdocs.zh.yml
+docker-compose.yml
+README.md
+
+# 本地 go workspace（如临时启用）
 go.work
 go.work.sum
 
-# CI 临时 checkout 的插件仓库
-.plugins
+# 编辑器 / 系统
+.idea
+.vscode
+.DS_Store
+Thumbs.db

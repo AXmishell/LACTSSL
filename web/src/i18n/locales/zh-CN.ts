@@ -82,7 +82,7 @@ export default {
     deploy: '目标凭据',
     dnsPlugins: '插件',
     notifications: '通知推送',
-    logs: '操作日志',
+    logs: '日志',
     systemLogs: '系统日志',
     sessions: '会话管理',
     apiKeys: 'API 密钥',
@@ -1091,8 +1091,10 @@ export default {
     testSent: '测试邮件已发送'
   },
   logs: {
-    title: '操作日志',
-    subtitle: '记录证书签发、部署、监控、登录与设置变更，保留最近 90 天，可筛选并导出。',
+    title: '日志',
+    subtitle: '查看证书签发、部署、监控、登录与设置变更，以及服务进程的运行日志。',
+    tabOperation: '操作日志',
+    tabSystem: '系统日志',
     allSources: '全部来源',
     sourceTask: '证书任务',
     sourceDeploy: '部署',

@@ -20,9 +20,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/auth"
 	"lactssl/internal/db"
-	"lactssl/internal/dnsplugin"
 	"lactssl/internal/model"
-	"lactssl/internal/pluginrepo"
+	"lactssl/internal/plugin/dns"
+	"lactssl/internal/plugin/repo"
 	"lactssl/internal/store"
 	"lactssl/internal/util"
 )

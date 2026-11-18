@@ -28,6 +28,9 @@ func (m *Manager) MigrateDeployConfigSplit() error {
 	if err != nil {
 		return err
 	}
+	// 插件元数据在首次启动时可能尚未从 manifest 建立缓存；此时不能写入迁移
+	// 完成标记，否则会永久跳过这些账号。返回前保留标记，等插件发现完成后重试。
+	allResolved := true
 	for i := range tasks {
 		task := &tasks[i]
 		if !task.HasPipeline() && len(task.DeployIDs) == 0 {
@@ -49,6 +52,7 @@ func (m *Manager) MigrateDeployConfigSplit() error {
 			}
 			def, found := DeployTypeInfo(account.Type)
 			if !found {
+				allResolved = false
 				continue
 			}
 			config := ExtractDeployConfig(def, account.Config)
@@ -75,6 +79,7 @@ func (m *Manager) MigrateDeployConfigSplit() error {
 		account := &accounts[i]
 		def, found := DeployTypeInfo(account.Type)
 		if !found {
+			allResolved = false
 			continue
 		}
 		// 配置为空且该类型需要认证字段时，可能是解密失败或数据异常，跳过以免误清空。
@@ -88,6 +93,9 @@ func (m *Manager) MigrateDeployConfigSplit() error {
 		}
 	}
 
+	if !allResolved {
+		return nil
+	}
 	return m.Store.SetSetting(deployConfigSplitMigrationKey, "1")
 }
 

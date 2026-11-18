@@ -26,7 +26,6 @@ import (
 	"lactssl/internal/logging"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
-	"lactssl/internal/systemlog"
 	"lactssl/internal/upgrade"
 	"lactssl/internal/util"
 	"lactssl/internal/webui"
@@ -102,7 +101,7 @@ func main() {
 	st.SystemLogRetentionDays = cfg.Log.SystemRetentionDays
 	st.SystemLogMaxRows = cfg.Log.SystemMaxRows
 	if cfg.Log.SystemEnabled {
-		systemSink := systemlog.New(st, systemlog.Options{
+		systemSink := logging.NewDBSink(st, logging.DBSinkOptions{
 			MinLevel:      logging.Level(cfg.Log.SystemLevel),
 			IncludeAccess: cfg.Log.SystemAccess,
 		})
@@ -111,9 +110,6 @@ func main() {
 	} else {
 		// 丢弃数据库尚未就绪时暂存的启动日志。
 		logging.SetSink(nil)
-	}
-	if err := st.CleanupSystemLogs(); err != nil {
-		log.Printf("清理系统日志失败: %v", err)
 	}
 
 	manager := service.New(st)
@@ -138,6 +134,10 @@ func main() {
 	}
 	if err := upgrader.AutoMigrate(context.Background()); err != nil {
 		log.Fatalf("%s: %v", cliText("cli.error.upgrade"), err)
+	}
+	// 迁移完成后再清理，确保刚复制到统一 logs 表的旧系统日志也遵守保留策略。
+	if err := st.CleanupSystemLogs(); err != nil {
+		log.Printf("清理系统日志失败: %v", err)
 	}
 	// 程序自升级在 /upgrade 页面提供检查、下载、校验与替换；是否允许由配置控制。
 	programUpdater, err := upgrade.NewProgramUpdater(upgrade.ProgramOptions{

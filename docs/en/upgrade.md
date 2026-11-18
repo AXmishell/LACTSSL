@@ -44,6 +44,7 @@ LACTSSL has accumulated historical data formats and compatibility branches acros
 | Database bloat | Free pages remain after deleting certificates, logs, and ACME orders | `VACUUM` reclaims space and `ANALYZE` updates statistics |
 | Oversized WAL | The `-wal` file keeps growing after long uptime | `wal_checkpoint(TRUNCATE)` folds and truncates it |
 | Missing hot-path indexes | Certificate filtering, scheduling, and log cleanup perform full table scans | Automatically adds indexes; safe to run repeatedly |
+| Split log tables | System logs lived in `system_logs`, operation logs in `logs` | Copies system logs to `logs(category=runtime)` and keeps the old table for rollback |
 | Outdated configuration structure | Missing new sections such as `plugins.repo`, `notify_plugins`, `log.system`, and `upgrade` | Fills in missing fields for the current version, preserves comments, and normalizes equivalent forms |
 
 ## 3. Pre-Upgrade Checks
@@ -210,7 +211,7 @@ upgrade:
     token: ""
 ```
 
-When `upgrade.auto` is disabled, the startup log reports pending migration data, but the service continues to start. Sign in to `/upgrade` and run the migration promptly to prevent new code from reading old-format data.
+When `upgrade.auto` is disabled, the startup log reports pending migration data, but the service continues to start. Sign in to `/upgrade` and run the migration promptly to prevent new code from reading old-format data; historical system logs are not shown on the Logs → System tab until the log-merge step completes.
 
 ## 9. API
 

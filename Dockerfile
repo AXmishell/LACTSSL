@@ -8,20 +8,11 @@ RUN npm run build
 
 # Go 构建阶段：在构建机平台交叉编译到目标平台，避免 arm64 走 QEMU 编译
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:eb61c3873c97416fff0116553fff65d67a3549f72e11d9758849a689cdd8b523 AS build
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /src
 COPY go.mod go.sum ./
-# 插件实现位于独立仓库；按 go.mod 固定的版本拉取源码并在构建阶段临时 replace。
-# 主程序只依赖该仓库的 protocol/catalog，不再构建或内嵌任何 helper。
-ARG PLUGINS_REPO=https://github.com/AXmishell/LACTSSL-Plugins.git
-RUN set -eu; \
-    version="$(awk '$1=="github.com/AXmishell/LACTSSL-Plugins"{print $2}' go.mod)"; \
-    git clone --depth 1 --branch "$version" "$PLUGINS_REPO" /plugins; \
-    go mod edit -replace "github.com/AXmishell/LACTSSL-Plugins=/plugins"; \
-    go mod download
+RUN go mod download
 COPY . .
-# COPY 会覆盖 go.mod，重新应用 replace 后再编译。
-RUN go mod edit -replace "github.com/AXmishell/LACTSSL-Plugins=/plugins"
 COPY --from=web /app/web/dist ./internal/webui/dist
 
 # TARGETOS/TARGETARCH 由 BuildKit 自动注入；版本号由 release workflow、

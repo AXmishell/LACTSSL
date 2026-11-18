@@ -1,8 +1,9 @@
-// Package systemlog 把进程日志异步写入数据库，供「系统日志」页面查看。
+package logging
+
+// 本文件把进程日志异步写入数据库，供「系统日志」页面查看。
 //
 // 写入采用有界队列与批量事务：日志记录不会阻塞请求，数据库异常时只丢弃
 // 当前批次并输出到 stderr，避免“写日志失败又触发日志”的递归。
-package systemlog
 
 import (
 	"encoding/json"
@@ -14,21 +15,25 @@ import (
 	"sync/atomic"
 	"time"
 
-	"lactssl/internal/logging"
 	"lactssl/internal/model"
-	"lactssl/internal/store"
 )
 
 const (
-	queueSize     = 2048
-	batchSize     = 64
-	flushInterval = time.Second
-	maxFields     = 32
-	maxFieldsJSON = 32000
+	dbQueueSize     = 2048
+	dbBatchSize     = 64
+	dbFlushInterval = time.Second
+	dbMaxFields     = 32
+	dbMaxFieldsJSON = 32000
 )
 
-// Options 控制哪些进程日志进入数据库。
-type Options struct {
+// DBWriter 是系统日志落库所需的最小接口，*store.Store 满足该接口。
+// 使用接口而不是直接依赖 store，避免 logging 包反向依赖数据访问层。
+type DBWriter interface {
+	AddSystemLogs(entries []model.SystemLogEntry) error
+}
+
+// DBSinkOptions 控制哪些进程日志进入数据库。
+type DBSinkOptions struct {
 	// MinLevel 是最低写入级别。
 	MinLevel slog.Level
 	// IncludeAccess 表示是否把 HTTP 访问日志也写入数据库。
@@ -36,13 +41,13 @@ type Options struct {
 	IncludeAccess bool
 }
 
-// Sink 是异步数据库日志接收器。
-type Sink struct {
-	store         *store.Store
+// DBSink 是异步数据库日志接收器。
+type DBSink struct {
+	store         DBWriter
 	minLevel      slog.Level
 	includeAccess bool
 
-	queue chan logging.Entry
+	queue chan Entry
 	done  chan struct{}
 
 	mu      sync.RWMutex
@@ -54,21 +59,21 @@ type Sink struct {
 	lastError time.Time
 }
 
-// New 创建并启动接收器。调用方应在退出前调用 Close，确保队列中的日志落库。
-func New(st *store.Store, opts Options) *Sink {
-	sink := &Sink{
+// NewDBSink 创建并启动接收器。调用方应在退出前调用 Close，确保队列中的日志落库。
+func NewDBSink(st DBWriter, opts DBSinkOptions) *DBSink {
+	sink := &DBSink{
 		store:         st,
 		minLevel:      opts.MinLevel,
 		includeAccess: opts.IncludeAccess,
-		queue:         make(chan logging.Entry, queueSize),
+		queue:         make(chan Entry, dbQueueSize),
 		done:          make(chan struct{}),
 	}
 	go sink.run()
 	return sink
 }
 
-// Write 实现 logging.Sink。队列满时直接丢弃，绝不阻塞业务请求。
-func (s *Sink) Write(entry logging.Entry) {
+// Write 实现 Sink 回调。队列满时直接丢弃，绝不阻塞业务请求。
+func (s *DBSink) Write(entry Entry) {
 	if entry.Level < s.minLevel {
 		return
 	}
@@ -89,12 +94,12 @@ func (s *Sink) Write(entry logging.Entry) {
 }
 
 // Dropped 返回因队列满而丢弃的日志条数，用于诊断。
-func (s *Sink) Dropped() int64 {
+func (s *DBSink) Dropped() int64 {
 	return s.dropped.Load()
 }
 
 // Close 停止接收新日志，并等待队列中的日志写入数据库。
-func (s *Sink) Close() error {
+func (s *DBSink) Close() error {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
@@ -105,10 +110,10 @@ func (s *Sink) Close() error {
 	return nil
 }
 
-func (s *Sink) run() {
+func (s *DBSink) run() {
 	defer close(s.done)
-	batch := make([]model.SystemLogEntry, 0, batchSize)
-	ticker := time.NewTicker(flushInterval)
+	batch := make([]model.SystemLogEntry, 0, dbBatchSize)
+	ticker := time.NewTicker(dbFlushInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -118,7 +123,7 @@ func (s *Sink) run() {
 				return
 			}
 			batch = append(batch, buildEntry(entry))
-			if len(batch) >= batchSize {
+			if len(batch) >= dbBatchSize {
 				s.flush(batch)
 				batch = batch[:0]
 			}
@@ -131,7 +136,7 @@ func (s *Sink) run() {
 	}
 }
 
-func (s *Sink) flush(batch []model.SystemLogEntry) {
+func (s *DBSink) flush(batch []model.SystemLogEntry) {
 	if len(batch) == 0 {
 		return
 	}
@@ -141,12 +146,12 @@ func (s *Sink) flush(batch []model.SystemLogEntry) {
 		now := time.Now()
 		if s.lastError.IsZero() || now.Sub(s.lastError) >= time.Minute {
 			s.lastError = now
-			_, _ = fmt.Fprintf(os.Stderr, "systemlog: 写入系统日志失败: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "logging: 写入系统日志失败: %v\n", err)
 		}
 	}
 }
 
-func buildEntry(entry logging.Entry) model.SystemLogEntry {
+func buildEntry(entry Entry) model.SystemLogEntry {
 	component := strings.TrimSpace(entry.Component)
 	if component == "" {
 		component = "app"
@@ -156,7 +161,7 @@ func buildEntry(entry logging.Entry) model.SystemLogEntry {
 	if len(fields) > 0 {
 		if data, err := json.Marshal(fields); err == nil {
 			fieldsJSON = string(data)
-			if len(fieldsJSON) > maxFieldsJSON {
+			if len(fieldsJSON) > dbMaxFieldsJSON {
 				fieldsJSON = `{"_truncated":true}`
 			}
 		}
@@ -165,13 +170,53 @@ func buildEntry(entry logging.Entry) model.SystemLogEntry {
 	if createdAt.IsZero() {
 		createdAt = time.Now()
 	}
+	refType, refID := extractLogRef(fields)
+	requestID, _ := fields["request_id"].(string)
 	return model.SystemLogEntry{
 		Level:     strings.ToLower(entry.Level.String()),
 		Component: component,
 		Message:   entry.Message,
 		Fields:    fieldsJSON,
+		RefType:   refType,
+		RefID:     refID,
+		RequestID: requestID,
 		CreatedAt: createdAt,
 	}
+}
+
+// extractLogRef 从结构化字段中提取任务/监控/证书 ID，用于把运行日志关联到对象。
+func extractLogRef(fields map[string]any) (string, int64) {
+	if len(fields) == 0 {
+		return "", 0
+	}
+	for _, candidate := range []struct {
+		key  string
+		kind string
+	}{
+		{"task_id", "task"},
+		{"monitor_id", "monitor"},
+		{"cert_id", "cert"},
+	} {
+		value, ok := fields[candidate.key]
+		if !ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case int:
+			return candidate.kind, int64(typed)
+		case int64:
+			return candidate.kind, typed
+		case uint64:
+			return candidate.kind, int64(typed)
+		case float64:
+			return candidate.kind, int64(typed)
+		case json.Number:
+			if id, err := typed.Int64(); err == nil {
+				return candidate.kind, id
+			}
+		}
+	}
+	return "", 0
 }
 
 func sanitizeFields(fields map[string]any) map[string]any {
@@ -181,7 +226,7 @@ func sanitizeFields(fields map[string]any) map[string]any {
 	out := make(map[string]any, len(fields))
 	count := 0
 	for key, value := range fields {
-		if count >= maxFields {
+		if count >= dbMaxFields {
 			break
 		}
 		out[truncateRunes(key, 64)] = sanitizeValue(key, value)

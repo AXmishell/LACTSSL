@@ -182,6 +182,7 @@ security:
 Recommendations:
 
 - Export operation logs and system logs to a SIEM or log platform regularly to avoid audit gaps caused by administrators clearing logs or data corruption.
+- Operation logs and system logs share the `logs` table but are isolated by `category`; clearing system logs never deletes operation logs.
 - Every response carries an `X-Request-ID` that can be used to correlate access logs, panics, and errors.
 - Access logs do not record query parameters, request bodies, or authentication headers; the secure entry is consistently replaced with `:entry` in paths.
 - Logs may contain client IPs, domains, and error details; manage them as operational data and avoid sharing them publicly.

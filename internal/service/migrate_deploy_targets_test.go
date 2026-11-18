@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"testing"
 
-	"lactssl/internal/deployplugin"
 	"lactssl/internal/model"
+	"lactssl/internal/plugin/deploy"
 )
 
 type targetMergeDeployer struct{ id string }
@@ -291,32 +291,14 @@ func TestEveryDeprecatedDeployTypeHasMergeRule(t *testing.T) {
 	}
 }
 
-func TestDeployModesMatchCatalog(t *testing.T) {
-	for canonical, mode := range deployTargetModes {
-		def, found := PluginDeployTypeInfo(canonical)
-		if !found {
-			t.Errorf("canonical %s has no catalog metadata", canonical)
-			continue
-		}
-		var field *FieldDef
-		for index := range def.DeployFields {
-			if def.DeployFields[index].Key == mode.Key {
-				field = &def.DeployFields[index]
-				break
-			}
-		}
-		if field == nil {
-			t.Errorf("%s catalog has no %s deploy field", canonical, mode.Key)
-			continue
-		}
-		values := make(map[string]bool, len(field.Options))
-		for _, option := range field.Options {
-			values[option.Value] = true
-		}
-		for _, value := range mode.Values {
-			if !values[value] {
-				t.Errorf("%s catalog mode %s does not support %s", canonical, mode.Key, value)
-			}
+func TestDeployModesCoverDefaultTargets(t *testing.T) {
+	defaults := make(map[string]bool)
+	for _, id := range DefaultPluginDeployIDs() {
+		defaults[id] = true
+	}
+	for canonical := range deployTargetModes {
+		if !defaults[canonical] {
+			t.Errorf("canonical %s is missing from default plugin deploy IDs", canonical)
 		}
 	}
 }

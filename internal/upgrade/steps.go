@@ -43,6 +43,7 @@ var steps = []Step{
 	{ID: "settings_cleanup", Version: 3, TitleKey: "upgrade.step.settings.title", DescKey: "upgrade.step.settings.desc", Run: stepSettingsCleanup},
 	{ID: "runtime_cleanup", Version: 3, TitleKey: "upgrade.step.runtime.title", DescKey: "upgrade.step.runtime.desc", Run: stepRuntimeCleanup},
 	{ID: "db_indexes", Version: 3, TitleKey: "upgrade.step.indexes.title", DescKey: "upgrade.step.indexes.desc", Run: stepDatabaseIndexes},
+	{ID: "logs_unified", Version: 4, TitleKey: "upgrade.step.logsUnified.title", DescKey: "upgrade.step.logsUnified.desc", Run: stepLogsUnified},
 }
 
 // stepLegacySecrets 清理旧版 data/jwt.secret。
@@ -300,8 +301,8 @@ func stepPluginSettings(ctx context.Context, m *Manager) (StepResult, error) {
 	}
 
 	deployDefaults := map[string]bool{}
-	for _, def := range service.PluginDeployTypes {
-		deployDefaults[strings.ToLower(strings.TrimSpace(def.Value))] = true
+	for _, id := range service.DefaultPluginDeployIDs() {
+		deployDefaults[id] = true
 	}
 	if raw, _ := m.store.GetSetting("plugins.deploy.enabled_deployers"); strings.TrimSpace(raw) == "" {
 		if err := m.store.SetSetting("plugins.deploy.enabled_deployers", jsonList(deployDefaults)); err != nil {
@@ -439,4 +440,64 @@ func stepDatabaseIndexes(ctx context.Context, m *Manager) (StepResult, error) {
 	}
 	result.Details = append(result.Details, "已补充索引: "+strings.Join(created, ", "))
 	return result, nil
+}
+
+// logsUnifiedSetting 标记 system_logs → logs 的一次性复制已经完成。
+const logsUnifiedSetting = "upgrade.logs_unified"
+
+// stepLogsUnified 把历史 system_logs 记录复制到统一 logs 表。
+// 旧表保留用于回滚；复制与标记写入同一个事务，重复执行不会产生重复记录。
+func stepLogsUnified(ctx context.Context, m *Manager) (StepResult, error) {
+	marker, err := m.store.GetSetting(logsUnifiedSetting)
+	if err != nil {
+		return StepResult{}, err
+	}
+	if marker == "done" {
+		return StepResult{Skipped: true, Details: []string{"系统日志已合并"}}, nil
+	}
+
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return StepResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// 旧业务日志没有 ref_type；按既有 source+ref_id 语义回填，便于后续按对象关联。
+	if _, err := tx.ExecContext(ctx, `UPDATE logs SET category='operation' WHERE category='' OR category IS NULL`); err != nil {
+		return StepResult{}, fmt.Errorf("归一日志分类失败: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE logs SET ref_type=source WHERE category='operation' AND ref_id<>0 AND ref_type=''`); err != nil {
+		return StepResult{}, fmt.Errorf("回填日志关联字段失败: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO logs(category,source,ref_type,ref_id,level,message,fields,request_id,created_at)
+		SELECT 'runtime',
+		       CASE WHEN TRIM(component)='' THEN 'app' ELSE TRIM(component) END,
+		       '', 0,
+		       CASE LOWER(TRIM(level))
+		            WHEN 'warning' THEN 'warn'
+		            WHEN '' THEN 'info'
+		            ELSE LOWER(TRIM(level)) END,
+		       message, fields, '', created_at
+		FROM system_logs`)
+	if err != nil {
+		return StepResult{}, fmt.Errorf("复制系统日志失败: %w", err)
+	}
+	copied, _ := result.RowsAffected()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)`,
+		logsUnifiedSetting, "done"); err != nil {
+		return StepResult{}, fmt.Errorf("写入日志合并标记失败: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return StepResult{}, fmt.Errorf("提交日志合并失败: %w", err)
+	}
+
+	step := StepResult{Changed: copied > 0}
+	if copied == 0 {
+		step.Skipped = true
+	}
+	step.Details = append(step.Details, fmt.Sprintf("迁移系统日志 %d 条", copied))
+	return step, nil
 }

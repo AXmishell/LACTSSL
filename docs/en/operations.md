@@ -177,7 +177,7 @@ Notification channel availability depends on external services. Configure at lea
 
 - **Certificate Management → One-click cleanup**: filter by status, expiry/revocation age, issuance time, domain, issuer, and source; optionally retain the latest certificate for each task. Certificate references in affected tasks are cleared after cleanup.
 - **ACME Diagnostics → Cleanup**: remove invalid orders and accounts by endpoint, status, and unused age; deleting an account deletes historical orders but does not affect issued certificates.
-- **System Logs → Clear**: clearing is recorded in the operation log; export logs first.
+- **Logs → System → Clear**: clearing is recorded in the operation log; export logs first.
 - **Upgrade/optimization**: run database optimization during off-peak hours; `VACUUM` briefly monopolizes the database and rewrites the file, so reserve disk space.
 
 ### 5.3 Database Maintenance

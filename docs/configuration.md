@@ -79,7 +79,7 @@ log:
   compress: true        # 是否压缩历史文件
   access_log: true      # 是否记录 HTTP 访问日志
   system:
-    enabled: true       # 是否写入数据库供「系统日志」页面查看
+    enabled: true       # 是否写入数据库供「日志 → 系统日志」页签查看
     level: info         # 写入数据库的最低级别
     access: false       # 是否把 HTTP 访问日志也写入数据库
     retention_days: 7   # 保留天数
@@ -169,7 +169,7 @@ upgrade:
 
 ## 5. `log`
 
-底层进程日志与界面中的操作日志相互独立：操作日志写入数据库并可在「日志」页面查看，底层日志用于启动、HTTP、调度、插件与 ACME 等运行期排障。
+底层进程日志与操作日志用途不同：操作日志记录“谁在何时做了什么”，显示在「日志 → 操作日志」页签；进程日志用于运行期排障，可异步写入数据库并显示在「日志 → 系统日志」页签，同时输出到 stdout/文件。
 
 - `level`：最低输出级别，支持 `debug`、`info`、`warn`、`error`。`debug` 会附带源码位置，适合临时排障。
 - `format`：`text` 适合直接阅读与 Docker 日志；`json` 适合日志采集系统。
@@ -180,7 +180,7 @@ upgrade:
 - `max_age_days`：历史文件保留天数，`0` 表示不限制。
 - `compress`：是否将轮转后的历史文件压缩为 `.gz`。
 - `access_log`：是否记录 HTTP 访问日志。日志只包含方法、路由模板、状态码、耗时、客户端 IP 等字段，不记录查询参数、请求体和认证头；门禁入口在路径中统一替换为 `:entry`。每个响应都会带 `X-Request-ID`。
-- `system.enabled`：是否写入数据库供「系统日志」页面查看。
+- `system.enabled`：是否写入数据库供「日志 → 系统日志」页签查看。
 - `system.level`：写入数据库的最低级别。不能低于 `log.level`，否则低级别日志不会生成。
 - `system.access`：是否把 HTTP 访问日志也写入数据库。默认 `false`，避免每个请求都写 SQLite。
 - `system.retention_days`：保留天数，范围 `1–365`。

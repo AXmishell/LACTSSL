@@ -1,10 +1,15 @@
 # 运行时数据
 /data/
 /bin/
+/config/
 *.log
+*.pid
 
 # 本地配置（包含密钥，勿提交）
 /config.yaml
+.env
+.env.*
+!.env.example
 *.db
 *.db-shm
 *.db-wal
@@ -13,36 +18,48 @@
 /lactssl
 /lactssl-*
 /server
-/internal/dnsplugin/bundled/lactssl-dns-helper-extra*
-coverage.out
-coverage.html
+/coverage.out
+/coverage.html
+/coverage.txt
+*.coverprofile
+*.prof
 *.test
 *.exe
 /site/
 # 本地 release 流程（scripts/release.sh）
 /dist/
 /out/
+/release/
 /.release-work/
 
 # 前端
 /web/node_modules/
 /web/dist/
-/internal/webui/dist/
+/web/coverage/
 /web/.vite/
 /web/.cache/
+/web/*.tsbuildinfo
+/internal/webui/dist/
 
-# 文档站点构建缓存
+# 文档站点构建缓存与预览服务运行时文件（scripts/docs-serve.sh）
 /.cache/
+/.docs-serve/
 
-# Python（生成 favicon 等脚本）
+# Python（生成 favicon 等脚本、文档站点虚拟环境）
 __pycache__/
 *.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+/.venv/
 
 # 临时文件
 /tmp/
 *.tmp
 *.bak
 *.orig
+*.rej
 
 # Go 本地工作区
 go.work
@@ -53,10 +70,7 @@ go.work.sum
 .vscode/
 .DS_Store
 Thumbs.db
+desktop.ini
 *.swp
 *.swo
 *~
-
-# 文档预览服务运行时文件（scripts/docs-serve.sh）
-/.docs-serve/
-/.venv/

@@ -31,8 +31,9 @@ import (
 //   - 0：v1.0.x，无显式版本标记，TOTP/证书私钥可能仍是明文；
 //   - 1：v1.1.x，集中配置密钥、引入部署流程与通知渠道迁移；
 //   - 2：v1.2.x，部署目标合并、EAB 凭据按 CA 拆分；
-//   - 3：插件化阶段，清理旧设置、统一插件启用白名单并补充热路径索引。
-const CurrentVersion = 3
+//   - 3：插件化阶段，清理旧设置、统一插件启用白名单并补充热路径索引；
+//   - 4：日志合并阶段，把 system_logs 迁移到 logs 表（category=runtime）。
+const CurrentVersion = 4
 
 const (
 	versionSetting    = "upgrade.schema_version"

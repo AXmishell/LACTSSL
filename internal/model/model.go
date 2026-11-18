@@ -203,24 +203,42 @@ type Monitor struct {
 	CreatedAt    time.Time  `json:"created_at"`
 }
 
-// LogEntry 是系统操作日志。
+// 日志分类。operation 是业务/操作日志，runtime 是进程运行日志。
+// 两类日志共用 logs 表，通过 category 区分，保留策略与清空操作按分类隔离。
+const (
+	LogCategoryOperation = "operation"
+	LogCategoryRuntime   = "runtime"
+)
+
+// LogEntry 是统一的日志记录。业务日志与进程日志都落入 logs 表：
+//   - 业务日志：Category=operation，Source 为业务来源，Message 是 i18n 信封；
+//   - 进程日志：Category=runtime，Source 为组件名，Fields 是结构化字段 JSON。
 type LogEntry struct {
 	ID        int64     `json:"id"`
+	Category  string    `json:"category,omitempty"`
 	Source    string    `json:"source"`
+	RefType   string    `json:"ref_type,omitempty"`
 	RefID     int64     `json:"ref_id"`
 	Level     string    `json:"level"`
 	Message   string    `json:"message"`
+	Fields    string    `json:"-"`
+	RequestID string    `json:"request_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 // SystemLogEntry 是进程底层日志，供「系统日志」页面查看。
 // Fields 是附加字段的 JSON 文本，接口层解析后返回给前端。
 type SystemLogEntry struct {
-	ID        int64     `json:"id"`
-	Level     string    `json:"level"`
-	Component string    `json:"component"`
-	Message   string    `json:"message"`
-	Fields    string    `json:"-"`
+	ID        int64  `json:"id"`
+	Level     string `json:"level"`
+	Component string `json:"component"`
+	Message   string `json:"message"`
+	Fields    string `json:"-"`
+	// RefType/RefID 从 Fields 中的 task_id、monitor_id、cert_id 提取，
+	// 便于任务详情和运行日志按对象关联；不直接暴露给旧接口。
+	RefType   string    `json:"-"`
+	RefID     int64     `json:"-"`
+	RequestID string    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

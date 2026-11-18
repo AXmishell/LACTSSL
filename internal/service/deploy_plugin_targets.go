@@ -3,7 +3,8 @@ package service
 import (
 	"strings"
 
-	"lactssl/internal/deployplugin"
+	"lactssl/internal/plugin/deploy"
+	"lactssl/internal/plugin/meta"
 )
 
 // deprecatedDeployTypeReplaced 判断旧目标的合并目标及对应部署对象是否已经可用。
@@ -26,12 +27,17 @@ func DeprecatedDeployTypeReplaced(value string) bool {
 }
 
 // deployTargetSupports 判断已加载的 helper 是否声明了规范目标的某个部署对象。
+// 不能使用 manifest 缓存：缓存只用于展示与脱敏，插件未安装时不能据此迁移数据。
 func deployTargetSupports(canonical, key, value string) bool {
 	external, ok := deployplugin.ExternalDeployerInfo(canonical)
 	if !ok {
 		return false
 	}
-	for _, field := range external.DeployFields {
+	return deployFieldsSupport(external.DeployFields, key, value)
+}
+
+func deployFieldsSupport(fields []deployplugin.ManifestField, key, value string) bool {
+	for _, field := range fields {
 		if field.Key != key {
 			continue
 		}
@@ -48,12 +54,22 @@ func deployTargetSupports(canonical, key, value string) bool {
 	return false
 }
 
-// PluginDeployTypeInfo 只查找由部署插件提供的类型元数据。
+// PluginDeployTypeInfo 只查找由部署插件提供（或缓存）的类型元数据。
 func PluginDeployTypeInfo(value string) (ProviderDef, bool) {
 	value = strings.TrimSpace(value)
-	for _, p := range PluginDeployTypes {
-		if p.Value == value {
-			return p, true
+	lookup := value
+	if canonical, ok := DeprecatedDeployTypeCanonical[strings.ToLower(value)]; ok {
+		lookup = canonical
+	}
+	if external, ok := deployplugin.ExternalDeployerInfo(lookup); ok {
+		return externalDeployerDef(external), true
+	}
+	if deployer, ok := pluginmeta.Deployer(lookup); ok {
+		return manifestDeployerDef(deployer), true
+	}
+	if lookup != value {
+		if deployer, ok := pluginmeta.Deployer(value); ok {
+			return manifestDeployerDef(deployer), true
 		}
 	}
 	return ProviderDef{}, false

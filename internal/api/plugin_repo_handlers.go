@@ -18,13 +18,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"lactssl/internal/deployplugin"
-	"lactssl/internal/dnsplugin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
-	"lactssl/internal/notifyplugin"
-	"lactssl/internal/plugininstall"
-	"lactssl/internal/pluginrepo"
+	"lactssl/internal/plugin/deploy"
+	"lactssl/internal/plugin/dns"
+	"lactssl/internal/plugin/install"
+	"lactssl/internal/plugin/notify"
+	"lactssl/internal/plugin/repo"
 	"lactssl/internal/service"
 )
 

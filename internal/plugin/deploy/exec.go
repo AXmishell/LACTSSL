@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"lactssl/internal/pluginexec"
+	"lactssl/internal/plugin/exec"
 )
 
 const (

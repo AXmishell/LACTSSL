@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"lactssl/internal/deployplugin"
-	"lactssl/internal/dnsplugin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
-	"lactssl/internal/notifyplugin"
-	"lactssl/internal/plugininstall"
+	"lactssl/internal/plugin/deploy"
+	"lactssl/internal/plugin/dns"
+	"lactssl/internal/plugin/install"
+	"lactssl/internal/plugin/notify"
 	"lactssl/internal/service"
 )
 
@@ -94,6 +94,7 @@ func (s *Server) DiscoverPlugins() dnsplugin.DiscoverResult {
 	s.pluginResult = result
 	s.pluginMu.Unlock()
 	s.syncPluginFileMeta(pluginKindDNS)
+	s.syncPluginMetadata(pluginKindDNS)
 	return result
 }
 
@@ -116,6 +117,13 @@ func (s *Server) DiscoverDeployPlugins() deployplugin.DiscoverResult {
 	s.deployPluginResult = result
 	s.deployPluginMu.Unlock()
 	s.syncPluginFileMeta(pluginKindDeploy)
+	s.syncPluginMetadata(pluginKindDeploy)
+	// 首次启动时升级步骤可能早于插件发现，无法解析部署目标字段而保留迁移标记。
+	// 发现完成后重试这两个幂等迁移，成功后才写入完成标记。
+	if s.Manager != nil {
+		_ = s.Manager.MigrateDeployConfigSplit()
+		_ = s.Manager.MigrateDeployTargets()
+	}
 	return result
 }
 
@@ -138,6 +146,7 @@ func (s *Server) DiscoverNotifyPlugins() notifyplugin.DiscoverResult {
 	s.notifyPluginResult = result
 	s.notifyPluginMu.Unlock()
 	s.syncPluginFileMeta(pluginKindNotify)
+	s.syncPluginMetadata(pluginKindNotify)
 	return result
 }
 
@@ -1081,21 +1090,16 @@ func (s *Server) updateDeployPluginDeployers(ids []string, enabled bool) ([]stri
 // defaultDeployPluginEnabledSet 返回默认启用的插件部署目标集合。
 // 迁移前内置的部署目标改由 helper 提供后仍默认启用；其余插件目标默认停用。
 func defaultDeployPluginEnabledSet() map[string]bool {
-	out := make(map[string]bool, len(service.PluginDeployTypes))
-	for _, def := range service.PluginDeployTypes {
-		out[strings.ToLower(strings.TrimSpace(def.Value))] = true
+	ids := service.DefaultPluginDeployIDs()
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
 	}
 	return out
 }
 
 func isDefaultDeployPluginDeployer(id string) bool {
-	id = strings.ToLower(strings.TrimSpace(id))
-	for _, def := range service.PluginDeployTypes {
-		if strings.ToLower(strings.TrimSpace(def.Value)) == id {
-			return true
-		}
-	}
-	return false
+	return service.IsDefaultPluginDeployID(id)
 }
 
 func (s *Server) deployPluginEnabledSet() map[string]bool {

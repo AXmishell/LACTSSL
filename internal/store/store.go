@@ -19,8 +19,8 @@ import (
 type Store struct {
 	DB     *sql.DB
 	Cipher *util.Cipher
-	// SystemLogRetentionDays 与 SystemLogMaxRows 控制 system_logs 的清理策略。
-	// 由 main 根据 log.system 配置注入；为 0 时不限制。
+	// SystemLogRetentionDays 与 SystemLogMaxRows 控制 logs 表中
+	// category='runtime' 记录的清理策略。由 main 根据 log.system 配置注入；为 0 时不限制。
 	SystemLogRetentionDays int
 	SystemLogMaxRows       int
 
@@ -220,7 +220,7 @@ func (s *Store) Maintenance() error {
 	exec(`DELETE FROM sessions WHERE expires_at < ?`, nowUTC())
 	exec(`DELETE FROM sessions WHERE revoked_at IS NOT NULL AND revoked_at < ?`, nowUTC().AddDate(0, 0, -7))
 	exec(`DELETE FROM password_resets WHERE expires_at < ?`, nowUTC())
-	exec(`DELETE FROM logs WHERE created_at < ?`, nowUTC().AddDate(0, 0, -90))
+	exec(`DELETE FROM logs WHERE category=? AND created_at < ?`, model.LogCategoryOperation, nowUTC().AddDate(0, 0, -90))
 	exec(`DELETE FROM deploy_records WHERE created_at < ?`, nowUTC().AddDate(0, 0, -180))
 	if err := s.CleanupSystemLogs(); err != nil && firstErr == nil {
 		firstErr = err
@@ -1202,9 +1202,17 @@ func scanMonitor(row interface{ Scan(...any) error }) (*model.Monitor, error) {
 
 // ---------------------------- 日志 ----------------------------
 
-// AddLog 写入一条日志。
+// AddLog 写入一条操作日志。
 func (s *Store) AddLog(source string, refID int64, level, message string) {
-	_, _ = s.DB.Exec(`INSERT INTO logs(source,ref_id,level,message,created_at) VALUES(?,?,?,?,?)`, source, refID, level, message, nowUTC())
+	_ = s.AddLogEvent(model.LogEntry{
+		Category:  model.LogCategoryOperation,
+		Source:    source,
+		RefType:   source,
+		RefID:     refID,
+		Level:     level,
+		Message:   message,
+		CreatedAt: nowUTC(),
+	})
 }
 
 // AddLogKey 写入一条语言无关的结构化日志，读取时按请求语言渲染。
@@ -1212,47 +1220,120 @@ func (s *Store) AddLogKey(source string, refID int64, level, key string, params 
 	s.AddLog(source, refID, level, i18n.Encode(key, params))
 }
 
-// ListLogsByRef 查询某个任务或对象的日志。
+// AddLogEvent 写入一条统一日志。Category 为空时按操作日志处理。
+// 业务日志保持同步单条写入；进程日志由 AddSystemLogs 批量写入。
+func (s *Store) AddLogEvent(entry model.LogEntry) error {
+	category := strings.TrimSpace(entry.Category)
+	if category == "" {
+		category = model.LogCategoryOperation
+	}
+	source := strings.TrimSpace(entry.Source)
+	if source == "" {
+		source = "app"
+	}
+	refType := strings.TrimSpace(entry.RefType)
+	if refType == "" {
+		refType = source
+	}
+	level := strings.ToLower(strings.TrimSpace(entry.Level))
+	if level == "" {
+		level = "info"
+	}
+	createdAt := entry.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = nowUTC()
+	}
+	_, err := s.DB.Exec(
+		`INSERT INTO logs(category,source,ref_type,ref_id,level,message,fields,request_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+		truncateLogText(category, 16),
+		truncateLogText(source, 64),
+		truncateLogText(refType, 32),
+		entry.RefID,
+		truncateLogText(level, 16),
+		entry.Message,
+		entry.Fields,
+		truncateLogText(entry.RequestID, 64),
+		createdAt.UTC(),
+	)
+	return err
+}
+
+// ListLogsByRef 查询某个任务或对象的操作日志。
 func (s *Store) ListLogsByRef(source string, refID int64, limit int) ([]model.LogEntry, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
-	rows, err := s.DB.Query(`SELECT id,source,ref_id,level,message,created_at FROM logs WHERE source=? AND ref_id=? ORDER BY created_at DESC, id DESC LIMIT ?`, source, refID, limit)
+	rows, err := s.DB.Query(
+		`SELECT id,category,source,ref_type,ref_id,level,message,fields,request_id,created_at
+		 FROM logs WHERE category=? AND source=? AND ref_id=?
+		 ORDER BY created_at DESC, id DESC LIMIT ?`,
+		model.LogCategoryOperation, source, refID, limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	list := make([]model.LogEntry, 0)
 	for rows.Next() {
-		var l model.LogEntry
-		if err := rows.Scan(&l.ID, &l.Source, &l.RefID, &l.Level, &l.Message, &l.CreatedAt); err != nil {
+		entry, err := scanLogEntry(rows)
+		if err != nil {
 			return nil, err
 		}
-		list = append(list, l)
+		list = append(list, entry)
 	}
 	return list, rows.Err()
 }
 
 // LogFilter 是日志查询的过滤条件。
-// From/To 为左闭右开区间，零值表示不限制。
+// Category 为空表示不限制分类；From/To 为左闭右开区间，零值表示不限制。
 type LogFilter struct {
-	Source string
-	Level  string
-	From   *time.Time
-	To     *time.Time
+	Category string
+	Source   string
+	RefType  string
+	RefID    int64
+	Level    string
+	Query    string
+	From     *time.Time
+	To       *time.Time
 }
 
 // logFilterWhere 构造过滤条件，供列表与导出复用。
+// Category 为空时按操作日志处理，保持旧接口只返回业务日志的行为；
+// 系统日志的调用方会显式传入 runtime。
 func logFilterWhere(filter LogFilter) (string, []any) {
-	clauses := make([]string, 0, 4)
-	args := make([]any, 0, 4)
+	category := filter.Category
+	if category == "" {
+		category = model.LogCategoryOperation
+	}
+	clauses := make([]string, 0, 8)
+	args := make([]any, 0, 8)
+	clauses = append(clauses, "category=?")
+	args = append(args, category)
 	if filter.Source != "" {
 		clauses = append(clauses, "source=?")
 		args = append(args, filter.Source)
 	}
+	if filter.RefType != "" {
+		clauses = append(clauses, "ref_type=?")
+		args = append(args, filter.RefType)
+	}
+	if filter.RefID > 0 {
+		clauses = append(clauses, "ref_id=?")
+		args = append(args, filter.RefID)
+	}
 	if filter.Level != "" {
 		clauses = append(clauses, "level=?")
 		args = append(args, filter.Level)
+	}
+	if filter.Query != "" {
+		pattern := "%" + escapeLike(filter.Query) + "%"
+		if category == model.LogCategoryOperation {
+			clauses = append(clauses, `message LIKE ? ESCAPE '\'`)
+			args = append(args, pattern)
+		} else {
+			clauses = append(clauses, `(message LIKE ? ESCAPE '\' OR fields LIKE ? ESCAPE '\')`)
+			args = append(args, pattern, pattern)
+		}
 	}
 	if filter.From != nil {
 		clauses = append(clauses, "created_at>=?")
@@ -1261,9 +1342,6 @@ func logFilterWhere(filter LogFilter) (string, []any) {
 	if filter.To != nil {
 		clauses = append(clauses, "created_at<?")
 		args = append(args, *filter.To)
-	}
-	if len(clauses) == 0 {
-		return "", args
 	}
 	return " WHERE " + strings.Join(clauses, " AND "), args
 }
@@ -1279,25 +1357,29 @@ func (s *Store) ListLogsFiltered(filter LogFilter, limit, offset int) ([]model.L
 		return nil, 0, err
 	}
 	args := append(append([]any{}, whereArgs...), limit, offset)
-	rows, err := s.DB.Query(`SELECT id,source,ref_id,level,message,created_at FROM logs`+where+` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`, args...)
+	rows, err := s.DB.Query(
+		`SELECT id,category,source,ref_type,ref_id,level,message,fields,request_id,created_at
+		 FROM logs`+where+` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+		args...,
+	)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
 	list := make([]model.LogEntry, 0)
 	for rows.Next() {
-		var l model.LogEntry
-		if err := rows.Scan(&l.ID, &l.Source, &l.RefID, &l.Level, &l.Message, &l.CreatedAt); err != nil {
+		entry, err := scanLogEntry(rows)
+		if err != nil {
 			return nil, 0, err
 		}
-		list = append(list, l)
+		list = append(list, entry)
 	}
 	return list, total, rows.Err()
 }
 
-// ListLogs 分页查询日志，保留原有调用方式。
+// ListLogs 分页查询操作日志，保留原有调用方式。
 func (s *Store) ListLogs(source string, limit, offset int) ([]model.LogEntry, int64, error) {
-	return s.ListLogsFiltered(LogFilter{Source: source}, limit, offset)
+	return s.ListLogsFiltered(LogFilter{Category: model.LogCategoryOperation, Source: source}, limit, offset)
 }
 
 // MaxLogID 返回当前最大日志 ID，用于导出时固定快照上界。
@@ -1326,7 +1408,8 @@ func (s *Store) ExportLogs(filter LogFilter, maxID, beforeID int64, limit int) (
 		clauses = append(clauses, strings.TrimPrefix(where, " WHERE "))
 		args = append(args, whereArgs...)
 	}
-	sql := `SELECT id,source,ref_id,level,message,created_at FROM logs WHERE ` + strings.Join(clauses, " AND ") + ` ORDER BY id DESC LIMIT ?`
+	sql := `SELECT id,category,source,ref_type,ref_id,level,message,fields,request_id,created_at
+		FROM logs WHERE ` + strings.Join(clauses, " AND ") + ` ORDER BY id DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := s.DB.Query(sql, args...)
 	if err != nil {
@@ -1335,13 +1418,31 @@ func (s *Store) ExportLogs(filter LogFilter, maxID, beforeID int64, limit int) (
 	defer rows.Close()
 	list := make([]model.LogEntry, 0, limit)
 	for rows.Next() {
-		var l model.LogEntry
-		if err := rows.Scan(&l.ID, &l.Source, &l.RefID, &l.Level, &l.Message, &l.CreatedAt); err != nil {
+		entry, err := scanLogEntry(rows)
+		if err != nil {
 			return nil, err
 		}
-		list = append(list, l)
+		list = append(list, entry)
 	}
 	return list, rows.Err()
+}
+
+// scanLogEntry 按统一列顺序读取一行日志。
+func scanLogEntry(scanner interface{ Scan(...any) error }) (model.LogEntry, error) {
+	var entry model.LogEntry
+	err := scanner.Scan(
+		&entry.ID,
+		&entry.Category,
+		&entry.Source,
+		&entry.RefType,
+		&entry.RefID,
+		&entry.Level,
+		&entry.Message,
+		&entry.Fields,
+		&entry.RequestID,
+		&entry.CreatedAt,
+	)
+	return entry, err
 }
 
 // ---------------------------- 系统日志 ----------------------------
@@ -1356,106 +1457,69 @@ type SystemLogFilter struct {
 	To        *time.Time
 }
 
-func systemLogFilterWhere(filter SystemLogFilter) (string, []any) {
-	clauses := make([]string, 0, 5)
-	args := make([]any, 0, 6)
-	if filter.Level != "" {
-		clauses = append(clauses, "level=?")
-		args = append(args, filter.Level)
+// toLogFilter 把旧接口的筛选条件转换为统一日志筛选。
+func (f SystemLogFilter) toLogFilter() LogFilter {
+	level := strings.ToLower(strings.TrimSpace(f.Level))
+	if level == "warning" {
+		level = "warn"
 	}
-	if filter.Component != "" {
-		clauses = append(clauses, "component=?")
-		args = append(args, filter.Component)
+	return LogFilter{
+		Category: model.LogCategoryRuntime,
+		Source:   f.Component,
+		Level:    level,
+		Query:    f.Query,
+		From:     f.From,
+		To:       f.To,
 	}
-	if filter.Query != "" {
-		pattern := "%" + escapeLike(filter.Query) + "%"
-		clauses = append(clauses, `(message LIKE ? ESCAPE '\' OR fields LIKE ? ESCAPE '\')`)
-		args = append(args, pattern, pattern)
+}
+
+func systemLogEntryFromLog(entry model.LogEntry) model.SystemLogEntry {
+	return model.SystemLogEntry{
+		ID:        entry.ID,
+		Level:     entry.Level,
+		Component: entry.Source,
+		Message:   entry.Message,
+		Fields:    entry.Fields,
+		RefType:   entry.RefType,
+		RefID:     entry.RefID,
+		RequestID: entry.RequestID,
+		CreatedAt: entry.CreatedAt,
 	}
-	if filter.From != nil {
-		clauses = append(clauses, "created_at>=?")
-		args = append(args, *filter.From)
-	}
-	if filter.To != nil {
-		clauses = append(clauses, "created_at<?")
-		args = append(args, *filter.To)
-	}
-	if len(clauses) == 0 {
-		return "", args
-	}
-	return " WHERE " + strings.Join(clauses, " AND "), args
 }
 
 // ListSystemLogs 按筛选条件分页查询进程日志。
 func (s *Store) ListSystemLogs(filter SystemLogFilter, limit, offset int) ([]model.SystemLogEntry, int64, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
-	where, whereArgs := systemLogFilterWhere(filter)
-	var total int64
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM system_logs`+where, whereArgs...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-	args := append(append([]any{}, whereArgs...), limit, offset)
-	rows, err := s.DB.Query(`SELECT id,level,component,message,fields,created_at FROM system_logs`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
+	list, total, err := s.ListLogsFiltered(filter.toLogFilter(), limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
-	list := make([]model.SystemLogEntry, 0, limit)
-	for rows.Next() {
-		var entry model.SystemLogEntry
-		if err := rows.Scan(&entry.ID, &entry.Level, &entry.Component, &entry.Message, &entry.Fields, &entry.CreatedAt); err != nil {
-			return nil, 0, err
-		}
-		list = append(list, entry)
+	entries := make([]model.SystemLogEntry, 0, len(list))
+	for _, entry := range list {
+		entries = append(entries, systemLogEntryFromLog(entry))
 	}
-	return list, total, rows.Err()
+	return entries, total, nil
 }
 
 // MaxSystemLogID 返回当前最大系统日志 ID，用于导出时固定快照上界。
 func (s *Store) MaxSystemLogID() (int64, error) {
 	var id int64
-	if err := s.DB.QueryRow(`SELECT COALESCE(MAX(id),0) FROM system_logs`).Scan(&id); err != nil {
+	if err := s.DB.QueryRow(`SELECT COALESCE(MAX(id),0) FROM logs WHERE category=?`, model.LogCategoryRuntime).Scan(&id); err != nil {
 		return 0, err
 	}
 	return id, nil
 }
 
 // ExportSystemLogs 按 ID 游标倒序读取系统日志，避免导出时长时间持有结果集。
-// maxID 固定快照上界，beforeID 为上一批最后一条日志的 ID（0 表示从 maxID 开始）。
 func (s *Store) ExportSystemLogs(filter SystemLogFilter, maxID, beforeID int64, limit int) ([]model.SystemLogEntry, error) {
-	if limit <= 0 || limit > 2000 {
-		limit = 1000
-	}
-	where, whereArgs := systemLogFilterWhere(filter)
-	clauses := []string{"id<=?"}
-	args := []any{maxID}
-	if beforeID > 0 {
-		clauses = append(clauses, "id<?")
-		args = append(args, beforeID)
-	}
-	if where != "" {
-		clauses = append(clauses, strings.TrimPrefix(where, " WHERE "))
-		args = append(args, whereArgs...)
-	}
-	sql := `SELECT id,level,component,message,fields,created_at FROM system_logs WHERE ` +
-		strings.Join(clauses, " AND ") + ` ORDER BY id DESC LIMIT ?`
-	args = append(args, limit)
-	rows, err := s.DB.Query(sql, args...)
+	list, err := s.ExportLogs(filter.toLogFilter(), maxID, beforeID, limit)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	list := make([]model.SystemLogEntry, 0, limit)
-	for rows.Next() {
-		var entry model.SystemLogEntry
-		if err := rows.Scan(&entry.ID, &entry.Level, &entry.Component, &entry.Message, &entry.Fields, &entry.CreatedAt); err != nil {
-			return nil, err
-		}
-		list = append(list, entry)
+	entries := make([]model.SystemLogEntry, 0, len(list))
+	for _, entry := range list {
+		entries = append(entries, systemLogEntryFromLog(entry))
 	}
-	return list, rows.Err()
+	return entries, nil
 }
 
 // AddSystemLogs 批量写入进程日志。单条失败会回滚整批，避免页面出现半截记录。
@@ -1472,7 +1536,10 @@ func (s *Store) AddSystemLogs(entries []model.SystemLogEntry) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.Prepare(`INSERT INTO system_logs(level,component,message,fields,created_at) VALUES(?,?,?,?,?)`)
+	stmt, err := tx.Prepare(
+		`INSERT INTO logs(category,source,ref_type,ref_id,level,message,fields,request_id,created_at)
+		 VALUES(?,?,?,?,?,?,?,?,?)`,
+	)
 	if err != nil {
 		return err
 	}
@@ -1494,10 +1561,14 @@ func (s *Store) AddSystemLogs(entries []model.SystemLogEntry) error {
 			continue
 		}
 		if _, err := stmt.Exec(
-			truncateLogText(level, 16),
+			model.LogCategoryRuntime,
 			truncateLogText(component, 64),
+			truncateLogText(strings.TrimSpace(entry.RefType), 32),
+			entry.RefID,
+			truncateLogText(level, 16),
 			truncateLogText(entry.Message, 2000),
 			truncateLogText(entry.Fields, 64000),
+			truncateLogText(strings.TrimSpace(entry.RequestID), 64),
 			createdAt.UTC(),
 		); err != nil {
 			return err
@@ -1508,7 +1579,7 @@ func (s *Store) AddSystemLogs(entries []model.SystemLogEntry) error {
 
 // SystemLogComponents 返回页面筛选下拉框使用的组件列表。
 func (s *Store) SystemLogComponents() ([]string, error) {
-	rows, err := s.DB.Query(`SELECT DISTINCT component FROM system_logs ORDER BY component`)
+	rows, err := s.DB.Query(`SELECT DISTINCT source FROM logs WHERE category=? ORDER BY source`, model.LogCategoryRuntime)
 	if err != nil {
 		return nil, err
 	}
@@ -1531,7 +1602,7 @@ func (s *Store) ClearSystemLogs() (int64, error) {
 	s.systemLogMu.Lock()
 	defer s.systemLogMu.Unlock()
 	s.systemLogClearedAt = nowUTC()
-	result, err := s.DB.Exec(`DELETE FROM system_logs`)
+	result, err := s.DB.Exec(`DELETE FROM logs WHERE category=?`, model.LogCategoryRuntime)
 	if err != nil {
 		return 0, err
 	}
@@ -1542,14 +1613,15 @@ func (s *Store) ClearSystemLogs() (int64, error) {
 func (s *Store) CleanupSystemLogs() error {
 	var firstErr error
 	if s.SystemLogRetentionDays > 0 {
-		if _, err := s.DB.Exec(`DELETE FROM system_logs WHERE created_at < ?`,
-			nowUTC().AddDate(0, 0, -s.SystemLogRetentionDays)); err != nil {
+		if _, err := s.DB.Exec(`DELETE FROM logs WHERE category=? AND created_at < ?`,
+			model.LogCategoryRuntime, nowUTC().AddDate(0, 0, -s.SystemLogRetentionDays)); err != nil {
 			firstErr = err
 		}
 	}
 	if s.SystemLogMaxRows > 0 {
-		if _, err := s.DB.Exec(`DELETE FROM system_logs WHERE id NOT IN (
-			SELECT id FROM system_logs ORDER BY id DESC LIMIT ?)`, s.SystemLogMaxRows); err != nil && firstErr == nil {
+		if _, err := s.DB.Exec(`DELETE FROM logs WHERE category=? AND id NOT IN (
+			SELECT id FROM logs WHERE category=? ORDER BY id DESC LIMIT ?)`,
+			model.LogCategoryRuntime, model.LogCategoryRuntime, s.SystemLogMaxRows); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

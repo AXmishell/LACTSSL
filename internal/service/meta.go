@@ -4,9 +4,11 @@ package service
 import (
 	"strings"
 
-	"lactssl/internal/deployplugin"
-	"lactssl/internal/dnsplugin"
 	"lactssl/internal/i18n"
+	"lactssl/internal/plugin/deploy"
+	"lactssl/internal/plugin/dns"
+	"lactssl/internal/plugin/meta"
+	"lactssl/internal/plugin/proto"
 )
 
 // FieldDef 描述前端动态表单字段。
@@ -24,9 +26,7 @@ type FieldDef struct {
 	Options        []Option   `json:"options,omitempty"`
 	Default        string     `json:"default,omitempty"`
 	ShowIf         *Condition `json:"show_if,omitempty"`
-	// Env 是字段对应的 lego 环境变量名，仅在服务端构造 DNS Provider 时使用。
-	Env string `json:"-"`
-	// 以下文案表来自插件仓库 catalog 或 helper manifest，优先于主程序语言包。
+	// 以下文案表来自 helper manifest，优先于主程序语言包。
 	labelI18n       map[string]string
 	placeholderI18n map[string]string
 	helpI18n        map[string]string
@@ -69,7 +69,7 @@ type ProviderDef struct {
 	Source string `json:"source,omitempty"`
 	// Deprecated 表示该定义仅用于兼容历史数据，合并目标可用时不再展示。
 	Deprecated bool `json:"deprecated,omitempty"`
-	// 以下文案表来自插件仓库 catalog 或 helper manifest，优先于主程序语言包。
+	// 以下文案表来自 helper manifest，优先于主程序语言包。
 	labelI18n map[string]string
 	descI18n  map[string]string
 }
@@ -206,38 +206,12 @@ func LocalizeCADefs(locale i18n.Locale) []CADef {
 }
 
 // LocalizeDNSProviders 返回指定语言的 DNS 服务商列表。
-// 列表只包含当前可用的服务商：已编译的内置实现，以及已启用的外部插件；
-// 未编译且无插件、或已被停用的插件服务商不会出现在列表中。
-// 元数据仍保留在 DNSProviders 中，供 helper 与历史账号展示使用。
+// 列表只包含当前已安装且已启用的插件服务商；元数据直接来自 helper manifest。
 func LocalizeDNSProviders(locale i18n.Locale) []ProviderDef {
-	out := make([]ProviderDef, 0, len(DNSProviders)+len(dnsplugin.ExternalProviders()))
-	for _, provider := range DNSProviders {
-		item := provider.Localized(locale)
-		if plugin, ok := dnsplugin.Lookup(item.Value); ok && plugin.Source() == dnsplugin.SourceBuiltin {
-			item.Available = true
-			item.Source = string(dnsplugin.SourceBuiltin)
-			out = append(out, item)
-			continue
-		}
-		external, ok := dnsplugin.ExternalProviderInfo(item.Value)
-		if !ok || !external.Enabled {
-			// 没有编译进主程序，且没有启用中的插件提供该服务商：不展示。
-			continue
-		}
-		item.Source = string(dnsplugin.SourceExec)
-		item.Available = true
-		out = append(out, item)
-	}
-	known := make(map[string]bool, len(DNSProviders))
-	for _, provider := range DNSProviders {
-		known[provider.Value] = true
-	}
-	for _, external := range dnsplugin.ExternalEnabledProviders() {
-		// 内置目录已包含该 ID 时直接复用其字段定义，避免重复条目。
-		if known[external.ID] {
-			continue
-		}
-		out = append(out, externalProviderDef(external))
+	externals := dnsplugin.ExternalEnabledProviders()
+	out := make([]ProviderDef, 0, len(externals))
+	for _, external := range externals {
+		out = append(out, externalProviderDef(external).Localized(locale))
 	}
 	return out
 }
@@ -265,20 +239,29 @@ func externalProviderDef(external dnsplugin.ExternalProvider) ProviderDef {
 		Available: external.Enabled,
 		Source:    string(dnsplugin.SourceExec),
 		Fields:    make([]FieldDef, 0, len(external.Fields)),
+		labelI18n: external.NameI18n,
+		descI18n:  external.DescriptionI18n,
 	}
 	for _, field := range external.Fields {
 		item := FieldDef{
-			Key:         field.Key,
-			Label:       field.Label,
-			Type:        field.Type,
-			Required:    field.Required,
-			Secret:      field.Secret,
-			Placeholder: field.Placeholder,
-			Help:        field.Help,
-			Default:     field.Default,
+			Key:             field.Key,
+			Label:           field.Label,
+			Type:            field.Type,
+			Required:        field.Required,
+			Secret:          field.Secret,
+			Placeholder:     field.Placeholder,
+			Help:            field.Help,
+			Default:         field.Default,
+			labelI18n:       field.LabelI18n,
+			placeholderI18n: field.PlaceholderI18n,
+			helpI18n:        field.HelpI18n,
 		}
 		for _, option := range field.Options {
-			item.Options = append(item.Options, Option{Label: option.Label, Value: option.Value})
+			item.Options = append(item.Options, Option{
+				Label:     option.Label,
+				Value:     option.Value,
+				labelI18n: option.LabelI18n,
+			})
 		}
 		if field.ShowIf != nil {
 			item.ShowIf = &Condition{Key: field.ShowIf.Key, Value: field.ShowIf.Value}
@@ -288,14 +271,30 @@ func externalProviderDef(external dnsplugin.ExternalProvider) ProviderDef {
 	return out
 }
 
+// manifestProviderDef 把缓存中的 DNS manifest 条目转换为展示定义。
+// 缓存条目来自已卸载或已停用的插件，因此 Available 固定为 false。
+func manifestProviderDef(provider pluginproto.DNSProvider) ProviderDef {
+	return externalProviderDef(dnsplugin.ExternalProvider{
+		ID:              provider.ID,
+		Name:            provider.Name,
+		NameI18n:        provider.NameI18n,
+		Description:     provider.Description,
+		DescriptionI18n: provider.DescriptionI18n,
+		Aliases:         provider.Aliases,
+		Fields:          provider.Fields,
+		Enabled:         false,
+		FileEnabled:     false,
+	})
+}
+
 // LocalizeDeployTypes 返回指定语言的部署类型列表。
 //
-// 列表只包含当前可用的目标：主程序内置的本地文件与 SSH，以及已加载的
-// 部署插件目标。FTP、Webhook、CDN、面板等目标的元数据保留在
-// PluginDeployTypes 中，但只有安装了对应 helper 后才会出现在列表里。
+// 列表只包含当前可用的目标：主程序内置的本地文件与 SSH，以及已加载且已启用的
+// 部署插件目标。旧版合并目标在规范目标可用时隐藏。
 func LocalizeDeployTypes(locale i18n.Locale) []ProviderDef {
-	out := make([]ProviderDef, 0, len(DeployTypes)+len(PluginDeployTypes)+len(deployplugin.ExternalDeployers()))
-	known := make(map[string]bool, len(DeployTypes)+len(PluginDeployTypes))
+	externals := deployplugin.ExternalDeployers()
+	out := make([]ProviderDef, 0, len(DeployTypes)+len(externals))
+	known := make(map[string]bool, len(DeployTypes))
 	for _, provider := range DeployTypes {
 		item := provider.Localized(locale)
 		item.Available = true
@@ -303,32 +302,24 @@ func LocalizeDeployTypes(locale i18n.Locale) []ProviderDef {
 		out = append(out, item)
 		known[item.Value] = true
 	}
-	for _, provider := range PluginDeployTypes {
-		// 合并后的目标可用时隐藏仅用于兼容历史数据的旧条目；
-		// helper 未升级时仍展示旧条目，避免七牛云、宝塔和 1Panel 不可用。
-		if provider.Deprecated && deprecatedDeployTypeReplaced(provider.Value) {
+	for _, external := range externals {
+		if !external.Enabled {
 			continue
 		}
-		if !pluginDeployTypeAvailable(provider.Value) {
-			continue
-		}
-		item := provider.Localized(locale)
-		item.Available = true
-		item.Source = string(deployplugin.SourceExec)
-		out = append(out, item)
-		known[item.Value] = true
-	}
-	for _, external := range deployplugin.ExternalDeployers() {
-		// 内置目标与已知插件目标的元数据优先，保持字段翻译与历史数据一致。
-		if known[external.ID] || !external.Enabled {
+		id := strings.ToLower(strings.TrimSpace(external.ID))
+		if id == "" || known[id] {
 			continue
 		}
 		// 旧 helper 可能把已合并的旧 ID 当作未知目标上报；规范目标支持
 		// 对应部署对象时，仍应隐藏这些兼容条目。
-		if _, ok := DeprecatedDeployTypeCanonical[external.ID]; ok && deprecatedDeployTypeReplaced(external.ID) {
+		if _, ok := DeprecatedDeployTypeCanonical[id]; ok && deprecatedDeployTypeReplaced(id) {
 			continue
 		}
-		out = append(out, externalDeployerDef(external).Localized(locale))
+		item := externalDeployerDef(external).Localized(locale)
+		item.Available = true
+		item.Source = string(deployplugin.SourceExec)
+		out = append(out, item)
+		known[id] = true
 	}
 	return out
 }
@@ -350,6 +341,22 @@ func externalDeployerDef(external deployplugin.ExternalDeployer) ProviderDef {
 		labelI18n:    external.NameI18n,
 		descI18n:     external.DescriptionI18n,
 	}
+}
+
+// manifestDeployerDef 把缓存中的部署 manifest 条目转换为展示定义。
+func manifestDeployerDef(deployer pluginproto.Deployer) ProviderDef {
+	return externalDeployerDef(deployplugin.ExternalDeployer{
+		ID:              deployer.ID,
+		Name:            deployer.Name,
+		NameI18n:        deployer.NameI18n,
+		Description:     deployer.Description,
+		DescriptionI18n: deployer.DescriptionI18n,
+		Aliases:         deployer.Aliases,
+		Fields:          deployer.Fields,
+		DeployFields:    deployer.DeployFields,
+		Enabled:         false,
+		FileEnabled:     false,
+	})
 }
 
 func externalManifestFields(fields []deployplugin.ManifestField) []FieldDef {
@@ -445,21 +452,19 @@ func CAAccountKeySettingKey(value string) string {
 	return "acme.account_key." + value
 }
 
-// DNSProviderInfo 查找 DNS 服务商定义（内置目录或外部插件）。
+// DNSProviderInfo 查找 DNS 服务商定义（已加载插件或 manifest 缓存）。
 func DNSProviderInfo(value string) (ProviderDef, bool) {
-	for _, p := range DNSProviders {
-		if p.Value == value {
-			return p, true
-		}
-	}
 	if external, ok := dnsplugin.ExternalProviderInfo(value); ok {
 		return externalProviderDef(external), true
+	}
+	if provider, ok := pluginmeta.Provider(value); ok {
+		return manifestProviderDef(provider), true
 	}
 	return ProviderDef{}, false
 }
 
-// DeployTypeInfo 查找部署类型定义（内置或插件目标）。
-// 已迁移到部署插件的目标即使 helper 未安装也能返回元数据，
+// DeployTypeInfo 查找部署类型定义（内置、已加载插件或 manifest 缓存）。
+// 已迁移到部署插件的目标即使 helper 未安装，也能从缓存返回元数据，
 // 便于历史凭据脱敏、参数迁移以及启用插件后继续使用。
 func DeployTypeInfo(value string) (ProviderDef, bool) {
 	value = strings.TrimSpace(value)
@@ -468,13 +473,22 @@ func DeployTypeInfo(value string) (ProviderDef, bool) {
 			return p, true
 		}
 	}
-	if p, ok := PluginDeployTypeInfo(value); ok {
-		p.Available = pluginDeployTypeAvailable(value)
-		p.Source = string(deployplugin.SourceExec)
-		return p, true
+	lookup := value
+	if canonical, ok := DeprecatedDeployTypeCanonical[strings.ToLower(value)]; ok {
+		lookup = canonical
 	}
-	if external, ok := deployplugin.ExternalDeployerInfo(value); ok {
-		return externalDeployerDef(external), true
+	if external, ok := deployplugin.ExternalDeployerInfo(lookup); ok {
+		def := externalDeployerDef(external)
+		def.Available = external.Enabled
+		return def, true
+	}
+	if deployer, ok := pluginmeta.Deployer(lookup); ok {
+		return manifestDeployerDef(deployer), true
+	}
+	if lookup != value {
+		if deployer, ok := pluginmeta.Deployer(value); ok {
+			return manifestDeployerDef(deployer), true
+		}
 	}
 	return ProviderDef{}, false
 }

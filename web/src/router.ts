@@ -10,6 +10,7 @@ declare module 'vue-router' {
     titleKey?: string
     subtitleKey?: string
     tab?: string
+    logTab?: string
   }
 }
 
@@ -40,7 +41,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'plugins', component: () => import('./views/Plugins.vue'), meta: { titleKey: 'nav.dnsPlugins', subtitleKey: 'plugins.subtitle' } },
       { path: 'notifications', component: () => import('./views/Notifications.vue'), meta: { titleKey: 'nav.notifications', subtitleKey: 'notifications.subtitle' } },
       { path: 'logs', component: () => import('./views/Logs.vue'), meta: { titleKey: 'nav.logs', subtitleKey: 'logs.subtitle' } },
-      { path: 'system-logs', component: () => import('./views/SystemLogs.vue'), meta: { titleKey: 'nav.systemLogs', subtitleKey: 'systemLogs.subtitle' } },
+      // 兼容旧地址：直接打开统一日志页的系统日志页签。
+      { path: 'system-logs', component: () => import('./views/Logs.vue'), meta: { titleKey: 'nav.logs', subtitleKey: 'logs.subtitle', logTab: 'system' } },
       { path: 'sessions', component: () => import('./views/Sessions.vue'), meta: { titleKey: 'nav.sessions', subtitleKey: 'sessions.subtitle' } },
       { path: 'api-keys', component: () => import('./views/APIKeys.vue'), meta: { titleKey: 'nav.apiKeys', subtitleKey: 'apiKeys.subtitle' } },
       { path: 'upgrade', component: () => import('./views/Upgrade.vue'), meta: { titleKey: 'nav.upgrade', subtitleKey: 'upgrade.subtitle' } },

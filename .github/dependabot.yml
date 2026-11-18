@@ -3,7 +3,6 @@
 # 设计原则：
 # - Go / 前端 / GitHub Actions / 容器镜像分别按周检查，避免每天刷 PR；
 # - 先按生态分组，再提供 minor+patch 兜底组，减少 PR 数量；
-# - LACTSSL-Plugins 由发布流程与插件协议共同决定，不交给 Dependabot 自动升级；
 # - 大版本仍单独开 PR，便于逐个人工评估兼容性。
 version: 2
 
@@ -24,9 +23,6 @@ updates:
     commit-message:
       prefix: chore
       include: scope
-    # 插件仓库版本由发布 tag 固定，升级前需要先发布插件并验证协议兼容。
-    ignore:
-      - dependency-name: github.com/AXmishell/LACTSSL-Plugins
     groups:
       golang-x:
         patterns:

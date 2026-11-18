@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"lactssl/internal/deployplugin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/plugin/deploy"
 )
 
 type captureDeployer struct {
@@ -66,15 +66,16 @@ func TestBuiltinDeployersCoverDeployTypes(t *testing.T) {
 }
 
 func TestPluginDeployTypesAreImplementedByPlugin(t *testing.T) {
-	if len(PluginDeployTypes) == 0 {
-		t.Fatal("plugin deploy types should not be empty")
+	ids := DefaultPluginDeployIDs()
+	if len(ids) == 0 {
+		t.Fatal("plugin deploy default IDs should not be empty")
 	}
-	for _, def := range PluginDeployTypes {
-		if _, ok := builtinDeployers[def.Value]; ok {
-			t.Fatalf("插件目标 %s 不应再作为内置实现", def.Value)
+	for _, id := range ids {
+		if _, ok := builtinDeployers[id]; ok {
+			t.Fatalf("插件目标 %s 不应再作为内置实现", id)
 		}
-		if _, ok := DeployTypeInfo(def.Value); !ok {
-			t.Fatalf("插件目标 %s 缺少元数据", def.Value)
+		if _, ok := DeployTypeInfo(id); !ok {
+			t.Fatalf("插件目标 %s 缺少元数据", id)
 		}
 	}
 }

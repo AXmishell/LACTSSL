@@ -1092,7 +1092,9 @@ export default {
   },
   logs: {
     title: 'Logs',
-    subtitle: 'Issuance, deployment, monitoring, sign-in and settings changes for the last 90 days. Filter and export as needed.',
+    subtitle: 'View certificate issuance, deployment, monitoring, sign-in and settings changes, plus process runtime logs.',
+    tabOperation: 'Operation',
+    tabSystem: 'System',
     allSources: 'All sources',
     sourceTask: 'Tasks',
     sourceDeploy: 'Deployment',

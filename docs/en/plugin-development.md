@@ -4,12 +4,12 @@ This page is intended for plugin developers, integrators, and enterprise platfor
 
 ## 1. Repository layout
 
-Plugin sources, build tooling, and the repository index live in the separate [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) repository. The main program depends on its `protocol` and `catalog` packages through `go.mod`, and downloads merged plugin packages by kind from the plugin repository at runtime.
+Plugin sources, build tooling, and the repository index live in the separate [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) repository. The host implements protocol v1 manifest decoding locally and downloads merged plugin packages by kind at runtime; the two repositories no longer share Go source through `go.mod`.
 
 ```text
-protocol/        wire format for plugin protocol v1 (no third-party dependencies)
+protocol/        wire format for plugin protocol v1 (plugin-side implementation)
 sdk/helper/      helper bootstrap: memory budget, JSON, error exit
-catalog/         provider / deploy target metadata
+catalog/         plugin-internal provider / deploy target metadata
 i18n/            plugin-side translations
 outbound/        SSRF-safe outbound HTTP client
 dns/providers/<id>        194 DNS provider wrappers

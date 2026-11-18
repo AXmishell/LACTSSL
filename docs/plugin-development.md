@@ -4,13 +4,13 @@
 
 ## 1. 仓库结构
 
-插件源码、构建工具与仓库索引位于独立仓库 [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins)。主程序通过 `go.mod` 依赖其中的 `protocol` 与 `catalog`，运行期从插件仓库下载按类型合并的插件包。
+插件源码、构建工具与仓库索引位于独立仓库 [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins)。主程序在宿主内实现协议 v1 的 manifest 解码，运行期从插件仓库下载按类型合并的插件包；两个仓库不再通过 `go.mod` 共享源码。
 
 ```text
-protocol/        插件协议 v1 的线格式（零第三方依赖）
+protocol/        插件协议 v1 的线格式（插件侧实现，宿主另有本地副本）
 sdk/helper/      helper 启动框架：内存预算、JSON、错误退出
-catalog/         服务商 / 部署目标元数据
-i18n/            插件侧精简文案
+catalog/         插件内部的服务商 / 部署目标元数据（不对外提供 Go API）
+i18n/            插件侧文案
 outbound/        SSRF 防护出站 HTTP 客户端
 dns/providers/<id>        194 个 DNS 服务商包装
 deploy/providers/<id>     部署目标实现

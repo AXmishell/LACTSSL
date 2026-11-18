@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"lactssl/internal/pluginrepo"
+	"lactssl/internal/plugin/repo"
 )
 
 func TestSavePluginIconsAndMerge(t *testing.T) {
