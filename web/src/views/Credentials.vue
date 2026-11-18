@@ -217,7 +217,7 @@ import { Close, Delete, Plus, Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta } from '../store'
-import { formatDate, fromNow } from '../utils'
+import { fieldVisible, formatDate, fromNow } from '../utils'
 import { loadPluginIcons, pluginIcon } from '../pluginIcons'
 import DnsAccountIcon from '../components/DnsAccountIcon.vue'
 import type { Certificate, DeployRecord, FieldDef, Meta, ProviderDef } from '../types'
@@ -269,12 +269,7 @@ const providerMissing = computed(() => !!form.type && !activeDef.value)
 
 const visibleFields = computed<FieldDef[]>(() => {
   const fields = activeDef.value?.fields || []
-  return fields.filter((field) => {
-    if (!field.show_if) return true
-    const source = fields.find((item) => item.key === field.show_if?.key)
-    const value = form.config[field.show_if.key] || source?.default || ''
-    return value === field.show_if.value
-  })
+  return fields.filter((field) => fieldVisible(field, fields, form.config))
 })
 
 const typeValue = computed({

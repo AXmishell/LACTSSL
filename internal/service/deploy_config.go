@@ -14,7 +14,32 @@ func FilterAuthConfig(def ProviderDef, cfg map[string]string) map[string]string 
 		}
 	}
 	preserveDeployMode(def, cfg, out)
+	preserveLegacyDeployRegion(def, cfg, out)
 	return out
+}
+
+// preserveLegacyDeployRegion 保留旧凭据中的区域。
+// 新版把 region 移到任务部署节点，但历史账号可能只把区域保存在凭据中；
+// 保存凭据时继续保留，作为部署节点未填写区域时的兼容兜底。
+func preserveLegacyDeployRegion(def ProviderDef, src, dst map[string]string) {
+	if def.Value != "aliyun" && def.Value != "volcengine" {
+		return
+	}
+	if !hasField(def.DeployFields, "region") {
+		return
+	}
+	if value, found := src["region"]; found && strings.TrimSpace(value) != "" {
+		dst["region"] = value
+	}
+}
+
+func hasField(fields []FieldDef, key string) bool {
+	for _, field := range fields {
+		if field.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 // preserveDeployMode 保留合并目标在凭据中的部署对象字段。
@@ -122,5 +147,7 @@ func MergeProviderConfig(def ProviderDef, current, incoming map[string]string) m
 	}
 	preserveDeployMode(def, current, out)
 	preserveDeployMode(def, incoming, out)
+	preserveLegacyDeployRegion(def, current, out)
+	preserveLegacyDeployRegion(def, incoming, out)
 	return out
 }

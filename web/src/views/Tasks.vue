@@ -390,6 +390,7 @@ import { loadMeta, loadSettings } from '../store'
 import { enabledNotifyChannels } from '../notifyChannels'
 import DeployConfigFields from '../components/DeployConfigFields.vue'
 import {
+  fieldVisible,
   formatDate,
   fromNow,
   levelType,
@@ -1078,8 +1079,13 @@ async function save(): Promise<void> {
       selectedNodeId.value = node.id
       return
     }
-    const missing = (deployTypeDef(account.type)?.deploy_fields || []).find(
-      (field) => field.required && !String(node.config.deploy_config?.[field.key] || '').trim()
+    const fields = deployTypeDef(account.type)?.deploy_fields || []
+    const config = node.config.deploy_config
+    const missing = fields.find(
+      (field) =>
+        field.required &&
+        fieldVisible(field, fields, config) &&
+        !String(config?.[field.key] || field.default || '').trim()
     )
     if (missing) {
       ElMessage.warning(t('tasks.deployConfigRequired', { field: missing.label }))

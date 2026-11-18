@@ -195,6 +195,47 @@ func TestMergeDeployConfigIgnoresEmptyOverrides(t *testing.T) {
 	}
 }
 
+func TestFieldVisibleIn(t *testing.T) {
+	fields := []FieldDef{
+		{Key: "target", Type: "select", Default: "cdn"},
+		{Key: "bucket", ShowIf: &Condition{Key: "target", Value: "oss"}},
+		{Key: "region", ShowIf: &Condition{Key: "target", Values: []string{"oss", "waf"}}},
+	}
+
+	// 未填写 target 时使用默认值 cdn，条件字段全部隐藏。
+	if fields[1].VisibleIn(fields, map[string]string{}) || fields[2].VisibleIn(fields, map[string]string{}) {
+		t.Fatal("default target should hide oss/waf fields")
+	}
+	if !fields[2].VisibleIn(fields, map[string]string{"target": "oss"}) {
+		t.Fatal("oss should show region")
+	}
+	if !fields[2].VisibleIn(fields, map[string]string{"target": "waf"}) {
+		t.Fatal("waf should show region")
+	}
+	if fields[1].VisibleIn(fields, map[string]string{"target": "waf"}) {
+		t.Fatal("waf should hide bucket")
+	}
+}
+
+// TestFilterAuthConfigKeepsLegacyRegion 验证区域移到部署节点后，旧凭据中的
+// 区域在重新保存凭据时不会丢失，仍可作为部署节点未填写时的兜底值。
+func TestFilterAuthConfigKeepsLegacyRegion(t *testing.T) {
+	def, found := PluginDeployTypeInfo("aliyun")
+	if !found {
+		t.Fatal("aliyun metadata missing")
+	}
+	merged := MergeProviderConfig(def, map[string]string{
+		"access_key": "ak", "secret_key": "sk", "region": "cn-hangzhou",
+	}, map[string]string{"access_key": "ak2"})
+	if merged["region"] != "cn-hangzhou" {
+		t.Fatalf("region lost while merging credentials: %+v", merged)
+	}
+	out := FilterAuthConfig(def, merged)
+	if out["region"] != "cn-hangzhou" {
+		t.Fatalf("region lost while filtering credentials: %+v", out)
+	}
+}
+
 // TestFilterAuthConfigKeepsDeployMode 验证保存凭据时不会丢掉 target/domain_type。
 func TestFilterAuthConfigKeepsDeployMode(t *testing.T) {
 	def, found := DeployTypeInfo("baota")

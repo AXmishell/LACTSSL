@@ -69,7 +69,8 @@ export interface FieldOption {
 
 export interface FieldCondition {
   key: string
-  value: string
+  value?: string
+  values?: string[]
 }
 
 export interface FieldDef {

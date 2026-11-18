@@ -46,6 +46,7 @@
 import { computed } from 'vue'
 import { state } from '../store'
 import type { FieldDef } from '../types'
+import { fieldVisible } from '../utils'
 
 const props = defineProps<{
   accountType: string
@@ -62,12 +63,7 @@ const fields = computed<FieldDef[]>(() => {
 })
 
 const visibleFields = computed(() => {
-  return fields.value.filter((field) => {
-    if (!field.show_if) return true
-    const source = fields.value.find((item) => item.key === field.show_if?.key)
-    const value = props.modelValue?.[field.show_if.key] || source?.default || ''
-    return value === field.show_if.value
-  })
+  return fields.value.filter((field) => fieldVisible(field, fields.value, props.modelValue))
 })
 
 function valueOf(field: FieldDef): string {

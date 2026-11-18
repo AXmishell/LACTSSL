@@ -22,7 +22,7 @@ func parseID(c *gin.Context) (int64, bool) {
 
 func validateFields(fields []service.FieldDef, config map[string]string, current i18n.Locale) error {
 	for _, f := range fields {
-		if f.ShowIf != nil && config[f.ShowIf.Key] != f.ShowIf.Value {
+		if !f.VisibleIn(fields, config) {
 			continue
 		}
 		if f.Required && strings.TrimSpace(config[f.Key]) == "" {

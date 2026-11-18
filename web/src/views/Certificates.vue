@@ -306,7 +306,7 @@ import { api, copyText, downloadFile } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta, state } from '../store'
 import DeployConfigFields from '../components/DeployConfigFields.vue'
-import { certState, daysLeft, formatDate, isExpired } from '../utils'
+import { certState, daysLeft, fieldVisible, formatDate, isExpired } from '../utils'
 import type { Certificate, CertificateAnalysis, DeployAccount, DeployResponse, DeployResult, Task } from '../types'
 
 interface DeployTarget {
@@ -649,8 +649,13 @@ async function submitDeploy(): Promise<void> {
       ElMessage.warning(t('certs.selectDeploy'))
       return
     }
-    const missing = (deployTypeDef(account.type)?.deploy_fields || []).find(
-      (field) => field.required && !String(target.deploy_config?.[field.key] || '').trim()
+    const fields = deployTypeDef(account.type)?.deploy_fields || []
+    const config = target.deploy_config
+    const missing = fields.find(
+      (field) =>
+        field.required &&
+        fieldVisible(field, fields, config) &&
+        !String(config?.[field.key] || field.default || '').trim()
     )
     if (missing) {
       ElMessage.warning(t('certs.deployConfigRequired', { field: missing.label }))

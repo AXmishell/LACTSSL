@@ -25,6 +25,26 @@ func TestDeployAccountBodyKeepsOnlyAuthFields(t *testing.T) {
 	}
 }
 
+func TestValidateFieldsSkipsHiddenRequired(t *testing.T) {
+	fields := []service.FieldDef{
+		{Key: "target", Type: "select", Default: "cdn"},
+		{Key: "bucket", Type: "text", Required: true, ShowIf: &service.Condition{Key: "target", Value: "oss"}},
+		{Key: "region", Type: "text", Required: true, ShowIf: &service.Condition{Key: "target", Values: []string{"oss", "waf"}}},
+	}
+	if err := validateFields(fields, map[string]string{"target": "cdn"}, i18n.Default); err != nil {
+		t.Fatalf("隐藏的必填字段不应阻塞保存: %v", err)
+	}
+	if err := validateFields(fields, map[string]string{"target": "oss"}, i18n.Default); err == nil {
+		t.Fatal("oss 应要求 bucket 和 region")
+	}
+	if err := validateFields(fields, map[string]string{"target": "oss", "bucket": "demo"}, i18n.Default); err == nil {
+		t.Fatal("oss 应要求 region")
+	}
+	if err := validateFields(fields, map[string]string{"target": "oss", "bucket": "demo", "region": "oss-cn-hangzhou"}, i18n.Default); err != nil {
+		t.Fatalf("oss 字段齐全时不应报错: %v", err)
+	}
+}
+
 func TestDeployAccountBodyKeepsConnectionFields(t *testing.T) {
 	body := deployAccountBody{
 		Name: "ssh",

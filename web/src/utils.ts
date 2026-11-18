@@ -1,6 +1,6 @@
 // 前端通用格式化与状态映射工具。
 
-import type { Certificate } from './types'
+import type { Certificate, FieldDef } from './types'
 import { currentLocale, t } from './i18n'
 
 export type TagType = 'success' | 'info' | 'warning' | 'danger'
@@ -105,6 +105,23 @@ export function splitLines(text?: string | null): string[] {
     .split(/[\n,;]/)
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+// fieldVisible 判断带 show_if 条件的字段在当前配置下是否应显示。
+// 条件字段缺省时使用同组字段的默认值，与表单初始值保持一致。
+export function fieldVisible(
+  field: FieldDef,
+  fields: FieldDef[],
+  config: Record<string, string> | undefined
+): boolean {
+  const condition = field.show_if
+  if (!condition) return true
+  const source = fields.find((item) => item.key === condition.key)
+  const value = config?.[condition.key] || source?.default || ''
+  if (condition.values?.length) {
+    return condition.values.includes(value)
+  }
+  return value === condition.value
 }
 
 // formatSize 把字节数格式化成插件页使用的 MB/KB/B 单位。

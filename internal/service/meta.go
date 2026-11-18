@@ -37,10 +37,38 @@ func (f FieldDef) IsSecret() bool {
 	return f.Secret || f.Type == "password"
 }
 
-// Condition 描述字段的显示条件：当 Key 对应的值等于 Value 时才显示。
+// Condition 描述字段的显示条件：Value 表示单值匹配，
+// Values 非空时表示匹配其中任一值。
 type Condition struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key    string   `json:"key"`
+	Value  string   `json:"value,omitempty"`
+	Values []string `json:"values,omitempty"`
+}
+
+// VisibleIn 判断字段在当前配置下是否应显示。
+// 条件字段缺省时使用同组字段的默认值，与服务端表单默认行为保持一致。
+func (f FieldDef) VisibleIn(fields []FieldDef, cfg map[string]string) bool {
+	if f.ShowIf == nil {
+		return true
+	}
+	value := strings.TrimSpace(cfg[f.ShowIf.Key])
+	if value == "" {
+		for _, field := range fields {
+			if field.Key == f.ShowIf.Key {
+				value = strings.TrimSpace(field.Default)
+				break
+			}
+		}
+	}
+	if len(f.ShowIf.Values) > 0 {
+		for _, candidate := range f.ShowIf.Values {
+			if value == candidate {
+				return true
+			}
+		}
+		return false
+	}
+	return value == f.ShowIf.Value
 }
 
 // Option 是下拉选项。
@@ -379,7 +407,7 @@ func externalManifestFields(fields []deployplugin.ManifestField) []FieldDef {
 			item.Options = append(item.Options, Option{Label: option.Label, Value: option.Value, labelI18n: option.LabelI18n})
 		}
 		if field.ShowIf != nil {
-			item.ShowIf = &Condition{Key: field.ShowIf.Key, Value: field.ShowIf.Value}
+			item.ShowIf = &Condition{Key: field.ShowIf.Key, Value: field.ShowIf.Value, Values: field.ShowIf.Values}
 		}
 		out = append(out, item)
 	}

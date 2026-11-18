@@ -460,6 +460,16 @@ func validateFields(deployerID, kind string, fields []ManifestField, keys map[st
 		if field.ShowIf != nil && !keyPattern.MatchString(field.ShowIf.Key) {
 			return fmt.Errorf("部署目标 %s 的字段 %s 显示条件非法", deployerID, field.Key)
 		}
+		if field.ShowIf != nil {
+			if len(field.ShowIf.Values) > 64 {
+				return fmt.Errorf("部署目标 %s 的字段 %s 显示条件选项过多", deployerID, field.Key)
+			}
+			for _, value := range field.ShowIf.Values {
+				if strings.TrimSpace(value) == "" || len(value) > 128 {
+					return fmt.Errorf("部署目标 %s 的字段 %s 显示条件值非法", deployerID, field.Key)
+				}
+			}
+		}
 	}
 	return nil
 }
