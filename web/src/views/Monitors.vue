@@ -235,7 +235,7 @@ async function save(): Promise<void> {
       interval_hours: form.value.interval_hours,
       enabled: form.value.enabled
     }
-    const saved = await editingId.value ? api.put(`/monitors/${editingId.value}`, payload) : api.post('/monitors', payload)
+    const saved = await (editingId.value ? api.put(`/monitors/${editingId.value}`, payload) : api.post('/monitors', payload))
     if (saved === null) return
     ElMessage.success(editingId.value ? t('monitors.updated') : t('monitors.added'))
     dialogVisible.value = false

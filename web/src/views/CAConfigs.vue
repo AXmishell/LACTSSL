@@ -343,9 +343,9 @@ async function saveGeneric(): Promise<void> {
       eab_kid: genericForm.eab_kid.trim(),
       eab_hmac: genericForm.eab_hmac.trim()
     }
-    const saved = await genericEditingId.value
+    const saved = await (genericEditingId.value
         ? api.put(`/acme-cas/${genericEditingId.value}`, payload)
-        : api.post('/acme-cas', payload)
+        : api.post('/acme-cas', payload))
     if (saved === null) return
     ElMessage.success(genericEditingId.value ? t('ca.genericUpdated') : t('ca.genericCreated'))
     genericDialogVisible.value = false

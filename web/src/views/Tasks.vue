@@ -1096,9 +1096,9 @@ async function save(): Promise<void> {
   saving.value = true
   try {
     const payload = buildPayload()
-    const saved = await editingId.value
+    const saved = await (editingId.value
         ? api.put(`/tasks/${editingId.value}`, payload)
-        : api.post('/tasks', payload)
+        : api.post('/tasks', payload))
     if (saved === null) return
     ElMessage.success(t(editingId.value ? 'tasks.saved' : 'tasks.created'))
     dialogVisible.value = false

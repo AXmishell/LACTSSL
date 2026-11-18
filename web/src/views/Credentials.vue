@@ -401,9 +401,9 @@ async function save(): Promise<void> {
   saving.value = true
   try {
     const base = isDNS.value ? '/dns-accounts' : '/deploy-accounts'
-    const saved = await editingId.value
+    const saved = await (editingId.value
         ? api.put(`${base}/${editingId.value}`, payload)
-        : api.post(base, payload)
+        : api.post(base, payload))
     if (saved === null) return
     ElMessage.success(t('credentials.saved'))
     dialogVisible.value = false
