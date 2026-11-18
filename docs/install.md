@@ -6,7 +6,7 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 操作系统 | Linux amd64 / arm64；也支持 FreeBSD、macOS 和 Windows 的发布包 |
+| 操作系统 | Linux amd64 / arm64；也支持 macOS 和 Windows 的发布包 |
 | 容器 | Docker 及 Docker Compose v2（推荐） |
 | 源码构建 | Go 1.27+、Node.js 22.12+、npm |
 | 主机资源 | 参考[部署架构](architecture.md)；起步建议 2 vCPU / 1 GB，个人单域名场景 1 vCPU / 1 GB 也可运行 |

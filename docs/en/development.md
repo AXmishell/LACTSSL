@@ -161,8 +161,6 @@ Artifacts include:
 - `lactssl_<version>_linux_arm64.tar.gz`
 - `lactssl_<version>_darwin_amd64.tar.gz`
 - `lactssl_<version>_darwin_arm64.tar.gz`
-- `lactssl_<version>_freebsd_amd64.tar.gz`
-- `lactssl_<version>_freebsd_arm64.tar.gz`
 - `lactssl_<version>_windows_amd64.zip`
 - `checksums.txt` (SHA-256)
 

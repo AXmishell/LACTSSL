@@ -205,7 +205,7 @@ Notification channel availability depends on external services. Configure at lea
 
 ### 6.3 Release Artifacts
 
-Releases build Linux/macOS/FreeBSD/Windows binaries, `checksums.txt`, and `linux/amd64` and `linux/arm64` images. Archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`.
+Releases build Linux/macOS/Windows binaries, `checksums.txt`, and `linux/amd64` and `linux/arm64` images. Archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`.
 
 For release process, signing, and local build details, see [Development: source and build](development.md).
 

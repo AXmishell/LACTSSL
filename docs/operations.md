@@ -205,7 +205,7 @@ chmod 600 lactssl-backup-*.tar.gz
 
 ### 6.3 发布产物
 
-Release 会构建 Linux/macOS/FreeBSD/Windows 二进制、`checksums.txt` 和 `linux/amd64`、`linux/arm64` 镜像。归档包含二进制、`README.md`、`LICENSE` 和 `config.yaml.example`。
+Release 会构建 Linux/macOS/Windows 二进制、`checksums.txt` 和 `linux/amd64`、`linux/arm64` 镜像。归档包含二进制、`README.md`、`LICENSE` 和 `config.yaml.example`。
 
 发布流程、签名和本地构建细节见[扩展开发：源码与构建](development.md)。
 

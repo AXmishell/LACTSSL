@@ -6,7 +6,7 @@ This document provides production-ready installation steps. For a first evaluati
 
 | Item | Requirement |
 | --- | --- |
-| Operating system | Linux amd64 / arm64; release packages are also available for FreeBSD, macOS, and Windows |
+| Operating system | Linux amd64 / arm64; release packages are also available for macOS and Windows |
 | Containers | Docker and Docker Compose v2 (recommended) |
 | Building from source | Go 1.27+, Node.js 22.12+, npm |
 | Host resources | See [Deployment architecture](architecture.md) for capacity planning; 2 vCPU / 1 GB is a suggested starting point, and 1 vCPU / 1 GB is enough for a single-domain personal site |
