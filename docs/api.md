@@ -291,6 +291,21 @@ curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
 - 可通过设置项 `csr.allowed_domains` 限制允许申请的域名，多个域名用逗号或空白分隔。
 - 证书列表中的 `key_available` 为 `false`，表示服务端没有私钥，不能下载私钥或执行依赖私钥的部署。
 
+仓库内提供了可直接使用的 Python 客户端脚本 `scripts/csr_client.py`，它会在本地生成私钥和 CSR，提交申请、轮询状态，并在下载后校验证书与私钥匹配：
+
+```bash
+export LACTSSL_URL="https://ssl.example.com"
+export LACTSSL_TOKEN="lactssl_xxxxxxxxxxxxxxxx"
+
+python3 scripts/csr_client.py \
+  --domains example.com,www.example.com \
+  --dns-account-id 3 \
+  --ca letsencrypt \
+  --out-dir ./certs
+```
+
+脚本只上传 CSR，私钥始终保存在客户端；输出包括 `.key`、`.csr`、`.crt`、`.fullchain.crt` 和 `.request.json`。如果申请已创建但下载中断，可使用 `--request-id csr_xxxxxxxx` 续传。
+
 ## 7. CI/CD 示例
 
 ### 7.1 证书续期后分发
