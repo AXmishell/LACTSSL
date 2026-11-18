@@ -57,6 +57,13 @@ type Deployer interface {
 	Deploy(ctx context.Context, req Request) error
 }
 
+// Verifier 是部署目标可选实现的凭据探测接口。
+// 实现方只能做认证、连通性和作用域检查，不得写入证书或执行 reload 命令；
+// 需要写入测试时使用唯一临时对象并在返回前清理。
+type Verifier interface {
+	Verify(ctx context.Context, req Request) error
+}
+
 var registry = struct {
 	sync.RWMutex
 	byID  map[string]Deployer

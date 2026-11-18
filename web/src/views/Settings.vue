@@ -165,6 +165,66 @@
         </div>
       </el-tab-pane>
 
+      <!-- TLS 信任链 -->
+      <el-tab-pane :label="t('settings.tabTrust')" name="trust">
+        <div class="k-card">
+          <div class="card-head">
+            <div>
+              <h3>{{ t('settings.trustTitle') }}</h3>
+              <div class="sub">{{ t('settings.trustSub') }}</div>
+            </div>
+            <div class="flex gap-10 wrap">
+              <el-button :icon="Download" @click="downloadTrustBundle">{{ t('settings.trustDownload') }}</el-button>
+              <el-button type="primary" :icon="Upload" @click="openTrustDialog">{{ t('settings.trustImport') }}</el-button>
+            </div>
+          </div>
+
+          <el-alert
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="t('settings.trustAlert')"
+            style="margin-bottom: 16px"
+          />
+
+          <el-table :data="trustedCAs" v-loading="trustLoading" size="small" style="width: 100%">
+            <el-table-column min-width="220" :label="t('settings.trustCA')">
+              <template #default="{ row }">
+                <div style="font-weight: 600">{{ row.name }}</div>
+                <div class="muted mono" style="font-size: 12px; margin-top: 2px; word-break: break-all">{{ row.subject }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column min-width="180" :label="t('settings.trustIssuer')">
+              <template #default="{ row }">
+                <span class="mono" style="font-size: 12px; word-break: break-all">{{ row.issuer }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column width="170" :label="t('settings.trustExpires')">
+              <template #default="{ row }">
+                <span>{{ formatDate(row.not_after) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column min-width="190" :label="t('settings.trustFingerprint')">
+              <template #default="{ row }">
+                <span class="mono" style="font-size: 11px; word-break: break-all">{{ row.fingerprint }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column width="80" align="right" :label="t('common.actions')">
+              <template #default="{ row }">
+                <el-button text type="danger" size="small" @click="removeTrustedCA(row)">{{ t('common.delete') }}</el-button>
+              </template>
+            </el-table-column>
+            <template #empty>
+              <div style="padding: 34px 0; color: #94a3b8">
+                <el-icon size="28"><Lock /></el-icon>
+                <p style="margin: 10px 0 0">{{ t('settings.trustEmpty') }}</p>
+              </div>
+            </template>
+          </el-table>
+          <div class="form-help" style="margin-top: 12px">{{ t('settings.trustBuiltinNote') }}</div>
+        </div>
+      </el-tab-pane>
+
       <!-- 关于 -->
       <el-tab-pane :label="t('settings.tabAbout')" name="about">
         <div class="k-card about-card">
@@ -470,6 +530,40 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 导入内部 CA -->
+    <el-dialog v-model="trustVisible" :title="t('settings.trustImportTitle')" width="640px" destroy-on-close>
+      <p class="muted" style="margin-top: 0">{{ t('settings.trustImportHint') }}</p>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.trustName')">
+          <el-input v-model="trustForm.name" maxlength="128" :placeholder="t('settings.trustNamePlaceholder')" />
+        </el-form-item>
+        <el-form-item :label="t('settings.trustPEM')" required>
+          <div class="flex gap-10 wrap" style="margin-bottom: 8px; width: 100%">
+            <el-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept=".pem,.crt,.cer,.txt"
+              :on-change="onTrustFileChange"
+            >
+              <el-button :icon="Upload">{{ t('settings.trustChooseFile') }}</el-button>
+            </el-upload>
+            <span class="muted" style="font-size: 12px; align-self: center">{{ t('settings.trustFileHint') }}</span>
+          </div>
+          <el-input
+            v-model="trustForm.cert_pem"
+            type="textarea"
+            :rows="10"
+            class="mono"
+            :placeholder="t('settings.trustPEMPlaceholder')"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="trustVisible = false">{{ t('settings.cancel') }}</el-button>
+        <el-button type="primary" :loading="trustSaving" @click="importTrustedCA">{{ t('settings.trustImport') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -479,14 +573,14 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, UploadInstance } from 'element-plus'
-import { Document, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { Document, Download, Lock, Refresh, Upload, UploadFilled } from '@element-plus/icons-vue'
 import QRCode from 'qrcode'
 import ReauthFields from '../components/ReauthFields.vue'
 import { api, copyText, downloadFile, errorText } from '../api'
 import { isPasskeyCancelled, passkeySecureContext, passkeySupported, registerPasskey } from '../passkeys'
 import { loadMeta, loadSettings, loadUser, logout, state } from '../store'
 import { formatDate } from '../utils'
-import type { AuthResult, BackupInfo, MessageResult, Meta, PasskeyInfo, Settings as AppSettings, TOTPSetup } from '../types'
+import type { AuthResult, BackupInfo, MessageResult, Meta, PasskeyInfo, Settings as AppSettings, TOTPSetup, TrustedCA } from '../types'
 
 interface ProgramStatus {
   version: string
@@ -562,6 +656,12 @@ const restoreReauth = reactive({ password: '', totp: '' })
 const restoring = ref(false)
 let restoreTimer: number | undefined
 
+const trustedCAs = ref<TrustedCA[]>([])
+const trustLoading = ref(false)
+const trustVisible = ref(false)
+const trustSaving = ref(false)
+const trustForm = reactive({ name: '', cert_pem: '' })
+
 const uptimeText = computed(() => {
   const base = status.value?.uptime_seconds || 0
   const extra = statusAt.value ? Math.floor((now.value - statusAt.value) / 1000) : 0
@@ -634,12 +734,92 @@ async function loadPasskeys(): Promise<void> {
   }
 }
 
+async function loadTrustedCAs(): Promise<void> {
+  trustLoading.value = true
+  try {
+    trustedCAs.value = await api.get<TrustedCA[]>('/trusted-cas')
+  } catch (error) {
+    trustedCAs.value = []
+    console.warn('failed to load trusted CAs', error)
+  } finally {
+    trustLoading.value = false
+  }
+}
+
+function openTrustDialog(): void {
+  trustForm.name = ''
+  trustForm.cert_pem = ''
+  trustVisible.value = true
+}
+
+async function onTrustFileChange(file: UploadFile): Promise<void> {
+  const raw = file.raw
+  if (!raw) return
+  if (raw.size > 1024 * 1024) {
+    ElMessage.warning(t('settings.trustFileTooLarge'))
+    return
+  }
+  try {
+    trustForm.cert_pem = await raw.text()
+  } catch (_) {
+    ElMessage.error(t('settings.trustFileReadFailed'))
+  }
+}
+
+async function importTrustedCA(): Promise<void> {
+  if (!trustForm.cert_pem.trim()) {
+    ElMessage.warning(t('settings.trustPEMRequired'))
+    return
+  }
+  trustSaving.value = true
+  try {
+    const result = await api.post<{ message?: string; count?: number }>('/trusted-cas/import', {
+      name: trustForm.name.trim(),
+      cert_pem: trustForm.cert_pem
+    })
+    trustVisible.value = false
+    await loadTrustedCAs()
+    ElMessage.success(result?.message || t('settings.trustImported'))
+  } catch (error: any) {
+    ElMessage.error(errorText(error))
+  } finally {
+    trustSaving.value = false
+  }
+}
+
+async function removeTrustedCA(item: TrustedCA): Promise<void> {
+  try {
+    await ElMessageBox.confirm(t('settings.trustDeleteConfirm', { name: item.name }), t('settings.trustDeleteTitle'), {
+      confirmButtonText: t('common.delete'),
+      cancelButtonText: t('settings.cancel'),
+      type: 'warning'
+    })
+  } catch (_) {
+    return
+  }
+  try {
+    await api.delete(`/trusted-cas/${item.id}`)
+    await loadTrustedCAs()
+    ElMessage.success(t('settings.trustDeleted'))
+  } catch (error: any) {
+    ElMessage.error(errorText(error))
+  }
+}
+
+async function downloadTrustBundle(): Promise<void> {
+  try {
+    await downloadFile('/trusted-cas/bundle', 'lactssl-trusted-ca-bundle.pem')
+  } catch (error: any) {
+    ElMessage.error(errorText(error))
+  }
+}
+
 async function reload(): Promise<void> {
   try {
     const [metaData, settingData] = await Promise.all([loadMeta(true), loadSettings(true)])
     meta.value = metaData
     applySettings(settingData)
-    await Promise.all([loadStatus(), loadUser(true), loadBackupInfo(), loadPasskeys()])
+    await Promise.all([loadStatus(), loadUser(true), loadBackupInfo(), loadPasskeys(), loadTrustedCAs()])
   } catch (error: any) {
     ElMessage.error(error.message)
   }

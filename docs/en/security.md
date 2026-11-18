@@ -81,6 +81,7 @@ Recommendations:
 - In production, apply egress allowlists by domain or CIDR and permit only the destinations actually required.
 - When an enterprise proxy is required, configure it through system environment variables (Go HTTP client behavior) rather than in-application configuration.
 - Review the source of custom targets such as deployment webhooks and notification webhooks to avoid sending private keys or tokens to untrusted addresses.
+- For internal HTTPS targets, import the internal CA public key under "Settings → TLS trust chain" instead of disabling TLS verification; imported and private CAs are merged into `SSL_CERT_FILE` for plugins and deployment commands.
 
 ### 3.3 SSRF protection
 

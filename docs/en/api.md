@@ -96,8 +96,8 @@ Permissions are divided by resource:action. `*` represents all system API capabi
 | `deploy:execute` | Deploy certificates manually, or create, modify, or run tasks that contain deploy nodes (writes files; command execution requires `deploy:command`) | Yes |
 | `deploy:command` | Allow local/SSH deployments to run reload commands (equivalent to executing arbitrary commands as the service account) | Yes |
 | `tasks:read` | View task lists and task logs | No |
-| `tasks:write` | Create, modify, delete, enable, and disable tasks (also requires `deploy:execute` when deploy nodes are included) | No |
-| `tasks:run` | Run tasks manually or in batches (also requires `deploy:execute` when deploy nodes are included) | No |
+| `tasks:write` | Create, modify, delete, enable, and disable tasks (creating an enabled task also requires `tasks:run`; deploy nodes require `deploy:execute`; private CAs require `private_cas:write`) | No |
+| `tasks:run` | Run tasks manually or in batches (deploy nodes require `deploy:execute`; private CAs require `private_cas:write`) | No |
 | `monitors:read` | View site certificate monitors | No |
 | `monitors:write` | Create, modify, delete, and immediately check monitors | No |
 | `dns_accounts:read` | View DNS provider accounts (secrets masked) | No |
@@ -115,8 +115,8 @@ Permissions are divided by resource:action. `*` represents all system API capabi
 | `logs:read` | View and export operation logs | No |
 | `system_logs:read` | View and export process logs | No |
 | `system_logs:write` | Delete all system logs | Yes |
-| `settings:read` | View system settings | No |
-| `settings:write` | Modify system settings and send test notifications | Yes |
+| `settings:read` | View system settings and the internal CA trust chain | No |
+| `settings:write` | Modify system settings, send test notifications, import or remove internal CAs | Yes |
 | `backup:read` | View backup status and size | No |
 | `backup:download` | Export encrypted backups | Yes |
 | `backup:restore` | Upload and restore backups; restarts the service | Yes |
@@ -141,6 +141,9 @@ Private key permissions are additive:
 - Downloading a certificate private key also requires `certificates:read`.
 - Downloading a private CA private key also requires `private_cas:read`.
 - Creating or running tasks with deploy nodes requires explicit `deploy:execute`; `certificates:write` and `tasks:*` do not imply deployment execution capability.
+- Local/SSH `reload_command` additionally requires `deploy:command`; `deploy:execute` alone can only write certificate files.
+- Tasks that issue from a private CA require `private_cas:write`; `tasks:write` does not imply private CA issuance.
+- Creating a task with `enabled:true` issues immediately and therefore also requires `tasks:run`.
 
 ## 5. Response Format
 

@@ -264,6 +264,7 @@ func commandEnv() []string {
 		"PATH": true, "HOME": true, "USER": true, "LOGNAME": true, "SHELL": true,
 		"LANG": true, "TZ": true, "TMPDIR": true, "TMP": true, "TEMP": true,
 		"TERM": true, "PWD": true, "SSL_CERT_FILE": true, "SSL_CERT_DIR": true,
+		"CURL_CA_BUNDLE": true, "REQUESTS_CA_BUNDLE": true,
 		"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
 		"http_proxy": true, "https_proxy": true, "no_proxy": true,
 		"KUBECONFIG": true, "DOCKER_HOST": true, "XDG_RUNTIME_DIR": true,
@@ -339,36 +340,32 @@ func validateLocalDeployPaths(m *Manager, paths ...string) error {
 	return nil
 }
 
-func deploySSH(ctx context.Context, m *Manager, cert *model.Certificate, cfg map[string]string, account *model.DeployAccount) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return i18n.E("service.deploy.command_canceled")
-	}
+// dialSSHDeploy 建立 SSH 连接，按配置完成密码/私钥认证与主机指纹校验。
+// 部署与验证共用该函数，避免两套连接逻辑对 TOFU 与指纹校验产生分歧。
+func dialSSHDeploy(m *Manager, cfg map[string]string, account *model.DeployAccount) (*ssh.Client, error) {
 	host := strings.TrimSpace(cfg["host"])
 	user := strings.TrimSpace(cfg["user"])
 	if host == "" || user == "" {
-		return i18n.E("service.deploy.ssh_host_user_required")
+		return nil, i18n.E("service.deploy.ssh_host_user_required")
 	}
 	port := strings.TrimSpace(cfg["port"])
 	if port == "" {
 		port = "22"
 	}
 	if _, err := strconv.Atoi(port); err != nil {
-		return i18n.E("service.deploy.ssh_port_invalid")
+		return nil, i18n.E("service.deploy.ssh_port_invalid")
 	}
 
 	authMethods := []ssh.AuthMethod{}
 	if cfg["auth_type"] == "key" && strings.TrimSpace(cfg["private_key"]) != "" {
 		signer, err := ssh.ParsePrivateKey([]byte(cfg["private_key"]))
 		if err != nil {
-			return i18n.E("service.deploy.ssh_key_parse_failed", "error", err.Error())
+			return nil, i18n.E("service.deploy.ssh_key_parse_failed", "error", err.Error())
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	} else {
 		if cfg["password"] == "" {
-			return i18n.E("service.deploy.ssh_password_required")
+			return nil, i18n.E("service.deploy.ssh_password_required")
 		}
 		authMethods = append(authMethods, ssh.Password(cfg["password"]))
 	}
@@ -410,7 +407,21 @@ func deploySSH(ctx context.Context, m *Manager, cert *model.Certificate, cfg map
 	}
 	client, err := ssh.Dial("tcp", net.JoinHostPort(host, port), sshConfig)
 	if err != nil {
-		return i18n.E("service.deploy.ssh_connect_failed", "error", err.Error())
+		return nil, i18n.E("service.deploy.ssh_connect_failed", "error", err.Error())
+	}
+	return client, nil
+}
+
+func deploySSH(ctx context.Context, m *Manager, cert *model.Certificate, cfg map[string]string, account *model.DeployAccount) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return i18n.E("service.deploy.command_canceled")
+	}
+	client, err := dialSSHDeploy(m, cfg, account)
+	if err != nil {
+		return err
 	}
 	defer client.Close()
 

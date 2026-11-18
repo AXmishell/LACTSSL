@@ -279,6 +279,11 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/private-cas/import", s.importPrivateCA)
 	g.GET("/private-cas/:id/download", s.downloadPrivateCA)
 	g.DELETE("/private-cas/:id", s.deletePrivateCA)
+	// 系统 TLS 信任链：导入的 CA 公钥用于目标凭据、通知与监控的 TLS 校验。
+	g.GET("/trusted-cas", s.listTrustedCAs)
+	g.GET("/trusted-cas/bundle", s.downloadTrustBundle)
+	g.POST("/trusted-cas/import", s.importTrustedCA)
+	g.DELETE("/trusted-cas/:id", s.deleteTrustedCA)
 	g.GET("/acme-endpoints", s.listACMEEndpoints)
 	g.POST("/acme-endpoints", s.createACMEEndpoint)
 	g.PUT("/acme-endpoints/:id", s.updateACMEEndpoint)

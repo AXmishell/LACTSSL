@@ -27,6 +27,7 @@ import (
 	"lactssl/internal/logging"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
+	"lactssl/internal/truststore"
 	"lactssl/internal/upgrade"
 	"lactssl/internal/util"
 	"lactssl/internal/webui"
@@ -114,6 +115,16 @@ func main() {
 	}
 
 	manager := service.New(st)
+	// 把系统根证书、导入的内部 CA 与私有 CA 合并成一个信任链文件。
+	// 插件 helper、部署命令与通知渠道进程通过 SSL_CERT_FILE 读取它，
+	// 从而在访问内网 HTTPS 目标时仍能完成证书校验。
+	if bundlePath, err := manager.SyncTrustBundle(cfg.DataDir); err != nil {
+		logger.Warn("生成 TLS 信任链失败", "error", err)
+	} else if truststore.HasSystemBundle() && bundlePath != "" {
+		if err := truststore.SetEnv(bundlePath); err != nil {
+			logger.Warn("设置 TLS 信任链环境变量失败", "error", err)
+		}
+	}
 	// 本地部署禁止写入数据目录、配置目录与程序目录，避免部署参数覆盖
 	// 数据库、config.yaml 或正在运行的二进制。
 	manager.ProtectedPaths = []string{cfg.DataDir, filepath.Dir(cfg.File)}

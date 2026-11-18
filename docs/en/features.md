@@ -141,7 +141,18 @@ The following targets are provided by deployment plugins and become available af
 
 Deployment plugins receive certificates and private keys and are equivalent to trusted code; they are disabled by default. When no plugin is installed, only local files and SSH are shown; existing credentials are preserved.
 
-### 4.3 Deployment records
+### 4.3 Internal CA trust chain
+
+Under "Settings → TLS trust chain" you can import internal CA public keys (PEM, optionally including both a root CA and subordinate CAs). After importing:
+
+- Deployment plugin targets validate internal HTTPS services against the system roots plus imported CAs, without disabling TLS verification.
+- Certificate monitors trust certificates issued by these CAs; certificates from this application's private CAs are added automatically.
+- Deployments, reload commands, and plugin subprocesses read the merged trust bundle through `SSL_CERT_FILE`, with `CURL_CA_BUNDLE` and `REQUESTS_CA_BUNDLE` also supported.
+- The bundle is stored as `trusted-ca-bundle.pem` in the data directory and can be downloaded from the settings page.
+
+Only import internal CAs you actually control; a wrong CA weakens TLS validation. Removing a CA makes targets that rely on its certificates untrusted again.
+
+### 4.4 Deployment records
 
 - Each deployment generates a deployment record, viewable in certificate details and logs.
 - Manual deployments prefer the deploy node parameters of the certificate's task; parameters can also be entered for that target only.
@@ -157,7 +168,7 @@ After an external site is added, the service periodically reads its certificate 
 - The service validates the certificate hostname, issuer, expiration, and status.
 - Certificates with 30 days or less remaining are marked as expiring soon; expired certificates, connection failures, untrusted chains, incomplete chains, or hostname mismatches are marked as abnormal.
 - A notification is sent when the status changes from normal to expiring soon, expired, or abnormal.
-- Monitors validate the system trust chain to prevent a man-in-the-middle from using a self-signed certificate to mask real certificate problems.
+- Monitors validate the system trust chain to prevent a man-in-the-middle from using a self-signed certificate to mask real certificate problems; internal CAs imported by the administrator and private CAs are also trusted.
 
 ## 6. Notifications
 

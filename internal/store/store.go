@@ -412,7 +412,7 @@ func (s *Store) unmarshalConfig(value string) map[string]string {
 
 // ListDNSAccounts 返回全部 DNS 账户。
 func (s *Store) ListDNSAccounts() ([]model.DNSAccount, error) {
-	rows, err := s.DB.Query(`SELECT id,name,provider,config,remark,created_at,updated_at FROM dns_accounts ORDER BY id DESC`)
+	rows, err := s.DB.Query(`SELECT id,name,provider,config,remark,verify_status,verify_message,verify_mode,verified_at,created_at,updated_at FROM dns_accounts ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +421,9 @@ func (s *Store) ListDNSAccounts() ([]model.DNSAccount, error) {
 	for rows.Next() {
 		var a model.DNSAccount
 		var cfg string
-		if err := rows.Scan(&a.ID, &a.Name, &a.Provider, &cfg, &a.Remark, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Provider, &cfg, &a.Remark,
+			&a.VerifyStatus, &a.VerifyMessage, &a.VerifyMode, &a.VerifiedAt,
+			&a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		a.Config = s.unmarshalConfig(cfg)
@@ -434,8 +436,10 @@ func (s *Store) ListDNSAccounts() ([]model.DNSAccount, error) {
 func (s *Store) GetDNSAccount(id int64) (*model.DNSAccount, error) {
 	var a model.DNSAccount
 	var cfg string
-	err := s.DB.QueryRow(`SELECT id,name,provider,config,remark,created_at,updated_at FROM dns_accounts WHERE id=?`, id).
-		Scan(&a.ID, &a.Name, &a.Provider, &cfg, &a.Remark, &a.CreatedAt, &a.UpdatedAt)
+	err := s.DB.QueryRow(`SELECT id,name,provider,config,remark,verify_status,verify_message,verify_mode,verified_at,created_at,updated_at FROM dns_accounts WHERE id=?`, id).
+		Scan(&a.ID, &a.Name, &a.Provider, &cfg, &a.Remark,
+			&a.VerifyStatus, &a.VerifyMessage, &a.VerifyMode, &a.VerifiedAt,
+			&a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +469,16 @@ func (s *Store) UpdateDNSAccount(a *model.DNSAccount) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.Exec(`UPDATE dns_accounts SET name=?,provider=?,config=?,remark=?,updated_at=? WHERE id=?`, a.Name, a.Provider, cfg, a.Remark, nowUTC(), a.ID)
+	_, err = s.DB.Exec(`UPDATE dns_accounts SET name=?,provider=?,config=?,remark=?,verify_status=?,verify_message=?,verify_mode=?,verified_at=?,updated_at=? WHERE id=?`,
+		a.Name, a.Provider, cfg, a.Remark, a.VerifyStatus, a.VerifyMessage, a.VerifyMode, a.VerifiedAt, nowUTC(), a.ID)
+	return err
+}
+
+// SetDNSAccountVerification 保存最近一次可用性验证结果。
+// 不更新 updated_at：验证不代表凭据配置发生变化。
+func (s *Store) SetDNSAccountVerification(id int64, status, message, mode string, at *time.Time) error {
+	_, err := s.DB.Exec(`UPDATE dns_accounts SET verify_status=?,verify_message=?,verify_mode=?,verified_at=? WHERE id=?`,
+		status, message, mode, at, id)
 	return err
 }
 
@@ -479,7 +492,7 @@ func (s *Store) DeleteDNSAccount(id int64) error {
 
 // ListDeployAccounts 返回全部目标凭据。
 func (s *Store) ListDeployAccounts() ([]model.DeployAccount, error) {
-	rows, err := s.DB.Query(`SELECT id,name,type,config,remark,created_at,updated_at FROM deploy_accounts ORDER BY id DESC`)
+	rows, err := s.DB.Query(`SELECT id,name,type,config,remark,verify_status,verify_message,verify_mode,verified_at,created_at,updated_at FROM deploy_accounts ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +501,9 @@ func (s *Store) ListDeployAccounts() ([]model.DeployAccount, error) {
 	for rows.Next() {
 		var a model.DeployAccount
 		var cfg string
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &cfg, &a.Remark, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &cfg, &a.Remark,
+			&a.VerifyStatus, &a.VerifyMessage, &a.VerifyMode, &a.VerifiedAt,
+			&a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		a.Config = s.unmarshalConfig(cfg)
@@ -501,8 +516,10 @@ func (s *Store) ListDeployAccounts() ([]model.DeployAccount, error) {
 func (s *Store) GetDeployAccount(id int64) (*model.DeployAccount, error) {
 	var a model.DeployAccount
 	var cfg string
-	err := s.DB.QueryRow(`SELECT id,name,type,config,remark,created_at,updated_at FROM deploy_accounts WHERE id=?`, id).
-		Scan(&a.ID, &a.Name, &a.Type, &cfg, &a.Remark, &a.CreatedAt, &a.UpdatedAt)
+	err := s.DB.QueryRow(`SELECT id,name,type,config,remark,verify_status,verify_message,verify_mode,verified_at,created_at,updated_at FROM deploy_accounts WHERE id=?`, id).
+		Scan(&a.ID, &a.Name, &a.Type, &cfg, &a.Remark,
+			&a.VerifyStatus, &a.VerifyMessage, &a.VerifyMode, &a.VerifiedAt,
+			&a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -532,7 +549,15 @@ func (s *Store) UpdateDeployAccount(a *model.DeployAccount) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.Exec(`UPDATE deploy_accounts SET name=?,type=?,config=?,remark=?,updated_at=? WHERE id=?`, a.Name, a.Type, cfg, a.Remark, nowUTC(), a.ID)
+	_, err = s.DB.Exec(`UPDATE deploy_accounts SET name=?,type=?,config=?,remark=?,verify_status=?,verify_message=?,verify_mode=?,verified_at=?,updated_at=? WHERE id=?`,
+		a.Name, a.Type, cfg, a.Remark, a.VerifyStatus, a.VerifyMessage, a.VerifyMode, a.VerifiedAt, nowUTC(), a.ID)
+	return err
+}
+
+// SetDeployAccountVerification 保存最近一次可用性验证结果。
+func (s *Store) SetDeployAccountVerification(id int64, status, message, mode string, at *time.Time) error {
+	_, err := s.DB.Exec(`UPDATE deploy_accounts SET verify_status=?,verify_message=?,verify_mode=?,verified_at=? WHERE id=?`,
+		status, message, mode, at, id)
 	return err
 }
 

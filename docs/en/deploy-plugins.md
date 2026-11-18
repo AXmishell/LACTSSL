@@ -90,7 +90,7 @@ Enablement state is stored in the settings table under `plugins.deploy.enabled_d
 
 - Public targets are forced to HTTPS; loopback, private network, `.local`, and `.internal` addresses may use HTTP.
 - Webhooks carry the certificate and private key, so the receiver must be trusted. Use a dedicated token and source IP restrictions.
-- Do not enable **Skip TLS verification** unless necessary; if required, limit it to internal self-signed targets.
+- Do not enable **Skip TLS verification** unless necessary; if required, limit it to internal self-signed targets. For certificates issued by an internal CA, import the CA public key under "Settings → TLS trust chain" so deployment plugins can trust the target with normal verification.
 - Receivers should implement idempotency and signature verification to prevent replay.
 
 ### 5.5 Cloud CDN / panel / WAF

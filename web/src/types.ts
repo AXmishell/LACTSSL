@@ -196,6 +196,19 @@ export interface Settings {
   }>
 }
 
+export interface TrustedCA {
+  id: number
+  name: string
+  subject: string
+  issuer: string
+  serial: string
+  fingerprint: string
+  cert_pem: string
+  not_before: string
+  not_after: string
+  created_at: string
+}
+
 export interface DNSAccount {
   id: number
   name: string

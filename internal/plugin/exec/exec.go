@@ -177,7 +177,7 @@ func parseVmRSS(status []byte) (uint64, bool) {
 func helperEnv(opts Options) []string {
 	allow := []string{
 		"PATH", "HOME", "TMPDIR", "TZ", "LANG", "LC_ALL",
-		"SSL_CERT_FILE", "SSL_CERT_DIR",
+		"SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
 		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
 		"http_proxy", "https_proxy", "no_proxy",
 	}

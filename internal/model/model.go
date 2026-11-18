@@ -83,13 +83,18 @@ type Session struct {
 
 // DNSAccount 保存 DNS 服务商凭据，Config 在落库前会加密。
 type DNSAccount struct {
-	ID        int64             `json:"id"`
-	Name      string            `json:"name"`
-	Provider  string            `json:"provider"`
-	Config    map[string]string `json:"config"`
-	Remark    string            `json:"remark"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID       int64             `json:"id"`
+	Name     string            `json:"name"`
+	Provider string            `json:"provider"`
+	Config   map[string]string `json:"config"`
+	Remark   string            `json:"remark"`
+	// 以下字段记录最近一次可用性验证结果，仅用于展示与预检，不参与签发。
+	VerifyStatus  string     `json:"verify_status"`
+	VerifyMessage string     `json:"verify_message"`
+	VerifyMode    string     `json:"verify_mode"`
+	VerifiedAt    *time.Time `json:"verified_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // PrivateCA 是本地生成或导入的私有证书颁发机构。
@@ -116,16 +121,36 @@ type PrivateCA struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// TrustedCA 是导入到系统 TLS 信任链的 CA 公钥证书。
+// 仅保存公钥证书，不包含私钥；用于校验证书监控、通知与目标凭据插件访问的内部 HTTPS 服务。
+type TrustedCA struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Subject     string    `json:"subject"`
+	Issuer      string    `json:"issuer"`
+	Serial      string    `json:"serial"`
+	Fingerprint string    `json:"fingerprint"`
+	CertPEM     string    `json:"cert_pem"`
+	NotBefore   time.Time `json:"not_before"`
+	NotAfter    time.Time `json:"not_after"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // DeployAccount 保存证书目标凭据的认证与连接信息。
 // 证书路径、站点、域名等部署参数保存在任务流程的部署节点中。
 type DeployAccount struct {
-	ID        int64             `json:"id"`
-	Name      string            `json:"name"`
-	Type      string            `json:"type"`
-	Config    map[string]string `json:"config"`
-	Remark    string            `json:"remark"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID     int64             `json:"id"`
+	Name   string            `json:"name"`
+	Type   string            `json:"type"`
+	Config map[string]string `json:"config"`
+	Remark string            `json:"remark"`
+	// 以下字段记录最近一次可用性验证结果，仅用于展示与预检，不参与部署。
+	VerifyStatus  string     `json:"verify_status"`
+	VerifyMessage string     `json:"verify_message"`
+	VerifyMode    string     `json:"verify_mode"`
+	VerifiedAt    *time.Time `json:"verified_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // Task 表示一个证书申请/续期任务。

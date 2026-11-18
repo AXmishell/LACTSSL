@@ -198,6 +198,11 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"GET /api/private-cas/:id/download": {apiScopePrivateCARead},
 	"DELETE /api/private-cas/:id":       {apiScopePrivateCAWrite},
 
+	"GET /api/trusted-cas":         {apiScopeSettingsRead},
+	"GET /api/trusted-cas/bundle":  {apiScopeSettingsRead},
+	"POST /api/trusted-cas/import": {apiScopeSettingsWrite},
+	"DELETE /api/trusted-cas/:id":  {apiScopeSettingsWrite},
+
 	"GET /api/acme-endpoints":                    {apiScopeCARead},
 	"POST /api/acme-endpoints":                   {apiScopeCAWrite},
 	"PUT /api/acme-endpoints/:id":                {apiScopeCAWrite},

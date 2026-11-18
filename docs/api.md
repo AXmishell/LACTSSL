@@ -96,8 +96,8 @@ curl -X POST \
 | `deploy:execute` | 手动部署证书，或创建/修改/运行包含部署节点的任务（写文件；命令执行另需 `deploy:command`） | 是 |
 | `deploy:command` | 允许本地/SSH 部署执行 reload 命令（等同于以服务账号执行任意命令） | 是 |
 | `tasks:read` | 查看任务列表与任务日志 | 否 |
-| `tasks:write` | 创建、修改、删除和启停任务（含部署节点时还需 `deploy:execute`） | 否 |
-| `tasks:run` | 手动运行任务或批量运行（含部署节点时还需 `deploy:execute`） | 否 |
+| `tasks:write` | 创建、修改、删除和启停任务（创建即执行还需 `tasks:run`；含部署节点还需 `deploy:execute`；私有 CA 还需 `private_cas:write`） | 否 |
+| `tasks:run` | 手动运行任务或批量运行（含部署节点还需 `deploy:execute`；私有 CA 还需 `private_cas:write`） | 否 |
 | `monitors:read` | 查看站点证书监控 | 否 |
 | `monitors:write` | 创建、修改、删除和立即检查监控 | 否 |
 | `dns_accounts:read` | 查看 DNS 服务商账户（密钥掩码） | 否 |
@@ -115,8 +115,8 @@ curl -X POST \
 | `logs:read` | 查看和导出操作日志 | 否 |
 | `system_logs:read` | 查看和导出进程日志 | 否 |
 | `system_logs:write` | 删除全部系统日志 | 是 |
-| `settings:read` | 查看系统设置 | 否 |
-| `settings:write` | 修改系统设置并发送测试通知 | 是 |
+| `settings:read` | 查看系统设置与内部 CA 信任链 | 否 |
+| `settings:write` | 修改系统设置、发送测试通知、导入或移除内部 CA | 是 |
 | `backup:read` | 查看备份状态与大小 | 否 |
 | `backup:download` | 导出加密备份 | 是 |
 | `backup:restore` | 上传并恢复备份，会重启服务 | 是 |
@@ -141,6 +141,9 @@ curl -X POST \
 - 下载证书私钥还需要 `certificates:read`。
 - 下载私有 CA 私钥还需要 `private_cas:read`。
 - 创建/运行含部署节点的任务必须显式拥有 `deploy:execute`；`certificates:write` 和 `tasks:*` 不隐含部署执行能力。
+- 本地/SSH 部署中的 `reload_command` 还必须显式拥有 `deploy:command`；仅 `deploy:execute` 只能写入证书文件。
+- 使用私有 CA 签发证书的任务需要 `private_cas:write`；`tasks:write` 不隐含私有 CA 签发能力。
+- 创建 `enabled:true` 的任务会立即签发，除 `tasks:write` 外还需要 `tasks:run`。
 
 ## 5. 响应格式
 

@@ -39,8 +39,10 @@ func Open(path string) (*sql.DB, error) {
 //   - 4：插件化阶段；
 //   - 5：logs 表合并进程日志（category/ref_type/fields/request_id）；
 //   - 6：CSR 申请（certificate_requests）与证书来源关联；
-//   - 7：独立吊销记录表（revocations），删除证书不再抹掉 CRL/OCSP 吊销状态。
-const schemaVersion = 7
+//   - 7：独立吊销记录表（revocations），删除证书不再抹掉 CRL/OCSP 吊销状态；
+//   - 8：导入的内部 CA 信任链（trusted_cas）；
+//   - 9：DNS 账户与目标凭据的可用性验证结果。
+const schemaVersion = 9
 
 func migrate(conn *sql.DB) error {
 	var version int
@@ -145,6 +147,10 @@ func migrate(conn *sql.DB) error {
 			provider TEXT NOT NULL,
 			config TEXT NOT NULL,
 			remark TEXT NOT NULL DEFAULT '',
+			verify_status TEXT NOT NULL DEFAULT '',
+			verify_message TEXT NOT NULL DEFAULT '',
+			verify_mode TEXT NOT NULL DEFAULT '',
+			verified_at DATETIME,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
 		)`,
@@ -154,6 +160,10 @@ func migrate(conn *sql.DB) error {
 			type TEXT NOT NULL,
 			config TEXT NOT NULL,
 			remark TEXT NOT NULL DEFAULT '',
+			verify_status TEXT NOT NULL DEFAULT '',
+			verify_message TEXT NOT NULL DEFAULT '',
+			verify_mode TEXT NOT NULL DEFAULT '',
+			verified_at DATETIME,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
 		)`,
@@ -176,6 +186,18 @@ func migrate(conn *sql.DB) error {
 			crl_number INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS trusted_cas (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			subject TEXT NOT NULL DEFAULT '',
+			issuer TEXT NOT NULL DEFAULT '',
+			serial TEXT NOT NULL DEFAULT '',
+			fingerprint TEXT NOT NULL UNIQUE,
+			cert_pem TEXT NOT NULL,
+			not_before DATETIME NOT NULL,
+			not_after DATETIME NOT NULL,
+			created_at DATETIME NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS certificates (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -436,16 +458,26 @@ func migrate(conn *sql.DB) error {
 			return fmt.Errorf("初始化数据库表失败: %w", err)
 		}
 	}
-	// 把旧版本中已吊销的证书回填到独立吊销表，后续删除证书不会丢失吊销状态。
-	if _, err := conn.Exec(`INSERT OR IGNORE INTO revocations(ca_id, serial, revoked_at, reason, created_at)
-		SELECT private_ca_id, UPPER(serial), revoked_at, revoke_reason, COALESCE(revoked_at, created_at)
-		FROM certificates
-		WHERE revoked_at IS NOT NULL AND private_ca_id > 0 AND serial <> ''`); err != nil {
-		return fmt.Errorf("回填吊销记录失败: %w", err)
-	}
 	// 兼容旧数据库：为已有 tasks 表补充任务流程字段。
 	if err := ensureColumn(conn, "tasks", "pipeline", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	// 兼容旧数据库：DNS 账户与目标凭据的可用性验证结果。
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{"verify_status", `TEXT NOT NULL DEFAULT ''`},
+		{"verify_message", `TEXT NOT NULL DEFAULT ''`},
+		{"verify_mode", `TEXT NOT NULL DEFAULT ''`},
+		{"verified_at", `DATETIME`},
+	} {
+		if err := ensureColumn(conn, "dns_accounts", column.name, column.definition); err != nil {
+			return fmt.Errorf("升级数据库结构失败: %w", err)
+		}
+		if err := ensureColumn(conn, "deploy_accounts", column.name, column.definition); err != nil {
+			return fmt.Errorf("升级数据库结构失败: %w", err)
+		}
 	}
 	// 兼容旧数据库：logs 表合并进程日志所需字段。
 	for _, column := range []struct {
@@ -531,6 +563,20 @@ func migrate(conn *sql.DB) error {
 	if err := ensureColumn(conn, "private_cas", "crl_number", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
+	// 把旧版本中已吊销的证书回填到独立吊销表，后续删除证书不会丢失吊销状态。
+	// 极旧数据库的 certificates 表可能还没有这些列，此时跳过回填（没有可回填的数据）。
+	if tableHasColumn(conn, "certificates", "private_ca_id") &&
+		tableHasColumn(conn, "certificates", "serial") &&
+		tableHasColumn(conn, "certificates", "revoked_at") &&
+		tableHasColumn(conn, "certificates", "revoke_reason") &&
+		tableHasColumn(conn, "certificates", "created_at") {
+		if _, err := conn.Exec(`INSERT OR IGNORE INTO revocations(ca_id, serial, revoked_at, reason, created_at)
+			SELECT private_ca_id, UPPER(serial), revoked_at, revoke_reason, COALESCE(revoked_at, created_at)
+			FROM certificates
+			WHERE revoked_at IS NOT NULL AND private_ca_id > 0 AND serial <> ''`); err != nil {
+			return fmt.Errorf("回填吊销记录失败: %w", err)
+		}
+	}
 	if _, err := conn.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
 		return fmt.Errorf("写入数据库结构版本失败: %w", err)
 	}
@@ -538,8 +584,33 @@ func migrate(conn *sql.DB) error {
 }
 
 // ensureColumn 在缺少指定列时执行 ALTER TABLE，用于轻量级结构迁移。
-func ensureColumn(conn *sql.DB, table, column, definition string) error {
+// tableHasColumn 判断表是否已有指定列，用于兼容极旧数据库的迁移。
+func tableHasColumn(conn *sql.DB, table, column string) bool {
 	rows, err := conn.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			colType    string
+			notNull    int
+			defaultV   any
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultV, &primaryKey); err != nil {
+			return false
+		}
+		if name == column {
+			return true
+		}
+	}
+	return false
+}
+
+func ensureColumn(conn *sql.DB, table, column, definition string) error {	rows, err := conn.Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {
 		return err
 	}

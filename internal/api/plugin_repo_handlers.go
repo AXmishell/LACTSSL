@@ -395,8 +395,15 @@ func (s *Server) fetchRepoIndex(force bool) (pluginrepo.Index, error) {
 	// 数据库写入放在锁外，避免 SQLite 短暂阻塞影响其他读缓存请求。
 	_ = s.Store.SetSetting(repoIndexSetting, string(raw))
 	_ = s.Store.SetSetting(repoIndexMACSetting, s.repoIndexMAC(string(raw)))
+	if len(signature) > 0 {
+		_ = s.Store.SetSetting(repoIndexSigSetting, base64.StdEncoding.EncodeToString(signature))
+	} else {
+		_ = s.Store.DeleteSetting(repoIndexSigSetting)
+	}
 	if newETag != "" {
 		_ = s.Store.SetSetting(repoETagSetting, newETag)
+	} else {
+		_ = s.Store.DeleteSetting(repoETagSetting)
 	}
 	_ = s.Store.SetSetting(repoCheckedSetting, checkedAt.Format(time.RFC3339))
 	_ = s.Store.SetSetting(repoVerifiedSetting, strconv.FormatBool(verified))
@@ -426,6 +433,7 @@ func (s *Server) clearRepoIndexCache() {
 	s.pluginRepoMu.Unlock()
 	_ = s.Store.DeleteSetting(repoIndexSetting)
 	_ = s.Store.DeleteSetting(repoIndexMACSetting)
+	_ = s.Store.DeleteSetting(repoIndexSigSetting)
 	_ = s.Store.DeleteSetting(repoETagSetting)
 	_ = s.Store.DeleteSetting(repoCheckedSetting)
 	_ = s.Store.DeleteSetting(repoVerifiedSetting)

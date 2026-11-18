@@ -588,8 +588,58 @@ func TestRepoPublicKeyCanBeExplicitlyCleared(t *testing.T) {
 }
 
 // TestCachedRepoIndexRejectedWhenPublicKeyChanged 验证仅修改配置文件公钥并重启时，
-// 旧索引不会沿用“已验签”状态被安装。
+// 旧索引不会沿用“已验签”状态被安装；缓存必须由当前公钥重新验签。
 func TestCachedRepoIndexRejectedWhenPublicKeyChanged(t *testing.T) {
+	st := newSessionTestStore(t)
+	manager := auth.New([]byte("repo-cache-test-key"))
+	raw := []byte(`{"schema":1,"protocol":"v1","plugins":[]}`)
+	marker := &Server{Auth: manager}
+	if err := st.SetSetting(repoIndexSetting, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoIndexMACSetting, marker.repoIndexMAC(string(raw))); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoCheckedSetting, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+
+	pubA, privA, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubB, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := ed25519.Sign(privA, raw)
+	if err := st.SetSetting(repoIndexSigSetting, base64.StdEncoding.EncodeToString(signature)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoVerifiedSetting, "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoVerifiedKeySetting, pluginrepo.PublicKeyFingerprint(pubA)); err != nil {
+		t.Fatal(err)
+	}
+
+	same := &Server{Store: st, Auth: manager, PluginRepoPublicKey: base64.StdEncoding.EncodeToString(pubA)}
+	if _, ok := same.loadCachedRepoIndex(); !ok {
+		t.Fatal("公钥未变化且签名有效时缓存索引应可用")
+	}
+	if !same.repoSignatureVerified() {
+		t.Fatal("有效签名应被标记为已验签")
+	}
+
+	changed := &Server{Store: st, Auth: manager, PluginRepoPublicKey: base64.StdEncoding.EncodeToString(pubB)}
+	if _, ok := changed.loadCachedRepoIndex(); ok {
+		t.Fatal("公钥变化后不得沿用旧索引的验签状态")
+	}
+}
+
+// TestCachedRepoIndexRejectsUnsignedCache 验证配置公钥后，历史无签名缓存
+// 即使数据库标记为“已验签”也不能被信任。
+func TestCachedRepoIndexRejectsUnsignedCache(t *testing.T) {
 	st := newSessionTestStore(t)
 	manager := auth.New([]byte("repo-cache-test-key"))
 	raw := `{"schema":1,"protocol":"v1","plugins":[]}`
@@ -600,29 +650,93 @@ func TestCachedRepoIndexRejectedWhenPublicKeyChanged(t *testing.T) {
 	if err := st.SetSetting(repoIndexMACSetting, marker.repoIndexMAC(raw)); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetSetting(repoCheckedSetting, time.Now().UTC().Format(time.RFC3339)); err != nil {
+	if err := st.SetSetting(repoETagSetting, `"stale"`); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetSetting(repoVerifiedSetting, "true"); err != nil {
 		t.Fatal(err)
 	}
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoVerifiedKeySetting, pluginrepo.PublicKeyFingerprint(pub)); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Store: st, Auth: manager, PluginRepoPublicKey: base64.StdEncoding.EncodeToString(pub)}
+	if _, ok := s.loadCachedRepoIndex(); ok {
+		t.Fatal("无签名的历史缓存不应被当作已验签")
+	}
+	if etag, _ := st.GetSetting(repoETagSetting); etag != "" {
+		t.Fatalf("拒绝缓存后应清空 ETag，避免 304 复用: %q", etag)
+	}
+}
 
-	keyA := make([]byte, ed25519.PublicKeySize)
-	keyB := make([]byte, ed25519.PublicKeySize)
-	keyA[0] = 1
-	keyB[0] = 2
-	fingerprintA := pluginrepo.PublicKeyFingerprint(ed25519.PublicKey(keyA))
-	if err := st.SetSetting(repoVerifiedKeySetting, fingerprintA); err != nil {
+// TestFetchRepoIndexRevalidatesOn304 验证 304 分支不会把未验签缓存标记为已验签，
+// 而是强制全量重取并校验 .sig。
+func TestFetchRepoIndexRevalidatesOn304(t *testing.T) {
+	st := newSessionTestStore(t)
+	manager := auth.New([]byte("repo-304-test-key"))
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"schema":1,"protocol":"v1","plugins":[]}`)
+	signature := ed25519.Sign(priv, raw)
+	var notModified, fullFetch, sigFetch int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.json":
+			if r.Header.Get("If-None-Match") == `"v1"` {
+				notModified++
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			fullFetch++
+			w.Header().Set("ETag", `"v1"`)
+			_, _ = w.Write(raw)
+		case "/index.json.sig":
+			sigFetch++
+			_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString(signature)))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	// 模拟升级前的无签名缓存：数据库标记为已验签，但没有保存签名。
+	marker := &Server{Auth: manager}
+	if err := st.SetSetting(repoIndexSetting, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoIndexMACSetting, marker.repoIndexMAC(string(raw))); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoETagSetting, `"v1"`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoVerifiedSetting, "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoVerifiedKeySetting, pluginrepo.PublicKeyFingerprint(pub)); err != nil {
 		t.Fatal(err)
 	}
 
-	same := &Server{Store: st, Auth: manager, PluginRepoPublicKey: base64.StdEncoding.EncodeToString(keyA)}
-	if _, ok := same.loadCachedRepoIndex(); !ok {
-		t.Fatal("公钥未变化时缓存索引应可用")
+	s := &Server{
+		Store:                   st,
+		Auth:                    manager,
+		PluginRepoURL:           server.URL + "/index.json",
+		PluginRepoPublicKey:     base64.StdEncoding.EncodeToString(pub),
+		PluginRepoTimeout:       5 * time.Second,
+		PluginRepoMaxDownloadMB: 8,
 	}
-
-	changed := &Server{Store: st, Auth: manager, PluginRepoPublicKey: base64.StdEncoding.EncodeToString(keyB)}
-	if _, ok := changed.loadCachedRepoIndex(); ok {
-		t.Fatal("公钥变化后不得沿用旧索引的验签状态")
+	if _, err := s.fetchRepoIndex(true); err != nil {
+		t.Fatal(err)
+	}
+	if !s.repoSignatureVerified() {
+		t.Fatal("304 后应通过全量重取完成验签")
+	}
+	if notModified == 0 || fullFetch == 0 || sigFetch == 0 {
+		t.Fatalf("304 应触发全量重取并请求签名: 304=%d full=%d sig=%d", notModified, fullFetch, sigFetch)
 	}
 }

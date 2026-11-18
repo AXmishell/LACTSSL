@@ -74,7 +74,7 @@ func (m *Manager) CheckMonitor(monitorID int64) error {
 			} else if status != "expired" && status != "error" {
 				// 除了主机名匹配，还必须校验证书链是否受信任，避免链路上的中间人
 				// 用自签证书伪造“正常”状态、掩盖真实证书问题。
-				if err := verifyPeerChain(cert, chain, host); err != nil {
+				if err := verifyPeerChainWithRoots(cert, chain, host, m.TrustedRoots()); err != nil {
 					status = "error"
 					message = i18n.Encode("monitor.message.trust_failed", map[string]any{
 						"message": i18n.Render(m.Locale(), message),
@@ -142,11 +142,20 @@ func verifyPeerChain(cert *x509.Certificate, chain []*x509.Certificate, host str
 	if err != nil || roots == nil {
 		roots = x509.NewCertPool()
 	}
+	return verifyPeerChainWithRoots(cert, chain, host, roots)
+}
+
+// verifyPeerChainWithRoots 使用调用方提供的根证书池校验目标证书链。
+// 监控会把管理员导入的内部 CA 与私有 CA 一起传入。
+func verifyPeerChainWithRoots(cert *x509.Certificate, chain []*x509.Certificate, host string, roots *x509.CertPool) error {
+	if roots == nil {
+		roots = x509.NewCertPool()
+	}
 	intermediates := x509.NewCertPool()
 	for _, item := range chain {
 		intermediates.AddCert(item)
 	}
-	_, err = cert.Verify(x509.VerifyOptions{
+	_, err := cert.Verify(x509.VerifyOptions{
 		Roots:         roots,
 		Intermediates: intermediates,
 		DNSName:       host,

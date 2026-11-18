@@ -90,7 +90,7 @@ curl -X POST -H "Authorization: Bearer $LACTSSL_TOKEN" \
 
 - 公网目标强制 HTTPS；回环、私网、`.local`、`.internal` 允许 HTTP。
 - Webhook 会携带证书与私钥，接收方必须可信；建议使用独立 Token 和来源 IP 限制。
-- 不建议开启“跳过 TLS 校验”；如必须，限定到内网自签目标。
+- 不建议开启“跳过 TLS 校验”；如必须，限定到内网自签目标。内网 CA 签发的证书应通过「系统设置 → TLS 信任链」导入 CA 公钥，让部署插件在正常校验下信任目标。
 - 接收方应做幂等和签名校验，避免重放。
 
 ### 5.5 云 CDN / 面板 / WAF
