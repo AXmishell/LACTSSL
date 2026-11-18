@@ -55,18 +55,6 @@ func IssuePrivateCertificate(ca *model.PrivateCA, req PrivateCertRequest) (*ACME
 	if now.After(caCert.NotAfter) {
 		return nil, i18n.E("service.private_ca.cert_expired")
 	}
-	if len(caCert.ExtKeyUsage) > 0 {
-		allowed := false
-		for _, usage := range caCert.ExtKeyUsage {
-			if usage == x509.ExtKeyUsageAny || usage == x509.ExtKeyUsageServerAuth {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return nil, i18n.E("service.private_ca.ca_eku_no_server_auth")
-		}
-	}
 
 	// 统一走标识符规范化：IP 放入 IPAddresses，域名放入 DNSNames，
 	// 避免把 1.2.3.4 写成 dNSName 导致客户端校验失败。
@@ -81,6 +69,9 @@ func IssuePrivateCertificate(ca *model.PrivateCA, req PrivateCertRequest) (*ACME
 	}
 	_, dnsNames, ipAddresses, err := normalizeCertificateIdentifiers(identifiers)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateIssuingCAUsage(caCert, dnsNames, ipAddresses); err != nil {
 		return nil, err
 	}
 	commonName := req.Domains[0]

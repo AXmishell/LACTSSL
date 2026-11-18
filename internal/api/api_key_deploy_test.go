@@ -14,7 +14,8 @@ import (
 )
 
 // TestAPIKeyDeployRequiresDeployScope 验证仅拥有 certificates:write 的 API 密钥
-// 不能触发部署命令；必须显式拥有 deploy:execute。
+// 不能触发部署；必须显式拥有 deploy:execute。部署配置包含 reload 命令时，
+// 还必须额外拥有 deploy:command，避免“执行部署”变成任意命令执行。
 func TestAPIKeyDeployRequiresDeployScope(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	session := loginSessionTest(t, router)
@@ -57,11 +58,20 @@ func TestAPIKeyDeployRequiresDeployScope(t *testing.T) {
 
 	deployer, _ := createAPIKeyForTest(t, router, session, "deployer", []string{apiScopeDeployExecute})
 	resp = apiKeyRequest(t, router, deployer, http.MethodPost, endpoint, body, "")
+	if resp.Code != http.StatusForbidden || !strings.Contains(resp.Body, "deploy:command") {
+		t.Fatalf("包含 reload 命令时仅有 deploy:execute 不应允许部署: %d %s", resp.Code, resp.Body)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("缺少 deploy:command 时不应执行部署命令: %v", err)
+	}
+
+	commander, _ := createAPIKeyForTest(t, router, session, "commander", []string{apiScopeDeployExecute, apiScopeDeployCommand})
+	resp = apiKeyRequest(t, router, commander, http.MethodPost, endpoint, body, "")
 	if resp.Code != http.StatusOK {
-		t.Fatalf("拥有 deploy:execute 时应允许部署: %d %s", resp.Code, resp.Body)
+		t.Fatalf("拥有 deploy:execute 和 deploy:command 时应允许部署: %d %s", resp.Code, resp.Body)
 	}
 	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("拥有 deploy:execute 时应执行部署命令: %v", err)
+		t.Fatalf("拥有 deploy:command 时应执行部署命令: %v", err)
 	}
 }
 
@@ -146,14 +156,21 @@ func TestAPIKeyTaskDeployRequiresDeployScope(t *testing.T) {
 		t.Fatalf("仅有 tasks:write 时不应创建含部署节点的任务: %d %s", created.Code, created.Body)
 	}
 
-	deployWriter, _ := createAPIKeyForTest(t, router, session, "task-deployer", []string{apiScopeTasksWrite, apiScopeDeployExecute})
+	deployWriter, _ := createAPIKeyForTest(t, router, session, "task-deployer", []string{apiScopeTasksWrite, apiScopeTasksRun, apiScopePrivateCAWrite, apiScopeDeployExecute})
 	updated = apiKeyRequest(t, router, deployWriter, http.MethodPut, path, body, "")
+	if updated.Code != http.StatusForbidden || !strings.Contains(updated.Body, "deploy:command") {
+		t.Fatalf("含 reload 命令时仅有 deploy:execute 不应允许修改任务: %d %s", updated.Code, updated.Body)
+	}
+
+	commander, _ := createAPIKeyForTest(t, router, session, "task-commander",
+		[]string{apiScopeTasksWrite, apiScopeTasksRun, apiScopePrivateCAWrite, apiScopeDeployExecute, apiScopeDeployCommand})
+	updated = apiKeyRequest(t, router, commander, http.MethodPut, path, body, "")
 	if updated.Code != http.StatusOK {
-		t.Fatalf("拥有 deploy:execute 时应允许修改含部署节点的任务: %d %s", updated.Code, updated.Body)
+		t.Fatalf("拥有 deploy:command 时应允许修改含命令的任务: %d %s", updated.Code, updated.Body)
 	}
 
 	// 停用含部署节点的任务不会触发部署，应允许；重新启用会交给调度器执行，
-	// 因此需要 deploy:execute。
+	// 因此需要 deploy:execute，含命令时还需要 deploy:command。
 	batchPath := "/api/tasks/batch/enabled"
 	disabled := apiKeyRequest(t, router, writer, http.MethodPost, batchPath,
 		fmt.Sprintf(`{"ids":[%d],"enabled":false}`, task.ID), "")
@@ -165,11 +182,23 @@ func TestAPIKeyTaskDeployRequiresDeployScope(t *testing.T) {
 	if enabled.Code != http.StatusForbidden || !strings.Contains(enabled.Body, "api.error.api_key_scope_denied") {
 		t.Fatalf("重新启用含部署节点的任务应要求 deploy:execute: %d %s", enabled.Code, enabled.Body)
 	}
+	enabled = apiKeyRequest(t, router, deployWriter, http.MethodPost, batchPath,
+		fmt.Sprintf(`{"ids":[%d],"enabled":true}`, task.ID), "")
+	if enabled.Code != http.StatusForbidden || !strings.Contains(enabled.Body, "deploy:command") {
+		t.Fatalf("重新启用含 reload 命令的任务应要求 deploy:command: %d %s", enabled.Code, enabled.Body)
+	}
 
 	runner, _ := createAPIKeyForTest(t, router, session, "task-runner", []string{apiScopeTasksRun})
 	runPath := path + "/run"
 	run := apiKeyRequest(t, router, runner, http.MethodPost, runPath, "", "")
 	if run.Code != http.StatusForbidden || !strings.Contains(run.Body, "api.error.api_key_scope_denied") {
 		t.Fatalf("仅有 tasks:run 时不应运行含部署节点的任务: %d %s", run.Code, run.Body)
+	}
+
+	commandRunner, _ := createAPIKeyForTest(t, router, session, "task-command-runner",
+		[]string{apiScopeTasksRun, apiScopePrivateCAWrite, apiScopeDeployExecute})
+	run = apiKeyRequest(t, router, commandRunner, http.MethodPost, runPath, "", "")
+	if run.Code != http.StatusForbidden || !strings.Contains(run.Body, "deploy:command") {
+		t.Fatalf("仅有 tasks:run + deploy:execute 时不应运行含命令的任务: %d %s", run.Code, run.Body)
 	}
 }

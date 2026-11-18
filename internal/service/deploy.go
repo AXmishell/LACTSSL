@@ -278,11 +278,17 @@ func commandEnv() []string {
 	return env
 }
 
-func deployLocal(ctx context.Context, cert *model.Certificate, cfg map[string]string) error {
+func deployLocal(ctx context.Context, m *Manager, cert *model.Certificate, cfg map[string]string) error {
 	certPath := strings.TrimSpace(cfg["cert_path"])
 	keyPath := strings.TrimSpace(cfg["key_path"])
 	if certPath == "" || keyPath == "" {
 		return i18n.E("service.deploy.paths_required")
+	}
+	if filepath.Clean(certPath) == filepath.Clean(keyPath) {
+		return i18n.E("service.deploy.paths_conflict")
+	}
+	if err := validateLocalDeployPaths(m, certPath, keyPath); err != nil {
+		return err
 	}
 	if err := writeFileAtomic(certPath, []byte(cert.FullchainPEM), 0o644); err != nil {
 		return i18n.E("service.deploy.write_cert_failed", "error", err.Error())
@@ -292,6 +298,43 @@ func deployLocal(ctx context.Context, cert *model.Certificate, cfg map[string]st
 	}
 	if err := runCommand(ctx, cfg["reload_command"]); err != nil {
 		return i18n.E("service.deploy.reload_failed", "error", err.Error())
+	}
+	return nil
+}
+
+// validateLocalDeployPaths 拒绝把证书/私钥写入数据目录、配置目录或程序目录，
+// 避免部署参数覆盖数据库、config.yaml 或二进制。SSH 目标路径在远端，另行处理。
+func validateLocalDeployPaths(m *Manager, paths ...string) error {
+	if m == nil {
+		return nil
+	}
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return i18n.E("service.deploy.path_invalid", "path", path)
+		}
+		for _, root := range m.ProtectedPaths {
+			root = strings.TrimSpace(root)
+			if root == "" {
+				continue
+			}
+			rootAbs, err := filepath.Abs(root)
+			if err != nil {
+				continue
+			}
+			rel, err := filepath.Rel(rootAbs, abs)
+			if err != nil {
+				// 不同卷/盘符，必然不在受保护目录内。
+				continue
+			}
+			if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))) {
+				return i18n.E("service.deploy.path_protected", "path", path)
+			}
+		}
 	}
 	return nil
 }

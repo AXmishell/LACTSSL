@@ -58,7 +58,93 @@ func ValidateIssuingCA(ca *model.PrivateCA) error {
 	if time.Now().After(cert.NotAfter) {
 		return i18n.E("service.acme_server.ca_expired")
 	}
+	if err := validateIssuingCAExtKeyUsage(cert); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateIssuingCAExtKeyUsage 检查 CA 是否允许签发 TLS 服务器证书。
+// 任务签发与 ACME 签发必须共用同一套策略，避免绕过 CA 的用途约束。
+func validateIssuingCAExtKeyUsage(cert *x509.Certificate) error {
+	if cert == nil || len(cert.ExtKeyUsage) == 0 {
+		return nil
+	}
+	for _, usage := range cert.ExtKeyUsage {
+		if usage == x509.ExtKeyUsageAny || usage == x509.ExtKeyUsageServerAuth {
+			return nil
+		}
+	}
+	return i18n.E("service.private_ca.ca_eku_no_server_auth")
+}
+
+// validateIssuingCAUsage 校验 CA 的 ExtKeyUsage 与 NameConstraints 是否覆盖
+// 本次要签发的 DNS/IP 标识。任务签发与 ACME finalize 共用此函数。
+func validateIssuingCAUsage(cert *x509.Certificate, dnsNames []string, ips []net.IP) error {
+	if cert == nil {
+		return i18n.E("service.acme_server.ca_required")
+	}
+	if err := validateIssuingCAExtKeyUsage(cert); err != nil {
+		return err
+	}
+	// Excluded 优先生效：任何落在排除子树内的名称都必须拒绝。
+	for _, name := range dnsNames {
+		base := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
+		for _, excluded := range cert.ExcludedDNSDomains {
+			if dnsNameWithinSubtree(base, excluded) {
+				return i18n.E("service.acme_server.name_constraint", "name", name)
+			}
+		}
+	}
+	if len(cert.PermittedDNSDomains) > 0 {
+		for _, name := range dnsNames {
+			base := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
+			allowed := false
+			for _, permitted := range cert.PermittedDNSDomains {
+				if dnsNameWithinSubtree(base, permitted) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return i18n.E("service.acme_server.name_constraint", "name", name)
+			}
+		}
+	}
+	for _, ip := range ips {
+		for _, excluded := range cert.ExcludedIPRanges {
+			if excluded != nil && excluded.Contains(ip) {
+				return i18n.E("service.acme_server.name_constraint", "name", ip.String())
+			}
+		}
+		if len(cert.PermittedIPRanges) > 0 {
+			allowed := false
+			for _, permitted := range cert.PermittedIPRanges {
+				if permitted != nil && permitted.Contains(ip) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return i18n.E("service.acme_server.name_constraint", "name", ip.String())
+			}
+		}
+	}
+	return nil
+}
+
+// dnsNameWithinSubtree 判断名称是否落在 NameConstraints 子树内。
+// "example.com" 覆盖自身与子域；".example.com" 只覆盖子域。
+func dnsNameWithinSubtree(name, subtree string) bool {
+	name = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
+	subtree = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(subtree), "."))
+	if name == "" || subtree == "" {
+		return false
+	}
+	if strings.HasPrefix(subtree, ".") {
+		return strings.HasSuffix(name, subtree) && name != strings.TrimPrefix(subtree, ".")
+	}
+	return name == subtree || strings.HasSuffix(name, "."+subtree)
 }
 
 func loadIssuingCA(ca *model.PrivateCA) (crypto.PrivateKey, *x509.Certificate, error) {
@@ -107,6 +193,9 @@ func SignCSR(ca *model.PrivateCA, csr *x509.CertificateRequest, identifiers []Ce
 
 	normalized, dnsNames, ipAddresses, err := normalizeCertificateIdentifiers(identifiers)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateIssuingCAUsage(caCert, dnsNames, ipAddresses); err != nil {
 		return nil, err
 	}
 	if err := matchCSRIdentifiers(csr, dnsNames, ipAddresses); err != nil {

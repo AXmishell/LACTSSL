@@ -38,8 +38,9 @@ func Open(path string) (*sql.DB, error) {
 // 版本历史：
 //   - 4：插件化阶段；
 //   - 5：logs 表合并进程日志（category/ref_type/fields/request_id）；
-//   - 6：CSR 申请（certificate_requests）与证书来源关联。
-const schemaVersion = 6
+//   - 6：CSR 申请（certificate_requests）与证书来源关联；
+//   - 7：独立吊销记录表（revocations），删除证书不再抹掉 CRL/OCSP 吊销状态。
+const schemaVersion = 7
 
 func migrate(conn *sql.DB) error {
 	var version int
@@ -197,6 +198,16 @@ func migrate(conn *sql.DB) error {
 			revoked_at DATETIME,
 			revoke_reason INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL
+		)`,
+		// 吊销记录独立于证书行：删除/清理证书不能把 CRL/OCSP 中的吊销状态一起删掉。
+		`CREATE TABLE IF NOT EXISTS revocations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			ca_id INTEGER NOT NULL,
+			serial TEXT NOT NULL,
+			revoked_at DATETIME NOT NULL,
+			reason INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL,
+			UNIQUE(ca_id, serial)
 		)`,
 		`CREATE TABLE IF NOT EXISTS tasks (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -399,6 +410,7 @@ func migrate(conn *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_passkeys_user ON passkeys(user_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_not_after ON certificates(not_after)`,
+		`CREATE INDEX IF NOT EXISTS idx_revocations_ca ON revocations(ca_id, revoked_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_task ON certificates(task_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_next_run ON tasks(next_run_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_monitor_next_run ON monitors(next_check_at)`,
@@ -423,6 +435,13 @@ func migrate(conn *sql.DB) error {
 		if _, err := conn.Exec(stmt); err != nil {
 			return fmt.Errorf("初始化数据库表失败: %w", err)
 		}
+	}
+	// 把旧版本中已吊销的证书回填到独立吊销表，后续删除证书不会丢失吊销状态。
+	if _, err := conn.Exec(`INSERT OR IGNORE INTO revocations(ca_id, serial, revoked_at, reason, created_at)
+		SELECT private_ca_id, UPPER(serial), revoked_at, revoke_reason, COALESCE(revoked_at, created_at)
+		FROM certificates
+		WHERE revoked_at IS NOT NULL AND private_ca_id > 0 AND serial <> ''`); err != nil {
+		return fmt.Errorf("回填吊销记录失败: %w", err)
 	}
 	// 兼容旧数据库：为已有 tasks 表补充任务流程字段。
 	if err := ensureColumn(conn, "tasks", "pipeline", `TEXT NOT NULL DEFAULT '[]'`); err != nil {

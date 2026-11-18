@@ -145,42 +145,56 @@ func NewClient(rawURL, channel, publicKey string, timeout time.Duration, maxDown
 }
 
 // Fetch 拉取索引。etag 非空时使用条件请求；notModified 为 true 表示 304。
-func (c *Client) Fetch(ctx context.Context, etag string) (Index, []byte, string, bool, error) {
+// signature 是索引的 Ed25519 分离签名（未配置公钥时为空），调用方应把它与
+// 原始索引一起缓存，以便 304 时重新验签。
+func (c *Client) Fetch(ctx context.Context, etag string) (Index, []byte, string, []byte, bool, error) {
 	raw, newETag, notModified, err := c.fetchBytes(ctx, c.URL, etag, maxIndexBytes)
 	if err != nil {
-		return Index{}, nil, "", false, err
+		return Index{}, nil, "", nil, false, err
 	}
 	if notModified {
-		return Index{}, nil, etag, true, nil
+		return Index{}, nil, etag, nil, true, nil
 	}
+	var signature []byte
 	if c.PublicKey != nil {
 		sigRaw, _, _, err := c.fetchBytes(ctx, c.URL+".sig", "", 4096)
 		if err != nil {
-			return Index{}, nil, "", false, i18n.E("plugin.repo.signature_read_failed", "error", err.Error())
+			return Index{}, nil, "", nil, false, i18n.E("plugin.repo.signature_read_failed", "error", err.Error())
 		}
 		sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sigRaw)))
 		if err != nil {
-			return Index{}, nil, "", false, i18n.E("plugin.repo.signature_parse_failed", "error", err.Error())
+			return Index{}, nil, "", nil, false, i18n.E("plugin.repo.signature_parse_failed", "error", err.Error())
 		}
 		if !ed25519.Verify(c.PublicKey, raw, sig) {
-			return Index{}, nil, "", false, i18n.E("plugin.repo.signature_invalid")
+			return Index{}, nil, "", nil, false, i18n.E("plugin.repo.signature_invalid")
 		}
+		signature = sig
 	}
 	var index Index
 	if err := json.Unmarshal(raw, &index); err != nil {
-		return Index{}, nil, "", false, i18n.E("plugin.repo.index_parse_failed", "error", err.Error())
+		return Index{}, nil, "", nil, false, i18n.E("plugin.repo.index_parse_failed", "error", err.Error())
 	}
 	if index.Schema != SchemaVersion {
-		return Index{}, nil, "", false, i18n.E("plugin.repo.schema_unsupported", "version", index.Schema)
+		return Index{}, nil, "", nil, false, i18n.E("plugin.repo.schema_unsupported", "version", index.Schema)
 	}
 	if index.Protocol != "" && index.Protocol != ProtocolVersion {
-		return Index{}, nil, "", false, i18n.E("plugin.repo.protocol_unsupported", "protocol", index.Protocol)
+		return Index{}, nil, "", nil, false, i18n.E("plugin.repo.protocol_unsupported", "protocol", index.Protocol)
 	}
 	index.SanitizeIcons()
 	if err := index.Validate(); err != nil {
-		return Index{}, nil, "", false, i18n.E("plugin.repo.index_invalid", "error", err.Error())
+		return Index{}, nil, "", nil, false, i18n.E("plugin.repo.index_invalid", "error", err.Error())
 	}
-	return index, raw, newETag, false, nil
+	return index, raw, newETag, signature, false, nil
+}
+
+// VerifyIndexSignature 使用 base64 编码的 Ed25519 公钥校验索引原始字节。
+// 304 场景必须重新调用它，不能仅因为“配置了公钥”就认为缓存已验签。
+func VerifyIndexSignature(publicKey string, raw, signature []byte) bool {
+	key, err := ParsePublicKey(publicKey)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return false
+	}
+	return ed25519.Verify(key, raw, signature)
 }
 
 // Validate 校验索引中的插件与资产字段，确保安装前就具备可校验的 sha256。

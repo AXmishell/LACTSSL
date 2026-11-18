@@ -24,6 +24,7 @@ var publicAPIRoutes = map[string]bool{
 	"POST /api/auth/forgot":               true,
 	"POST /api/auth/reset":                true,
 	"GET /api/auth/reset/validate":        true,
+	"GET /api/auth/passkey/available":     true,
 	"POST /api/auth/passkey/login/begin":  true,
 	"POST /api/auth/passkey/login/finish": true,
 }

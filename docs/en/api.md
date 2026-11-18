@@ -93,7 +93,8 @@ Permissions are divided by resource:action. `*` represents all system API capabi
 | `certificates:write` | Clean up and delete certificates | No |
 | `certificates:key` | View or download certificate private keys | Yes |
 | `certificates:request` | Submit a client CSR and let the server complete authoritative CA validation and issuance | Yes |
-| `deploy:execute` | Deploy certificates manually, or create, modify, or run tasks that contain deploy nodes | Yes |
+| `deploy:execute` | Deploy certificates manually, or create, modify, or run tasks that contain deploy nodes (writes files; command execution requires `deploy:command`) | Yes |
+| `deploy:command` | Allow local/SSH deployments to run reload commands (equivalent to executing arbitrary commands as the service account) | Yes |
 | `tasks:read` | View task lists and task logs | No |
 | `tasks:write` | Create, modify, delete, enable, and disable tasks (also requires `deploy:execute` when deploy nodes are included) | No |
 | `tasks:run` | Run tasks manually or in batches (also requires `deploy:execute` when deploy nodes are included) | No |

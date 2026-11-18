@@ -25,7 +25,7 @@ func TestDeployLocal(t *testing.T) {
 		"key_path":       keyPath,
 		"reload_command": "echo reloaded > " + marker,
 	}
-	if err := deployLocal(context.Background(), cert, cfg); err != nil {
+	if err := deployLocal(context.Background(), nil, cert, cfg); err != nil {
 		t.Fatal(err)
 	}
 	certData, err := os.ReadFile(certPath)

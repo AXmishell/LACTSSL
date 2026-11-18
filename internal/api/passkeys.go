@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -183,6 +184,18 @@ func passkeyCredentialID(rawID []byte) string {
 
 // ---------------------------- 登录 ----------------------------
 
+// handlePasskeyAvailability 供匿名登录页判断是否展示通行密钥入口。
+// 未注册任何通行密钥时不应展示按钮，否则用户点击后只会得到验证失败。
+// 只返回布尔值，不暴露具体账户或凭据信息。
+func (s *Server) handlePasskeyAvailability(c *gin.Context) {
+	count, err := s.Store.CountAllPasskeys()
+	if err != nil {
+		failErr(c, http.StatusInternalServerError, err)
+		return
+	}
+	ok(c, gin.H{"available": count > 0})
+}
+
 func (s *Server) handlePasskeyLoginBegin(c *gin.Context) {
 	if allowed, wait := s.limiter.Allow("passkey:login:begin:"+clientRateKey(c), 20, 5*time.Minute); !allowed {
 		rateLimited(c, wait)
@@ -300,6 +313,18 @@ func (s *Server) listPasskeys(c *gin.Context) {
 
 func (s *Server) handlePasskeyRegisterBegin(c *gin.Context) {
 	user := getUser(c)
+	var body struct {
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
+	}
+	// 兼容不带请求体的旧客户端；注册新认证器必须先再认证。
+	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+		return
+	}
 	passkeys, err := s.Store.ListPasskeys(user.ID)
 	if err != nil {
 		failErr(c, http.StatusInternalServerError, err)
@@ -345,6 +370,8 @@ func (s *Server) handlePasskeyRegisterFinish(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.passkey_credential_required")
 		return
 	}
+	// 完成注册不再次要求 TOTP：begin 已经完成再认证，且挑战在服务端一次性、
+	// 绑定当前用户/会话且 5 分钟过期；再次校验会让 TOTP 重放保护拒绝同一个码。
 	ceremony, found := s.takePasskeyCeremony(body.SessionID, passkeyCeremonyRegister)
 	if !found || ceremony.UserID != user.ID {
 		failKey(c, http.StatusBadRequest, "api.error.passkey_challenge_invalid")

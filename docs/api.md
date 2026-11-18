@@ -93,7 +93,8 @@ curl -X POST \
 | `certificates:write` | 清理和删除证书 | 否 |
 | `certificates:key` | 查看或下载证书私钥 | 是 |
 | `certificates:request` | 提交客户端 CSR，由服务端向权威 CA 完成验证与签发 | 是 |
-| `deploy:execute` | 手动部署证书，或创建/修改/运行包含部署节点的任务 | 是 |
+| `deploy:execute` | 手动部署证书，或创建/修改/运行包含部署节点的任务（写文件；命令执行另需 `deploy:command`） | 是 |
+| `deploy:command` | 允许本地/SSH 部署执行 reload 命令（等同于以服务账号执行任意命令） | 是 |
 | `tasks:read` | 查看任务列表与任务日志 | 否 |
 | `tasks:write` | 创建、修改、删除和启停任务（含部署节点时还需 `deploy:execute`） | 否 |
 | `tasks:run` | 手动运行任务或批量运行（含部署节点时还需 `deploy:execute`） | 否 |

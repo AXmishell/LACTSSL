@@ -307,10 +307,28 @@ func TestUploadDNSPlugin(t *testing.T) {
 	if info.Mode()&0o111 == 0 {
 		t.Fatalf("uploaded plugin is not executable: %v", info.Mode())
 	}
+	// 新上传的 helper 默认停用文件级加载：不执行 manifest，条目只来自安装缓存。
+	if s.pluginFileEnabled(pluginKindDNS, "uploaded-helper") {
+		t.Fatal("uploaded helper should be disabled by default")
+	}
+	var uploaded *pluginFileView
+	files := s.pluginFiles(pluginKindDNS)
+	for i := range files {
+		if files[i].File == "uploaded-helper" {
+			uploaded = &files[i]
+		}
+	}
+	if uploaded == nil || uploaded.Enabled || len(uploaded.Items) != 1 || uploaded.Items[0] != "gammadns" {
+		t.Fatalf("uploaded file view = %+v", uploaded)
+	}
+	// 启用文件后条目仍然默认停用；显式启用条目后才会注册到运行时。
+	if err := s.updatePluginFileEnabled(pluginKindDNS, "uploaded-helper", true); err != nil {
+		t.Fatal(err)
+	}
+	s.DiscoverPlugins()
 	if meta, ok := dnsplugin.ExternalProviderInfo("gammadns"); !ok || meta.Enabled {
 		t.Fatalf("uploaded provider metadata = %+v, %v", meta, ok)
 	}
-	// 上传后默认停用；显式启用后才会注册到运行时。
 	if _, _, err := s.updateDNSPluginProviders([]string{"gammadns"}, true); err != nil {
 		t.Fatal(err)
 	}
@@ -326,11 +344,14 @@ func TestUploadDNSPlugin(t *testing.T) {
 		t.Fatalf("duplicate upload status = %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 显式允许覆盖后可以替换文件。
+	// 显式允许覆盖后可以替换文件，并保留原有文件级启用状态。
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, pluginUploadRequest(t, "dns", "uploaded-helper", "", []byte(dnsUploadHelper), true))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("overwrite status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !s.pluginFileEnabled(pluginKindDNS, "uploaded-helper") {
+		t.Fatal("overwriting an existing helper must preserve its file state")
 	}
 }
 
@@ -472,7 +493,15 @@ func TestUploadDeployPlugin(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("deploy upload status = %d: %s", rec.Code, rec.Body.String())
 	}
-	// 非内置部署目标上传后默认停用，保留元数据供管理员在插件页启用。
+	// 新上传的 helper 默认停用文件级加载。
+	if s.pluginFileEnabled(pluginKindDeploy, "deploy-helper") {
+		t.Fatal("uploaded deploy helper should be disabled by default")
+	}
+	if err := s.updatePluginFileEnabled(pluginKindDeploy, "deploy-helper", true); err != nil {
+		t.Fatal(err)
+	}
+	s.DiscoverDeployPlugins()
+	// 文件启用后条目仍默认停用，保留元数据供管理员在插件页启用。
 	if _, ok := deployplugin.ExternalDeployerInfo("examplepanel"); !ok {
 		t.Fatal("uploaded deployer metadata should be discovered")
 	}

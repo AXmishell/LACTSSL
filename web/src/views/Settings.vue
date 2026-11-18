@@ -287,22 +287,33 @@
     <el-dialog v-model="totpVisible" :title="t('settings.enableTotpTitle')" width="460px" @closed="totpSetup = null">
       <div v-loading="totpLoading">
         <p class="muted" style="margin-top: 0">{{ t('settings.totpDesc') }}</p>
-        <div style="text-align: center; padding: 8px 0 16px">
-          <img v-if="totpQr" :src="totpQr" alt="TOTP QR" style="width: 190px; height: 190px; border-radius: 12px; border: 1px solid #eef1f6" />
-        </div>
-        <div class="totp-secret">
-          <span class="mono">{{ totpSetup?.secret }}</span>
-          <el-button text type="primary" size="small" @click="copySecret">{{ t('settings.copy') }}</el-button>
-        </div>
-        <el-form label-position="top" style="margin-top: 18px">
-          <el-form-item :label="t('settings.totpCodeLabel')">
-            <el-input v-model="totpCode" maxlength="6" :placeholder="t('settings.totpCodePlaceholder')" @keyup.enter="enableTOTP" />
-          </el-form-item>
+        <el-form label-position="top">
+          <ReauthFields
+            v-model:password="totpReauth.password"
+            v-model:totp="totpReauth.totp"
+            :totp-enabled="!!user?.totp_enabled"
+          />
         </el-form>
+        <template v-if="totpSetup">
+          <div style="text-align: center; padding: 8px 0 16px">
+            <img v-if="totpQr" :src="totpQr" alt="TOTP QR" style="width: 190px; height: 190px; border-radius: 12px; border: 1px solid #eef1f6" />
+          </div>
+          <div class="totp-secret">
+            <span class="mono">{{ totpSetup?.secret }}</span>
+            <el-button text type="primary" size="small" @click="copySecret">{{ t('settings.copy') }}</el-button>
+          </div>
+          <el-form label-position="top" style="margin-top: 18px">
+            <el-form-item :label="t('settings.totpCodeLabel')">
+              <el-input v-model="totpCode" maxlength="6" :placeholder="t('settings.totpCodePlaceholder')" @keyup.enter="enableTOTP" />
+            </el-form-item>
+          </el-form>
+        </template>
+        <div v-else class="form-help">{{ t('settings.totpLoadHint') }}</div>
       </div>
       <template #footer>
         <el-button @click="totpVisible = false">{{ t('settings.cancel') }}</el-button>
-        <el-button type="primary" :loading="savingAccount" :disabled="!totpSetup" @click="enableTOTP">{{ t('settings.confirmEnable') }}</el-button>
+        <el-button v-if="!totpSetup" type="primary" :loading="totpLoading" @click="loadTOTPSecret">{{ t('settings.totpLoadSecret') }}</el-button>
+        <el-button v-else type="primary" :loading="savingAccount" @click="enableTOTP">{{ t('settings.confirmEnable') }}</el-button>
       </template>
     </el-dialog>
 
@@ -328,6 +339,11 @@
         <el-form-item :label="t('settings.passkeyName')">
           <el-input v-model="passkeyForm.name" maxlength="64" :placeholder="t('settings.passkeyNamePlaceholder')" />
         </el-form-item>
+        <ReauthFields
+          v-model:password="passkeyReauth.password"
+          v-model:totp="passkeyReauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
       </el-form>
       <template #footer>
         <el-button @click="passkeyVisible = false">{{ t('settings.cancel') }}</el-button>
@@ -521,6 +537,7 @@ const totpLoading = ref(false)
 const totpSetup = ref<TOTPSetup | null>(null)
 const totpQr = ref('')
 const totpCode = ref('')
+const totpReauth = reactive({ password: '', totp: '' })
 const disableVisible = ref(false)
 const totpDisableForm = reactive({ password: '', totp: '' })
 
@@ -856,6 +873,8 @@ async function savePassword(): Promise<void> {
 
 function openPasskeyDialog(): void {
   passkeyForm.name = ''
+  passkeyReauth.password = ''
+  passkeyReauth.totp = ''
   passkeyVisible.value = true
 }
 
@@ -864,9 +883,13 @@ async function addPasskey(): Promise<void> {
     ElMessage.warning(t('settings.passkeyUnavailable'))
     return
   }
+  if (!validReauth(passkeyReauth)) return
   passkeyLoading.value = true
   try {
-    await registerPasskey(passkeyForm.name.trim())
+    await registerPasskey(passkeyForm.name.trim(), {
+      password: passkeyReauth.password,
+      totp: passkeyReauth.totp
+    })
     passkeyVisible.value = false
     await Promise.all([loadPasskeys(), loadSettings(true), loadUser(true)])
     ElMessage.success(t('settings.passkeyAdded'))
@@ -907,17 +930,25 @@ async function deletePasskey(): Promise<void> {
 
 async function startTOTP(): Promise<void> {
   totpVisible.value = true
-  totpLoading.value = true
-  totpCode.value = ''
   totpSetup.value = null
   totpQr.value = ''
+  totpCode.value = ''
+  totpReauth.password = ''
+  totpReauth.totp = ''
+}
+
+async function loadTOTPSecret(): Promise<void> {
+  if (!validReauth(totpReauth)) return
+  totpLoading.value = true
   try {
-    const data = await api.post<TOTPSetup>('/auth/totp/setup')
+    const data = await api.post<TOTPSetup>('/auth/totp/setup', {
+      password: totpReauth.password,
+      totp: totpReauth.totp
+    })
     totpSetup.value = data
     totpQr.value = await QRCode.toDataURL(data.url, { width: 380, margin: 1, color: { dark: '#0f172a', light: '#ffffff' } })
   } catch (error: any) {
     ElMessage.error(error.message)
-    totpVisible.value = false
   } finally {
     totpLoading.value = false
   }
@@ -928,9 +959,14 @@ async function enableTOTP(): Promise<void> {
     ElMessage.warning(t('settings.totpCodeInvalid'))
     return
   }
+  if (!validReauth(totpReauth)) return
   savingAccount.value = true
   try {
-    await api.post('/auth/totp/enable', { code: totpCode.value })
+    await api.post('/auth/totp/enable', {
+      code: totpCode.value,
+      password: totpReauth.password,
+      totp: totpReauth.totp
+    })
     await loadUser(true)
     totpVisible.value = false
     ElMessage.success(t('settings.totpEnabled'))

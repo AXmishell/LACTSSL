@@ -155,10 +155,21 @@ func (s *Server) updateSettings(c *gin.Context) {
 		NotifyEnable      *bool                                  `json:"notify_enabled"`
 		NotifyTo          *string                                `json:"notify_to"`
 		NotifyChannels    map[string]service.NotifyChannelConfig `json:"notify_channels"`
+		// 出站目标（SMTP/通知）可能携带已存储的密钥，变更时必须再认证。
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
+	}
+	if body.SMTPHost != nil || body.SMTPPort != nil || body.SMTPUsername != nil ||
+		body.SMTPPassword != nil || body.SMTPFrom != nil || body.SMTPSSL != nil ||
+		body.NotifyEnable != nil || body.NotifyTo != nil || body.NotifyChannels != nil {
+		// 修改 SMTP/通知目标等于改变敏感凭据的去向，必须证明当前身份。
+		if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
+			return
+		}
 	}
 	if body.Language != nil {
 		value := i18n.Normalize(*body.Language)
@@ -241,14 +252,21 @@ func (s *Server) updateSettings(c *gin.Context) {
 }
 
 func (s *Server) testMail(c *gin.Context) {
+	var body struct {
+		To       string `json:"to"`
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	// 测试邮件会用已存储的 SMTP 口令连接当前配置的主机，必须再认证，
+	// 防止持有设置权限的调用方把凭据转发到自己的服务器。
+	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
+		return
+	}
 	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
 		rateLimited(c, wait)
 		return
 	}
-	var body struct {
-		To string `json:"to"`
-	}
-	_ = c.ShouldBindJSON(&body)
 	to := strings.TrimSpace(body.To)
 	if to == "" {
 		to = s.setting("notify.to", "")
@@ -278,15 +296,21 @@ func (s *Server) testMail(c *gin.Context) {
 }
 
 func (s *Server) testChannel(c *gin.Context) {
+	var body struct {
+		Channel  string                      `json:"channel"`
+		Config   service.NotifyChannelConfig `json:"config"`
+		Password string                      `json:"password"`
+		TOTP     string                      `json:"totp"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	// 测试通知会把已存储的渠道密钥按当前 URL 发出，必须再认证。
+	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
+		return
+	}
 	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
 		rateLimited(c, wait)
 		return
 	}
-	var body struct {
-		Channel string                      `json:"channel"`
-		Config  service.NotifyChannelConfig `json:"config"`
-	}
-	_ = c.ShouldBindJSON(&body)
 	channel := strings.TrimSpace(body.Channel)
 	if channel == "" {
 		failKey(c, http.StatusBadRequest, "api.error.channel_required")

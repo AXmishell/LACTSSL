@@ -69,6 +69,14 @@ func (s *Store) CountPasskeys(userID int64) (int64, error) {
 	return count, err
 }
 
+// CountAllPasskeys 返回系统中全部通行密钥数量。
+// 系统只有一个管理员账户，登录页因此可以据此判断是否展示通行密钥入口。
+func (s *Store) CountAllPasskeys() (int64, error) {
+	var count int64
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM passkeys`).Scan(&count)
+	return count, err
+}
+
 // DeletePasskeys 删除账户下全部通行密钥。
 func (s *Store) DeletePasskeys(userID int64) error {
 	_, err := s.DB.Exec(`DELETE FROM passkeys WHERE user_id=?`, userID)

@@ -74,6 +74,12 @@
           </el-form-item>
         </div>
 
+        <ReauthFields
+          v-model:password="reauth.password"
+          v-model:totp="reauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
+
         <div class="flex gap-10 wrap">
           <el-button type="primary" :loading="savingMail" @click="saveMail">{{ t('notifications.saveMail') }}</el-button>
           <el-button :loading="testingMail" @click="sendTest">{{ t('notifications.sendTest') }}</el-button>
@@ -139,6 +145,12 @@
           </el-form-item>
         </div>
 
+        <ReauthFields
+          v-model:password="reauth.password"
+          v-model:totp="reauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
+
         <div class="flex gap-10 wrap">
           <el-button type="primary" :loading="savingGeneric" @click="saveGeneric">{{ t('notifications.saveChannel') }}</el-button>
           <el-button :loading="testingGeneric" @click="testGeneric">{{ t('notifications.testChannel') }}</el-button>
@@ -157,8 +169,9 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
-import { loadSettings } from '../store'
+import { loadSettings, state } from '../store'
 import { notifyChannelLabelKey } from '../notifyChannels'
+import ReauthFields from '../components/ReauthFields.vue'
 import type { MessageResult, NotifyChannelField, Settings as AppSettings } from '../types'
 
 interface MailForm {
@@ -249,6 +262,28 @@ const savingMail = ref(false)
 const testingMail = ref(false)
 const savingGeneric = ref(false)
 const testingGeneric = ref(false)
+const user = computed(() => state.user)
+const reauth = reactive({ password: '', totp: '' })
+
+function validReauth(form: { password: string; totp: string }): boolean {
+  if (user.value?.totp_enabled) {
+    if (!/^\d{6}$/.test(form.totp.trim())) {
+      ElMessage.warning(t('settings.reauthTotpRequired'))
+      return false
+    }
+    return true
+  }
+  if (!form.password) {
+    ElMessage.warning(t('settings.reauthPasswordRequired'))
+    return false
+  }
+  return true
+}
+
+function clearReauth(): void {
+  reauth.password = ''
+  reauth.totp = ''
+}
 
 const mail = reactive<MailForm>({
   smtp_host: '',
@@ -353,6 +388,7 @@ async function reload(): Promise<void> {
 }
 
 async function saveMail(): Promise<void> {
+  if (!validReauth(reauth)) return
   savingMail.value = true
   try {
     const saved = await api.put('/settings', {
@@ -363,9 +399,12 @@ async function saveMail(): Promise<void> {
         smtp_from: mail.smtp_from,
         smtp_ssl: mail.smtp_ssl,
         notify_enabled: mail.notify_enabled,
-        notify_to: mail.notify_to
+        notify_to: mail.notify_to,
+        password: reauth.password,
+        totp: reauth.totp
       })
     if (saved === null) return
+    clearReauth()
     ElMessage.success(t('notifications.mailSaved'))
     await reload()
   } catch (error: any) {
@@ -376,10 +415,16 @@ async function saveMail(): Promise<void> {
 }
 
 async function sendTest(): Promise<void> {
+  if (!validReauth(reauth)) return
   testingMail.value = true
   try {
-    const data = await api.post<MessageResult>('/settings/test-mail', { to: mail.notify_to })
+    const data = await api.post<MessageResult>('/settings/test-mail', {
+      to: mail.notify_to,
+      password: reauth.password,
+      totp: reauth.totp
+    })
     if (data === null) return
+    clearReauth()
     ElMessage.success(data.message || t('notifications.testSent'))
   } catch (error: any) {
     ElMessage.error(error.message)
@@ -390,12 +435,16 @@ async function sendTest(): Promise<void> {
 
 async function saveGeneric(): Promise<void> {
   if (!currentDef.value) return
+  if (!validReauth(reauth)) return
   savingGeneric.value = true
   try {
     const saved = await api.put('/settings', {
-        notify_channels: { [channel.value]: currentForm.value }
+        notify_channels: { [channel.value]: currentForm.value },
+        password: reauth.password,
+        totp: reauth.totp
       })
     if (saved === null) return
+    clearReauth()
     ElMessage.success(t('notifications.channelSaved'))
     await reload()
   } catch (error: any) {
@@ -407,13 +456,17 @@ async function saveGeneric(): Promise<void> {
 
 async function testGeneric(): Promise<void> {
   if (!currentDef.value) return
+  if (!validReauth(reauth)) return
   testingGeneric.value = true
   try {
     const data = await api.post<MessageResult>('/settings/test-channel', {
         channel: channel.value,
-        config: currentForm.value
+        config: currentForm.value,
+        password: reauth.password,
+        totp: reauth.totp
       })
     if (data === null) return
+    clearReauth()
     ElMessage.success(data.message || t('notifications.channelTestSent'))
   } catch (error: any) {
     ElMessage.error(error.message)

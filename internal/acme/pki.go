@@ -45,24 +45,21 @@ func (s *Server) handleCRL(w http.ResponseWriter, r *http.Request) {
 		writeProblemType(w, http.StatusNotFound, ProblemMalformed, "CA not found")
 		return
 	}
-	certificates, err := s.Store.ListRevokedCertificates(caID)
+	revocations, err := s.Store.ListRevocations(caID)
 	if err != nil {
 		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "failed to load revocations")
 		return
 	}
-	entries := make([]service.RevokedCertificateEntry, 0, len(certificates))
-	for _, certificate := range certificates {
-		if certificate.RevokedAt == nil {
-			continue
-		}
-		serial, ok := new(big.Int).SetString(certificate.Serial, 16)
+	entries := make([]service.RevokedCertificateEntry, 0, len(revocations))
+	for _, revocation := range revocations {
+		serial, ok := new(big.Int).SetString(revocation.Serial, 16)
 		if !ok {
 			continue
 		}
 		entries = append(entries, service.RevokedCertificateEntry{
 			Serial:    serial,
-			RevokedAt: *certificate.RevokedAt,
-			Reason:    certificate.RevokeReason,
+			RevokedAt: revocation.RevokedAt,
+			Reason:    revocation.Reason,
 		})
 	}
 	digest := revocationDigest(caID, entries)
@@ -207,9 +204,19 @@ func (s *Server) writeOCSPResponse(w http.ResponseWriter, r *http.Request, reque
 		return
 	}
 	status := ocsp.Unknown
-	var revokedAt = s.now()
+	revokedAt := s.now()
 	reason := 0
-	if certificate, err := s.Store.GetCertificateBySerial(caID, strings.ToUpper(request.SerialNumber.Text(16))); err == nil {
+	serial := strings.ToUpper(request.SerialNumber.Text(16))
+	// 独立吊销表优先：证书行被删除后，OCSP 仍必须返回 revoked。
+	if revocation, revoked, lookupErr := s.Store.GetRevocation(caID, serial); lookupErr != nil {
+		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "failed to load revocation")
+		return
+	} else if revoked {
+		status = ocsp.Revoked
+		revokedAt = revocation.RevokedAt
+		reason = revocation.Reason
+	} else if certificate, err := s.Store.GetCertificateBySerial(caID, serial); err == nil {
+		// 兼容旧数据：吊销表尚未回填时，以证书行状态为准。
 		if certificate.RevokedAt != nil {
 			status = ocsp.Revoked
 			revokedAt = *certificate.RevokedAt

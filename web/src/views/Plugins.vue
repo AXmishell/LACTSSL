@@ -1171,6 +1171,7 @@ async function installRepoPlugin(item: PluginRepoItem, update: boolean): Promise
       })
     if (!result) return
     ElMessage.success(update ? t('plugins.repoUpdated', { name: item.name || item.id }) : t('plugins.repoInstalledMessage', { name: item.name || item.id }))
+    if (!update) ElMessage.info(t('plugins.repoInstalledDisabledHint', { name: item.name || item.id }))
     if (result.errors?.length) ElMessage.warning(result.errors.join('；'))
     await Promise.all([loadMarket(), load(), loadRepo()])
   } catch (error) {

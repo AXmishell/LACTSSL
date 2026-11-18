@@ -18,8 +18,8 @@ type builtinDeployFunc func(ctx context.Context, manager *Manager, cert *model.C
 // 只有本地文件与 SSH 属于内置目标；FTP、Webhook、CDN、面板等目标
 // 由部署插件（internal/plugin/deploy/providers）提供。
 var builtinDeployers = map[string]builtinDeployFunc{
-	"local": func(ctx context.Context, _ *Manager, cert *model.Certificate, cfg map[string]string, _ *model.DeployAccount) error {
-		return deployLocal(ctx, cert, cfg)
+	"local": func(ctx context.Context, manager *Manager, cert *model.Certificate, cfg map[string]string, _ *model.DeployAccount) error {
+		return deployLocal(ctx, manager, cert, cfg)
 	},
 	"ssh": func(ctx context.Context, manager *Manager, cert *model.Certificate, cfg map[string]string, account *model.DeployAccount) error {
 		return deploySSH(ctx, manager, cert, cfg, account)

@@ -49,6 +49,10 @@ func TestPasskeyLifecycle(t *testing.T) {
 	if len(items) != 1 || items[0].Name != "Laptop" {
 		t.Fatalf("通行密钥列表不正确: %+v", items)
 	}
+	total, err := st.CountAllPasskeys()
+	if err != nil || total != 1 {
+		t.Fatalf("全局通行密钥数量不正确: %v total=%d", err, total)
+	}
 	loaded, err := st.GetPasskeyByCredentialID("credential-1")
 	if err != nil || loaded.UserID != user.ID {
 		t.Fatalf("按凭据 ID 查询失败: %v %+v", err, loaded)
@@ -67,6 +71,10 @@ func TestPasskeyLifecycle(t *testing.T) {
 	count, err := st.CountPasskeys(user.ID)
 	if err != nil || count != 0 {
 		t.Fatalf("删除后数量应为 0: %v count=%d", err, count)
+	}
+	total, err = st.CountAllPasskeys()
+	if err != nil || total != 0 {
+		t.Fatalf("删除后全局数量应为 0: %v total=%d", err, total)
 	}
 }
 

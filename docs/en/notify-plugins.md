@@ -43,7 +43,7 @@ curl -X POST -H "Authorization: Bearer $LACTSSL_TOKEN" \
 
 1. Open the **Plugins** page, confirm the plugin repository URL, and click **Refresh index**.
 2. Install the required notification channels from the **Plugin market**.
-3. Enable them in the channel list; newly installed entries are disabled by default.
+3. Enable the plugin file first, then enable channels in the channel list; newly downloaded files and entries are disabled by default.
 4. Configure channel credentials and send a test message on the **Notifications** page.
 
 Enablement state is stored in the settings table under `plugins.notify.enabled_channels` and persists across restarts and rescans. Only enabled channels appear on the **Notifications** page and in task notification nodes.

@@ -33,6 +33,7 @@ Key conclusions:
 - Single administrator account; no multi-user, roles, organizational structure, or approval workflow.
 - Passwords are stored as bcrypt hashes and must be at least 8 characters; for production, use random passwords of 16 characters or more.
 - Supports TOTP two-factor authentication and passkeys (WebAuthn/Passkey).
+- Enabling TOTP, registering a passkey, changing SMTP/notification targets, and sending test mail or notifications all require re-authentication (current password or TOTP), preventing a stolen session from binding the account to an attacker-controlled authenticator or forwarding stored SMTP/notification secrets to an attacker host.
 - Passkeys must be used through an HTTPS domain or localhost; a bare IP address cannot be used as a WebAuthn origin.
 - Sign-in with a passkey does not ask for TOTP again; the passkey itself performs device fingerprint, face, or system PIN verification.
 - Changing the password increments the token version and deletes all server-side sessions, API keys, and passkeys, immediately invalidating all sign-ins.

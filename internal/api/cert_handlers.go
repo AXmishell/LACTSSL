@@ -318,6 +318,11 @@ func (s *Server) deployCertificate(c *gin.Context) {
 		return
 	}
 	taskConfigs := s.taskDeployConfigs(cert)
+	// reload 命令等同于服务账号命令执行。必须在执行任何目标之前检查，
+	// 避免部分目标已经部署后才发现缺少 deploy:command。
+	if s.manualDeployUsesCommand(targets, taskConfigs) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+		return
+	}
 	results := make([]gin.H, 0, len(targets))
 	for _, target := range targets {
 		deployID := target.DeployAccountID

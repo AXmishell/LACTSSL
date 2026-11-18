@@ -17,6 +17,11 @@ export interface PasskeyInfo {
   last_used_at: string | null
 }
 
+// PasskeyAvailability 表示系统中是否已注册可用的通行密钥。
+export interface PasskeyAvailability {
+  available: boolean
+}
+
 export interface Session {
   id: string
   ip: string

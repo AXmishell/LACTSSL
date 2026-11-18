@@ -146,8 +146,105 @@ esac
 	if _, err := os.Stat(filepath.Join(dataDir, "plugin-icons", "dns", "cloudflare", "cloudflare.svg")); err != nil {
 		t.Fatalf("plugin icon not persisted: %v", err)
 	}
-	if _, found := dnsplugin.ExternalProviderInfo("cloudflare"); !found {
-		t.Fatal("installed plugin should be discovered")
+	// 新下载的插件默认停用文件级加载，启用后才探测 manifest。
+	if s.pluginFileEnabled(pluginKindDNS, "lactssl-dns-cloudflare") {
+		t.Fatal("installed helper should be disabled by default")
+	}
+	if _, found := dnsplugin.ExternalProviderInfo("cloudflare"); found {
+		t.Fatal("disabled helper should not be discovered")
+	}
+	if err := s.updatePluginFileEnabled(pluginKindDNS, "lactssl-dns-cloudflare", true); err != nil {
+		t.Fatal(err)
+	}
+	s.DiscoverPlugins()
+	if meta, found := dnsplugin.ExternalProviderInfo("cloudflare"); !found {
+		t.Fatal("installed plugin should be discovered after enabling the file")
+	} else if meta.Enabled {
+		t.Fatal("items must stay disabled after enabling the file")
+	}
+	t.Cleanup(func() { dnsplugin.Discover(dnsplugin.DiscoverConfig{}) })
+}
+
+// TestRepoInstallPreservesFileStateOnUpgrade 验证升级同名 helper 时不会重新套用
+// “新下载默认停用”，管理员已启用的文件在升级后仍保持启用。
+func TestRepoInstallPreservesFileStateOnUpgrade(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell helper test is unix-only")
+	}
+	dir := t.TempDir()
+	archives := map[string][]byte{}
+	for _, version := range []string{"1.0.0", "1.1.0"} {
+		script := `#!/bin/sh
+case "$1" in
+manifest)
+  cat <<'JSON'
+{"protocol":"v1","name":"test dns plugin","version":"` + version + `","providers":[{"id":"cloudflare"}]}
+JSON
+  ;;
+esac
+`
+		pluginJSON := `{"schema":1,"kind":"dns","id":"cloudflare","version":"` + version + `","protocol":"v1","os":"` + runtime.GOOS + `","arch":"` + runtime.GOARCH + `","entrypoint":"lactssl-dns-cloudflare"}`
+		path := filepath.Join(t.TempDir(), version+".tar.gz")
+		writeTestArchive(t, path, map[string]string{
+			"plugin.json":            pluginJSON,
+			"lactssl-dns-cloudflare": script,
+		})
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		archives[version] = raw
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, ok := archives[strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), ".tar.gz")]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(raw)
+	}))
+	defer server.Close()
+
+	conn, err := db.Open(filepath.Join(t.TempDir(), "plugins.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	cipher, err := util.NewCipher([]byte("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{
+		Store:                   store.New(conn, cipher),
+		PluginsEnabled:          true,
+		PluginDir:               dir,
+		PluginMemoryLimitMB:     128,
+		PluginTimeout:           5 * time.Second,
+		PluginMaxOutputKB:       64,
+		PluginRepoURL:           server.URL,
+		PluginRepoTimeout:       5 * time.Second,
+		PluginRepoMaxDownloadMB: 8,
+	}
+	install := func(version string) {
+		t.Helper()
+		raw := archives[version]
+		sum := sha256.Sum256(raw)
+		plugin := pluginrepo.Plugin{Kind: "dns", ID: "cloudflare", Version: version, Protocol: "v1", Single: true}
+		asset := pluginrepo.Asset{URL: server.URL + "/" + version + ".tar.gz", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(raw))}
+		if _, _, err := s.installRepoPlugin("dns", plugin, asset); err != nil {
+			t.Fatal(err)
+		}
+	}
+	install("1.0.0")
+	if s.pluginFileEnabled(pluginKindDNS, "lactssl-dns-cloudflare") {
+		t.Fatal("newly installed helper should be disabled")
+	}
+	if err := s.updatePluginFileEnabled(pluginKindDNS, "lactssl-dns-cloudflare", true); err != nil {
+		t.Fatal(err)
+	}
+	install("1.1.0")
+	if !s.pluginFileEnabled(pluginKindDNS, "lactssl-dns-cloudflare") {
+		t.Fatal("upgrading an installed helper must preserve the file state")
 	}
 	t.Cleanup(func() { dnsplugin.Discover(dnsplugin.DiscoverConfig{}) })
 }
@@ -324,6 +421,10 @@ esac
 	if _, found, _ := st.GetPluginInstallation("dns", "cloudflare"); found {
 		t.Fatal("old installation record should be removed")
 	}
+	if err := s.updatePluginFileEnabled(pluginKindDNS, "lactssl-dns-all", true); err != nil {
+		t.Fatal(err)
+	}
+	s.DiscoverPlugins()
 	for _, id := range []string{"cloudflare", "route53"} {
 		if _, found := dnsplugin.ExternalProviderInfo(id); !found {
 			t.Fatalf("provider %s should be discovered", id)
@@ -423,6 +524,12 @@ esac
 	if _, err := os.Stat(filepath.Join(dir, "lactssl-dns-helper")); !os.IsNotExist(err) {
 		t.Fatalf("legacy helper should be removed after both bundles are installed, err=%v", err)
 	}
+	for _, name := range []string{"lactssl-dns-core", "lactssl-dns-heavy"} {
+		if err := s.updatePluginFileEnabled(pluginKindDNS, name, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.DiscoverPlugins()
 	for _, id := range []string{"cloudflare", "route53"} {
 		if _, found := dnsplugin.ExternalProviderInfo(id); !found {
 			t.Fatalf("provider %s should be discovered", id)

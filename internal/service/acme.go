@@ -71,6 +71,9 @@ type Manager struct {
 	csrSem chan struct{}
 	// dnsLocks 按 DNS 账户串行化挑战写入，避免同一服务商凭据并发冲突。
 	dnsLocks keyedLocks
+	// ProtectedPaths 是本地部署禁止写入的目录（数据目录、配置目录、程序目录）。
+	// 避免部署参数把证书/私钥覆盖到数据库、config.yaml 或程序二进制上。
+	ProtectedPaths []string
 }
 
 // New 创建业务管理器。

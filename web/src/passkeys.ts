@@ -109,9 +109,12 @@ export async function loginWithPasskey(): Promise<AuthResult> {
   })
 }
 
-export async function registerPasskey(name: string): Promise<PasskeyInfo> {
+export async function registerPasskey(name: string, reauth?: { password?: string; totp?: string }): Promise<PasskeyInfo> {
   if (!passkeySupported()) throw new Error('passkey unsupported')
-  const begin = await api.post<CeremonyResponse>('/auth/passkeys/register/begin')
+  const begin = await api.post<CeremonyResponse>('/auth/passkeys/register/begin', {
+    password: reauth?.password || '',
+    totp: reauth?.totp || ''
+  })
   const credential = (await navigator.credentials.create({
     publicKey: parseCreationOptions(begin.options)
   })) as PublicKeyCredential | null

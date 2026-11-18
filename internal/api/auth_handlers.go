@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -305,6 +307,18 @@ func (s *Server) handleChangeEmail(c *gin.Context) {
 
 func (s *Server) handleTOTPSetup(c *gin.Context) {
 	user := getUser(c)
+	var body struct {
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
+	}
+	// 兼容不带请求体的旧客户端；新增认证器必须先再认证。
+	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+		return
+	}
 	if user.TOTPEnabled {
 		failKey(c, http.StatusBadRequest, "api.error.totp_already_enabled")
 		return
@@ -324,10 +338,17 @@ func (s *Server) handleTOTPSetup(c *gin.Context) {
 func (s *Server) handleTOTPEnable(c *gin.Context) {
 	user := getUser(c)
 	var body struct {
-		Code string `json:"code"`
+		Code     string `json:"code"`
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	// 启用 TOTP 会把账号登录绑定到新的认证器，必须先证明当前身份。
+	// 此时 TOTP 尚未启用，requireReauth 会校验当前密码。
+	if !s.requireReauth(c, user, body.Password, body.TOTP) {
 		return
 	}
 	// 启用前仍需校验一次验证码，确认新密钥已正确导入认证器。

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -113,6 +114,12 @@ func main() {
 	}
 
 	manager := service.New(st)
+	// 本地部署禁止写入数据目录、配置目录与程序目录，避免部署参数覆盖
+	// 数据库、config.yaml 或正在运行的二进制。
+	manager.ProtectedPaths = []string{cfg.DataDir, filepath.Dir(cfg.File)}
+	if exePath, exeErr := os.Executable(); exeErr == nil {
+		manager.ProtectedPaths = append(manager.ProtectedPaths, filepath.Dir(exePath))
+	}
 	// 升级迁移集中到 internal/upgrade：启动时自动执行历史兼容步骤，
 	// 也可以通过 /upgrade 页面手动预检与优化。
 	upgrader, err := upgrade.New(upgrade.Options{

@@ -450,7 +450,16 @@ const logLoading = ref(false)
 const logs = ref<LogEntry[]>([])
 const currentTask = ref<Task | null>(null)
 let logTimer: ReturnType<typeof setInterval> | null = null
+let taskTimer: ReturnType<typeof setInterval> | null = null
+let pollBusy = false
+let pollTicks = 0
 let nodeSeq = 0
+
+// 任务在服务端异步执行，签发耗时可能远超前端请求本身。
+// 有任务处于执行中时轮询任务列表，直到全部结束再停止，避免状态标签一直停留在旧值。
+const TASK_POLL_MS = 2000
+// 触发执行后服务端要过一小段时间才写入 running，先观察几轮再判断是否已结束。
+const TASK_POLL_MIN_TICKS = 3
 
 const form = reactive<TaskForm>({
   name: '',
@@ -644,11 +653,54 @@ async function loadAll(): Promise<void> {
     dnsAccounts.value = dnsList || []
     deployAccounts.value = deployList || []
     meta.value = metaData
+    if (hasRunningTasks()) startTaskPolling()
   } catch (error: any) {
     ElMessage.error(error.message)
   } finally {
     loading.value = false
   }
+}
+
+function hasRunningTasks(): boolean {
+  // pending 只会短暂出现在服务端重启恢复或刚创建时；已暂停的任务不应让它一直轮询。
+  return tasks.value.some((task) => task.status === 'running' || (task.status === 'pending' && task.enabled))
+}
+
+function startTaskPolling(): void {
+  if (taskTimer) return
+  pollTicks = 0
+  taskTimer = setInterval(() => {
+    void pollTasks()
+  }, TASK_POLL_MS)
+  void pollTasks()
+}
+
+function stopTaskPolling(): void {
+  if (!taskTimer) return
+  clearInterval(taskTimer)
+  taskTimer = null
+}
+
+// 轮询只静默更新任务列表，不触发整页 loading，避免执行期间列表反复闪烁。
+async function pollTasks(): Promise<void> {
+  if (pollBusy || document.visibilityState === 'hidden') return
+  pollBusy = true
+  try {
+    const list = await api.get<Task[]>('/tasks')
+    if (list) tasks.value = list
+    pollTicks += 1
+    if (hasRunningTasks()) startTaskPolling()
+    else if (pollTicks >= TASK_POLL_MIN_TICKS) stopTaskPolling()
+  } catch {
+    // 轮询失败保持静默，等待下一次重试。
+  } finally {
+    pollBusy = false
+  }
+}
+
+// 标签页重新可见时立即补一次刷新，避免后台期间状态已经变化却还在轮询旧数据。
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'visible') void pollTasks()
 }
 
 async function openCreate(): Promise<void> {
@@ -1103,6 +1155,8 @@ async function save(): Promise<void> {
     ElMessage.success(t(editingId.value ? 'tasks.saved' : 'tasks.created'))
     dialogVisible.value = false
     await loadAll()
+    // 新建或首次签发的任务会在后台立即执行，持续刷新直到拿到最终状态。
+    if (form.enabled) startTaskPolling()
   } catch (error: any) {
     ElMessage.error(error.message)
   } finally {
@@ -1122,7 +1176,7 @@ async function runTask(row: Task): Promise<void> {
   try {
     const data = await api.post<MessageResult>(`/tasks/${row.id}/run`)
     ElMessage.success(data.message || t('tasks.runStarted'))
-    setTimeout(loadAll, 1200)
+    startTaskPolling()
   } catch (error: any) {
     ElMessage.error(error.message)
   }
@@ -1157,6 +1211,7 @@ async function batchRun(): Promise<void> {
     const data = await api.post<TaskBatchResult>('/tasks/batch/run', { ids })
     ElMessage.success(data.message || t('tasks.batchRunDone', { started: data.started || 0, skipped: data.skipped || 0 }))
     await loadAll()
+    startTaskPolling()
   } catch (error: any) {
     ElMessage.error(error.message)
   } finally {
@@ -1268,12 +1323,15 @@ function logColor(level: string): string {
 
 onMounted(() => {
   loadAll()
+  document.addEventListener('visibilitychange', onVisibilityChange)
   logTimer = setInterval(() => {
     if (logVisible.value) refreshLogs()
   }, 5000)
 })
 onUnmounted(() => {
   if (logTimer) clearInterval(logTimer)
+  stopTaskPolling()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   stopDrag()
 })
 </script>

@@ -106,7 +106,7 @@ You can upload a single helper on the Plugins page, or place files in the plugin
 
 1. Open the Plugins page, confirm the repository URL, and click **Refresh index**.
 2. Open the **Plugin market** and filter or search by DNS / deployment / notification.
-3. Install the required plugins, then enable them in the corresponding lists.
+3. Install the required plugins, then enable the plugin file first and the needed items after that.
 
 Each plugin displays:
 
@@ -115,7 +115,7 @@ Each plugin displays:
 - Compatibility with the current host version.
 - Installed version and update availability.
 
-Newly installed plugins are disabled by default; upgrades or reinstalls preserve the previous enablement state.
+Newly downloaded or uploaded plugins are disabled by default: the helper file is written in the disabled state and its `manifest` is not executed. After enabling the file, its items are still disabled by default. Upgrades or overwrites of the same file preserve the previous enablement state.
 
 ### 4.2 Two-level enablement
 

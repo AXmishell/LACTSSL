@@ -29,7 +29,7 @@ The official [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) rep
 
 1. Open the **Plugins** page, confirm the plugin repository URL, and click **Refresh index**.
 2. Open the **Plugin market**, filter by DNS, and install the required package.
-3. Enable specific providers in the DNS provider list. Newly installed entries are disabled by default.
+3. Enable the plugin file first, then enable specific providers in the DNS provider list. Newly downloaded files and entries are disabled by default.
 4. Create credentials under **DNS accounts** and select the provider.
 
 A merged package is not enabled in full by the row-level switch; enabling more than 10 entries at once requires confirmation. When a file is disabled at the file level, its entries are not registered at runtime, but existing selections are retained.

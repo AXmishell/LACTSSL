@@ -318,6 +318,15 @@ func (s *Server) createTask(c *gin.Context) {
 	if requiresDeployExecution(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
 		return
 	}
+	if body.Enabled && !s.requireAPIKeyScope(c, apiScopeTasksRun) {
+		return
+	}
+	if body.Enabled && pipelineUsesPrivateCA(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+		return
+	}
+	if body.Enabled && pipelineUsesDeployCommand(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+		return
+	}
 	task := &model.Task{
 		Name:         body.Name,
 		Domains:      body.Domains,
@@ -367,6 +376,15 @@ func (s *Server) updateTask(c *gin.Context) {
 	// 修改任务本身不会立即执行；只有把含部署节点的任务设为启用时，
 	// 调度器才可能在之后执行部署命令，因此这时才要求 deploy:execute。
 	if body.Enabled && requiresDeployExecution(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+		return
+	}
+	if body.Enabled && !s.requireAPIKeyScope(c, apiScopeTasksRun) {
+		return
+	}
+	if body.Enabled && pipelineUsesPrivateCA(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+		return
+	}
+	if body.Enabled && pipelineUsesDeployCommand(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
 	task.Name = body.Name
@@ -435,7 +453,13 @@ func (s *Server) runTask(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.task_running")
 		return
 	}
+	if pipelineUsesPrivateCA(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+		return
+	}
 	if requiresDeployExecution(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+		return
+	}
+	if pipelineUsesDeployCommand(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
 	s.goSafe("task-manual", func() { _ = s.Manager.RunTask(id, "task.trigger.manual") })
@@ -485,20 +509,34 @@ func (s *Server) batchRunTasks(c *gin.Context) {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
-	// API 密钥批量运行前先检查是否包含部署节点，避免在循环中启动部分任务后
-	// 才发现缺少 deploy:execute 权限。
+	// API 密钥批量运行前先检查是否包含部署节点或命令，避免在循环中启动
+	// 部分任务后才发现缺少 deploy:execute / deploy:command 权限。
 	if apiKeyFromContext(c) != nil {
+		needsExecute, needsCommand, needsPrivateCA := false, false, false
 		for _, id := range ids {
 			task, err := s.Store.GetTask(id)
 			if err != nil {
 				continue
 			}
-			if requiresDeployExecution(task.EffectivePipeline()) {
-				if !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
-					return
-				}
-				break
+			pipeline := task.EffectivePipeline()
+			if requiresDeployExecution(pipeline) {
+				needsExecute = true
 			}
+			if pipelineUsesDeployCommand(pipeline) {
+				needsCommand = true
+			}
+			if pipelineUsesPrivateCA(pipeline) {
+				needsPrivateCA = true
+			}
+		}
+		if needsPrivateCA && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+			return
+		}
+		if needsExecute && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+			return
+		}
+		if needsCommand && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+			return
 		}
 	}
 	started := 0
@@ -540,19 +578,36 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 		return
 	}
 	// API 密钥重新启用含部署节点的任务会交给调度器执行，因此同样需要
-	// deploy:execute；停用任务不会触发部署，不额外限制。
+	// deploy:execute / deploy:command；停用任务不会触发部署，不额外限制。
 	if body.Enabled && apiKeyFromContext(c) != nil {
+		if !s.requireAPIKeyScope(c, apiScopeTasksRun) {
+			return
+		}
+		needsExecute, needsCommand, needsPrivateCA := false, false, false
 		for _, id := range ids {
 			task, err := s.Store.GetTask(id)
 			if err != nil {
 				continue
 			}
-			if requiresDeployExecution(task.EffectivePipeline()) {
-				if !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
-					return
-				}
-				break
+			pipeline := task.EffectivePipeline()
+			if requiresDeployExecution(pipeline) {
+				needsExecute = true
 			}
+			if pipelineUsesDeployCommand(pipeline) {
+				needsCommand = true
+			}
+			if pipelineUsesPrivateCA(pipeline) {
+				needsPrivateCA = true
+			}
+		}
+		if needsPrivateCA && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+			return
+		}
+		if needsExecute && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+			return
+		}
+		if needsCommand && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+			return
 		}
 	}
 	now := time.Now().UTC()

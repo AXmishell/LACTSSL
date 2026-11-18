@@ -117,7 +117,7 @@ func TestFetchAndSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _, _, _, err := client.Fetch(context.Background(), "")
+	got, _, _, _, _, err := client.Fetch(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestFetchAndSignature(t *testing.T) {
 
 	badClient, _ := NewClient(server.URL+"/index.json", "stable", base64.StdEncoding.EncodeToString(pub), 0, 1)
 	index[0] = '['
-	if _, _, _, _, err := badClient.Fetch(context.Background(), ""); err == nil {
+	if _, _, _, _, _, err := badClient.Fetch(context.Background(), ""); err == nil {
 		t.Fatal("signature mismatch should fail")
 	}
 }

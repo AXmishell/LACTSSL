@@ -68,7 +68,7 @@
           </el-button>
         </el-form>
 
-        <div v-if="!needsSetup && passkeyAvailable" class="passkey-login">
+        <div v-if="!needsSetup && passkeyAvailable && passkeyConfigured" class="passkey-login">
           <div class="passkey-divider"><span>{{ t('auth.or') }}</span></div>
           <el-button
             size="large"
@@ -123,7 +123,7 @@ import { api, installPath } from '../api'
 import { state, loadUser } from '../store'
 import { beginLoading, endLoading } from '../loading'
 import { isPasskeyCancelled, loginWithPasskey, passkeySecureContext, passkeySupported } from '../passkeys'
-import type { AuthResult, MessageResult, SetupStatus } from '../types'
+import type { AuthResult, MessageResult, PasskeyAvailability, SetupStatus } from '../types'
 
 // 登录成功后保留的过渡加载时长（含 200ms 淡出），只用于 /login → 控制台，
 // 不影响后台页面切换。
@@ -135,6 +135,8 @@ const { t } = useI18n()
 const loading = ref(false)
 const passkeyLoading = ref(false)
 const passkeyAvailable = computed(() => passkeySupported())
+// 服务端确认是否已有通行密钥；未注册时不展示登录入口。
+const passkeyConfigured = ref(false)
 const passkeyUsable = computed(() => passkeySupported() && passkeySecureContext())
 const totpRequired = ref(false)
 const errorMessage = ref('')
@@ -158,6 +160,8 @@ onMounted(async () => {
   } catch (_) {
     // 未登录，继续显示登录表单
   }
+  // 单独查询通行密钥是否已注册：没有凭据时隐藏入口，避免用户点击后必然失败。
+  void loadPasskeyAvailability()
   try {
     const status = await api.get<SetupStatus>('/setup/status')
     if (status.initialized === false) {
@@ -222,6 +226,19 @@ async function submit(): Promise<void> {
     }
   } finally {
     loading.value = false
+  }
+}
+
+// 服务端确认是否已注册通行密钥：没有凭据时隐藏入口，避免展示注定失败的按钮。
+async function loadPasskeyAvailability(): Promise<void> {
+  if (!passkeyAvailable.value) return
+  try {
+    const data = await api.get<PasskeyAvailability>('/auth/passkey/available')
+    passkeyConfigured.value = data?.available === true
+  } catch (error) {
+    // 查询失败时按未注册处理，不让用户面对不可用的登录入口。
+    passkeyConfigured.value = false
+    console.warn('failed to load passkey availability', error)
   }
 }
 

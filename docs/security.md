@@ -33,6 +33,7 @@ LACTSSL 按“自托管单实例”设计，信任边界如下：
 - 单管理员账户，不提供多用户、角色、组织架构或审批流。
 - 密码使用 bcrypt 哈希存储，长度至少 8 位；生产建议 16 位以上随机密码。
 - 支持 TOTP 两步验证和通行密钥（WebAuthn/Passkey）。
+- 启用 TOTP、注册通行密钥、修改 SMTP/通知目标以及发送测试邮件/通知都必须再认证（当前密码或 TOTP），避免失窃会话直接把账号绑定到攻击者的认证器，或把已存 SMTP/通知密钥转发到攻击者主机。
 - 通行密钥必须通过 HTTPS 域名或 localhost 使用；直接使用 IP 地址不能作为 WebAuthn 来源。
 - 使用通行密钥登录后不会再次要求 TOTP；通行密钥本身完成设备指纹、面容或系统 PIN 验证。
 - 修改密码会提升令牌版本并删除全部服务端会话、API 密钥与通行密钥，所有登录立即失效。
@@ -42,7 +43,7 @@ LACTSSL 按“自托管单实例”设计，信任边界如下：
 
 - 密钥格式为 `lactssl_` 开头，服务端只保存摘要。
 - 权限按「资源:动作」划分；`*` 表示全部系统 API 能力。
-- 敏感权限单独列出：`certificates:key`、`private_cas:key`、`deploy:execute`、`backup:download`、`backup:restore`、`plugins:write`、`settings:write`、`api_keys:write` 等。
+- 敏感权限单独列出：`certificates:key`、`private_cas:key`、`deploy:execute`、`deploy:command`、`backup:download`、`backup:restore`、`plugins:write`、`settings:write`、`api_keys:write` 等。
 - 通过 API 密钥管理其他密钥时，不能授予自身没有的权限，也不能修改/轮换/删除权限高于自身的密钥。
 - 账户安全类操作（改密、通行密钥、会话管理）只允许浏览器登录会话，API 密钥不能调用。
 - 建议为每个自动化系统创建独立密钥，设置过期时间，按最小权限授权，并定期轮换。

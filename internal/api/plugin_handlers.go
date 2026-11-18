@@ -575,6 +575,15 @@ func (s *Server) uploadPlugin(c *gin.Context) {
 	// 先缓存完整清单，再重扫；即使随后发现失败，插件页仍能展示条目并执行清理。
 	s.upsertPluginFileMeta(kind, name, info.name, info.version, info.digest, info.items)
 	s.prunePluginEnabledWhitelist(kind)
+	// 新上传的 helper 与仓库下载一致，默认停用文件级加载；覆盖已有文件保留原状态。
+	if !exists {
+		s.disablePluginItemsForNewFile(kind, name, info.items)
+		if err := s.updatePluginFileEnabled(kind, name, false); err != nil {
+			s.Store.AddLogKey("settings", 0, "warning", "log.settings.plugin_file_state_failed", map[string]any{
+				"kind": kind, "file": name, "error": err.Error(),
+			})
+		}
+	}
 
 	// 安装完成后立即重扫，让新服务商/部署目标无需重启即可使用。
 	var scanErrors []string
@@ -762,6 +771,95 @@ func (s *Server) removePluginWhitelistEntries(kind string, ids []string) {
 		}
 		_ = s.saveNotifyPluginEnabledSet(set)
 	}
+}
+
+// disablePluginItemsForNewFile 清理新安装文件条目在启用白名单中的默认勾选。
+// 迁移阶段写入的内置默认白名单用于保留升级前的启用状态，但新下载的插件不应
+// 因此自动启用条目：只有仍由其他已安装文件提供的条目才保留原状态。
+// 升级或覆盖同名文件不会调用该函数，因此管理员已启用/停用的条目保持不变。
+func (s *Server) disablePluginItemsForNewFile(kind, filename string, ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	others := make(map[string]bool)
+	if s.Store != nil {
+		if list, err := s.Store.ListPluginFileMeta(kind); err == nil {
+			for _, meta := range list {
+				if meta.Filename == filename {
+					continue
+				}
+				for _, entry := range meta.Entries {
+					others[normalizePluginItemID(kind, entry.ID)] = true
+				}
+			}
+		}
+	}
+	switch kind {
+	case pluginKindDNS:
+		set := s.dnsPluginEnabledSet()
+		changed := false
+		for _, id := range ids {
+			id = normalizePluginItemID(pluginKindDNS, id)
+			if id == "" || others[id] {
+				continue
+			}
+			if set[id] {
+				delete(set, id)
+				changed = true
+			}
+		}
+		if changed {
+			_ = s.saveDNSPluginEnabledSet(set)
+		}
+	case pluginKindDeploy:
+		set := s.deployPluginEnabledSet()
+		changed := false
+		for _, id := range ids {
+			canonical := normalizePluginItemID(pluginKindDeploy, id)
+			if canonical == "" || others[canonical] {
+				continue
+			}
+			// 合并目标可能同时以旧 ID 与规范 ID 留在白名单里，一并清理，
+			// 避免读取白名单时被 promoteMergedDeployTypes 重新补回。
+			for _, key := range deployWhitelistKeys(id) {
+				if set[key] {
+					delete(set, key)
+					changed = true
+				}
+			}
+		}
+		if changed {
+			_ = s.saveDeployPluginEnabledSet(set)
+		}
+	case pluginKindNotify:
+		set := s.notifyPluginEnabledSet()
+		changed := false
+		for _, id := range ids {
+			id = normalizePluginItemID(kind, id)
+			if id == "" || others[id] {
+				continue
+			}
+			if set[id] {
+				delete(set, id)
+				changed = true
+			}
+		}
+		if changed {
+			_ = s.saveNotifyPluginEnabledSet(set)
+		}
+	}
+}
+
+// deployWhitelistKeys 返回某个部署目标在启用白名单中可能使用的全部键。
+func deployWhitelistKeys(id string) []string {
+	canonical := normalizePluginItemID(pluginKindDeploy, id)
+	keys := []string{strings.ToLower(strings.TrimSpace(id)), canonical}
+	for legacy, canon := range service.DeprecatedDeployTypeCanonical {
+		if canon == canonical {
+			keys = append(keys, legacy)
+		}
+	}
+	return keys
 }
 
 // setPluginProviderEnabled 启用或停用单个插件服务商。

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +37,7 @@ const (
 	repoPublicKeySetting   = "plugins.repo.public_key"
 	repoIndexSetting       = "plugins.repo.index"
 	repoIndexMACSetting    = "plugins.repo.index_mac"
+	repoIndexSigSetting    = "plugins.repo.index_sig"
 	repoETagSetting        = "plugins.repo.index_etag"
 	repoCheckedSetting     = "plugins.repo.checked_at"
 	repoVerifiedSetting    = "plugins.repo.signature_verified"
@@ -61,6 +63,20 @@ func (s *Server) cachedRepoIndexRaw() (string, bool) {
 		return "", false
 	}
 	return raw, true
+}
+
+// cachedRepoIndexSignature 返回缓存的索引签名（base64 解码后）。
+// 签名本身是公开数据，真正的信任锚是当前配置的公钥；损坏时按缺失处理。
+func (s *Server) cachedRepoIndexSignature() ([]byte, bool) {
+	encoded := strings.TrimSpace(s.setting(repoIndexSigSetting, ""))
+	if encoded == "" {
+		return nil, false
+	}
+	sig, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, false
+	}
+	return sig, true
 }
 
 var legacyPluginNames = map[string][]string{
@@ -257,17 +273,20 @@ func (s *Server) loadCachedRepoIndex() (pluginrepo.Index, bool) {
 	if ts := s.setting(repoCheckedSetting, ""); ts != "" {
 		checkedAt, _ = time.Parse(time.RFC3339, ts)
 	}
-	// 缓存索引由服务端 HMAC 保护，但签名状态必须绑定到具体公钥：
-	// 仅修改 config.yaml 公钥并重启时，旧索引不能用新公钥冒充“已验签”。
-	verifiedKey := s.setting(repoVerifiedKeySetting, "")
+	// 缓存索引由服务端 HMAC 保护，但“已验签”必须由当前公钥对缓存原始字节
+	// 重新验签得出，不能信任数据库中的独立布尔位或公钥指纹。
 	currentKey := s.repoKeyFingerprint()
-	storedVerified := s.setting(repoVerifiedSetting, "") == "true"
-	if storedVerified && verifiedKey != currentKey && currentKey != "" {
-		// 公钥已变更：丢弃 ETag，强制重新拉取并用新公钥验签。
-		_ = s.Store.DeleteSetting(repoETagSetting)
-		return pluginrepo.Index{}, false
+	verified := false
+	if currentKey != "" {
+		signature, ok := s.cachedRepoIndexSignature()
+		if !ok || !pluginrepo.VerifyIndexSignature(s.repoPublicKey(), []byte(raw), signature) {
+			// 缓存不是由当前公钥签名的（例如升级前未验签的缓存）：丢弃 ETag，
+			// 强制下一次刷新全量重取，而不是让 304 把旧缓存“洗白”。
+			_ = s.Store.DeleteSetting(repoETagSetting)
+			return pluginrepo.Index{}, false
+		}
+		verified = true
 	}
-	verified := storedVerified && currentKey != "" && verifiedKey == currentKey
 
 	s.pluginRepoMu.Lock()
 	defer s.pluginRepoMu.Unlock()
@@ -305,26 +324,36 @@ func (s *Server) fetchRepoIndex(force bool) (pluginrepo.Index, error) {
 	etag := s.setting(repoETagSetting, "")
 	currentKey := s.repoKeyFingerprint()
 	storedKey := s.setting(repoVerifiedKeySetting, "")
-	if s.setting(repoVerifiedSetting, "") == "true" && storedKey != currentKey {
-		// 公钥已变更：旧 ETag 对应的缓存不是用当前公钥验签的，必须全量重取。
+	if storedKey != currentKey {
+		// 公钥（包括从“未配置”变为“已配置”）已变化：旧 ETag 对应的缓存
+		// 不是用当前公钥验签的，必须全量重取。
 		etag = ""
 		_ = s.Store.DeleteSetting(repoETagSetting)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.PluginRepoTimeout)
 	defer cancel()
-	index, raw, newETag, notModified, err := client.Fetch(ctx, etag)
+	index, raw, newETag, signature, notModified, err := client.Fetch(ctx, etag)
 	if err != nil {
 		return pluginrepo.Index{}, err
 	}
 	if notModified {
 		rawText, ok := s.cachedRepoIndexRaw()
-		if !ok || (s.setting(repoVerifiedSetting, "") == "true" && storedKey != currentKey) {
-			// 缓存缺失/被篡改或来自旧版本时，忽略 ETag 重新拉取一次。
-			index, raw, newETag, _, err = client.Fetch(ctx, "")
+		cachedSig, sigOK := s.cachedRepoIndexSignature()
+		cacheValid := ok
+		if cacheValid && currentKey != "" {
+			// 304 不携带签名，必须用当前公钥重新校验缓存字节；否则未验签的
+			// 旧缓存会被错误地标记为“已验签”。
+			cacheValid = sigOK && pluginrepo.VerifyIndexSignature(s.repoPublicKey(), []byte(rawText), cachedSig)
+		}
+		if !cacheValid {
+			index, raw, newETag, signature, _, err = client.Fetch(ctx, "")
 			if err != nil {
 				return pluginrepo.Index{}, err
 			}
 			rawText = string(raw)
+		} else {
+			signature = cachedSig
+			raw = []byte(rawText)
 		}
 		if err := json.Unmarshal([]byte(rawText), &index); err != nil {
 			return pluginrepo.Index{}, err
@@ -336,10 +365,18 @@ func (s *Server) fetchRepoIndex(force bool) (pluginrepo.Index, error) {
 		raw = []byte(rawText)
 	}
 	checkedAt := time.Now().UTC()
-	verified := client.PublicKey != nil
+	verified := false
+	if currentKey != "" {
+		// 全量拉取时 Fetch 已验签；304 分支使用缓存签名，这里统一再校验一次，
+		// 避免任何分支仅凭“配置了公钥”就置为已验签。
+		verified = len(signature) > 0 && pluginrepo.VerifyIndexSignature(s.repoPublicKey(), raw, signature)
+		if !verified {
+			return pluginrepo.Index{}, i18n.E("api.error.plugin_repo_signature_required")
+		}
+	}
 	verifiedKey := ""
-	if client.PublicKey != nil {
-		verifiedKey = pluginrepo.PublicKeyFingerprint(client.PublicKey)
+	if verified {
+		verifiedKey = currentKey
 	}
 
 	s.pluginRepoMu.Lock()
@@ -840,6 +877,9 @@ func (s *Server) installRepoPlugin(kind string, plugin pluginrepo.Plugin, asset 
 	if inspect.Version != plugin.Version {
 		return model.PluginInstallation{}, nil, fmt.Errorf("插件版本 %s 与索引 %s 不一致", inspect.Version, plugin.Version)
 	}
+	// 记录安装前文件是否已存在：只有全新的 helper 才默认停用文件级加载。
+	_, statErr := os.Lstat(target)
+	fileExisted := statErr == nil
 	dest, backup, err := plugininstall.Install(dir, filename, binaryPath)
 	if err != nil {
 		return model.PluginInstallation{}, nil, err
@@ -870,6 +910,16 @@ func (s *Server) installRepoPlugin(kind string, plugin pluginrepo.Plugin, asset 
 	cleanupErrors := []string(nil)
 	if plugin.Bundle {
 		_, cleanupErrors = s.cleanupSupersededHelpers(kind, dir, filename, plugin.Providers)
+	}
+	// 新下载的插件默认停用文件级加载与其中条目；升级或重装保留原启用状态。
+	// 写入放在覆盖清理之后，让清理仍能依据新文件提供的条目回收旧 helper。
+	if !hadOld && !fileExisted {
+		s.disablePluginItemsForNewFile(kind, filename, inspect.IDs)
+		if err := s.updatePluginFileEnabled(kind, filename, false); err != nil {
+			s.Store.AddLogKey("settings", 0, "warning", "log.settings.plugin_file_state_failed", map[string]any{
+				"kind": kind, "file": filename, "error": err.Error(),
+			})
+		}
 	}
 	scanErrors := append(cleanupErrors, s.rescanPluginKind(kind)...)
 	s.Store.AddLogKey("settings", 0, "info", "log.settings.plugin_installed", map[string]any{
@@ -926,15 +976,19 @@ func (s *Server) cleanupSupersededHelpers(kind, dir, keepFilename string, provid
 		if strings.HasPrefix(name, ".") || !entry.Type().IsRegular() {
 			continue
 		}
-		// 已停用的文件不参与安装清理探测，避免为了复用旧条目而执行被隔离的 helper。
-		if !s.pluginFileEnabled(kind, name) {
+		if s.pluginFileEnabled(kind, name) {
+			inspect, err := s.inspectPluginBinary(kind, filepath.Join(dir, name))
+			if err != nil {
+				continue
+			}
+			infos = append(infos, helperInfo{name: name, ids: inspect.IDs})
 			continue
 		}
-		inspect, err := s.inspectPluginBinary(kind, filepath.Join(dir, name))
-		if err != nil {
-			continue
+		// 已停用的文件不执行 manifest，只用安装/上传时缓存的清单判断覆盖关系，
+		// 避免为了回收旧条目而执行被隔离的 helper。
+		if ids, _ := s.pluginFileItems(kind, filepath.Join(dir, name)); len(ids) > 0 {
+			infos = append(infos, helperInfo{name: name, ids: ids})
 		}
-		infos = append(infos, helperInfo{name: name, ids: inspect.IDs})
 	}
 	provided := func(exclude, id string) bool {
 		for _, info := range infos {

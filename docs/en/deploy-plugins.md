@@ -58,7 +58,7 @@ curl -X POST -H "Authorization: Bearer $LACTSSL_TOKEN" \
 1. Set `deploy_plugins.enabled: true` in the configuration and restart the service.
 2. Open the **Plugins** page, confirm the plugin repository URL, and click **Refresh index**.
 3. Install the required deployment targets from the **Plugin market**.
-4. Enable specific targets in the deployment target list.
+4. Enable the plugin file first, then enable specific targets in the deployment target list. Newly downloaded files and entries are disabled by default.
 
 If no plugin is installed or enabled, only local files and SSH appear under target credentials and task workflow deployment types. Existing credentials are preserved and remain usable after plugins are installed.
 

@@ -18,7 +18,8 @@ import (
 )
 
 // 文件级（二级）启停设置：保存被管理员停用的 helper 文件名。
-// 使用“停用集合”而不是启用集合，保证新增/升级的插件默认仍然加载。
+// 使用“停用集合”而不是启用集合，保证升级同名 helper 不会丢失启用状态；
+// 仓库安装与手动上传的新文件由调用方在写入目录后显式停用，实现“下载后默认不启用”。
 const (
 	dnsDisabledHelpersSetting    = "plugins.dns.disabled_helpers"
 	deployDisabledHelpersSetting = "plugins.deploy.disabled_helpers"

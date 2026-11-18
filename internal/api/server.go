@@ -228,6 +228,7 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/auth/forgot", s.handleForgotPassword)
 	g.POST("/auth/reset", s.handleResetPassword)
 	g.GET("/auth/reset/validate", s.handleValidateReset)
+	g.GET("/auth/passkey/available", s.handlePasskeyAvailability)
 	g.POST("/auth/passkey/login/begin", s.handlePasskeyLoginBegin)
 	g.POST("/auth/passkey/login/finish", s.handlePasskeyLoginFinish)
 	g.GET("/auth/me", s.handleMe)
