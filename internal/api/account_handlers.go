@@ -145,6 +145,7 @@ func (s *Server) updateDNSAccount(c *gin.Context) {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
+	resetDNSVerifyIfChanged(item, body.Provider, body.Config)
 	item.Name = body.Name
 	item.Provider = body.Provider
 	item.Config = body.Config
@@ -298,6 +299,7 @@ func (s *Server) updateDeployAccount(c *gin.Context) {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
+	resetDeployVerifyIfChanged(item, body.Type, body.Config)
 	item.Name = body.Name
 	item.Type = body.Type
 	item.Config = body.Config

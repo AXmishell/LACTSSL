@@ -239,3 +239,45 @@ func TestOpenMigratesLegacyLogsTable(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenBackfillsLegacyRevocations 验证 v6 数据库升级到 v7 时，会把证书表中
+// 已吊销的记录回填到独立 revocations 表，避免升级后 CRL/OCSP 丢失历史吊销。
+func TestOpenBackfillsLegacyRevocations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-revocations.db")
+	conn, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`INSERT INTO certificates
+		(domains, primary_domain, private_ca_id, cert_pem, key_pem, fullchain_pem, serial, not_before, not_after, status, revoked_at, revoke_reason, created_at)
+		VALUES ('["revoked.example.com"]','revoked.example.com',1,'CERT','KEY','CHAIN','ABCDEF',
+		        '2026-01-01 00:00:00','2027-01-01 00:00:00','revoked','2026-06-01 00:00:00',1,'2026-01-01 00:00:00')`); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	// 模拟 v6：删除新表并把版本号降回去，重新打开时触发迁移。
+	if _, err := conn.Exec(`DROP TABLE revocations`); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`PRAGMA user_version = 6`); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	var count int
+	if err := reopened.QueryRow(`SELECT COUNT(*) FROM revocations WHERE ca_id=1 AND serial='ABCDEF' AND reason=1`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("旧库吊销记录应回填到 revocations，实际 count=%d", count)
+	}
+}

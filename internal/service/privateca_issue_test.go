@@ -97,7 +97,8 @@ func TestSignCSRRejectsInvalidCSR(t *testing.T) {
 	}
 }
 
-func TestSignCSRRSALeafKeyUsage(t *testing.T) {	ca, err := GeneratePrivateCA(PrivateCARequest{Name: "Issuing CA", KeyType: "ecdsa", ValidDays: 365})
+func TestSignCSRRSALeafKeyUsage(t *testing.T) {
+	ca, err := GeneratePrivateCA(PrivateCARequest{Name: "Issuing CA", KeyType: "ecdsa", ValidDays: 365})
 	if err != nil {
 		t.Fatal(err)
 	}

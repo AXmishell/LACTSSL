@@ -97,10 +97,13 @@ func NormalizeVerifyDomain(input string) string {
 
 // VerifyDNSAccount 验证 DNS 凭据：构造 provider、写入随机 TXT、再删除。
 // lockKey 用于按账户串行化，避免两次写测试同时操作同一 zone。
-func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey, provider string, cfg map[string]string, domain, mode string) VerifyResult {
+func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey, provider string, cfg map[string]string, domain, mode string) (result VerifyResult) {
 	mode = VerifyModeNormalize(mode)
 	res := newVerifyResult(mode)
-	defer res.finish()
+	defer func() {
+		res.finish()
+		result = *res
+	}()
 
 	plugin, found := dnsplugin.Lookup(provider)
 	if !found {
@@ -170,10 +173,13 @@ func randomVerifyToken() (string, string, error) {
 
 // VerifyDeployAccount 验证目标凭据。deployCfg 为空时只做凭据级检查；
 // 传入部署节点参数时，会额外检查该站点/目录/桶的权限（阶段 2 的 L2 验证）。
-func (m *Manager) VerifyDeployAccount(ctx context.Context, loc i18n.Locale, accountType string, auth, deployCfg map[string]string, mode string, account *model.DeployAccount) VerifyResult {
+func (m *Manager) VerifyDeployAccount(ctx context.Context, loc i18n.Locale, accountType string, auth, deployCfg map[string]string, mode string, account *model.DeployAccount) (result VerifyResult) {
 	mode = VerifyModeNormalize(mode)
 	res := newVerifyResult(mode)
-	defer res.finish()
+	defer func() {
+		res.finish()
+		result = *res
+	}()
 
 	def, found := DeployTypeInfo(accountType)
 	if !found {
@@ -228,6 +234,12 @@ func validateRequiredDeployFields(def ProviderDef, cfg map[string]string) error 
 func verifyLocalDeploy(m *Manager, loc i18n.Locale, res *VerifyResult, cfg map[string]string) {
 	certPath := strings.TrimSpace(cfg["cert_path"])
 	keyPath := strings.TrimSpace(cfg["key_path"])
+	if certPath == "" && keyPath == "" {
+		// 本地部署没有独立凭据；未提供部署路径时只说明无法做目录检查，
+		// 真正的路径权限留给任务部署节点的 L2 验证。
+		res.add("scope", VerifyStatusSkipped, i18n.T(loc, "service.verify.local_no_paths", nil))
+		return
+	}
 	if certPath == "" || keyPath == "" {
 		res.add("config", VerifyStatusFailed, i18n.T(loc, "service.verify.paths_required", nil))
 		return

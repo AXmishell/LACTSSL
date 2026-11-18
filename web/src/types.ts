@@ -215,6 +215,10 @@ export interface DNSAccount {
   provider: string
   config: Record<string, string>
   remark: string
+  verify_status: VerifyStatus | ''
+  verify_message: string
+  verify_mode: string
+  verified_at: string | null
   created_at: string
   updated_at: string
 }
@@ -225,8 +229,28 @@ export interface DeployAccount {
   type: string
   config: Record<string, string>
   remark: string
+  verify_status: VerifyStatus | ''
+  verify_message: string
+  verify_mode: string
+  verified_at: string | null
   created_at: string
   updated_at: string
+}
+
+export type VerifyStatus = 'ok' | 'failed' | 'unsupported'
+
+export interface VerifyCheck {
+  key: string
+  status: 'ok' | 'failed' | 'unsupported' | 'skipped' | 'error'
+  message?: string
+}
+
+export interface VerifyResult {
+  ok: boolean
+  mode: string
+  checks: VerifyCheck[]
+  message?: string
+  verified_at: string
 }
 
 export type Account = DNSAccount | DeployAccount

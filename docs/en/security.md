@@ -197,6 +197,7 @@ Recommendations:
 - Installation validates `plugin.json`, the ID and version in the manifest, and other attributes; any failure triggers a rollback.
 - File digests from installation records are rechecked during discovery, registration, and before every DNS/deployment/notification call; replaced files are refused for loading or execution.
 - When no signing public key is configured, a risk warning is displayed and unattended automatic updates are skipped.
+- Cached indexes (including 304 reuse) are re-verified against the current public key on every load; when the key changes or the cache has no signature, the ETag is discarded and a full fetch is forced. Configuring a key alone never marks a cache as verified.
 - The plugin directory permission is `0700` and helpers are `0755`; group or other write access is not allowed, and symlinks are rejected.
 - Deployment plugins receive certificate private keys and are disabled by default; only install them from trusted sources.
 - The main program limits helper timeouts, resident memory, and output size, and redacts credentials and private keys from error messages.
@@ -225,6 +226,8 @@ Production recommendations:
 - CRL/OCSP endpoints are rate-limited by IP; CRLs cache results for the same revocation set and increment the CRL Number only when revocation content changes.
 - ACME server rate limiting reads trusted proxies from `server.trusted_proxies` and counts by real client IP.
 - CRL/OCSP only affects clients that actively check revocation status; browsers behave inconsistently for private CAs. Existing certificates must be reissued to include CRL/OCSP URLs.
+- Revocation state is stored in a separate `revocations` table; deleting or cleaning up certificate rows does not erase revocations, and CRL/OCSP are generated from that table.
+- Before issuing a leaf certificate, the CA's `ExtKeyUsage` (must include `serverAuth` or `any`) and NameConstraints (permitted/excluded DNS and IP) are enforced; task issuance and ACME finalize share the same validation.
 
 ## 10. Deployment and container hardening
 

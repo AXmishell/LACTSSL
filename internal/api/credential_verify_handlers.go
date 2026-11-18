@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"io"
 	"maps"
 	"net/http"
 	"strconv"
@@ -117,7 +119,7 @@ func (s *Server) verifyDNSAccount(c *gin.Context) {
 		return
 	}
 	var body verifyDNSBody
-	if err := c.ShouldBindJSON(&body); err != nil && err.Error() != "EOF" {
+	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
@@ -201,7 +203,7 @@ func (s *Server) verifyDeployAccount(c *gin.Context) {
 		return
 	}
 	var body verifyDeployBody
-	if err := c.ShouldBindJSON(&body); err != nil && err.Error() != "EOF" {
+	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}

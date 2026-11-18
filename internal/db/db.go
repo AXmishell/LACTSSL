@@ -610,7 +610,8 @@ func tableHasColumn(conn *sql.DB, table, column string) bool {
 	return false
 }
 
-func ensureColumn(conn *sql.DB, table, column, definition string) error {	rows, err := conn.Query(`PRAGMA table_info(` + table + `)`)
+func ensureColumn(conn *sql.DB, table, column, definition string) error {
+	rows, err := conn.Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {
 		return err
 	}
