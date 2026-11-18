@@ -8,7 +8,7 @@ This document provides production-ready installation steps. For a first evaluati
 | --- | --- |
 | Operating system | Linux amd64 / arm64; release packages are also available for FreeBSD, macOS, and Windows |
 | Containers | Docker and Docker Compose v2 (recommended) |
-| Building from source | Go 1.27+, Node.js 22+, npm |
+| Building from source | Go 1.27+, Node.js 22.12+, npm |
 | Host resources | See [Deployment architecture](architecture.md) for capacity planning; 2 vCPU / 1 GB is a suggested starting point |
 | Network | Admin entry through an HTTPS reverse proxy; outbound access to DNS APIs, CAs, SMTP, and deployment targets |
 | Domains | One admin domain and its TLS certificate; an optional dedicated domain for the ACME server |

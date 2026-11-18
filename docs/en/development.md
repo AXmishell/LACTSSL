@@ -32,7 +32,7 @@ Plugin implementations, official helpers, the plugin protocol, and plugin metada
 ### 2.1 Prerequisites
 
 - Go 1.27+
-- Node.js 22+ and npm
+- Node.js 22.12+ and npm (required by Vite 8)
 - Optional: Docker / Docker Compose v2
 
 ### 2.2 Common commands
