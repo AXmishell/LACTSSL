@@ -32,7 +32,7 @@ docs/en/             英文文档
 ### 2.1 环境
 
 - Go 1.27+
-- Node.js 22+ 与 npm
+- Node.js 22.12+ 与 npm（Vite 8 要求）
 - 可选：Docker / Docker Compose v2
 
 ### 2.2 常用命令

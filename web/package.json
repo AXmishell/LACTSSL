@@ -3,6 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite",
     "typecheck": "vue-tsc --noEmit",
@@ -17,14 +20,15 @@
     "qrcode": "^1.5.4",
     "vue": "^3.5.13",
     "vue-i18n": "^11.4.20",
-    "vue-router": "^4.5.0"
+    "vue-router": "^5.5.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue": "^6.0.11",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
-    "vite": "^6.4.6",
+    "vite": "^8.3.8",
     "vue-tsc": "^3.3.14"
   }
 }

@@ -265,15 +265,12 @@ export default defineConfig({
     __LACTSSL_VERSION__: JSON.stringify(resolveVersion())
   },
   base: '/',
-  // 依赖（如 Element Plus）带 /*! ... */ 法律声明注释，esbuild 默认会保留。
-  esbuild: {
-    legalComments: 'none'
-  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    minify: 'esbuild',
-    cssMinify: 'esbuild',
+    // Vite 8 默认使用 oxc 压缩 JS、lightningcss 压缩 CSS；
+    // 两者在压缩模式下都会丢弃依赖（如 Element Plus）的 /*! ... */ 法律声明注释，
+    // 避免这些注释随 go:embed 进入发布二进制。
     sourcemap: false,
     chunkSizeWarningLimit: 1600
   },

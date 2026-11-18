@@ -8,7 +8,7 @@
 | --- | --- |
 | 操作系统 | Linux amd64 / arm64；也支持 FreeBSD、macOS 和 Windows 的发布包 |
 | 容器 | Docker 及 Docker Compose v2（推荐） |
-| 源码构建 | Go 1.27+、Node.js 22+、npm |
+| 源码构建 | Go 1.27+、Node.js 22.12+、npm |
 | 主机资源 | 参考[部署架构](architecture.md)，起步建议 2 vCPU / 1 GB |
 | 网络 | 管理入口经 HTTPS 反向代理；出站可访问 DNS API、CA、SMTP、部署目标 |
 | 域名 | 一个管理域名和对应 TLS 证书；ACME 服务端可选独立域名 |
