@@ -18,12 +18,20 @@ export const resetPath = '/reset'
 
 const csrfHeader = 'X-LACTSSL-CSRF'
 
+// 读取单个 Cookie；同名的 __Host- 与非前缀 Cookie 可能同时存在。
+function readCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'))
+  return match ? decodeURIComponent(match[1]) : null
+}
+
 // 双提交 CSRF：服务端下发非 HttpOnly 的 lactssl_csrf Cookie，前端把它放进请求头。
 // 旧会话尚未拿到 Cookie 时发送占位值，服务端会退回兼容校验。
 function csrfToken(): string {
-  // HTTPS 下服务端使用 __Host- 前缀，需同时兼容明文 HTTP 的旧名称。
-  const match = document.cookie.match(/(?:^|;\s*)(?:__Host-)?lactssl_csrf=([^;]*)/)
-  return match ? decodeURIComponent(match[1]) : '1'
+  // 必须优先 __Host-：从明文切换到 HTTPS（或升级旧版本）后，浏览器里可能同时
+  // 保留旧的 lactssl_csrf 和新的 __Host-lactssl_csrf。document.cookie 的顺序
+  // 由浏览器决定，若先匹配到旧值，服务端却优先校验 __Host-，所有写操作都会
+  // 被当成 CSRF 失败并提示“请先登录”。
+  return readCookie('__Host-lactssl_csrf') ?? readCookie('lactssl_csrf') ?? '1'
 }
 
 // 旧版本把 JWT 存在 localStorage，切换为 HttpOnly Cookie 后顺手清理。

@@ -90,16 +90,50 @@ func (s *Server) readCookie(c *gin.Context, base string) (string, error) {
 
 // setSessionCookie 写入会话 Cookie。Path 设为根路径，保证裸页面和入口下的接口都能携带。
 func (s *Server) setSessionCookie(c *gin.Context, token string, expire time.Time) {
+	secure := s.sessionCookieSecure(c)
+	if secure {
+		// 升级或切换到 HTTPS 后，浏览器可能同时保留明文时代的旧名称 Cookie。
+		// 服务端优先读取 __Host-，这里同步删除旧名称，避免两份会话并存。
+		s.expireLegacyCookie(c, sessionCookieName, true)
+	}
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     s.cookieName(sessionCookieName, s.sessionCookieSecure(c)),
+		Name:     s.cookieName(sessionCookieName, secure),
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.sessionCookieSecure(c),
+		Secure:   secure,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  expire,
 		MaxAge:   int(time.Until(expire).Seconds()),
 	})
+}
+
+// expireLegacyCookie 删除不带前缀的同名旧 Cookie。
+// 只在写入 __Host- Cookie 时调用：旧名称不再有存在价值，留着会让前端
+// 的 document.cookie 顺序不可控。
+func (s *Server) expireLegacyCookie(c *gin.Context, base string, httpOnly bool) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     base,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: httpOnly,
+		SameSite: http.SameSiteStrictMode,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+	})
+}
+
+// dropShadowedLegacyCookie 在 __Host- Cookie 已存在时删除并存的旧名称 Cookie。
+// 浏览器不会因为新旧名称并存就丢弃旧值，而 document.cookie 的顺序不保证，
+// 旧 CSRF 值可能被前端优先读到，造成登录状态下所有写操作提示“请先登录”。
+func (s *Server) dropShadowedLegacyCookie(c *gin.Context, base string, httpOnly bool) {
+	if _, err := c.Cookie(hostCookiePrefix + base); err != nil {
+		return
+	}
+	if _, err := c.Cookie(base); err != nil {
+		return
+	}
+	s.expireLegacyCookie(c, base, httpOnly)
 }
 
 // clearSessionCookie 清除会话 Cookie（同时清理带与不带 __Host- 前缀的名称）。
@@ -120,12 +154,17 @@ func (s *Server) clearSessionCookie(c *gin.Context) {
 
 // setCSRFCookie 下发双提交 CSRF Cookie。值由会话令牌派生，前端读取后放入请求头。
 func (s *Server) setCSRFCookie(c *gin.Context, token string, expire time.Time) {
+	secure := s.sessionCookieSecure(c)
+	if secure {
+		// 新值写入 __Host- 后，旧名称的 CSRF Cookie 必须删除；否则前端可能读到旧值。
+		s.expireLegacyCookie(c, csrfCookieName, false)
+	}
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     s.cookieName(csrfCookieName, s.sessionCookieSecure(c)),
+		Name:     s.cookieName(csrfCookieName, secure),
 		Value:    s.Auth.SignValueLong(csrfTokenPurpose, token, csrfTokenLength),
 		Path:     "/",
 		HttpOnly: false,
-		Secure:   s.sessionCookieSecure(c),
+		Secure:   secure,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  expire,
 		MaxAge:   int(time.Until(expire).Seconds()),
@@ -170,16 +209,23 @@ func (s *Server) clearCSRFCookie(c *gin.Context) {
 }
 
 // validCSRF 严格校验双提交 CSRF 令牌；Cookie 缺失时不再退化为“只看请求头”。
+// __Host- 与非前缀 Cookie 可能因部署方式切换而同时存在，请求头只要与其中
+// 任意一个真实令牌一致即可，避免旧页面或旧 Cookie 让写操作误报“请先登录”。
 func (s *Server) validCSRF(c *gin.Context) bool {
 	header := c.GetHeader(csrfHeaderName)
 	if header == "" {
 		return false
 	}
-	cookie, err := s.readCookie(c, csrfCookieName)
-	if err != nil || cookie == "" {
-		return false
+	matched := 0
+	// 不提前返回，始终比较两种名称，避免通过响应耗时判断命中的 Cookie。
+	for _, name := range []string{hostCookiePrefix + csrfCookieName, csrfCookieName} {
+		cookie, err := c.Cookie(name)
+		if err != nil || cookie == "" {
+			continue
+		}
+		matched |= subtle.ConstantTimeCompare([]byte(header), []byte(cookie))
 	}
-	return subtle.ConstantTimeCompare([]byte(header), []byte(cookie)) == 1
+	return matched == 1
 }
 
 // setEntryCookie 写入一次性门禁 Cookie。只有先访问过门禁入口，才能打开裸登录页。

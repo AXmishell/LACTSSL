@@ -541,6 +541,10 @@ func (s *Server) authenticate(c *gin.Context) bool {
 	// 旧会话的 CSRF Cookie 缺失或长度不正确时顺手补发。
 	// 注意 CSRF 令牌长度是 csrfTokenLength，不能拿会话令牌的 MinTokenLength 比较。
 	if !fromHeader {
+		// 旧版本/明文部署留下的无前缀 Cookie 可能与 __Host- Cookie 并存，
+		// 浏览器会同时发送两者；这里清理被遮蔽的旧值，避免前端读到过期 CSRF。
+		s.dropShadowedLegacyCookie(c, sessionCookieName, true)
+		s.dropShadowedLegacyCookie(c, csrfCookieName, false)
 		if csrf, err := s.readCookie(c, csrfCookieName); err != nil || len(csrf) != csrfTokenLength {
 			expire := time.Now().Add(entryCookieTTL)
 			if claims.ExpiresAt != nil {
