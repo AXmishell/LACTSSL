@@ -1250,7 +1250,6 @@ export default {
     copyToken: '复制密钥',
     tokenCopied: '密钥已复制',
     tokenCopyFailed: '复制失败，请手动选择密钥文本',
-    usageTitle: '调用示例',
     savedToken: '我已保存',
     statusEnabled: '启用中',
     statusDisabled: '已停用',

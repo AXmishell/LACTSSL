@@ -228,10 +228,6 @@
       <div class="flex gap-10" style="margin: 12px 0 18px">
         <el-button type="primary" plain :icon="CopyDocument" @click="copyToken">{{ t('apiKeys.copyToken') }}</el-button>
       </div>
-      <div class="token-usage">
-        <div class="token-usage-title">{{ t('apiKeys.usageTitle') }}</div>
-        <pre class="token-code mono">{{ usageExample }}</pre>
-      </div>
       <template #footer>
         <el-button type="primary" @click="tokenVisible = false">{{ t('apiKeys.savedToken') }}</el-button>
       </template>
@@ -244,7 +240,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, CopyDocument, Delete, Plus, Refresh, Search, WarningFilled } from '@element-plus/icons-vue'
-import { api, apiBase, copyText } from '../api'
+import { api, copyText } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
 import { SCOPE_ALL_GROUP, SCOPE_MODULES, moduleOfGroup } from '../scopeCatalog'
 import { formatDate, fromNow } from '../utils'
@@ -354,14 +350,6 @@ const selectedSensitive = computed(() =>
     .filter((scope): scope is APIKeyScope => !!scope && scope.sensitive && scope.value !== '*')
     .map((scope) => scope.label)
 )
-
-const usageExample = computed(() => {
-  const base = `${window.location.origin}${apiBase}`
-  return [
-    `curl -H "Authorization: Bearer ${issuedToken.value || 'YOUR_API_KEY'}" \\`,
-    `  ${base}/certificates`
-  ].join('\n')
-})
 
 function scopeLabel(value: string): string {
   return scopeMap.value.get(value)?.label || value
@@ -879,21 +867,4 @@ onMounted(load)
   font-size: 13px;
 }
 
-.token-usage-title {
-  margin-bottom: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #475569;
-}
-
-.token-code {
-  margin: 0;
-  padding: 12px 14px;
-  overflow-x: auto;
-  border-radius: 10px;
-  background: #0f172a;
-  color: #e2e8f0;
-  font-size: 12px;
-  line-height: 1.7;
-}
 </style>

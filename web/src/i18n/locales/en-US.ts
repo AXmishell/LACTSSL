@@ -1250,7 +1250,6 @@ export default {
     copyToken: 'Copy key',
     tokenCopied: 'Key copied',
     tokenCopyFailed: 'Copy failed. Please select the key text manually.',
-    usageTitle: 'Example request',
     savedToken: 'I have saved it',
     statusEnabled: 'Active',
     statusDisabled: 'Disabled',
