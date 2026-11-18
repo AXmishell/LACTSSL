@@ -212,6 +212,8 @@ curl -fsS -X POST \
 
 如果任务包含启用的部署节点，密钥必须同时拥有 `deploy:execute`。
 
+默认会复用仍在有效期内且未进入续期窗口的证书，只重新执行部署节点，不重复向上游 CA 下单。确需强制重新签发时使用 `?force=1` 或发送 `{"force":true}`；强制签发会消耗 CA 的证书配额。
+
 ### 6.3 下载证书
 
 ```bash
@@ -310,6 +312,66 @@ python3 scripts/csr_client.py \
 
 脚本只上传 CSR，私钥始终保存在客户端；输出包括 `.key`、`.csr`、`.crt`、`.fullchain.crt` 和 `.request.json`。如果申请已创建但下载中断，可使用 `--request-id csr_xxxxxxxx` 续传。
 
+### 6.7 验证凭据可用性
+
+在新增或修改 DNS 账户、目标凭据后，可主动验证凭据是否真实可用。验证接口使用 `dns_accounts:write` / `deploy_accounts:write` 权限；浏览器会话还必须通过当前密码或 TOTP 再认证。验证结果仅作提示，不会阻止保存或运行。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/dns-accounts/:id/verify` | 验证已保存 DNS 账户；可传 `domain`、`mode` |
+| POST | `/api/dns-accounts/verify` | 验证未保存的 DNS 配置；必须显式提交密钥 |
+| POST | `/api/deploy-accounts/:id/verify` | 验证已保存目标凭据；可传 `deploy_config` |
+| POST | `/api/deploy-accounts/verify` | 验证未保存的目标凭据配置；必须显式提交密钥 |
+| POST | `/api/deploy-accounts/:id/options` | 使用已保存凭据读取部署字段的动态选项，例如宝塔网站列表 |
+
+请求示例：
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"domain":"example.com","mode":"auto"}' \
+  https://ssl.example.com/api/dns-accounts/3/verify
+```
+
+动态选项接口只适用于 manifest 中声明了 `options_source` 的部署字段，API 密钥需要 `deploy_accounts:write` 权限。请求体传入字段名和当前部署参数，凭据由服务端从目标凭据中读取：
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"field":"sites","config":{"target":"docker"}}' \
+  https://ssl.example.com/api/deploy-accounts/3/options
+```
+
+返回 `{"options":[{"label":"站点名称","value":"站点名称"}]}`。插件不可用或面板不可达时返回明确错误，界面会保留手工输入能力。
+
+返回结构包含分项检查，便于区分认证失败、域名不属于该凭据、目录不可写等原因：
+
+```json
+{
+  "success": true,
+  "data": {
+    "ok": false,
+    "mode": "write",
+    "checks": [
+      {"key": "init", "status": "ok"},
+      {"key": "domain", "status": "ok", "message": "example.com"},
+      {"key": "write", "status": "failed", "message": "..."}
+    ],
+    "message": "...",
+    "verified_at": "2026-11-18T12:00:00Z"
+  }
+}
+```
+
+行为说明：
+
+- DNS 验证默认使用 `write` 模式：写入一条随机 `_acme-challenge` TXT 记录后立即删除，同时验证认证、域名归属与写权限；`mode=read` 在当前插件协议下会返回 `unsupported`。
+- 已保存账户只使用数据库中的配置；未保存配置必须显式提交密钥，不会复用已保存密钥，避免通过修改 endpoint 把凭据发往其他服务器。
+- 目标凭据验证支持内置 `local`/`ssh`：连接并认证，在目标目录创建并删除临时文件，不执行 `reload_command`。其他部署插件在实现 `verify` 能力前返回 `unsupported`。
+- 传入 `deploy_config` 可验证具体部署节点的作用域（站点、目录、桶、域名），这是“新增权限是否可用”的推荐用法。
+
 ## 7. CI/CD 示例
 
 ### 7.1 证书续期后分发
@@ -335,7 +397,7 @@ curl -fL \
 
 注意：
 
-- API 没有幂等键；重复调用 `run` 会再次触发任务，脚本应自行去重。
+- API 没有幂等键；重复调用 `run` 会再次执行任务流程，但证书仍有效时会跳过签发并只执行部署，脚本仍应自行去重。
 - 任务运行是异步的；需要等待完成时轮询任务列表或订阅通知，不要假设 POST 返回即完成。
 - 下载私钥需要额外权限；大多数分发场景只需证书链和私钥由部署节点直接写入目标，不建议把私钥经 CI 中转。
 

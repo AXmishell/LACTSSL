@@ -70,6 +70,7 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit">{{ t('tasks.editTask') }}</el-dropdown-item>
+                  <el-dropdown-item command="forceRun">{{ t('tasks.forceRun') }}</el-dropdown-item>
                   <el-dropdown-item command="toggle">{{ row.enabled ? t('tasks.pauseAutoRenew') : t('tasks.enableAutoRenew') }}</el-dropdown-item>
                   <el-dropdown-item command="delete" divided>{{ t('tasks.deleteTask') }}</el-dropdown-item>
                 </el-dropdown-menu>
@@ -291,9 +292,40 @@
                 <DeployConfigFields
                   v-if="selectedDeployAccount"
                   :account-type="selectedDeployAccount.type"
+                  :account-id="selectedDeployAccount.id"
                   :model-value="selectedNode.config.deploy_config || {}"
                   @update:model-value="selectedNode.config.deploy_config = $event"
                 />
+                <ReauthFields
+                  v-model:password="nodeVerifyReauth.password"
+                  v-model:totp="nodeVerifyReauth.totp"
+                  :totp-enabled="!!currentUser?.totp_enabled"
+                />
+                <div class="flex gap-10 wrap" style="margin-bottom: 12px">
+                  <el-button
+                    size="small"
+                    :loading="verifyingNode"
+                    :disabled="!selectedNode.config.deploy_account_id"
+                    @click="verifySelectedNode"
+                  >
+                    {{ t('tasks.verifyTarget') }}
+                  </el-button>
+                  <span class="muted" style="align-self: center; font-size: 12px">{{ t('tasks.verifyTargetHint') }}</span>
+                </div>
+                <el-alert
+                  v-if="nodeVerifyResult"
+                  :type="nodeVerifyResult.ok ? 'success' : 'warning'"
+                  :closable="false"
+                  style="margin-bottom: 12px"
+                  :title="nodeVerifyResult.ok ? t('tasks.verifyPassed') : t('tasks.verifyFailed')"
+                >
+                  <div v-for="check in nodeVerifyResult.checks" :key="check.key" class="node-verify-check">
+                    <el-tag :type="check.status === 'ok' ? 'success' : check.status === 'unsupported' ? 'warning' : check.status === 'skipped' ? 'info' : 'danger'" size="small" effect="light">
+                      {{ check.status }}
+                    </el-tag>
+                    <span class="muted">{{ check.message || check.key }}</span>
+                  </div>
+                </el-alert>
                 <el-form-item :label="t('tasks.moduleStatus')">
                   <div class="flex gap-10">
                     <el-switch v-model="selectedNode.enabled" />
@@ -386,9 +418,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Close, Delete, Plus, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
-import { loadMeta, loadSettings } from '../store'
+import { loadMeta, loadSettings, state } from '../store'
 import { enabledNotifyChannels } from '../notifyChannels'
 import DeployConfigFields from '../components/DeployConfigFields.vue'
+import ReauthFields from '../components/ReauthFields.vue'
 import {
   fieldVisible,
   formatDate,
@@ -408,7 +441,8 @@ import type {
   PipelineNodeType,
   Settings,
   Task,
-  TaskBatchResult
+  TaskBatchResult,
+  VerifyResult
 } from '../types'
 
 interface TaskForm {
@@ -444,6 +478,10 @@ const pipelineListRef = ref<HTMLElement | null>(null)
 const draggingId = ref('')
 const itemShifts = ref<Record<string, number>>({})
 const settling = ref(false)
+const verifyingNode = ref(false)
+const nodeVerifyResult = ref<VerifyResult | null>(null)
+const nodeVerifyReauth = reactive({ password: '', totp: '' })
+const currentUser = computed(() => state.user)
 
 const logVisible = ref(false)
 const logLoading = ref(false)
@@ -520,10 +558,64 @@ function normalizeDeployConfig(type: string | undefined, current: Record<string,
 }
 function onDeployAccountChange(): void {
   if (!selectedNode.value) return
+  resetNodeVerify()
   selectedNode.value.config.deploy_config = normalizeDeployConfig(
     selectedDeployAccount.value?.type,
     selectedNode.value.config.deploy_config
   )
+}
+
+function resetNodeVerify(): void {
+  nodeVerifyResult.value = null
+  nodeVerifyReauth.password = ''
+  nodeVerifyReauth.totp = ''
+}
+
+function validNodeReauth(): boolean {
+  if (currentUser.value?.totp_enabled) {
+    if (!/^\d{6}$/.test(nodeVerifyReauth.totp.trim())) {
+      ElMessage.warning(t('settings.reauthTotpRequired'))
+      return false
+    }
+    return true
+  }
+  if (!nodeVerifyReauth.password) {
+    ElMessage.warning(t('settings.reauthPasswordRequired'))
+    return false
+  }
+  return true
+}
+
+// 验证具体部署节点：把 account_id 与该节点的 deploy_config 一起提交，
+// 用于确认“新增的站点/目录/桶/域名”是否真的有权限。
+async function verifySelectedNode(): Promise<void> {
+  const node = selectedNode.value
+  const accountID = node?.config.deploy_account_id
+  if (!node || !accountID) {
+    ElMessage.warning(t('tasks.verifyTargetRequired'))
+    return
+  }
+  if (!validNodeReauth()) return
+  verifyingNode.value = true
+  nodeVerifyResult.value = null
+  try {
+    const data = await api.post<VerifyResult>(`/deploy-accounts/${accountID}/verify`, {
+      deploy_config: node.config.deploy_config || {},
+      mode: 'auto',
+      password: nodeVerifyReauth.password,
+      totp: nodeVerifyReauth.totp
+    })
+    if (data === null) return
+    nodeVerifyResult.value = data
+    nodeVerifyReauth.password = ''
+    nodeVerifyReauth.totp = ''
+    if (data.ok) ElMessage.success(t('tasks.verifyPassed'))
+    else ElMessage.warning(data.message || t('tasks.verifyFailed'))
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    verifyingNode.value = false
+  }
 }
 function nodeTypeLabel(type: PipelineNodeType): string {
   if (type === 'apply') return t('tasks.pipelineApply')
@@ -722,6 +814,7 @@ async function openCreate(): Promise<void> {
     pipeline: defaultPipeline()
   })
   selectedNodeId.value = 'apply'
+  resetNodeVerify()
   dialogVisible.value = true
 }
 
@@ -753,11 +846,13 @@ async function openEdit(row: Task): Promise<void> {
     pipeline
   })
   selectedNodeId.value = 'apply'
+  resetNodeVerify()
   dialogVisible.value = true
 }
 
 function selectNode(node: PipelineNode): void {
   if (suppressClick) return
+  if (selectedNodeId.value !== node.id) resetNodeVerify()
   selectedNodeId.value = node.id
 }
 
@@ -765,6 +860,7 @@ function addPipelineNode(type: PipelineNodeType): void {
   if (type === 'apply') return
   const node = newNode(type)
   form.pipeline.push(node)
+  resetNodeVerify()
   selectedNodeId.value = node.id
 }
 
@@ -1265,6 +1361,25 @@ async function handleMore(command: string, row: Task): Promise<void> {
     await openEdit(row)
     return
   }
+  if (command === 'forceRun') {
+    try {
+      await ElMessageBox.confirm(t('tasks.forceRunConfirm', { name: row.name }), t('tasks.forceRunTitle'), {
+        confirmButtonText: t('tasks.forceRun'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      })
+    } catch (_) {
+      return
+    }
+    try {
+      const data = await api.post<MessageResult>(`/tasks/${row.id}/run`, { force: true })
+      ElMessage.success(data.message || t('tasks.runStarted'))
+      startTaskPolling()
+    } catch (error: any) {
+      ElMessage.error(error.message)
+    }
+    return
+  }
   if (command === 'delete') {
     try {
       await ElMessageBox.confirm(t('tasks.deleteConfirm', { name: row.name }), t('tasks.deleteTitle'), {
@@ -1712,6 +1827,14 @@ onUnmounted(() => {
   margin-top: 8px;
   padding-top: 10px;
   border-top: 1px dashed #eef2f8;
+}
+.node-verify-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  word-break: break-word;
 }
 @media (max-width: 900px) {
   .pipeline-editor {

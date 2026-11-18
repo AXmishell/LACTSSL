@@ -89,6 +89,10 @@ export interface FieldDef {
   options?: FieldOption[]
   default?: string
   show_if?: FieldCondition
+  // 动态选项来源；设置后前端会通过目标凭据接口读取可选项。
+  options_source?: string
+  // 允许选择多个值，值仍以逗号分隔保存。
+  multiple?: boolean
 }
 
 export interface ProviderDef {

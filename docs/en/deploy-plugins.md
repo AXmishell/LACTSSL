@@ -96,7 +96,8 @@ Enablement state is stored in the settings table under `plugins.deploy.enabled_d
 ### 5.5 Cloud CDN / panel / WAF
 
 - Use dedicated sub-accounts with only certificate management permissions.
-- Deployment parameters (domain, site, certificate name) must match the target system.
+- Deployment parameters (domain, site, certificate name) must match the target system; BaoTa panel website and Docker website names can be loaded from the panel API and selected from a list.
+- If the plugin does not implement dynamic options or the panel is unreachable, you can still type names manually.
 - If the target system enforces an IP allowlist, allow LACTSSL egress addresses.
 - CDNs and WAFs may cache certificates; after deployment, verify the certificate that is actually in effect.
 

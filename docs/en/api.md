@@ -212,6 +212,8 @@ curl -fsS -X POST \
 
 If the task contains enabled deploy nodes, the key must also have `deploy:execute`.
 
+By default, a certificate that is still valid and outside its renewal window is reused, and only deployment nodes are executed; no new order is sent to the CA. Use `?force=1` or send `{"force":true}` to force re-issuance. Forced issuance consumes the CA's certificate quota.
+
 ### 6.3 Downloading Certificates
 
 ```bash
@@ -310,6 +312,66 @@ python3 scripts/csr_client.py \
 
 The script uploads only the CSR; the private key never leaves the client. Outputs include `.key`, `.csr`, `.crt`, `.fullchain.crt`, and `.request.json`. If the request was created but the download was interrupted, resume with `--request-id csr_xxxxxxxx`.
 
+### 6.7 Verifying Credential Availability
+
+After adding or editing a DNS account or target credential, you can verify that the credential actually works. These endpoints require `dns_accounts:write` / `deploy_accounts:write`; browser sessions must also re-authenticate with the current password or TOTP. Results are advisory and never block saving or running tasks.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/api/dns-accounts/:id/verify` | Verify a saved DNS account; accepts `domain` and `mode` |
+| POST | `/api/dns-accounts/verify` | Verify an unsaved DNS configuration; secrets must be supplied explicitly |
+| POST | `/api/deploy-accounts/:id/verify` | Verify a saved target credential; accepts `deploy_config` |
+| POST | `/api/deploy-accounts/verify` | Verify an unsaved target configuration; secrets must be supplied explicitly |
+| POST | `/api/deploy-accounts/:id/options` | Read dynamic deployment field options with a saved credential, such as the BaoTa website list |
+
+Example:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"domain":"example.com","mode":"auto"}' \
+  https://ssl.example.com/api/dns-accounts/3/verify
+```
+
+The dynamic options endpoint is only available for deployment fields that declare `options_source` in the manifest, and API keys need the `deploy_accounts:write` scope. Supply the field name and current deployment parameters; the server reads the credential from the saved target:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"field":"sites","config":{"target":"docker"}}' \
+  https://ssl.example.com/api/deploy-accounts/3/options
+```
+
+It returns `{"options":[{"label":"site name","value":"site name"}]}`. If the plugin is unavailable or the panel is unreachable, the response contains an explicit error and the UI keeps manual input available.
+
+The response contains per-check results, so callers can tell authentication failures from missing zone permissions or unwritable directories:
+
+```json
+{
+  "success": true,
+  "data": {
+    "ok": false,
+    "mode": "write",
+    "checks": [
+      {"key": "init", "status": "ok"},
+      {"key": "domain", "status": "ok", "message": "example.com"},
+      {"key": "write", "status": "failed", "message": "..."}
+    ],
+    "message": "...",
+    "verified_at": "2026-11-18T12:00:00Z"
+  }
+}
+```
+
+Behavior:
+
+- DNS verification defaults to `write`: it creates a random `_acme-challenge` TXT record and removes it immediately, covering authentication, zone lookup, and write permission. `mode=read` returns `unsupported` under the current plugin protocol.
+- Saved accounts use only the configuration stored in the database. Unsaved configurations must include secrets explicitly; stored secrets are never reused, so changing an endpoint cannot redirect a credential to another server.
+- Target credential verification supports built-in `local`/`ssh`: it connects and authenticates, creates and removes a temporary file in the target directory, and never executes `reload_command`. Other deployment plugins return `unsupported` until they implement the `verify` capability.
+- Pass `deploy_config` to verify the scope of a specific deployment node (site, directory, bucket, or domain). This is the recommended way to check whether newly granted permissions are usable.
+
 ## 7. CI/CD Examples
 
 ### 7.1 Distributing Certificates After Renewal
@@ -335,7 +397,7 @@ curl -fL \
 
 Notes:
 
-- The API has no idempotency key; repeated calls to `run` trigger the task again, so scripts should deduplicate themselves.
+- The API has no idempotency key; repeated calls to `run` execute the task again. If the certificate is still valid, issuance is skipped and only deployment runs, but scripts should still deduplicate themselves.
 - Task runs are asynchronous; when completion must be awaited, poll the task list or subscribe to notifications. Do not assume that a POST response means the task has completed.
 - Downloading private keys requires additional permissions; most distribution scenarios only need certificate chains, with the deployment node writing the private key directly to the target. Relaying private keys through CI is not recommended.
 

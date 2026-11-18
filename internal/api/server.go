@@ -308,6 +308,7 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/deploy-accounts", s.createDeployAccount)
 	g.POST("/deploy-accounts/verify", s.verifyDeployAccountConfig)
 	g.POST("/deploy-accounts/:id/verify", s.verifyDeployAccount)
+	g.POST("/deploy-accounts/:id/options", s.listDeployAccountOptions)
 	g.PUT("/deploy-accounts/:id", s.updateDeployAccount)
 	g.DELETE("/deploy-accounts/:id", s.deleteDeployAccount)
 	g.GET("/tasks", s.listTasks)

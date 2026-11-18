@@ -4,12 +4,17 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"net"
+	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-acme/lego/v4/acme"
+	acmeapi "github.com/go-acme/lego/v4/acme/api"
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge"
@@ -53,6 +58,84 @@ type acmeUser struct {
 func (u *acmeUser) GetEmail() string                        { return u.email }
 func (u *acmeUser) GetRegistration() *registration.Resource { return u.reg }
 func (u *acmeUser) GetPrivateKey() crypto.PrivateKey        { return u.key }
+
+// RateLimitError 表示上游 CA 返回的速率限制错误。
+// 保留 RetryAt 与原始错误链，任务层据此安排重试时间，而不是按普通失败处理。
+type RateLimitError struct {
+	RetryAt time.Time
+	Detail  string
+	Err     error
+}
+
+func (e *RateLimitError) Error() string {
+	return i18n.T(i18n.Default, "service.acme.rate_limited", map[string]any{
+		"time": e.RetryAt.Local().Format("2006-01-02 15:04:05"),
+	})
+}
+
+func (e *RateLimitError) Unwrap() error { return e.Err }
+
+// LocalizedMessage 让 i18n 在保留错误链的同时持久化可翻译消息。
+func (e *RateLimitError) LocalizedMessage() (string, map[string]any) {
+	return "service.acme.rate_limited", map[string]any{
+		"time": e.RetryAt.Local().Format("2006-01-02 15:04:05"),
+	}
+}
+
+var retryAfterDetailPattern = regexp.MustCompile(`(?i)retry after\s+([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC)`)
+
+// rateLimitErrorFrom 识别 lego 或 ACME v1 返回的限流错误。
+// 识别失败返回 nil，调用方继续按普通签发错误处理。
+func rateLimitErrorFrom(err error) *RateLimitError {
+	if err == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	var limited *acme.RateLimitedError
+	if errors.As(err, &limited) {
+		retryAt := now.Add(6 * time.Hour)
+		if delay, parseErr := acmeapi.ParseRetryAfter(limited.RetryAfter); parseErr == nil && delay > 0 {
+			retryAt = now.Add(delay)
+		} else if parsed, ok := parseRetryAfterDetail(limited.Detail); ok {
+			retryAt = parsed
+		}
+		return &RateLimitError{RetryAt: retryAt, Detail: limited.Detail, Err: err}
+	}
+	// 部分兼容 ACME 的 CA 返回 429，但 type 不是 rateLimited，也按限流处理。
+	var problem *acme.ProblemDetails
+	if errors.As(err, &problem) && problem.HTTPStatus == http.StatusTooManyRequests {
+		retryAt := now.Add(6 * time.Hour)
+		if parsed, ok := parseRetryAfterDetail(problem.Detail); ok {
+			retryAt = parsed
+		}
+		return &RateLimitError{RetryAt: retryAt, Detail: problem.Detail, Err: err}
+	}
+
+	// ACME v1 和少数中间层会把 ProblemDetails 转成普通字符串，
+	// 这里按错误文本兜底识别，避免限流被误判为普通签发失败。
+	message := err.Error()
+	if !strings.Contains(message, "rateLimited") && !strings.Contains(strings.ToLower(message), "too many certificates") {
+		return nil
+	}
+	retryAt, ok := parseRetryAfterDetail(message)
+	if !ok {
+		retryAt = now.Add(6 * time.Hour)
+	}
+	return &RateLimitError{RetryAt: retryAt, Detail: message, Err: err}
+}
+
+// parseRetryAfterDetail 解析 LE 错误详情中的 “retry after YYYY-MM-DD HH:MM:SS UTC”。
+func parseRetryAfterDetail(message string) (time.Time, bool) {
+	match := retryAfterDetailPattern.FindStringSubmatch(message)
+	if len(match) != 2 {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse("2006-01-02 15:04:05 MST", match[1])
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed.UTC(), true
+}
 
 // Manager 是核心业务调度器。
 type Manager struct {
@@ -123,6 +206,9 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 		}
 		result, err := m.obtainV1(ca, user, req, provider, keyType)
 		if err != nil {
+			if limited := rateLimitErrorFrom(err); limited != nil {
+				return nil, limited
+			}
 			return nil, err
 		}
 		if err := validateACMEResult(req.Domains, result); err != nil {
@@ -133,6 +219,9 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 
 	client, _, err := m.newACMEClient(ca, req.Email, keyType, provider, req.EABKid, req.EABHMAC)
 	if err != nil {
+		if limited := rateLimitErrorFrom(err); limited != nil {
+			return nil, limited
+		}
 		return nil, err
 	}
 
@@ -142,6 +231,9 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 	}
 	resource, err := client.Certificate.Obtain(request)
 	if err != nil {
+		if limited := rateLimitErrorFrom(err); limited != nil {
+			return nil, limited
+		}
 		return nil, i18n.E("service.acme.issue_failed", "error", err.Error())
 	}
 

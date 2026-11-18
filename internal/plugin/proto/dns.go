@@ -4,6 +4,8 @@ package pluginproto
 type DNSManifest struct {
 	// Protocol 目前固定为 v1。
 	Protocol string `json:"protocol"`
+	// Capabilities 是 helper 级能力位，例如 verify-v1。
+	Capabilities []string `json:"capabilities,omitempty"`
 	// Name 是 helper 的可读名称，仅用于日志与展示。
 	Name string `json:"name,omitempty"`
 	// Version 是 helper 版本号，仅用于展示。
@@ -24,6 +26,8 @@ type DNSProvider struct {
 	DescriptionI18n map[string]string `json:"description_i18n,omitempty"`
 	Aliases         []string          `json:"aliases,omitempty"`
 	Fields          []DNSField        `json:"fields,omitempty"`
+	// Capabilities 非空表示该服务商支持 verify 子命令中的只读探测。
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // DNSField 描述外部服务商的配置字段，与内置 FieldDef 的 JSON 结构保持兼容。
@@ -56,7 +60,7 @@ type DNSCondition struct {
 	Value string `json:"value"`
 }
 
-// DNSRequest 是 present / cleanup 的 stdin 请求。
+// DNSRequest 是 present / cleanup / verify 的 stdin 请求。
 // 宿主当前使用本地执行结构，但保留该类型便于协议测试与未来复用。
 type DNSRequest struct {
 	Action   string            `json:"action"`
@@ -65,4 +69,8 @@ type DNSRequest struct {
 	Domain   string            `json:"domain,omitempty"`
 	Token    string            `json:"token,omitempty"`
 	KeyAuth  string            `json:"key_auth,omitempty"`
+	// Mode 仅用于 verify：read 表示只读探测；留空或 write 由 helper 决定。
+	Mode string `json:"mode,omitempty"`
+	// Locale 让 helper 返回对应语言的检查消息；留空时使用默认语言。
+	Locale string `json:"locale,omitempty"`
 }

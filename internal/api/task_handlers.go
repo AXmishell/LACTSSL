@@ -408,7 +408,7 @@ func (s *Server) updateTask(c *gin.Context) {
 	if task.Enabled {
 		if task.CertID > 0 {
 			if cert, err := s.Store.GetCertificate(task.CertID); err == nil && task.AutoRenew {
-				next = service.NextRenewTime(cert.NotAfter, task.RenewDays, true)
+				next = service.NextRenewTimeFor(cert.NotBefore, cert.NotAfter, task.RenewDays, true)
 			} else if !task.AutoRenew {
 				next = nil
 			}
@@ -462,7 +462,20 @@ func (s *Server) runTask(c *gin.Context) {
 	if pipelineUsesDeployCommand(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
-	s.goSafe("task-manual", func() { _ = s.Manager.RunTask(id, "task.trigger.manual") })
+	force := c.Query("force") == "1" || strings.EqualFold(c.Query("force"), "true")
+	if !force && c.Request.ContentLength > 0 {
+		var body struct {
+			Force bool `json:"force"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+			return
+		}
+		force = body.Force
+	}
+	s.goSafe("task-manual", func() {
+		_ = s.Manager.RunTaskWithOptions(id, "task.trigger.manual", service.RunOptions{ForceIssue: force})
+	})
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.task_started", nil)})
 }
 
@@ -628,7 +641,7 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 		if task.CertID > 0 {
 			// 已有证书时按到期时间重排续期；未开启自动续期则保持未安排。
 			if cert, certErr := s.Store.GetCertificate(task.CertID); certErr == nil && task.AutoRenew {
-				nextRuns[id] = service.NextRenewTime(cert.NotAfter, task.RenewDays, true)
+				nextRuns[id] = service.NextRenewTimeFor(cert.NotBefore, cert.NotAfter, task.RenewDays, true)
 				continue
 			}
 			nextRuns[id] = nil

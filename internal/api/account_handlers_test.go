@@ -1,11 +1,78 @@
 package api
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 
 	"lactssl/internal/i18n"
+	"lactssl/internal/model"
+	deployplugin "lactssl/internal/plugin/deploy"
 	"lactssl/internal/service"
 )
+
+type optionsDeployer struct {
+	req deployplugin.OptionsRequest
+}
+
+func (d *optionsDeployer) ID() string        { return "optpanel" }
+func (d *optionsDeployer) Aliases() []string { return nil }
+func (d *optionsDeployer) Source() deployplugin.Source {
+	return deployplugin.SourceExec
+}
+func (d *optionsDeployer) Deploy(context.Context, deployplugin.Request) error { return nil }
+func (d *optionsDeployer) Info() deployplugin.ExternalDeployer {
+	return deployplugin.ExternalDeployer{
+		ID:     "optpanel",
+		Name:   "Options Panel",
+		Fields: []deployplugin.ManifestField{{Key: "api_secret", Label: "API Secret", Type: "password", Secret: true}},
+		DeployFields: []deployplugin.ManifestField{
+			{Key: "target", Label: "Target", Type: "select", Default: "site"},
+			{Key: "sites", Label: "Sites", Type: "text", OptionsSource: "panel_sites", Multiple: true},
+		},
+	}
+}
+func (d *optionsDeployer) ListOptions(_ context.Context, req deployplugin.OptionsRequest) ([]deployplugin.ManifestOption, error) {
+	d.req = req
+	return []deployplugin.ManifestOption{{Label: "Docker A", Value: "docker-a"}}, nil
+}
+
+func TestListDeployAccountOptions(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	deployer := &optionsDeployer{}
+	if err := deployplugin.RegisterExternal(deployer); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { deployplugin.UnregisterSource(deployplugin.SourceExec) })
+
+	account := &model.DeployAccount{
+		Name:   "panel",
+		Type:   "optpanel",
+		Config: map[string]string{"api_secret": "secret"},
+	}
+	if err := st.CreateDeployAccount(account); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/deploy-accounts/%d/options", account.ID)
+	body := `{"field":"sites","config":{"target":"docker"}}`
+	response := sessionRequest(t, router, http.MethodPost, path, body,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if response.Code != http.StatusOK {
+		t.Fatalf("options failed: %d %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"value":"docker-a"`) {
+		t.Fatalf("missing option: %s", response.Body.String())
+	}
+	if deployer.req.Field != "sites" || deployer.req.Source != "panel_sites" {
+		t.Fatalf("unexpected options request: %+v", deployer.req)
+	}
+	if deployer.req.Config["target"] != "docker" || deployer.req.Auth["api_secret"] != "secret" {
+		t.Fatalf("credentials/config missing from options request: %+v", deployer.req)
+	}
+}
 
 func TestDeployAccountBodyKeepsOnlyAuthFields(t *testing.T) {
 	body := deployAccountBody{

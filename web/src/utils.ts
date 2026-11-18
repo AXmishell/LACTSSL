@@ -70,6 +70,7 @@ export function taskState(status?: string | null): StateInfo {
     running: { label: t('status.running'), type: 'warning' },
     success: { label: t('status.success'), type: 'success' },
     partial: { label: t('status.partial'), type: 'warning' },
+    rate_limited: { label: t('status.rateLimited'), type: 'warning' },
     failed: { label: t('status.failed'), type: 'danger' }
   }
   return (status && map[status]) || { label: status || t('status.unknown'), type: 'info' }

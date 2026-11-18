@@ -3,9 +3,11 @@ package pluginproto
 // DeployManifest 是部署 helper 通过 `manifest` 子命令输出的协议描述。
 type DeployManifest struct {
 	Protocol string `json:"protocol"`
-	Name     string `json:"name,omitempty"`
-	Version  string `json:"version,omitempty"`
-	SHA256   string `json:"sha256,omitempty"`
+	// Capabilities 是 helper 级能力位，例如 verify-v1。
+	Capabilities []string `json:"capabilities,omitempty"`
+	Name         string   `json:"name,omitempty"`
+	Version      string   `json:"version,omitempty"`
+	SHA256       string   `json:"sha256,omitempty"`
 	// Deployers 是该 helper 支持的部署目标列表。
 	Deployers []Deployer `json:"deployers"`
 }
@@ -23,6 +25,8 @@ type Deployer struct {
 	Fields          []DeployField     `json:"fields,omitempty"`
 	// DeployFields 是任务流程部署节点中的参数。
 	DeployFields []DeployField `json:"deploy_fields,omitempty"`
+	// Capabilities 非空表示该部署目标支持 verify 子命令中的只读探测。
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // DeployField 描述外部部署目标的配置字段。
@@ -40,6 +44,10 @@ type DeployField struct {
 	Default         string            `json:"default,omitempty"`
 	Options         []DeployOption    `json:"options,omitempty"`
 	ShowIf          *DeployCondition  `json:"show_if,omitempty"`
+	// OptionsSource 非空表示选项由插件通过 options 子命令动态提供。
+	OptionsSource string `json:"options_source,omitempty"`
+	// Multiple 表示字段允许选择多个值，值仍以逗号分隔保存。
+	Multiple bool `json:"multiple,omitempty"`
 }
 
 // DeployOption 是下拉选项。
@@ -57,7 +65,24 @@ type DeployCondition struct {
 	Values []string `json:"values,omitempty"`
 }
 
-// DeployRequest 是 deploy 的 stdin 请求。
+// DeployOptionsRequest 是 options 的 stdin 请求。
+type DeployOptionsRequest struct {
+	Action   string            `json:"action"`
+	Protocol string            `json:"protocol,omitempty"`
+	Provider string            `json:"provider"`
+	Field    string            `json:"field"`
+	Source   string            `json:"source,omitempty"`
+	Query    string            `json:"query,omitempty"`
+	Auth     map[string]string `json:"auth,omitempty"`
+	Config   map[string]string `json:"config,omitempty"`
+}
+
+// DeployOptionsResponse 是 options 的 stdout 响应。
+type DeployOptionsResponse struct {
+	Options []DeployOption `json:"options"`
+}
+
+// DeployRequest 是 deploy / verify 的 stdin 请求。
 type DeployRequest struct {
 	Action      string            `json:"action"`
 	Protocol    string            `json:"protocol,omitempty"`
@@ -65,6 +90,10 @@ type DeployRequest struct {
 	Auth        map[string]string `json:"auth,omitempty"`
 	Config      map[string]string `json:"config,omitempty"`
 	Certificate Certificate       `json:"certificate"`
+	// Mode 仅用于 verify：read 表示只读探测。
+	Mode string `json:"mode,omitempty"`
+	// Locale 让 helper 返回对应语言的检查消息；留空时使用默认语言。
+	Locale string `json:"locale,omitempty"`
 }
 
 // Certificate 是交给插件的最小证书材料。

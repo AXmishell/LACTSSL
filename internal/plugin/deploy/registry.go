@@ -6,9 +6,12 @@ package deployplugin
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
+
+	pluginproto "lactssl/internal/plugin/proto"
 )
 
 // Source 标识部署插件来源。
@@ -43,6 +46,8 @@ type Request struct {
 	Auth        map[string]string
 	Config      map[string]string
 	Certificate Certificate
+	// Locale 仅用于 verify，让插件返回对应语言的检查消息。
+	Locale string
 }
 
 // Deployer 是部署目标的统一接口。
@@ -61,8 +66,11 @@ type Deployer interface {
 // 实现方只能做认证、连通性和作用域检查，不得写入证书或执行 reload 命令；
 // 需要写入测试时使用唯一临时对象并在返回前清理。
 type Verifier interface {
-	Verify(ctx context.Context, req Request) error
+	Verify(ctx context.Context, req Request) (pluginproto.VerifyResponse, error)
 }
+
+// ErrVerifyUnsupported 表示部署目标未声明 verify-v1 能力或未实现只读探测。
+var ErrVerifyUnsupported = errors.New("deploy target does not support verify")
 
 var registry = struct {
 	sync.RWMutex

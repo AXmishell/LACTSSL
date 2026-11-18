@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-acme/lego/v4/challenge"
 	"lactssl/internal/plugin/exec"
+	pluginproto "lactssl/internal/plugin/proto"
 )
 
 const (
@@ -47,6 +48,8 @@ type ExternalProvider struct {
 	Fields          []ManifestField   `json:"fields,omitempty"`
 	Helper          string            `json:"helper"`
 	Version         string            `json:"version,omitempty"`
+	// Capabilities 是该服务商声明的能力位，例如 verify-v1。
+	Capabilities []string `json:"capabilities,omitempty"`
 	// Enabled 表示该服务商已在管理界面启用并注册到运行时。
 	Enabled bool `json:"enabled"`
 	// FileEnabled 表示该服务商所属的 helper 文件未被管理员停用。
@@ -214,6 +217,7 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 				DescriptionI18n: provider.DescriptionI18n,
 				Aliases:         provider.Aliases,
 				Fields:          provider.Fields,
+				Capabilities:    provider.Capabilities,
 				Helper:          item.path,
 				Version:         item.manifest.Version,
 				Enabled:         enabled,
@@ -455,6 +459,86 @@ type execRequest struct {
 	Domain   string            `json:"domain,omitempty"`
 	Token    string            `json:"token,omitempty"`
 	KeyAuth  string            `json:"key_auth,omitempty"`
+	Mode     string            `json:"mode,omitempty"`
+	Locale   string            `json:"locale,omitempty"`
+}
+
+// ErrVerifyUnsupported 表示 helper 版本或该服务商未声明 verify-v1 能力。
+var ErrVerifyUnsupported = errors.New("dns provider does not support verify")
+
+// Verifier 是 DNS 插件可选的只读探测接口。
+// mode 目前固定为 read；locale 用于让 helper 返回对应语言的检查消息。
+type Verifier interface {
+	Verify(ctx context.Context, cfg map[string]string, domain, mode, locale string) (pluginproto.VerifyResponse, error)
+}
+
+func hasCapability(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), target) {
+			return true
+		}
+	}
+	return false
+}
+
+// Verify 调用外部 helper 的 verify 子命令，执行只读的认证与 zone 检查。
+func (p *externalPlugin) Verify(ctx context.Context, cfg map[string]string, domain, mode, locale string) (pluginproto.VerifyResponse, error) {
+	if !hasCapability(p.provider.Capabilities, pluginproto.FeatureVerify) {
+		return pluginproto.VerifyResponse{}, ErrVerifyUnsupported
+	}
+	if p.digest != "" {
+		current, err := fileSHA256(p.helper)
+		if err != nil {
+			return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 无法读取 helper 文件: %v", p.provider.ID, err)
+		}
+		if current != p.digest {
+			return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 的 helper 文件已变化，请重扫插件目录后再试", p.provider.ID)
+		}
+	}
+	body, err := json.Marshal(execRequest{
+		Action:   "verify",
+		Provider: p.provider.ID,
+		Config:   cloneConfig(cfg),
+		Domain:   domain,
+		Mode:     mode,
+		Locale:   locale,
+	})
+	if err != nil {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("编码插件验证请求失败: %w", err)
+	}
+	timeout := p.settings.timeout
+	if timeout <= 0 || timeout > 30*time.Second {
+		timeout = 30 * time.Second
+	}
+	stdout, stderr, err := pluginexec.Run(ctx, p.helper, []string{"verify"}, body, pluginexec.Options{
+		Timeout:       timeout,
+		MemoryLimitMB: p.settings.memoryLimitMB,
+		MaxOutputKB:   p.settings.maxOutputKB,
+		Env:           []string{"LACTSSL_PLUGIN_PROTOCOL=" + execProtocol},
+	})
+	if errors.Is(err, pluginexec.ErrTimeout) {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 验证超时（%s）", p.provider.ID, timeout)
+	}
+	var memoryErr *pluginexec.MemoryLimitError
+	if errors.As(err, &memoryErr) {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 内存占用超过上限 %d MB，已强制结束", p.provider.ID, p.settings.memoryLimitMB)
+	}
+	if err != nil {
+		message := pluginexec.Redact(stderr, cfg)
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 执行验证失败: %v%s", p.provider.ID, err, suffix(message))
+	}
+	output := strings.TrimSpace(stdout)
+	if output == "" {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 未返回验证结果", p.provider.ID)
+	}
+	var result pluginproto.VerifyResponse
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 返回了非法验证结果: %s", p.provider.ID, pluginexec.Redact(pluginexec.Limit(output, 512), cfg))
+	}
+	if result.Checks == nil {
+		result.Checks = []pluginproto.VerifyCheck{}
+	}
+	return result, nil
 }
 
 type execProvider struct {

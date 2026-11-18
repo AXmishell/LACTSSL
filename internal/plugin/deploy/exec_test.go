@@ -2,6 +2,7 @@ package deployplugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -103,6 +104,73 @@ esac
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("request missing %s: %s", want, data)
 		}
+	}
+}
+
+func TestListOptions(t *testing.T) {
+	resetExternalState(t)
+	dir := t.TempDir()
+	output := filepath.Join(dir, "options.json")
+	script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+manifest)
+  cat <<'JSON'
+%s
+JSON
+  ;;
+options)
+  cat > %q
+  printf '{"options":[{"label":" Site A ","value":"a.example.com"},{"label":"Site A again","value":"a.example.com"},{"label":"","value":""},{"label":"Site B","value":"b.example.com"}]}'
+  ;;
+*)
+  exit 2
+  ;;
+esac
+`, testManifest, output)
+	writeHelper(t, dir, "fake-helper", script, 0o700)
+	Discover(DiscoverConfig{Dir: dir, EnabledDeployers: []string{"fakepanel"}})
+
+	options, err := ListOptions(context.Background(), "fakepanel", OptionsRequest{
+		Field:  "sites",
+		Source: "baota_sites",
+		Query:  "example",
+		Auth:   map[string]string{"api_token": "secret-token"},
+		Config: map[string]string{"target": "site"},
+	})
+	if err != nil {
+		t.Fatalf("list options: %v", err)
+	}
+	if len(options) != 2 || options[0].Label != "Site A" || options[1].Value != "b.example.com" {
+		t.Fatalf("unexpected options: %+v", options)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read options request: %v", err)
+	}
+	for _, want := range []string{
+		`"action":"options"`,
+		`"provider":"fakepanel"`,
+		`"field":"sites"`,
+		`"source":"baota_sites"`,
+		`"query":"example"`,
+		`"api_token":"secret-token"`,
+		`"target":"site"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("options request missing %s: %s", want, data)
+		}
+	}
+}
+
+func TestListOptionsUnsupported(t *testing.T) {
+	resetExternalState(t)
+	if _, err := ListOptions(context.Background(), "missing", OptionsRequest{}); err == nil {
+		t.Fatal("expected missing target error")
+	}
+	RegisterExternal(fakeDeployer{id: "fake", source: SourceExec})
+	t.Cleanup(func() { UnregisterSource(SourceExec) })
+	if _, err := ListOptions(context.Background(), "fake", OptionsRequest{}); !errors.Is(err, ErrOptionsUnsupported) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -313,6 +381,7 @@ func TestValidateManifest(t *testing.T) {
 		{Protocol: "v1", Deployers: []ManifestDeployer{{ID: "a", Fields: []ManifestField{{Key: "x", Type: "unknown"}}}}},
 		{Protocol: "v1", Deployers: []ManifestDeployer{{ID: "a", NameI18n: map[string]string{"bad locale": "x"}}}},
 		{Protocol: "v1", Deployers: []ManifestDeployer{{ID: "a", Fields: []ManifestField{{Key: "x", Type: "text", LabelI18n: map[string]string{"en-US": strings.Repeat("x", 129)}}}}}},
+		{Protocol: "v1", Deployers: []ManifestDeployer{{ID: "a", DeployFields: []ManifestField{{Key: "x", Type: "text", OptionsSource: "bad source"}}}}},
 	}
 	for index, manifest := range cases {
 		if err := validateManifest(manifest); err == nil {

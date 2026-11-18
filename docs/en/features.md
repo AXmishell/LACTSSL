@@ -116,6 +116,7 @@ Key points:
 - During upgrades, deployment paths, sites, and domains from old credentials are migrated to task deploy nodes before the deployment parameters are removed from credentials.
 - The task list supports header select-all and multi-select for batch execution, pausing, or starting automatic renewal.
 - Batch execution skips tasks that are already running; batch start/stop only changes scheduling state and does not interrupt an issuance already in progress.
+- Before execution, a certificate that is still valid and outside its renewal window is reused for the same domain set, and only deployment runs. Use "Force re-issue" or API `?force=1` to request a new certificate. When the upstream CA rate-limits issuance, the task enters "Rate limited" and retries at the CA-provided recovery time instead of retrying every 6 hours as a normal failure.
 
 ## 4. Certificate deployment
 

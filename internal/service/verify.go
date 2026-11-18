@@ -17,6 +17,7 @@ import (
 	"lactssl/internal/model"
 	deployplugin "lactssl/internal/plugin/deploy"
 	dnsplugin "lactssl/internal/plugin/dns"
+	pluginproto "lactssl/internal/plugin/proto"
 	"lactssl/internal/util"
 )
 
@@ -69,16 +70,17 @@ func (r *VerifyResult) finish() {
 	}
 }
 
-// VerifyModeNormalize 把接口传入的模式归一化。auto 在阶段 0 等同 write：
-// 旧插件没有只读探测能力，写一条随机 TXT 再删除是唯一通用的验证方式。
+// VerifyModeNormalize 把接口传入的模式归一化。
+// auto 表示优先只读探测，插件不支持时回退到 DNS 写测试；read 只做只读；
+// write 直接执行写测试。
 func VerifyModeNormalize(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "read":
 		return "read"
-	case "write", "auto", "":
+	case "write":
 		return "write"
 	default:
-		return "write"
+		return "auto"
 	}
 }
 
@@ -98,6 +100,9 @@ func NormalizeVerifyDomain(input string) string {
 // VerifyDNSAccount 验证 DNS 凭据：构造 provider、写入随机 TXT、再删除。
 // lockKey 用于按账户串行化，避免两次写测试同时操作同一 zone。
 func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey, provider string, cfg map[string]string, domain, mode string) (result VerifyResult) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	mode = VerifyModeNormalize(mode)
 	res := newVerifyResult(mode)
 	defer func() {
@@ -110,12 +115,6 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 		res.add("init", VerifyStatusUnsupported, i18n.T(loc, "service.verify.dns_provider_unsupported", map[string]any{"provider": provider}))
 		return *res
 	}
-	if mode == "read" {
-		// 阶段 0 的 helper 协议没有只读探测，明确返回不支持，由前端引导用户
-		// 使用默认的写测试，而不是伪造一个“认证通过”的结论。
-		res.add("read", VerifyStatusUnsupported, i18n.T(loc, "service.verify.read_unsupported", nil))
-		return *res
-	}
 	domain = NormalizeVerifyDomain(domain)
 	if domain == "" {
 		res.add("domain", VerifyStatusFailed, i18n.T(loc, "service.verify.domain_invalid", nil))
@@ -123,6 +122,28 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 	}
 	res.add("domain", VerifyStatusOK, domain)
 
+	// 优先使用 helper 的只读 verify；未声明能力的旧插件在 auto 模式回退到
+	// 写测试，显式 read 模式则明确返回不支持。
+	if mode == "read" || mode == "auto" {
+		if verifier, ok := plugin.(dnsplugin.Verifier); ok {
+			response, err := verifier.Verify(ctx, cfg, domain, "read", string(loc))
+			if err == nil {
+				res.Mode = "read"
+				appendVerifyChecks(res, response.Checks, response.OK)
+				return *res
+			}
+			if !errors.Is(err, dnsplugin.ErrVerifyUnsupported) {
+				res.add("read", VerifyStatusFailed, i18n.T(loc, "service.verify.read_failed", map[string]any{"error": err.Error()}))
+				return *res
+			}
+		}
+		if mode == "read" {
+			res.add("read", VerifyStatusUnsupported, i18n.T(loc, "service.verify.read_unsupported", nil))
+			return *res
+		}
+	}
+
+	res.Mode = "write"
 	instance, err := plugin.New(cfg)
 	if err != nil {
 		res.add("init", VerifyStatusFailed, i18n.T(loc, "service.verify.init_failed", map[string]any{"error": err.Error()}))
@@ -130,11 +151,9 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 	}
 	res.add("init", VerifyStatusOK, "")
 
-	if ctx != nil {
-		if err := ctx.Err(); err != nil {
-			res.add("write", VerifyStatusError, i18n.T(loc, "service.verify.canceled", nil))
-			return *res
-		}
+	if err := ctx.Err(); err != nil {
+		res.add("write", VerifyStatusError, i18n.T(loc, "service.verify.canceled", nil))
+		return *res
 	}
 	if lockKey != "" {
 		unlock := m.dnsLocks.Lock(lockKey)
@@ -171,9 +190,23 @@ func randomVerifyToken() (string, string, error) {
 	return value, "lactssl-verify-" + value, nil
 }
 
+// appendVerifyChecks 把 helper 返回的检查项写入结果。
+// helper 明确返回 ok=false 但没有任何失败项时补一条汇总失败，避免误判为通过。
+func appendVerifyChecks(res *VerifyResult, checks []pluginproto.VerifyCheck, ok bool) {
+	for _, check := range checks {
+		res.add(check.Key, check.Status, check.Message)
+	}
+	if !ok && len(checks) == 0 {
+		res.add("verify", VerifyStatusFailed, "")
+	}
+}
+
 // VerifyDeployAccount 验证目标凭据。deployCfg 为空时只做凭据级检查；
 // 传入部署节点参数时，会额外检查该站点/目录/桶的权限（阶段 2 的 L2 验证）。
 func (m *Manager) VerifyDeployAccount(ctx context.Context, loc i18n.Locale, accountType string, auth, deployCfg map[string]string, mode string, account *model.DeployAccount) (result VerifyResult) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	mode = VerifyModeNormalize(mode)
 	res := newVerifyResult(mode)
 	defer func() {
@@ -199,11 +232,9 @@ func (m *Manager) VerifyDeployAccount(ctx context.Context, loc i18n.Locale, acco
 		res.add("config", VerifyStatusOK, "")
 	}
 
-	if ctx != nil {
-		if err := ctx.Err(); err != nil {
-			res.add("connect", VerifyStatusError, i18n.T(loc, "service.verify.canceled", nil))
-			return *res
-		}
+	if err := ctx.Err(); err != nil {
+		res.add("connect", VerifyStatusError, i18n.T(loc, "service.verify.canceled", nil))
+		return *res
 	}
 
 	switch strings.ToLower(strings.TrimSpace(def.Value)) {
@@ -212,7 +243,9 @@ func (m *Manager) VerifyDeployAccount(ctx context.Context, loc i18n.Locale, acco
 	case "ssh":
 		verifySSHDeploy(ctx, m, loc, res, merged, account)
 	default:
-		verifyPluginDeploy(ctx, loc, res, accountType, auth, merged, account)
+		// 与 DeployContext 保持一致：插件只接收过滤后的认证字段，
+		// 部署节点参数单独放在 Config 中。
+		verifyPluginDeploy(ctx, loc, res, def.Value, accountType, FilterAuthConfig(def, auth), merged, account)
 	}
 	return *res
 }
@@ -396,6 +429,12 @@ func nearestExistingRemoteDir(client *sftp.Client, dir string) (string, bool) {
 			}
 			return current, current != original
 		}
+		// 只有“不存在”才向上找父目录；权限不足等错误必须如实报错，
+		// 否则会把不可访问的目录误判为“部署时会自动创建”。
+		var status *sftp.StatusError
+		if !errors.As(err, &status) || status.FxCode() != sftp.ErrSSHFxNoSuchFile {
+			return "", current != original
+		}
 		parent := path.Dir(current)
 		if parent == current || parent == "." {
 			return "", current != original
@@ -406,8 +445,11 @@ func nearestExistingRemoteDir(client *sftp.Client, dir string) (string, bool) {
 
 // verifyPluginDeploy 调用插件可选实现的 Verifier；当前官方 helper 尚未实现，
 // 返回 unsupported 让用户明确知道“不是权限失败，而是插件版本不支持”。
-func verifyPluginDeploy(ctx context.Context, loc i18n.Locale, res *VerifyResult, accountType string, auth, merged map[string]string, account *model.DeployAccount) {
-	deployer, found := deployplugin.Lookup(accountType)
+func verifyPluginDeploy(ctx context.Context, loc i18n.Locale, res *VerifyResult, canonical, accountType string, auth, merged map[string]string, account *model.DeployAccount) {
+	deployer, found := deployplugin.Lookup(canonical)
+	if !found && accountType != canonical {
+		deployer, found = deployplugin.Lookup(accountType)
+	}
 	if !found {
 		res.add("init", VerifyStatusUnsupported, i18n.T(loc, "service.verify.deploy_type_unsupported", map[string]any{"type": accountType}))
 		return
@@ -421,11 +463,21 @@ func verifyPluginDeploy(ctx context.Context, loc i18n.Locale, res *VerifyResult,
 	if account != nil {
 		accountID = account.ID
 	}
-	if err := verifier.Verify(ctx, deployplugin.Request{AccountID: accountID, Auth: auth, Config: merged}); err != nil {
+	response, err := verifier.Verify(ctx, deployplugin.Request{
+		AccountID: accountID,
+		Auth:      auth,
+		Config:    merged,
+		Locale:    string(loc),
+	})
+	if err != nil {
+		if errors.Is(err, deployplugin.ErrVerifyUnsupported) {
+			res.add("verify", VerifyStatusUnsupported, i18n.T(loc, "service.verify.deploy_unsupported", nil))
+			return
+		}
 		res.add("verify", VerifyStatusFailed, i18n.T(loc, "service.verify.deploy_failed", map[string]any{"error": err.Error()}))
 		return
 	}
-	res.add("verify", VerifyStatusOK, "")
+	appendVerifyChecks(res, response.Checks, response.OK)
 }
 
 // VerifyUnsupportedError 供插件在实现 Verifier 后表示“该目标不支持此模式”。

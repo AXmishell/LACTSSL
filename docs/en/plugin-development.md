@@ -250,10 +250,27 @@ Deployment target fields:
 - `fields`: authentication and connection information in target credentials.
 - `deploy_fields`: parameters for the "Deploy certificate" node in a task workflow.
 - Field `key` values must be unique across both types; supported field types are `text`, `password`, `textarea`, `number`, `select`, and `switch`.
+- When a field sets `options_source`, the host calls the helper's `options` subcommand to load dynamic options; `multiple: true` allows selecting several values, which are still stored as a comma-separated string. Older hosts ignore both optional fields.
 - `secret: true` or `type: "password"` masks the value and stores it encrypted.
 - `name` / `description` / `label` / `placeholder` / `help` support `*_i18n`; language keys use BCP 47 (such as `zh-CN`, `en-US`), with a maximum of 32 languages per table.
 
 Notification channel fields follow the same rules; a channel `id` must not conflict with the built-in email channel `mail`.
+
+stdin for dynamic deployment field options (`options`):
+
+```json
+{
+  "action": "options",
+  "provider": "baota",
+  "field": "sites",
+  "source": "baota_sites",
+  "query": "optional search keyword",
+  "auth": {"panel_url": "https://panel.example.com:8888", "api_secret": "..."},
+  "config": {"target": "docker"}
+}
+```
+
+stdout returns `{"options":[{"label":"site name","value":"site name"}]}`. The helper should only return non-sensitive names; the host limits the count, removes duplicates, and truncates abnormal output.
 
 For the stdin of deployment `deploy` and notification `send`, see [Deployment plugins](deploy-plugins.md) and [Notification plugins](notify-plugins.md).
 

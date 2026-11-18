@@ -10,6 +10,9 @@ import (
 // 旧版主程序不会传入该特性，helper 会继续输出旧 ID，保证前后端版本错配时可用。
 const FeatureMergedDeployers = pluginproto.FeatureMergedDeployers
 
+// FeatureDynamicOptions 告知 helper 宿主支持 options 子命令与动态选项元数据。
+const FeatureDynamicOptions = pluginproto.FeatureDynamicOptions
+
 // Manifest 是外部 exec helper 通过 `manifest` 子命令输出的协议描述。
 type Manifest = pluginproto.DeployManifest
 

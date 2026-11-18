@@ -912,6 +912,35 @@ func (s *Store) GetCertificate(id int64) (*model.Certificate, error) {
 	return s.scanCertificate(row)
 }
 
+// LatestTaskCertificate 返回任务最近一张证书（含私钥），没有时返回 nil。
+func (s *Store) LatestTaskCertificate(taskID int64) (*model.Certificate, error) {
+	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates WHERE task_id=? ORDER BY id DESC LIMIT 1`, taskID)
+	cert, err := s.scanCertificate(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return cert, err
+}
+
+// ListReusableCertificates 返回指定 CA 下仍有效、未撤销且保存了私钥的证书。
+// 用于任务执行前复用同一组域名的证书，避免重复向上游 CA 下单。
+func (s *Store) ListReusableCertificates(ca string) ([]model.Certificate, error) {
+	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates WHERE ca=? AND status='valid' AND revoked_at IS NULL AND not_after>? AND key_pem<>'' ORDER BY id DESC`, ca, nowUTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]model.Certificate, 0)
+	for rows.Next() {
+		cert, err := s.scanCertificate(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, *cert)
+	}
+	return list, rows.Err()
+}
+
 // ListCertificates 返回全部证书（不包含 PEM 大字段）。
 func (s *Store) ListCertificates() ([]model.Certificate, error) {
 	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,'','','',serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates ORDER BY id DESC`)

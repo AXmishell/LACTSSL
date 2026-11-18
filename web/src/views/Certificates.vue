@@ -227,6 +227,7 @@
           <DeployConfigFields
             v-if="deployAccountFor(target)"
             :account-type="deployAccountFor(target)?.type || ''"
+            :account-id="deployAccountFor(target)?.id"
             :model-value="target.deploy_config"
             @update:model-value="target.deploy_config = $event"
           />

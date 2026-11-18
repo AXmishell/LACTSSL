@@ -26,6 +26,10 @@ type FieldDef struct {
 	Options        []Option   `json:"options,omitempty"`
 	Default        string     `json:"default,omitempty"`
 	ShowIf         *Condition `json:"show_if,omitempty"`
+	// OptionsSource 非空表示选项由插件动态提供，前端通过专用接口读取。
+	OptionsSource string `json:"options_source,omitempty"`
+	// Multiple 表示该字段允许选择多个值。
+	Multiple bool `json:"multiple,omitempty"`
 	// 以下文案表来自 helper manifest，优先于主程序语言包。
 	labelI18n       map[string]string
 	placeholderI18n map[string]string
@@ -399,6 +403,8 @@ func externalManifestFields(fields []deployplugin.ManifestField) []FieldDef {
 			Placeholder:     field.Placeholder,
 			Help:            field.Help,
 			Default:         field.Default,
+			OptionsSource:   field.OptionsSource,
+			Multiple:        field.Multiple,
 			labelI18n:       field.LabelI18n,
 			placeholderI18n: field.PlaceholderI18n,
 			helpI18n:        field.HelpI18n,

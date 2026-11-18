@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"lactssl/internal/plugin/exec"
+	pluginproto "lactssl/internal/plugin/proto"
 )
 
 const (
@@ -35,6 +36,8 @@ var (
 	maxDeployers  = 512
 	maxFields     = 64
 	maxLocales    = 32
+	// maxOptions 是单次动态选项读取的上限，避免异常 helper 返回超大列表。
+	maxOptions = 1000
 )
 
 // ExternalDeployer 是由 exec helper 提供的部署目标元数据。
@@ -47,6 +50,7 @@ type ExternalDeployer struct {
 	Aliases         []string          `json:"aliases,omitempty"`
 	Fields          []ManifestField   `json:"fields,omitempty"`
 	DeployFields    []ManifestField   `json:"deploy_fields,omitempty"`
+	Capabilities    []string          `json:"capabilities,omitempty"`
 	Helper          string            `json:"helper"`
 	Version         string            `json:"version,omitempty"`
 	// Enabled 表示该部署目标已在管理界面启用并注册到运行时。
@@ -208,6 +212,7 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 				Aliases:         deployer.Aliases,
 				Fields:          deployer.Fields,
 				DeployFields:    deployer.DeployFields,
+				Capabilities:    deployer.Capabilities,
 				Helper:          item.path,
 				Version:         item.manifest.Version,
 				Enabled:         enabled,
@@ -318,7 +323,7 @@ func inspectHelper(path string, cfg DiscoverConfig) (Manifest, error) {
 		MaxOutputKB:   manifestOutputKB,
 		Env: []string{
 			"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol,
-			"LACTSSL_DEPLOY_PLUGIN_FEATURES=" + FeatureMergedDeployers,
+			"LACTSSL_DEPLOY_PLUGIN_FEATURES=" + FeatureMergedDeployers + "," + FeatureDynamicOptions,
 		},
 	})
 	if errors.Is(err, pluginexec.ErrTimeout) {
@@ -457,6 +462,9 @@ func validateFields(deployerID, kind string, fields []ManifestField, keys map[st
 				return err
 			}
 		}
+		if field.OptionsSource != "" && !idPattern.MatchString(field.OptionsSource) {
+			return fmt.Errorf("部署目标 %s 的字段 %s 动态选项来源非法: %q", deployerID, field.Key, field.OptionsSource)
+		}
 		if field.ShowIf != nil && !keyPattern.MatchString(field.ShowIf.Key) {
 			return fmt.Errorf("部署目标 %s 的字段 %s 显示条件非法", deployerID, field.Key)
 		}
@@ -504,6 +512,34 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+// OptionsRequest 是一次动态选项读取请求。
+// Auth 与 Config 来自目标凭据和当前部署节点参数，宿主不会把证书私钥传给插件。
+type OptionsRequest struct {
+	Field  string
+	Source string
+	Query  string
+	Auth   map[string]string
+	Config map[string]string
+}
+
+// ErrOptionsUnsupported 表示目标未实现动态选项读取。
+var ErrOptionsUnsupported = errors.New("deploy target does not support dynamic options")
+
+// ListOptions 调用外部部署 helper 的 options 子命令。
+func ListOptions(ctx context.Context, id string, req OptionsRequest) ([]ManifestOption, error) {
+	plugin, ok := Lookup(id)
+	if !ok {
+		return nil, fmt.Errorf("部署目标 %s 未启用", id)
+	}
+	lister, ok := plugin.(interface {
+		ListOptions(context.Context, OptionsRequest) ([]ManifestOption, error)
+	})
+	if !ok {
+		return nil, ErrOptionsUnsupported
+	}
+	return lister.ListOptions(ctx, req)
+}
+
 type execSettings struct {
 	memoryLimitMB int
 	timeout       time.Duration
@@ -533,6 +569,7 @@ func (d *externalDeployer) Info() ExternalDeployer {
 		Aliases:         d.deployer.Aliases,
 		Fields:          d.deployer.Fields,
 		DeployFields:    d.deployer.DeployFields,
+		Capabilities:    d.deployer.Capabilities,
 		Helper:          d.helper,
 		Version:         d.version,
 		Enabled:         true,
@@ -553,17 +590,25 @@ type execResult struct {
 	Message string `json:"message,omitempty"`
 }
 
+// verifyDigest 在每次执行前重新校验 helper 摘要。
+// 扫描与执行之间文件可能被替换，避免管理员批准的是旧文件、实际执行的却是新文件。
+func (d *externalDeployer) verifyDigest() error {
+	if d.digest == "" {
+		return nil
+	}
+	current, err := fileSHA256(d.helper)
+	if err != nil {
+		return fmt.Errorf("插件 %s 无法读取 helper 文件: %v", d.ID(), err)
+	}
+	if current != d.digest {
+		return fmt.Errorf("插件 %s 的 helper 文件已变化，请重扫插件目录后再试", d.ID())
+	}
+	return nil
+}
+
 func (d *externalDeployer) Deploy(ctx context.Context, req Request) error {
-	// 扫描与执行之间文件可能被替换。每次部署前重新校验摘要，
-	// 避免管理员批准的是旧 helper、实际执行的却是新文件。
-	if d.digest != "" {
-		current, err := fileSHA256(d.helper)
-		if err != nil {
-			return fmt.Errorf("插件 %s 无法读取 helper 文件: %v", d.ID(), err)
-		}
-		if current != d.digest {
-			return fmt.Errorf("插件 %s 的 helper 文件已变化，请重扫插件目录后再试", d.ID())
-		}
+	if err := d.verifyDigest(); err != nil {
+		return err
 	}
 
 	body, err := json.Marshal(execRequest{
@@ -613,6 +658,190 @@ func (d *externalDeployer) Deploy(ctx context.Context, req Request) error {
 		return fmt.Errorf("插件 %s 部署失败: %s", d.ID(), pluginexec.Redact(pluginexec.Limit(message, 512), secrets))
 	}
 	return nil
+}
+
+type execVerifyRequest struct {
+	Action   string            `json:"action"`
+	Protocol string            `json:"protocol"`
+	Provider string            `json:"provider"`
+	Auth     map[string]string `json:"auth,omitempty"`
+	Config   map[string]string `json:"config,omitempty"`
+	Mode     string            `json:"mode,omitempty"`
+	Locale   string            `json:"locale,omitempty"`
+}
+
+func hasVerifyCapability(values []string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), pluginproto.FeatureVerify) {
+			return true
+		}
+	}
+	return false
+}
+
+// Verify 调用外部 helper 的 verify 子命令执行只读探测。
+// 未声明 verify-v1 的旧 helper 直接返回 ErrVerifyUnsupported，不执行子进程。
+func (d *externalDeployer) Verify(ctx context.Context, req Request) (pluginproto.VerifyResponse, error) {
+	if !hasVerifyCapability(d.deployer.Capabilities) {
+		return pluginproto.VerifyResponse{}, ErrVerifyUnsupported
+	}
+	if err := d.verifyDigest(); err != nil {
+		return pluginproto.VerifyResponse{}, err
+	}
+	body, err := json.Marshal(execVerifyRequest{
+		Action:   "verify",
+		Protocol: execProtocol,
+		Provider: d.ID(),
+		Auth:     cloneConfig(req.Auth),
+		Config:   cloneConfig(req.Config),
+		Mode:     "read",
+		Locale:   req.Locale,
+	})
+	if err != nil {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("编码插件验证请求失败: %w", err)
+	}
+	timeout := d.settings.timeout
+	if timeout <= 0 || timeout > 60*time.Second {
+		timeout = 60 * time.Second
+	}
+	stdout, stderr, err := pluginexec.Run(ctx, d.helper, []string{"verify"}, body, pluginexec.Options{
+		Timeout:       timeout,
+		MemoryLimitMB: d.settings.memoryLimitMB,
+		MaxOutputKB:   d.settings.maxOutputKB,
+		Env:           []string{"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol},
+	})
+	secrets := redactionSecrets(req)
+	if errors.Is(err, pluginexec.ErrTimeout) {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 验证超时（%s）", d.ID(), timeout)
+	}
+	var memoryErr *pluginexec.MemoryLimitError
+	if errors.As(err, &memoryErr) {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 内存占用超过上限 %d MB，已强制结束", d.ID(), d.settings.memoryLimitMB)
+	}
+	if err != nil {
+		message := pluginexec.Redact(stderr, secrets)
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 执行验证失败: %v%s", d.ID(), err, suffix(message))
+	}
+	output := strings.TrimSpace(stdout)
+	if output == "" {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 未返回验证结果", d.ID())
+	}
+	var result pluginproto.VerifyResponse
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		return pluginproto.VerifyResponse{}, fmt.Errorf("插件 %s 返回了非法验证结果: %s", d.ID(), pluginexec.Redact(pluginexec.Limit(output, 512), secrets))
+	}
+	if result.Checks == nil {
+		result.Checks = []pluginproto.VerifyCheck{}
+	}
+	return result, nil
+}
+
+type execOptionsRequest struct {
+	Action   string            `json:"action"`
+	Protocol string            `json:"protocol"`
+	Provider string            `json:"provider"`
+	Field    string            `json:"field"`
+	Source   string            `json:"source,omitempty"`
+	Query    string            `json:"query,omitempty"`
+	Auth     map[string]string `json:"auth,omitempty"`
+	Config   map[string]string `json:"config,omitempty"`
+}
+
+type execOptionsResult struct {
+	Options []ManifestOption `json:"options"`
+	OK      *bool            `json:"ok,omitempty"`
+	Message string           `json:"message,omitempty"`
+}
+
+// ListOptions 通过 options 子命令读取远端可选项。
+// 交互式请求使用较短的超时，避免面板不可达时长时间阻塞界面。
+func (d *externalDeployer) ListOptions(ctx context.Context, req OptionsRequest) ([]ManifestOption, error) {
+	if err := d.verifyDigest(); err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(execOptionsRequest{
+		Action:   "options",
+		Protocol: execProtocol,
+		Provider: d.ID(),
+		Field:    req.Field,
+		Source:   req.Source,
+		Query:    req.Query,
+		Auth:     cloneConfig(req.Auth),
+		Config:   cloneConfig(req.Config),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("编码插件选项请求失败: %w", err)
+	}
+
+	timeout := 30 * time.Second
+	if d.settings.timeout > 0 && d.settings.timeout < timeout {
+		timeout = d.settings.timeout
+	}
+	stdout, stderr, err := pluginexec.Run(ctx, d.helper, []string{"options"}, body, pluginexec.Options{
+		Timeout:       timeout,
+		MemoryLimitMB: d.settings.memoryLimitMB,
+		MaxOutputKB:   512,
+		Env:           []string{"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol},
+	})
+	secrets := redactionSecrets(Request{Auth: req.Auth, Config: req.Config})
+	if errors.Is(err, pluginexec.ErrTimeout) {
+		return nil, fmt.Errorf("插件 %s 读取选项超时（%s）", d.ID(), timeout)
+	}
+	var memoryErr *pluginexec.MemoryLimitError
+	if errors.As(err, &memoryErr) {
+		return nil, fmt.Errorf("插件 %s 内存占用超过上限 %d MB，已强制结束", d.ID(), d.settings.memoryLimitMB)
+	}
+	if err != nil {
+		message := pluginexec.Redact(stderr, secrets)
+		return nil, fmt.Errorf("插件 %s 读取选项失败: %v%s", d.ID(), err, suffix(message))
+	}
+
+	output := strings.TrimSpace(stdout)
+	if output == "" {
+		return nil, nil
+	}
+	var result execOptionsResult
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		return nil, fmt.Errorf("插件 %s 返回了非法选项: %s", d.ID(), pluginexec.Redact(pluginexec.Limit(output, 512), secrets))
+	}
+	if result.OK != nil && !*result.OK {
+		message := strings.TrimSpace(result.Message)
+		if message == "" {
+			message = "插件未提供错误信息"
+		}
+		return nil, fmt.Errorf("插件 %s 读取选项失败: %s", d.ID(), pluginexec.Redact(pluginexec.Limit(message, 512), secrets))
+	}
+	return sanitizeOptions(result.Options), nil
+}
+
+func sanitizeOptions(options []ManifestOption) []ManifestOption {
+	if len(options) == 0 {
+		return nil
+	}
+	out := make([]ManifestOption, 0, len(options))
+	seen := make(map[string]bool, len(options))
+	for _, option := range options {
+		value := strings.TrimSpace(option.Value)
+		label := strings.TrimSpace(option.Label)
+		if value == "" || len(value) > 256 || len(label) > 256 {
+			continue
+		}
+		if label == "" {
+			label = value
+		}
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, ManifestOption{Label: label, Value: value})
+		if len(out) >= maxOptions {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // redactionSecrets 收集可能出现在 helper 输出中的敏感值。

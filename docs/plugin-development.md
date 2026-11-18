@@ -250,10 +250,27 @@ DNS `present` / `cleanup` 的 stdin：
 - `fields`：目标凭据中的认证与连接信息。
 - `deploy_fields`：任务流程「部署证书」节点中的参数。
 - 两类字段的 `key` 不能重复；字段类型支持 `text`、`password`、`textarea`、`number`、`select`、`switch`。
+- 字段设置 `options_source` 时，宿主会调用 helper 的 `options` 子命令读取动态选项；`multiple: true` 表示允许多选，值仍以逗号分隔保存。旧版宿主会忽略这两个新增字段。
 - `secret: true` 或 `type: "password"` 会脱敏并加密存储。
 - `name` / `description` / `label` / `placeholder` / `help` 支持 `*_i18n`，语言键使用 BCP 47（如 `zh-CN`、`en-US`），单表最多 32 种语言。
 
 通知渠道字段同理；渠道 `id` 不能与内置邮件 `mail` 重复。
+
+部署字段动态选项 `options` 的 stdin：
+
+```json
+{
+  "action": "options",
+  "provider": "baota",
+  "field": "sites",
+  "source": "baota_sites",
+  "query": "可选搜索词",
+  "auth": {"panel_url": "https://panel.example.com:8888", "api_secret": "..."},
+  "config": {"target": "docker"}
+}
+```
+
+stdout 返回 `{"options":[{"label":"站点名称","value":"站点名称"}]}`。helper 只应返回名称类非敏感数据；宿主会限制数量、去重并截断异常输出。
 
 部署 `deploy` 的 stdin 与通知 `send` 的 stdin 见[部署插件](deploy-plugins.md)和[通知插件](notify-plugins.md)。
 

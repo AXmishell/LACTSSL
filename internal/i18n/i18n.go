@@ -7,6 +7,7 @@ package i18n
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -327,13 +328,28 @@ func EF(format string, args ...any) error {
 	return &Error{Raw: fmt.Sprintf(format, args...)}
 }
 
+// LocalizedError 允许包装底层错误的同时提供可翻译的消息。
+// 例如服务层需要在保留 ACME 原始错误链（供 errors.As 判断）的前提下，
+// 仍然把错误按当前语言持久化和展示。
+type LocalizedError interface {
+	error
+	LocalizedMessage() (key string, params map[string]any)
+}
+
 // EncodeError 把错误转换为可持久化的消息：可翻译错误保存 key，其他错误保存原文。
 func EncodeError(err error) string {
 	if err == nil {
 		return ""
 	}
-	if localized, ok := err.(*Error); ok && localized.Key != "" {
-		return Encode(localized.Key, localized.Params)
+	var localized LocalizedError
+	if errors.As(err, &localized) {
+		if key, params := localized.LocalizedMessage(); key != "" {
+			return Encode(key, params)
+		}
+	}
+	var keyed *Error
+	if errors.As(err, &keyed) && keyed.Key != "" {
+		return Encode(keyed.Key, keyed.Params)
 	}
 	return err.Error()
 }
@@ -343,8 +359,15 @@ func ErrorText(locale Locale, err error) string {
 	if err == nil {
 		return ""
 	}
-	if localized, ok := err.(*Error); ok && localized.Key != "" {
-		return T(locale, localized.Key, localized.Params)
+	var localized LocalizedError
+	if errors.As(err, &localized) {
+		if key, params := localized.LocalizedMessage(); key != "" {
+			return T(locale, key, params)
+		}
+	}
+	var keyed *Error
+	if errors.As(err, &keyed) && keyed.Key != "" {
+		return T(locale, keyed.Key, keyed.Params)
 	}
 	return err.Error()
 }
