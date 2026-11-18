@@ -124,8 +124,8 @@ if [ "$RUN_FRONTEND" -eq 1 ]; then
   step "安装前端依赖 (npm ci)"
   (cd web && npm ci)
 
-  step "前端依赖漏洞扫描 (npm audit)"
-  (cd web && npm audit --audit-level=high)
+  step "前端依赖漏洞扫描 (npm audit，带豁免清单)"
+  (cd web && npm run audit)
 
   step "前端类型检查 (vue-tsc)"
   (cd web && npm run typecheck)
