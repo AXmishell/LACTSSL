@@ -1564,6 +1564,13 @@ export default {
     disableTotpTitle: '关闭两步验证',
     totpCode: '动态验证码',
     confirmDisable: '确认关闭',
+    reauthPasswordLabel: '当前密码',
+    reauthPasswordPlaceholder: '确认身份后继续',
+    reauthTotpLabel: '动态验证码',
+    reauthTotpPlaceholder: '6 位验证码',
+    reauthHint: '启用两步验证后请输入动态验证码，否则输入当前密码。',
+    reauthPasswordRequired: '请输入当前密码',
+    reauthTotpRequired: '请输入 6 位动态验证码',
     entryFormat: '门禁入口仅支持 8-32 位字母、数字、下划线和中划线',
     entryReserved: '门禁入口 {entry} 为保留名称，请更换',
     passwordRequired: '请输入当前密码',
@@ -1632,11 +1639,6 @@ export default {
     lastResult: '本次执行结果',
     resultSummary: 'v{from} → v{to} · 配置变更 {changes} 项 · 回收 {reclaimed}',
     backupDir: '迁移前备份',
-    stepsTitle: '迁移步骤',
-    stepsSub: '步骤状态会持久化，失败后可在修复问题后重试。',
-    version: '版本',
-    stepName: '步骤',
-    detail: '详情',
     configTitle: '配置文件优化',
     configSub: '目标文件：{path} · 共 {count} 项变更，写入前会完整校验。',
     configKey: '配置项',
@@ -1649,57 +1651,9 @@ export default {
     runConfirm: '将先备份数据库和配置，再执行迁移与优化。执行期间请勿关闭服务。是否继续？',
     runSuccess: '迁移与优化已完成',
     optimizeSuccess: '数据库与配置优化已完成',
-    status: {
-      done: '完成',
-      skipped: '跳过',
-      pending: '待执行',
-      failed: '失败'
-    },
     action: {
       added: '补齐',
       normalized: '规范化'
-    },
-    step: {
-      secrets: {
-        title: '清理旧版密钥文件',
-        desc: '确认 config.yaml 已保存密钥后，把 data/jwt.secret 移入升级备份目录。'
-      },
-      crypto: {
-        title: '加密历史敏感字段',
-        desc: '把旧版本明文保存的 TOTP 密钥与证书私钥改为 AES-256-GCM 密文。'
-      },
-      eab: {
-        title: '迁移全局 EAB 凭据',
-        desc: '把旧版 acme.eab_kid / acme.eab_hmac 迁移到默认 CA 的独立配置。'
-      },
-      deployConfig: {
-        title: '拆分部署参数',
-        desc: '把旧部署凭据中的路径、站点等参数迁移到任务流程部署节点。'
-      },
-      notify: {
-        title: '迁移通知渠道',
-        desc: '把旧版 Gotify / Server酱 设置转换为通用通知渠道配置。'
-      },
-      deployTargets: {
-        title: '合并部署目标 ID',
-        desc: '把 qiniu_cdn、baota_site 等旧目标更新为规范 ID，并保留部署对象选择。'
-      },
-      plugins: {
-        title: '初始化插件白名单',
-        desc: '补齐 DNS、部署与通知插件的启用白名单，避免升级后内置条目消失。'
-      },
-      settings: {
-        title: '清理历史设置',
-        desc: '删除已迁移的旧设置键，并把 password_passkey 验证模式归一为 passkey。'
-      },
-      runtime: {
-        title: '重置运行状态',
-        desc: '清空旧登录会话、重排中断任务并清理过期记录，避免旧状态跨版本残留。'
-      },
-      indexes: {
-        title: '补充热路径索引',
-        desc: '为证书筛选、任务调度、监控检查和日志清理补充索引。'
-      }
     }
   },
   status: {

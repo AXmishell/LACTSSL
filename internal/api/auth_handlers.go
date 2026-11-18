@@ -221,10 +221,21 @@ func (s *Server) handleMe(c *gin.Context) {
 func (s *Server) handleChangePassword(c *gin.Context) {
 	user := getUser(c)
 	var body struct {
+		Password    string `json:"password"`
+		OldPassword string `json:"old_password"`
+		TOTP        string `json:"totp"`
 		NewPassword string `json:"new_password"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	// 兼容旧客户端曾使用 old_password 字段；新接口统一使用 password。
+	reauthPassword := body.Password
+	if reauthPassword == "" {
+		reauthPassword = body.OldPassword
+	}
+	if !s.requireReauth(c, user, reauthPassword, body.TOTP) {
 		return
 	}
 	if !validPassword(body.NewPassword) {
@@ -253,10 +264,15 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 func (s *Server) handleChangeEmail(c *gin.Context) {
 	user := getUser(c)
 	var body struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	if !s.requireReauth(c, user, body.Password, body.TOTP) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(body.Email))
@@ -269,7 +285,12 @@ func (s *Server) handleChangeEmail(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.change_email_failed")
 		return
 	}
-	updated, _ := s.Store.GetUserByID(user.ID)
+	updated, err := s.Store.GetUserByID(user.ID)
+	if err != nil || updated == nil {
+		s.logger().Warn("读取更新后的账户失败", "error", err, "request_id", c.GetString(requestIDKey))
+		failKey(c, http.StatusInternalServerError, "api.error.operation_failed")
+		return
+	}
 	// 换邮箱会提升 TokenVersion，旧令牌全部失效，同时清理旧会话记录。
 	_ = s.Store.DeleteUserSessions(user.ID)
 	expire, err := s.issueSessionStrong(c, updated, sessionStrongAuth(c))
@@ -328,6 +349,17 @@ func (s *Server) handleTOTPEnable(c *gin.Context) {
 
 func (s *Server) handleTOTPDisable(c *gin.Context) {
 	user := getUser(c)
+	var body struct {
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+		return
+	}
 	if err := s.Store.SetTOTP(user.ID, "", false); err != nil {
 		failKey(c, http.StatusInternalServerError, "api.error.disable_totp_failed")
 		return
@@ -386,13 +418,13 @@ func (s *Server) handleForgotPassword(c *gin.Context) {
 	subject := i18n.T(current, "email.reset.subject", nil)
 	bodyHTML := i18n.Th(current, "email.reset.body", map[string]any{"link": link})
 	// 异步发送邮件，避免通过响应时间判断邮箱是否存在；失败只写服务端日志。
-	go func() {
+	s.goSafe("auth-reset-mail", func() {
 		if err := service.SendMail(smtpCfg, user.Email, subject, bodyHTML); err != nil {
 			s.Store.AddLogKey("auth", user.ID, "error", "log.auth.reset_mail_failed", map[string]any{"error": err.Error()})
 			return
 		}
 		s.Store.AddLogKey("auth", user.ID, "info", "log.auth.reset_mail_sent", nil)
-	}()
+	})
 	ok(c, gin.H{"message": i18n.T(current, "api.ok.reset_sent", nil)})
 }
 

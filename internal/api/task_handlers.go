@@ -338,8 +338,10 @@ func (s *Server) createTask(c *gin.Context) {
 		return
 	}
 	s.Store.AddLogKey("task", task.ID, "info", "log.task.created", map[string]any{"name": task.Name})
-	// 新建任务立即在后台执行一次签发。
-	go func() { _ = s.Manager.RunTask(task.ID, "task.trigger.created") }()
+	// 新建任务立即在后台执行一次签发；暂停状态的任务只保存，不触发签发和部署。
+	if task.Enabled {
+		s.goSafe("task-created", func() { _ = s.Manager.RunTask(task.ID, "task.trigger.created") })
+	}
 	ok(c, localizeTasks(c, []model.Task{*task})[0])
 }
 
@@ -400,7 +402,7 @@ func (s *Server) updateTask(c *gin.Context) {
 	_ = s.Store.SetTaskNextRun(task.ID, next)
 
 	if task.Enabled && task.CertID == 0 {
-		go func() { _ = s.Manager.RunTask(task.ID, "task.trigger.updated") }()
+		s.goSafe("task-updated", func() { _ = s.Manager.RunTask(task.ID, "task.trigger.updated") })
 	}
 	task.Message = localize(c, task.Message)
 	ok(c, task)
@@ -436,7 +438,7 @@ func (s *Server) runTask(c *gin.Context) {
 	if requiresDeployExecution(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
 		return
 	}
-	go func() { _ = s.Manager.RunTask(id, "task.trigger.manual") }()
+	s.goSafe("task-manual", func() { _ = s.Manager.RunTask(id, "task.trigger.manual") })
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.task_started", nil)})
 }
 
@@ -508,9 +510,10 @@ func (s *Server) batchRunTasks(c *gin.Context) {
 			continue
 		}
 		started++
-		go func(taskID int64) {
+		taskID := id
+		s.goSafe("task-batch", func() {
 			_ = s.Manager.RunTaskQueued(taskID, "task.trigger.manual")
-		}(id)
+		})
 	}
 	message := i18n.T(locale(c), "api.ok.tasks_started", map[string]any{
 		"started": started,

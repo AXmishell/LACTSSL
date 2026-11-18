@@ -1564,6 +1564,13 @@ export default {
     disableTotpTitle: 'Disable two-factor authentication',
     totpCode: 'Verification code',
     confirmDisable: 'Disable',
+    reauthPasswordLabel: 'Current password',
+    reauthPasswordPlaceholder: 'Confirm your identity before continuing',
+    reauthTotpLabel: 'Verification code',
+    reauthTotpPlaceholder: '6-digit code',
+    reauthHint: 'Enter your TOTP code if two-factor authentication is enabled, otherwise enter your current password.',
+    reauthPasswordRequired: 'Enter your current password',
+    reauthTotpRequired: 'Enter the 6-digit verification code',
     entryFormat: 'Secure entry must be 8-32 letters, digits, underscores or hyphens',
     entryReserved: 'Secure entry {entry} is reserved; please choose another',
     passwordRequired: 'Please enter the current password',
@@ -1632,11 +1639,6 @@ export default {
     lastResult: 'Current run result',
     resultSummary: 'v{from} → v{to} · {changes} config changes · {reclaimed} reclaimed',
     backupDir: 'Pre-migration backup',
-    stepsTitle: 'Migration steps',
-    stepsSub: 'Step status is persisted; after fixing an error you can retry failed steps.',
-    version: 'Version',
-    stepName: 'Step',
-    detail: 'Details',
     configTitle: 'Configuration optimization',
     configSub: 'Target: {path} · {count} changes; the file is fully validated before writing.',
     configKey: 'Key',
@@ -1649,57 +1651,9 @@ export default {
     runConfirm: 'The database and configuration will be backed up before migration. Do not stop the service while it runs. Continue?',
     runSuccess: 'Migration and optimization completed',
     optimizeSuccess: 'Database and configuration optimization completed',
-    status: {
-      done: 'Done',
-      skipped: 'Skipped',
-      pending: 'Pending',
-      failed: 'Failed'
-    },
     action: {
       added: 'Added',
       normalized: 'Normalized'
-    },
-    step: {
-      secrets: {
-        title: 'Clean up legacy key file',
-        desc: 'After confirming config.yaml holds the secrets, move data/jwt.secret into the upgrade backup directory.'
-      },
-      crypto: {
-        title: 'Encrypt legacy sensitive fields',
-        desc: 'Encrypt plaintext TOTP secrets and certificate private keys with AES-256-GCM.'
-      },
-      eab: {
-        title: 'Migrate global EAB credentials',
-        desc: 'Move legacy acme.eab_kid / acme.eab_hmac to the default CA-specific settings.'
-      },
-      deployConfig: {
-        title: 'Split deployment parameters',
-        desc: 'Move path and site parameters from legacy credentials into task pipeline deploy nodes.'
-      },
-      notify: {
-        title: 'Migrate notification channels',
-        desc: 'Convert legacy Gotify / ServerChan settings into generic notification channels.'
-      },
-      deployTargets: {
-        title: 'Merge deployment target IDs',
-        desc: 'Update legacy targets such as qiniu_cdn and baota_site to canonical IDs while preserving the target mode.'
-      },
-      plugins: {
-        title: 'Initialize plugin whitelists',
-        desc: 'Seed DNS, deploy, and notify plugin enable lists so built-in entries do not disappear after upgrade.'
-      },
-      settings: {
-        title: 'Clean up legacy settings',
-        desc: 'Delete migrated legacy settings and normalize password_passkey verification mode to passkey.'
-      },
-      runtime: {
-        title: 'Reset runtime state',
-        desc: 'Clear old sessions, re-queue interrupted tasks, and prune expired records so stale state does not survive the upgrade.'
-      },
-      indexes: {
-        title: 'Add hot-path indexes',
-        desc: 'Add indexes used by certificate filtering, task scheduling, monitor checks, and log cleanup.'
-      }
     }
   },
   status: {

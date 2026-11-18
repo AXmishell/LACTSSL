@@ -8,6 +8,9 @@ import (
 // Start 启动后台调度循环：到期任务、证书监控和日常清理。
 func (m *Manager) Start(ctx context.Context) {
 	m.Store.ResetRunningTasks()
+	// 进程崩溃可能让挑战停在 processing；普通重启（不触发升级迁移）时
+	// 也必须恢复，否则客户端无法重新触发验证。
+	m.Store.ResetProcessingACMEChallenges()
 	m.Store.AddLogKey("system", 0, "info", "log.system.scheduler_started", nil)
 
 	go func() {

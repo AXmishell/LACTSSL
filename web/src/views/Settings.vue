@@ -41,7 +41,7 @@
                 {{ user?.totp_enabled ? t('settings.enabled') : t('settings.disabled') }}
               </span>
               <el-button v-if="!user?.totp_enabled" type="primary" plain @click="startTOTP">{{ t('settings.enable') }}</el-button>
-              <el-button v-else type="danger" plain @click="disableVisible = true">{{ t('settings.disable') }}</el-button>
+              <el-button v-else type="danger" plain @click="openDisableTOTP">{{ t('settings.disable') }}</el-button>
             </div>
           </div>
 
@@ -250,6 +250,11 @@
         <el-form-item :label="t('settings.newEmail')">
           <el-input v-model="emailForm.email" placeholder="name@example.com" />
         </el-form-item>
+        <ReauthFields
+          v-model:password="emailForm.password"
+          v-model:totp="emailForm.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
       </el-form>
       <template #footer>
         <el-button @click="emailVisible = false">{{ t('settings.cancel') }}</el-button>
@@ -260,6 +265,11 @@
     <!-- 修改密码 -->
     <el-dialog v-model="passwordVisible" :title="t('settings.changePasswordTitle')" width="440px">
       <el-form label-position="top">
+        <ReauthFields
+          v-model:password="passwordForm.password"
+          v-model:totp="passwordForm.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
         <el-form-item :label="t('settings.newPassword')">
           <el-input v-model="passwordForm.new_password" type="password" show-password :placeholder="t('settings.passwordMinPlaceholder')" />
         </el-form-item>
@@ -298,6 +308,13 @@
 
     <!-- 关闭 TOTP -->
     <el-dialog v-model="disableVisible" :title="t('settings.disableTotpTitle')" width="420px">
+      <el-form label-position="top">
+        <ReauthFields
+          v-model:password="totpDisableForm.password"
+          v-model:totp="totpDisableForm.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
+      </el-form>
       <template #footer>
         <el-button @click="disableVisible = false">{{ t('settings.cancel') }}</el-button>
         <el-button type="danger" :loading="savingAccount" @click="disableTOTP">{{ t('settings.confirmDisable') }}</el-button>
@@ -323,6 +340,13 @@
       <p class="muted" style="margin-top: 0">
         {{ t('settings.deletePasskeyDesc', { name: passkeyDeleteTarget?.name || '' }) }}
       </p>
+      <el-form label-position="top">
+        <ReauthFields
+          v-model:password="passkeyReauth.password"
+          v-model:totp="passkeyReauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
+      </el-form>
       <template #footer>
         <el-button @click="passkeyDeleteVisible = false">{{ t('settings.cancel') }}</el-button>
         <el-button type="danger" :loading="passkeyLoading" @click="deletePasskey">{{ t('common.delete') }}</el-button>
@@ -345,6 +369,11 @@
         <el-form-item v-if="backupPassword" :label="t('settings.backupPasswordConfirm')">
           <el-input v-model="backupPasswordConfirm" type="password" show-password autocomplete="new-password" />
         </el-form-item>
+        <ReauthFields
+          v-model:password="backupReauth.password"
+          v-model:totp="backupReauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
       </el-form>
       <el-alert
         type="info"
@@ -407,6 +436,11 @@
           />
           <div class="form-help">{{ t('settings.restoreDecryptHint') }}</div>
         </el-form-item>
+        <ReauthFields
+          v-model:password="restoreReauth.password"
+          v-model:totp="restoreReauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
       </el-form>
       <template #footer>
         <el-button @click="restoreVisible = false">{{ t('settings.cancel') }}</el-button>
@@ -431,6 +465,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, UploadInstance } from 'element-plus'
 import { Document, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import QRCode from 'qrcode'
+import ReauthFields from '../components/ReauthFields.vue'
 import { api, copyText, downloadFile, errorText } from '../api'
 import { isPasskeyCancelled, passkeySecureContext, passkeySupported, registerPasskey } from '../passkeys'
 import { loadMeta, loadSettings, loadUser, logout, state } from '../store'
@@ -477,9 +512,9 @@ const savingAccount = ref(false)
 const entryForm = reactive({ entry: '' })
 
 const emailVisible = ref(false)
-const emailForm = reactive({ email: '' })
+const emailForm = reactive({ email: '', password: '', totp: '' })
 const passwordVisible = ref(false)
-const passwordForm = reactive({ new_password: '', confirm: '' })
+const passwordForm = reactive({ new_password: '', confirm: '', password: '', totp: '' })
 
 const totpVisible = ref(false)
 const totpLoading = ref(false)
@@ -487,22 +522,26 @@ const totpSetup = ref<TOTPSetup | null>(null)
 const totpQr = ref('')
 const totpCode = ref('')
 const disableVisible = ref(false)
+const totpDisableForm = reactive({ password: '', totp: '' })
 
 const passkeyVisible = ref(false)
 const passkeyForm = reactive({ name: '' })
 const passkeyDeleteVisible = ref(false)
 const passkeyDeleteTarget = ref<PasskeyInfo | null>(null)
+const passkeyReauth = reactive({ password: '', totp: '' })
 
 const backup = ref<BackupInfo | null>(null)
 const backupDownloading = ref(false)
 const backupDialogVisible = ref(false)
 const backupPassword = ref('')
 const backupPasswordConfirm = ref('')
+const backupReauth = reactive({ password: '', totp: '' })
 const restoreVisible = ref(false)
 const restoreUpload = ref<UploadInstance>()
 const restoreFile = ref<File | null>(null)
 const restoreFileName = ref('')
 const restoreBackupPassword = ref('')
+const restoreReauth = reactive({ password: '', totp: '' })
 const restoring = ref(false)
 let restoreTimer: number | undefined
 
@@ -626,12 +665,16 @@ async function saveEntry(): Promise<void> {
 function openBackupDialog(): void {
   backupPassword.value = ''
   backupPasswordConfirm.value = ''
+  backupReauth.password = ''
+  backupReauth.totp = ''
   backupDialogVisible.value = true
 }
 
 function resetBackupDialog(): void {
   backupPassword.value = ''
   backupPasswordConfirm.value = ''
+  backupReauth.password = ''
+  backupReauth.totp = ''
 }
 
 async function downloadBackup(): Promise<void> {
@@ -648,6 +691,7 @@ async function downloadBackup(): Promise<void> {
     ElMessage.warning(t('settings.backupPasswordMismatch'))
     return
   }
+  if (!validReauth(backupReauth)) return
   try {
     backupDownloading.value = true
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
@@ -657,7 +701,7 @@ async function downloadBackup(): Promise<void> {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ password })
+      body: JSON.stringify({ password, account_password: backupReauth.password, totp: backupReauth.totp })
     })
     backupDialogVisible.value = false
     ElMessage.success(t('settings.backupDownloaded'))
@@ -678,6 +722,8 @@ function resetRestore(): void {
   restoreFile.value = null
   restoreFileName.value = ''
   restoreBackupPassword.value = ''
+  restoreReauth.password = ''
+  restoreReauth.totp = ''
   restoreUpload.value?.clearFiles()
 }
 
@@ -700,11 +746,14 @@ async function restoreBackup(): Promise<void> {
     ElMessage.warning(t('settings.restoreFileRequired'))
     return
   }
+  if (!validReauth(restoreReauth)) return
   restoring.value = true
   try {
     const form = new FormData()
     form.append('file', restoreFile.value)
     form.append('backup_password', restoreBackupPassword.value)
+    form.append('account_password', restoreReauth.password)
+    form.append('totp', restoreReauth.totp)
     const data = await api.post<MessageResult>('/settings/backup/restore', form)
     restoreVisible.value = false
     ElMessage.success(data.message || t('settings.restoreUploaded'))
@@ -725,7 +774,24 @@ async function restoreBackup(): Promise<void> {
 
 function openEmailDialog(): void {
   emailForm.email = ''
+  emailForm.password = ''
+  emailForm.totp = ''
   emailVisible.value = true
+}
+
+function validReauth(form: { password: string; totp: string }): boolean {
+  if (user.value?.totp_enabled) {
+    if (!/^\d{6}$/.test(form.totp.trim())) {
+      ElMessage.warning(t('settings.reauthTotpRequired'))
+      return false
+    }
+    return true
+  }
+  if (!form.password) {
+    ElMessage.warning(t('settings.reauthPasswordRequired'))
+    return false
+  }
+  return true
 }
 
 async function saveEmail(): Promise<void> {
@@ -733,10 +799,13 @@ async function saveEmail(): Promise<void> {
     ElMessage.warning(t('settings.emailRequired'))
     return
   }
+  if (!validReauth(emailForm)) return
   savingAccount.value = true
   try {
     const data = await api.post<AuthResult>('/auth/change-email', {
-      email: emailForm.email
+      email: emailForm.email,
+      password: emailForm.password,
+      totp: emailForm.totp
     })
     state.user = data.user
     emailVisible.value = false
@@ -751,10 +820,13 @@ async function saveEmail(): Promise<void> {
 function openPasswordDialog(): void {
   passwordForm.new_password = ''
   passwordForm.confirm = ''
+  passwordForm.password = ''
+  passwordForm.totp = ''
   passwordVisible.value = true
 }
 
 async function savePassword(): Promise<void> {
+  if (!validReauth(passwordForm)) return
   if ((passwordForm.new_password || '').length < 8) {
     ElMessage.warning(t('settings.passwordMin'))
     return
@@ -766,7 +838,9 @@ async function savePassword(): Promise<void> {
   savingAccount.value = true
   try {
     await api.post('/auth/change-password', {
-      new_password: passwordForm.new_password
+      new_password: passwordForm.new_password,
+      password: passwordForm.password,
+      totp: passwordForm.totp
     })
     passwordVisible.value = false
     // 服务端已使全部会话失效并清除 Cookie，本机也回到登录页重新认证。
@@ -805,15 +879,21 @@ async function addPasskey(): Promise<void> {
 
 function openDeletePasskey(item: PasskeyInfo): void {
   passkeyDeleteTarget.value = item
+  passkeyReauth.password = ''
+  passkeyReauth.totp = ''
   passkeyDeleteVisible.value = true
 }
 
 async function deletePasskey(): Promise<void> {
   const item = passkeyDeleteTarget.value
   if (!item) return
+  if (!validReauth(passkeyReauth)) return
   passkeyLoading.value = true
   try {
-    await api.post(`/auth/passkeys/${item.id}/delete`)
+    await api.post(`/auth/passkeys/${item.id}/delete`, {
+      password: passkeyReauth.password,
+      totp: passkeyReauth.totp
+    })
     passkeyDeleteVisible.value = false
     passkeyDeleteTarget.value = null
     await Promise.all([loadPasskeys(), loadSettings(true)])
@@ -861,10 +941,20 @@ async function enableTOTP(): Promise<void> {
   }
 }
 
+function openDisableTOTP(): void {
+  totpDisableForm.password = ''
+  totpDisableForm.totp = ''
+  disableVisible.value = true
+}
+
 async function disableTOTP(): Promise<void> {
+  if (!validReauth(totpDisableForm)) return
   savingAccount.value = true
   try {
-    await api.post('/auth/totp/disable')
+    await api.post('/auth/totp/disable', {
+      password: totpDisableForm.password,
+      totp: totpDisableForm.totp
+    })
     await loadUser(true)
     disableVisible.value = false
     ElMessage.success(t('settings.totpDisabled'))

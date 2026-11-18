@@ -77,8 +77,8 @@ func (s *Server) restartProgram(c *gin.Context) {
 	s.Store.AddLogKey("system", 0, "info", "log.system.program_restart", nil)
 	ok(c, gin.H{"restarting": true})
 	// 给 HTTP 响应留出写回时间，再关闭监听并 exec 新二进制。
-	go func() {
+	s.goSafe("program-restart", func() {
 		time.Sleep(time.Second)
 		s.RestartProgram()
-	}()
+	})
 }

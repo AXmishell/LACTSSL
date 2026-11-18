@@ -16,8 +16,8 @@ const (
 type NonceStore struct {
 	mu     sync.Mutex
 	values map[string]time.Time
-	// order 是 nonce 的 FIFO 插入顺序，用于在容量上限时 O(1) 淘汰最旧条目，
-	// 避免每次 New/Consume 都做全表扫描。
+	// order 是 nonce 的近似 FIFO 插入顺序，用于容量上限时淘汰较旧条目。
+	// 队列中的条目可能已被 Consume 删除，淘汰时会跳过这些失效项。
 	order     []string
 	head      int
 	ttl       time.Duration
@@ -69,7 +69,9 @@ func (n *NonceStore) Consume(value string) bool {
 
 func (n *NonceStore) sweepLocked() {
 	now := n.now()
-	if now.Sub(n.lastSweep) < time.Minute && len(n.values) < n.max {
+	// 时间清理必须独立于容量判断：达到上限后如果仍用 len<max 作为条件，
+	// 每个 New/Consume 都会执行一次全表扫描。
+	if now.Sub(n.lastSweep) < time.Minute {
 		return
 	}
 	for value, expires := range n.values {
@@ -77,19 +79,56 @@ func (n *NonceStore) sweepLocked() {
 			delete(n.values, value)
 		}
 	}
+	n.rebuildOrderLocked()
 	n.lastSweep = now
 }
 
+// rebuildOrderLocked 把队列收缩到当前仍然有效的 nonce。
+// 队列只用于容量淘汰，允许顺序近似，重点是避免已消费/过期条目长期占用内存。
+func (n *NonceStore) rebuildOrderLocked() {
+	order := make([]string, 0, len(n.values))
+	for value := range n.values {
+		order = append(order, value)
+	}
+	n.order = order
+	n.head = 0
+}
+
 func (n *NonceStore) evictLocked() {
-	// 达到上限时删除最早过期的一批 nonce，避免内存无限增长。
-	var oldest string
-	var oldestExpiry time.Time
-	for value, expires := range n.values {
-		if oldest == "" || expires.Before(oldestExpiry) {
-			oldest, oldestExpiry = value, expires
+	// 从队列头部跳过已消费或过期的条目，删除第一个仍有效的 nonce。
+	for n.head < len(n.order) {
+		value := n.order[n.head]
+		n.order[n.head] = ""
+		n.head++
+		if _, ok := n.values[value]; ok {
+			delete(n.values, value)
+			n.compactOrderLocked()
+			return
 		}
 	}
-	if oldest != "" {
-		delete(n.values, oldest)
+	// 理论上队列不会早于 values 耗尽；若出现异常，直接收缩队列并兜底删除一项。
+	n.rebuildOrderLocked()
+	if len(n.values) >= n.max {
+		for value := range n.values {
+			delete(n.values, value)
+			break
+		}
+	}
+}
+
+// compactOrderLocked 在队列头部积累较多已失效条目时收缩底层切片。
+// 使用“头部超过一半”作为阈值，平摊到每次插入仍是 O(1)。
+func (n *NonceStore) compactOrderLocked() {
+	if n.head == 0 {
+		return
+	}
+	if n.head >= len(n.order) {
+		n.order = n.order[:0]
+		n.head = 0
+		return
+	}
+	if n.head > 4096 && n.head*2 >= len(n.order) {
+		n.order = append([]string(nil), n.order[n.head:]...)
+		n.head = 0
 	}
 }

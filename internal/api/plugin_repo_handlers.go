@@ -423,14 +423,14 @@ func (s *Server) StartPluginRepoWorker() {
 	if interval <= 0 {
 		interval = 24 * time.Hour
 	}
-	go func() {
+	s.goSafe("plugin-repo-worker", func() {
 		s.refreshRepoOnce()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for range ticker.C {
 			s.refreshRepoOnce()
 		}
-	}()
+	})
 }
 
 func (s *Server) refreshRepoOnce() {

@@ -398,8 +398,19 @@ func (s *Server) handlePasskeyRegisterFinish(c *gin.Context) {
 
 func (s *Server) handlePasskeyDelete(c *gin.Context) {
 	user := getUser(c)
+	var body struct {
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if !s.requireReauth(c, user, body.Password, body.TOTP) {
 		return
 	}
 	deleted, err := s.Store.DeletePasskey(user.ID, id)

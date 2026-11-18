@@ -121,8 +121,8 @@ func (s *Server) restartSetupConfig(c *gin.Context) {
 		"message":    i18n.T(locale(c), "api.ok.config_restarting", nil),
 		"restarting": true,
 	})
-	go func() {
+	s.goSafe("setup-config-restart", func() {
 		time.Sleep(1500 * time.Millisecond)
 		s.Restart()
-	}()
+	})
 }

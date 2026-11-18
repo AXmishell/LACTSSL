@@ -50,7 +50,9 @@ func (s *Server) downloadBackup(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Password string `json:"password"`
+		Password        string `json:"password"`
+		AccountPassword string `json:"account_password"`
+		TOTP            string `json:"totp"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -71,6 +73,9 @@ func (s *Server) downloadBackup(c *gin.Context) {
 	}
 	if len(password) > 128 {
 		failKey(c, http.StatusBadRequest, "api.error.backup_password_too_long")
+		return
+	}
+	if !s.requireReauth(c, user, body.AccountPassword, body.TOTP) {
 		return
 	}
 	filePath, filename, cleanup, err := s.Backup.Export(password)
@@ -119,6 +124,13 @@ func (s *Server) restoreBackup(c *gin.Context) {
 		return
 	}
 	defer file.Close()
+	user := getUser(c)
+	if !s.requireReauth(c, user,
+		c.PostForm("account_password"),
+		strings.TrimSpace(c.PostForm("totp")),
+	) {
+		return
+	}
 	if err := s.Backup.Stage(file, fileHeader.Filename, strings.TrimSpace(c.PostForm("backup_password"))); err != nil {
 		failBackupUpload(c, err)
 		return
@@ -132,10 +144,10 @@ func (s *Server) restoreBackup(c *gin.Context) {
 	})
 	if restarting {
 		// 等响应发送完成后再触发优雅退出；Docker 的 restart 策略或进程管理器会拉起新进程。
-		go func() {
+		s.goSafe("restore-restart", func() {
 			time.Sleep(1500 * time.Millisecond)
 			s.Restart()
-		}()
+		})
 	}
 }
 
@@ -214,10 +226,10 @@ func (s *Server) handleSetupRestore(c *gin.Context) {
 		"restarting": restarting,
 	})
 	if restarting {
-		go func() {
+		s.goSafe("restore-restart", func() {
 			time.Sleep(1500 * time.Millisecond)
 			s.Restart()
-		}()
+		})
 	}
 }
 

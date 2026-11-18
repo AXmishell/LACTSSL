@@ -414,6 +414,10 @@ func (s *Server) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		writeProblemType(w, http.StatusBadRequest, ProblemBadCSR, err.Error())
 		return
 	}
+	if len(order.Identifiers) == 0 {
+		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "order has no identifiers")
+		return
+	}
 	primary := order.Identifiers[0]
 	certificate := &model.Certificate{
 		Domains:       append([]string(nil), order.Identifiers...),
@@ -432,11 +436,10 @@ func (s *Server) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		NotAfter:      issued.NotAfter,
 		Status:        "valid",
 	}
-	if err := s.Store.CreateCertificate(certificate); err != nil {
+	if err := s.Store.CreateCertificateForACMEOrder(order.ID, certificate); err != nil {
 		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "failed to save certificate")
 		return
 	}
-	_ = s.Store.UpdateACMEOrderStatus(order.ID, "valid", "", certificate.ID)
 	order.Status = "valid"
 	order.CertificateID = certificate.ID
 	writeJSON(w, http.StatusOK, s.orderView(r, ep, order))

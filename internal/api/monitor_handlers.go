@@ -64,7 +64,7 @@ func (s *Server) createMonitor(c *gin.Context) {
 	}
 	s.Store.AddLogKey("monitor", monitor.ID, "info", "log.monitor.created", map[string]any{"target": monitor.Target})
 	if monitor.Enabled {
-		go func() { _ = s.Manager.CheckMonitor(monitor.ID) }()
+		s.goSafe("monitor-check", func() { _ = s.Manager.CheckMonitor(monitor.ID) })
 	}
 	ok(c, monitor)
 }
@@ -97,7 +97,7 @@ func (s *Server) updateMonitor(c *gin.Context) {
 		return
 	}
 	if monitor.Enabled {
-		go func() { _ = s.Manager.CheckMonitor(monitor.ID) }()
+		s.goSafe("monitor-check", func() { _ = s.Manager.CheckMonitor(monitor.ID) })
 	}
 	ok(c, monitor)
 }
@@ -127,6 +127,6 @@ func (s *Server) checkMonitor(c *gin.Context) {
 		failKey(c, http.StatusNotFound, "api.error.monitor_not_found")
 		return
 	}
-	go func() { _ = s.Manager.CheckMonitor(id) }()
+	s.goSafe("monitor-check", func() { _ = s.Manager.CheckMonitor(id) })
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.monitor_check_started", nil)})
 }

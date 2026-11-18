@@ -225,37 +225,6 @@
     <div v-if="status" class="k-card" style="margin-top: 16px; padding: 24px">
       <div class="card-head">
         <div>
-          <h3>{{ t('upgrade.stepsTitle') }}</h3>
-          <div class="sub">{{ t('upgrade.stepsSub') }}</div>
-        </div>
-      </div>
-      <el-table :data="status.steps" style="width: 100%">
-        <el-table-column width="90" :label="t('upgrade.version')">
-          <template #default="{ row }">v{{ row.version }}</template>
-        </el-table-column>
-        <el-table-column min-width="220" :label="t('upgrade.stepName')">
-          <template #default="{ row }">
-            <div style="font-weight: 600">{{ t(row.title_key) }}</div>
-            <div class="muted" style="margin-top: 4px">{{ t(row.desc_key) }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column width="110" :label="t('common.status')">
-          <template #default="{ row }">
-            <el-tag :type="stepTag(row.status)" effect="light" round size="small">{{ t(`upgrade.status.${row.status}`) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column min-width="260" :label="t('upgrade.detail')">
-          <template #default="{ row }">
-            <span v-if="row.detail" class="muted">{{ row.detail }}</span>
-            <span v-else class="muted">{{ t('common.none') }}</span>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
-
-    <div v-if="status" class="k-card" style="margin-top: 16px; padding: 24px">
-      <div class="card-head">
-        <div>
           <h3>{{ t('upgrade.configTitle') }}</h3>
           <div class="sub">{{ t('upgrade.configSub', { path: status.config.path || t('common.none'), count: status.config.changes.length }) }}</div>
         </div>
@@ -485,10 +454,6 @@ async function optimize(): Promise<void> {
   } finally {
     optimizing.value = false
   }
-}
-
-function stepTag(value: string): 'success' | 'info' | 'warning' | 'danger' {
-  return value === 'done' ? 'success' : value === 'skipped' ? 'info' : value === 'failed' ? 'danger' : 'warning'
 }
 
 function formatBytes(bytes?: number): string {

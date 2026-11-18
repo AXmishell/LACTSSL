@@ -789,6 +789,16 @@ func scanTask(row interface{ Scan(...any) error }) (*model.Task, error) {
 
 // CreateCertificate 保存证书。证书私钥与其他敏感字段一样加密落库。
 func (s *Store) CreateCertificate(c *model.Certificate) error {
+	return s.insertCertificate(s.DB, c)
+}
+
+// certificateExecer 同时兼容 *sql.DB 与 *sql.Tx。
+type certificateExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// insertCertificate 在指定执行器上插入证书记录。
+func (s *Store) insertCertificate(exec certificateExecer, c *model.Certificate) error {
 	domains, _ := json.Marshal(c.Domains)
 	now := nowUTC()
 	source := c.Source
@@ -799,7 +809,7 @@ func (s *Store) CreateCertificate(c *model.Certificate) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec(`INSERT INTO certificates(task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,created_at)
+	res, err := exec.Exec(`INSERT INTO certificates(task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,created_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.TaskID, string(domains), c.PrimaryDomain, c.Issuer, c.CA, source, c.PrivateCAID, c.ACMEOrderID, c.ACMEAccountID, c.CertPEM, encryptedKey, c.FullchainPEM, c.Serial, c.NotBefore, c.NotAfter, c.Status, now)
 	if err != nil {
@@ -808,6 +818,28 @@ func (s *Store) CreateCertificate(c *model.Certificate) error {
 	c.ID, _ = res.LastInsertId()
 	c.CreatedAt = now
 	return nil
+}
+
+// CreateCertificateForACMEOrder 在同一事务内写入证书并把订单标记为 valid。
+// 避免证书已落库但订单状态更新失败时，客户端重试 finalize 重复签发。
+func (s *Store) CreateCertificateForACMEOrder(orderID int64, c *model.Certificate) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := s.insertCertificate(tx, c); err != nil {
+		return err
+	}
+	res, err := tx.Exec(`UPDATE acme_orders SET status='valid',error='',certificate_id=?,updated_at=? WHERE id=?`,
+		c.ID, nowUTC(), orderID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := res.RowsAffected(); affected != 1 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
 }
 
 // MigrateCertificateKeys 把旧版本明文保存的证书私钥加密。

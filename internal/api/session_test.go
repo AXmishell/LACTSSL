@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pquerna/otp/totp"
 	"lactssl/internal/auth"
 	"lactssl/internal/db"
 	"lactssl/internal/model"
@@ -501,6 +503,133 @@ func TestChangePasswordInvalidatesAllSessions(t *testing.T) {
 		`{"email":"admin@example.com","password":"newpassword1234"}`, nil, nil)
 	if newLogin.Code != http.StatusOK {
 		t.Fatalf("新密码应能登录: %d %s", newLogin.Code, newLogin.Body.String())
+	}
+}
+
+// TestSensitiveOperationsRequireReauth 验证改密、换邮箱、关闭 TOTP 和删除通行密钥
+// 都需要当前密码（启用 TOTP 时为动态验证码）。
+func TestSensitiveOperationsRequireReauth(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+
+	setup := sessionRequest(t, router, http.MethodPost, "/api/setup",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if setup.Code != http.StatusOK {
+		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
+	}
+	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+	headers := map[string]string{csrfHeaderName: "1"}
+
+	missing := sessionRequest(t, router, http.MethodPost, "/api/auth/change-email",
+		`{"email":"new@example.com"}`, []*http.Cookie{session}, headers)
+	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), "api.error.current_password_wrong") {
+		t.Fatalf("缺少再认证信息时应拒绝换邮箱: %d %s", missing.Code, missing.Body.String())
+	}
+
+	wrong := sessionRequest(t, router, http.MethodPost, "/api/auth/change-email",
+		`{"email":"new@example.com","password":"wrong-password"}`, []*http.Cookie{session}, headers)
+	if wrong.Code != http.StatusBadRequest || !strings.Contains(wrong.Body.String(), "api.error.current_password_wrong") {
+		t.Fatalf("错误当前密码应拒绝换邮箱: %d %s", wrong.Code, wrong.Body.String())
+	}
+
+	changed := sessionRequest(t, router, http.MethodPost, "/api/auth/change-email",
+		`{"email":"new@example.com","password":"password1234"}`, []*http.Cookie{session}, headers)
+	if changed.Code != http.StatusOK {
+		t.Fatalf("正确当前密码应允许换邮箱: %d %s", changed.Code, changed.Body.String())
+	}
+	if _, err := st.GetUserByEmail("new@example.com"); err != nil {
+		t.Fatalf("邮箱应已更新: %v", err)
+	}
+	// 换邮箱会轮换会话，后续请求必须使用新 Cookie。
+	session = findCookie(t, changed.Result().Cookies(), sessionCookieName)
+
+	// 删除通行密钥同样要求再认证；这里直接写入一条测试凭据。
+	user, err := st.GetUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreatePasskey(&model.Passkey{
+		UserID: user.ID, Name: "test", CredentialID: "test-credential", Credential: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	passkeyDelete := sessionRequest(t, router, http.MethodPost, "/api/auth/passkeys/1/delete",
+		`{}`, []*http.Cookie{session}, headers)
+	if passkeyDelete.Code != http.StatusBadRequest || !strings.Contains(passkeyDelete.Body.String(), "api.error.current_password_wrong") {
+		t.Fatalf("缺少再认证应拒绝删除通行密钥: %d %s", passkeyDelete.Code, passkeyDelete.Body.String())
+	}
+	passkeyDeleted := sessionRequest(t, router, http.MethodPost, "/api/auth/passkeys/1/delete",
+		`{"password":"password1234"}`, []*http.Cookie{session}, headers)
+	if passkeyDeleted.Code != http.StatusOK {
+		t.Fatalf("正确再认证应允许删除通行密钥: %d %s", passkeyDeleted.Code, passkeyDeleted.Body.String())
+	}
+}
+
+// TestTOTPIsRequiredForReauthWhenEnabled 验证启用 TOTP 后敏感操作只接受动态验证码。
+func TestTOTPIsRequiredForReauthWhenEnabled(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+
+	setup := sessionRequest(t, router, http.MethodPost, "/api/setup",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if setup.Code != http.StatusOK {
+		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
+	}
+	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+	headers := map[string]string{csrfHeaderName: "1"}
+	user, err := st.GetUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, _, err := auth.GenerateTOTP(user.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetTOTP(user.ID, secret, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// 只填密码不再被接受。
+	passwordOnly := sessionRequest(t, router, http.MethodPost, "/api/auth/totp/disable",
+		`{"password":"password1234"}`, []*http.Cookie{session}, headers)
+	if passwordOnly.Code != http.StatusBadRequest || !strings.Contains(passwordOnly.Body.String(), "api.error.totp_invalid") {
+		t.Fatalf("启用 TOTP 后应拒绝仅使用密码: %d %s", passwordOnly.Code, passwordOnly.Body.String())
+	}
+
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled := sessionRequest(t, router, http.MethodPost, "/api/auth/totp/disable",
+		`{"totp":"`+code+`"}`, []*http.Cookie{session}, headers)
+	if disabled.Code != http.StatusOK {
+		t.Fatalf("正确的 TOTP 验证码应允许关闭 TOTP: %d %s", disabled.Code, disabled.Body.String())
+	}
+	updated, err := st.GetUserByID(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.TOTPEnabled {
+		t.Fatal("TOTP 应已关闭")
+	}
+}
+
+// TestValidCSRFCookieIsNotReissued 验证长度正确的 CSRF Cookie 不会在每次请求时重复下发。
+func TestValidCSRFCookieIsNotReissued(t *testing.T) {
+	router := newSessionTestServer(t)
+
+	setup := sessionRequest(t, router, http.MethodPost, "/api/setup",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
+	csrf := findCookie(t, setup.Result().Cookies(), csrfCookieName)
+
+	me := sessionRequest(t, router, http.MethodGet, "/api/auth/me", "",
+		[]*http.Cookie{session, csrf}, nil)
+	if me.Code != http.StatusOK {
+		t.Fatalf("读取当前账户失败: %d %s", me.Code, me.Body.String())
+	}
+	for _, cookie := range me.Result().Cookies() {
+		if cookie.Name == csrfCookieName {
+			t.Fatal("有效 CSRF Cookie 不应被重复下发")
+		}
 	}
 }
 

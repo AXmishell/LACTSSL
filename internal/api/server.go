@@ -526,16 +526,21 @@ func (s *Server) authenticate(c *gin.Context) bool {
 	if looksLikeAPIKey(token) {
 		return s.authenticateAPIKey(c, token)
 	}
-	// 旧会话的 CSRF Cookie 缺失或过短时顺手补发，后续写请求即可强校验。
-	if !fromHeader {
-		if csrf, err := s.readCookie(c, csrfCookieName); err != nil || len(csrf) < auth.MinTokenLength {
-			s.setCSRFCookie(c, token, time.Now().Add(entryCookieTTL))
-		}
-	}
 	claims, err := s.Auth.Parse(token)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "message": err.Error()})
 		return false
+	}
+	// 旧会话的 CSRF Cookie 缺失或长度不正确时顺手补发。
+	// 注意 CSRF 令牌长度是 csrfTokenLength，不能拿会话令牌的 MinTokenLength 比较。
+	if !fromHeader {
+		if csrf, err := s.readCookie(c, csrfCookieName); err != nil || len(csrf) != csrfTokenLength {
+			expire := time.Now().Add(entryCookieTTL)
+			if claims.ExpiresAt != nil {
+				expire = claims.ExpiresAt.Time
+			}
+			s.setCSRFCookie(c, token, expire)
+		}
 	}
 	user, err := s.Store.GetUserByID(claims.UserID)
 	if err != nil || user.TokenVersion != claims.Version {
