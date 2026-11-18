@@ -92,6 +92,7 @@ Permissions are divided by resource:action. `*` represents all system API capabi
 | `certificates:read` | View certificates, download certificate chains, and analyze certificates | No |
 | `certificates:write` | Clean up and delete certificates | No |
 | `certificates:key` | View or download certificate private keys | Yes |
+| `certificates:request` | Submit a client CSR and let the server complete authoritative CA validation and issuance | Yes |
 | `deploy:execute` | Deploy certificates manually, or create, modify, or run tasks that contain deploy nodes | Yes |
 | `tasks:read` | View task lists and task logs | No |
 | `tasks:write` | Create, modify, delete, enable, and disable tasks (also requires `deploy:execute` when deploy nodes are included) | No |
@@ -244,6 +245,51 @@ curl -fsS -X POST \
 | `/api-keys/:id` | PUT | `api_keys:write` | Modify the name, permissions, enabled state, and expiry |
 | `/api-keys/:id/rotate` | POST | `api_keys:write` | Rotate the key; the old token is invalidated immediately |
 | `/api-keys/:id` | DELETE | `api_keys:write` | Delete a key |
+
+### 6.6 Requesting an Authoritative CA Certificate from a Client CSR
+
+The server acts as an intermediary: it accepts a client CSR, completes DNS-01 validation with the configured authoritative CA and DNS account, and returns the issued certificate. The server never generates or stores the private key.
+
+Creating a request requires the `certificates:request` scope:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...\n-----END CERTIFICATE REQUEST-----\n",
+    "ca": "letsencrypt",
+    "challenge": "dns01",
+    "dns_account_id": 3,
+    "idempotency_key": "order-20261118-001",
+    "wait_seconds": 0
+  }' \
+  https://ssl.example.com/api/certificate-requests
+```
+
+The endpoint returns `202 Accepted` with a request ID. Poll the request until it is issued:
+
+```bash
+curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  https://ssl.example.com/api/certificate-requests/csr_xxxxxxxx
+```
+
+Once the status is `issued`, download the certificate chain. Private keys are never available:
+
+```bash
+curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  "https://ssl.example.com/api/certificate-requests/csr_xxxxxxxx/certificate?type=fullchain" \
+  -o example.com.fullchain.crt
+```
+
+Notes:
+
+- Phase one supports DNS-01 only. Wildcard certificates require DNS-01.
+- `ca` must be an ACME upstream from the "Authoritative CA" page, not a private CA.
+- The server strictly validates the CSR signature, key strength, canonical SANs, common name, and internal domains. The server cannot modify a signed CSR.
+- Provide an `idempotency_key`. Only one in-flight request is allowed per CSR and CA.
+- Use the `csr.allowed_domains` setting to restrict requestable domains. Separate multiple domains with commas or whitespace.
+- `key_available` is `false` for these certificates, so private-key download and private-key-dependent deployments are disabled.
 
 ## 7. CI/CD Examples
 

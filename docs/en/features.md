@@ -61,6 +61,14 @@ This document describes LACTSSL capabilities by business domain, including key p
 - Default renewal days.
 - EAB credentials for each CA.
 
+### 1.5 Client CSR requests
+
+- The API accepts a client CSR and acts as an intermediary to complete DNS-01 validation and issuance with an authoritative CA.
+- The server never generates or stores the private key; the certificate binds the public key from the client CSR, and the client keeps the private key.
+- Requests run asynchronously and support status polling, cancellation, retry, and per-request certificate chain download.
+- Only ACME v2 authoritative CAs and DNS-01 are supported; wildcard certificates require DNS-01.
+- A dedicated `certificates:request` API key scope is required, and `csr.allowed_domains` can restrict requestable domains.
+
 ## 2. DNS providers
 
 DNS providers are supplied by DNS plugins. The main program does not include any provider; the provider list appears only after a plugin is installed and enabled.

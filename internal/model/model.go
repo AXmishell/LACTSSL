@@ -153,26 +153,31 @@ type Task struct {
 
 // Certificate 保存签发得到的证书内容。
 type Certificate struct {
-	ID            int64      `json:"id"`
-	TaskID        int64      `json:"task_id"`
-	Domains       []string   `json:"domains"`
-	PrimaryDomain string     `json:"primary_domain"`
-	Issuer        string     `json:"issuer"`
-	CA            string     `json:"ca"`
-	Source        string     `json:"source"`
-	PrivateCAID   int64      `json:"private_ca_id,omitempty"`
-	ACMEOrderID   int64      `json:"acme_order_id,omitempty"`
-	ACMEAccountID int64      `json:"acme_account_id,omitempty"`
-	CertPEM       string     `json:"cert_pem"`
-	KeyPEM        string     `json:"-"`
-	FullchainPEM  string     `json:"fullchain_pem"`
-	Serial        string     `json:"serial"`
-	NotBefore     time.Time  `json:"not_before"`
-	NotAfter      time.Time  `json:"not_after"`
-	Status        string     `json:"status"`
-	RevokedAt     *time.Time `json:"revoked_at,omitempty"`
-	RevokeReason  int        `json:"revoke_reason,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID            int64    `json:"id"`
+	TaskID        int64    `json:"task_id"`
+	Domains       []string `json:"domains"`
+	PrimaryDomain string   `json:"primary_domain"`
+	Issuer        string   `json:"issuer"`
+	CA            string   `json:"ca"`
+	Source        string   `json:"source"`
+	PrivateCAID   int64    `json:"private_ca_id,omitempty"`
+	ACMEOrderID   int64    `json:"acme_order_id,omitempty"`
+	ACMEAccountID int64    `json:"acme_account_id,omitempty"`
+	// CSRRequestID 关联通过 CSR 申请签发的来源记录。
+	CSRRequestID int64 `json:"csr_request_id,omitempty"`
+	// KeyAvailable 表示服务端是否保存了证书私钥。
+	// CSR 申请与 ACME Server 签发的证书没有私钥，前端据此隐藏私钥下载入口。
+	KeyAvailable bool       `json:"key_available"`
+	CertPEM      string     `json:"cert_pem"`
+	KeyPEM       string     `json:"-"`
+	FullchainPEM string     `json:"fullchain_pem"`
+	Serial       string     `json:"serial"`
+	NotBefore    time.Time  `json:"not_before"`
+	NotAfter     time.Time  `json:"not_after"`
+	Status       string     `json:"status"`
+	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
+	RevokeReason int        `json:"revoke_reason,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 // DeployRecord 记录一次部署结果。

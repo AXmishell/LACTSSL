@@ -294,6 +294,12 @@ func (s *Server) deployCertificate(c *gin.Context) {
 		failKey(c, http.StatusNotFound, "api.error.cert_not_found")
 		return
 	}
+	// CSR 申请与 ACME Server 签发的证书没有服务端私钥，部署插件通常需要
+	// 私钥才能完成目标站点更新，这里统一拒绝，避免部分部署后才失败。
+	if !cert.KeyAvailable {
+		failKey(c, http.StatusBadRequest, "api.error.cert_key_unavailable")
+		return
+	}
 	var body struct {
 		DeployIDs []int64            `json:"deploy_ids"`
 		Targets   []deployTargetBody `json:"targets"`

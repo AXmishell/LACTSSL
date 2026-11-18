@@ -111,6 +111,7 @@ func (s *Server) getSettings(c *gin.Context) {
 		"acme_ca":             s.setting("acme.ca", "letsencrypt"),
 		"acme_key_type":       s.setting("acme.key_type", "ecdsa"),
 		"acme_renew_days":     s.settingInt("acme.renew_days", 30),
+		"csr_allowed_domains": s.setting("csr.allowed_domains", ""),
 		"smtp_host":           s.setting("smtp.host", ""),
 		"smtp_port":           s.settingInt("smtp.port", 465),
 		"smtp_username":       s.setting("smtp.username", ""),
@@ -139,20 +140,21 @@ func (s *Server) settingInt(key string, def int) int {
 
 func (s *Server) updateSettings(c *gin.Context) {
 	var body struct {
-		Language       *string                                `json:"language"`
-		ACMEEmail      *string                                `json:"acme_email"`
-		ACMECA         *string                                `json:"acme_ca"`
-		ACMEKeyType    *string                                `json:"acme_key_type"`
-		ACMERenew      *int                                   `json:"acme_renew_days"`
-		SMTPHost       *string                                `json:"smtp_host"`
-		SMTPPort       *int                                   `json:"smtp_port"`
-		SMTPUsername   *string                                `json:"smtp_username"`
-		SMTPPassword   *string                                `json:"smtp_password"`
-		SMTPFrom       *string                                `json:"smtp_from"`
-		SMTPSSL        *bool                                  `json:"smtp_ssl"`
-		NotifyEnable   *bool                                  `json:"notify_enabled"`
-		NotifyTo       *string                                `json:"notify_to"`
-		NotifyChannels map[string]service.NotifyChannelConfig `json:"notify_channels"`
+		Language          *string                                `json:"language"`
+		ACMEEmail         *string                                `json:"acme_email"`
+		ACMECA            *string                                `json:"acme_ca"`
+		ACMEKeyType       *string                                `json:"acme_key_type"`
+		ACMERenew         *int                                   `json:"acme_renew_days"`
+		CSRAllowedDomains *string                                `json:"csr_allowed_domains"`
+		SMTPHost          *string                                `json:"smtp_host"`
+		SMTPPort          *int                                   `json:"smtp_port"`
+		SMTPUsername      *string                                `json:"smtp_username"`
+		SMTPPassword      *string                                `json:"smtp_password"`
+		SMTPFrom          *string                                `json:"smtp_from"`
+		SMTPSSL           *bool                                  `json:"smtp_ssl"`
+		NotifyEnable      *bool                                  `json:"notify_enabled"`
+		NotifyTo          *string                                `json:"notify_to"`
+		NotifyChannels    map[string]service.NotifyChannelConfig `json:"notify_channels"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -200,6 +202,9 @@ func (s *Server) updateSettings(c *gin.Context) {
 			return
 		}
 		_ = s.Store.SetSetting("acme.renew_days", strconv.Itoa(*body.ACMERenew))
+	}
+	if body.CSRAllowedDomains != nil {
+		_ = s.Store.SetSetting("csr.allowed_domains", strings.TrimSpace(*body.CSRAllowedDomains))
 	}
 	set("smtp.host", body.SMTPHost)
 	set("smtp.username", body.SMTPUsername)

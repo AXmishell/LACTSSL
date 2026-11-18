@@ -75,11 +75,11 @@
                   <el-dropdown-menu>
                     <el-dropdown-item command="fullchain">{{ t('certs.fullchain') }}</el-dropdown-item>
                     <el-dropdown-item command="cert">{{ t('certs.cert') }}</el-dropdown-item>
-                    <el-dropdown-item v-if="row.source !== 'acme'" command="key">{{ t('certs.key') }}</el-dropdown-item>
+                    <el-dropdown-item v-if="hasPrivateKey(row)" command="key">{{ t('certs.key') }}</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
-              <el-button v-if="row.source !== 'acme'" text size="small" @click="openDeploy(row)">{{ t('certs.deploy') }}</el-button>
+              <el-button v-if="canDeploy(row)" text size="small" @click="openDeploy(row)">{{ t('certs.deploy') }}</el-button>
               <el-button text type="danger" size="small" @click="remove(row)">{{ t('common.delete') }}</el-button>
             </template>
           </el-table-column>
@@ -98,7 +98,7 @@
         <el-button size="small" type="primary" plain :icon="Download" :loading="batchDownloading" @click="batchDownload">
           {{ t('certs.batchDownload') }}
         </el-button>
-        <el-button size="small" :icon="UploadFilled" @click="openBatchDeploy">
+        <el-button size="small" :icon="UploadFilled" :disabled="deployableSelected.length === 0" @click="openBatchDeploy">
           {{ t('certs.batchDeploy') }}
         </el-button>
         <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchRemove">
@@ -125,7 +125,7 @@
           </div>
           <div class="flex gap-10">
             <el-button :icon="Download" @click="download(detail, 'fullchain')">{{ t('certs.download') }}</el-button>
-            <el-button v-if="detail?.source !== 'acme'" type="primary" :icon="UploadFilled" @click="openDeploy(detail)">{{ t('certs.deploy') }}</el-button>
+            <el-button v-if="canDeploy(detail)" type="primary" :icon="UploadFilled" @click="openDeploy(detail)">{{ t('certs.deploy') }}</el-button>
           </div>
         </div>
 
@@ -189,7 +189,7 @@
           <el-tab-pane :label="t('certs.pemTab')" name="pem">
             <el-radio-group v-model="pemTab" size="small" style="margin-bottom: 12px">
               <el-radio-button value="fullchain">{{ t('certs.fullchain') }}</el-radio-button>
-              <el-radio-button v-if="detail?.source !== 'acme'" value="key">{{ t('certs.key') }}</el-radio-button>
+              <el-radio-button v-if="hasPrivateKey(detail)" value="key">{{ t('certs.key') }}</el-radio-button>
             </el-radio-group>
             <div class="flex gap-10" style="margin-bottom: 10px">
               <el-button size="small" :icon="CopyDocument" @click="copyPem">{{ t('certs.copyContent') }}</el-button>
@@ -281,6 +281,7 @@
             <el-select v-model="cleanupForm.source" clearable :placeholder="t('certs.cleanupAny')">
               <el-option :label="t('certs.cleanupSourceTask')" value="task" />
               <el-option :label="t('certs.cleanupSourceACME')" value="acme" />
+              <el-option :label="t('certs.cleanupSourceCSR')" value="csr" />
             </el-select>
           </el-form-item>
         </div>
@@ -341,6 +342,7 @@ const deployAccounts = ref<DeployAccount[]>([])
 
 const tableRef = ref<{ clearSelection: () => void } | null>(null)
 const selectedCerts = ref<Certificate[]>([])
+const deployableSelected = computed(() => selectedCerts.value.filter((cert) => hasPrivateKey(cert)))
 const showBatchBar = useDelayedBatchBar(() => selectedCerts.value.length > 0)
 const batchDownloading = ref(false)
 const batchDeleting = ref(false)
@@ -463,6 +465,18 @@ function levelInfo(level?: string): LevelInfo {
   return (level && map[level]) || map.good
 }
 
+// CSR 申请与 ACME Server 签发的证书没有服务端私钥，不能下载私钥或执行
+// 需要私钥的部署。优先使用后端返回的 key_available，兼容旧接口回退到来源判断。
+function hasPrivateKey(cert?: Certificate | null): boolean {
+  if (!cert) return false
+  if (typeof cert.key_available === 'boolean') return cert.key_available
+  return cert.source !== 'acme' && cert.source !== 'csr'
+}
+
+function canDeploy(cert?: Certificate | null): boolean {
+  return hasPrivateKey(cert)
+}
+
 function caLabel(value?: string): string {
   if (!value) return t('common.unknown')
   const publicCA = (state.meta?.cas || []).find((item) => item.value === value)
@@ -569,8 +583,8 @@ function openDeploy(cert: Certificate | null): void {
 }
 
 function openBatchDeploy(): void {
-  if (!selectedCerts.value.length) return
-  openDeployFor(selectedCerts.value)
+  if (!deployableSelected.value.length) return
+  openDeployFor(deployableSelected.value)
 }
 
 function openDeployFor(list: Certificate[]): void {

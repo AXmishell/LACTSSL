@@ -92,6 +92,7 @@ curl -X POST \
 | `certificates:read` | 查看证书、下载证书链和证书分析 | 否 |
 | `certificates:write` | 清理和删除证书 | 否 |
 | `certificates:key` | 查看或下载证书私钥 | 是 |
+| `certificates:request` | 提交客户端 CSR，由服务端向权威 CA 完成验证与签发 | 是 |
 | `deploy:execute` | 手动部署证书，或创建/修改/运行包含部署节点的任务 | 是 |
 | `tasks:read` | 查看任务列表与任务日志 | 否 |
 | `tasks:write` | 创建、修改、删除和启停任务（含部署节点时还需 `deploy:execute`） | 否 |
@@ -244,6 +245,51 @@ curl -fsS -X POST \
 | `/api-keys/:id` | PUT | `api_keys:write` | 修改名称、权限、启用状态和过期时间 |
 | `/api-keys/:id/rotate` | POST | `api_keys:write` | 轮换密钥，旧令牌立即失效 |
 | `/api-keys/:id` | DELETE | `api_keys:write` | 删除密钥 |
+
+### 6.6 使用客户端 CSR 申请权威 CA 证书
+
+服务端作为中间环节接收客户端 CSR，使用已配置的权威 CA 和 DNS 账户完成 DNS-01 验证并签发证书。服务端不会生成或保存私钥，证书签发后私钥仍由客户端保管。
+
+创建申请需要 `certificates:request` 权限：
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...\n-----END CERTIFICATE REQUEST-----\n",
+    "ca": "letsencrypt",
+    "challenge": "dns01",
+    "dns_account_id": 3,
+    "idempotency_key": "order-20261118-001",
+    "wait_seconds": 0
+  }' \
+  https://ssl.example.com/api/certificate-requests
+```
+
+接口返回 `202 Accepted` 和申请 ID。申请是异步执行的，可轮询状态：
+
+```bash
+curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  https://ssl.example.com/api/certificate-requests/csr_xxxxxxxx
+```
+
+状态为 `issued` 后可下载证书链，不提供私钥：
+
+```bash
+curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  "https://ssl.example.com/api/certificate-requests/csr_xxxxxxxx/certificate?type=fullchain" \
+  -o example.com.fullchain.crt
+```
+
+要点：
+
+- 第一阶段仅支持 DNS-01，通配符证书必须使用 DNS-01。
+- `ca` 必须是「权威CA」页面中的 ACME 上游，不能是私有 CA。
+- 服务端会严格校验 CSR 签名、公钥强度、SAN 规范、通用名称和内部域名；CSR 已由客户端签名，服务端无法替客户端修正。
+- `idempotency_key` 建议必传；同一 CSR 在同一 CA 下只允许一个在途申请。
+- 可通过设置项 `csr.allowed_domains` 限制允许申请的域名，多个域名用逗号或空白分隔。
+- 证书列表中的 `key_available` 为 `false`，表示服务端没有私钥，不能下载私钥或执行依赖私钥的部署。
 
 ## 7. CI/CD 示例
 

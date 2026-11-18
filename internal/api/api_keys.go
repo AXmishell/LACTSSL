@@ -28,13 +28,16 @@ const (
 // API 密钥权限。权限按“资源:动作”划分，敏感操作单独授权，
 // 避免只读权限意外获得私钥、备份等高风险能力。
 const (
-	apiScopeAll                 = "*"
-	apiScopeProfileRead         = "profile:read"
-	apiScopeSystemRead          = "system:read"
-	apiScopeDashboardRead       = "dashboard:read"
-	apiScopeCertificatesRead    = "certificates:read"
-	apiScopeCertificatesWrite   = "certificates:write"
-	apiScopeCertificatesKey     = "certificates:key"
+	apiScopeAll               = "*"
+	apiScopeProfileRead       = "profile:read"
+	apiScopeSystemRead        = "system:read"
+	apiScopeDashboardRead     = "dashboard:read"
+	apiScopeCertificatesRead  = "certificates:read"
+	apiScopeCertificatesWrite = "certificates:write"
+	apiScopeCertificatesKey   = "certificates:key"
+	// apiScopeCertificatesRequest 允许客户端提交 CSR，由服务端向权威 CA 完成
+	// 域名验证与签发。该权限会消耗上游 CA 配额并触发 DNS 挑战写入，需单独授权。
+	apiScopeCertificatesRequest = "certificates:request"
 	apiScopeTasksRead           = "tasks:read"
 	apiScopeTasksWrite          = "tasks:write"
 	apiScopeTasksRun            = "tasks:run"
@@ -86,6 +89,7 @@ var apiKeyScopeDefs = []apiKeyScopeDef{
 	{apiScopeCertificatesRead, "certificates", "api.scope.certificates_read.label", "api.scope.certificates_read.desc", false},
 	{apiScopeCertificatesWrite, "certificates", "api.scope.certificates_write.label", "api.scope.certificates_write.desc", false},
 	{apiScopeCertificatesKey, "certificates", "api.scope.certificates_key.label", "api.scope.certificates_key.desc", true},
+	{apiScopeCertificatesRequest, "certificates", "api.scope.certificates_request.label", "api.scope.certificates_request.desc", true},
 	{apiScopeDeployExecute, "deploy", "api.scope.deploy_execute.label", "api.scope.deploy_execute.desc", true},
 	{apiScopeTasksRead, "tasks", "api.scope.tasks_read.label", "api.scope.tasks_read.desc", false},
 	{apiScopeTasksWrite, "tasks", "api.scope.tasks_write.label", "api.scope.tasks_write.desc", false},
@@ -224,15 +228,21 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"POST /api/tasks/batch/enabled": {apiScopeTasksWrite},
 	"GET /api/tasks/:id/logs":       {apiScopeTasksRead},
 
-	"GET /api/certificates":                  {apiScopeCertificatesRead},
-	"POST /api/certificates/cleanup":         {apiScopeCertificatesWrite},
-	"POST /api/certificates/cleanup/preview": {apiScopeCertificatesRead},
-	"GET /api/certificates/:id":              {apiScopeCertificatesRead},
-	"GET /api/certificates/:id/analysis":     {apiScopeCertificatesRead},
-	"GET /api/certificates/:id/download":     {apiScopeCertificatesRead},
-	"GET /api/certificates/:id/pem":          {apiScopeCertificatesRead},
-	"POST /api/certificates/:id/deploy":      {apiScopeDeployExecute},
-	"DELETE /api/certificates/:id":           {apiScopeCertificatesWrite},
+	"GET /api/certificates":                         {apiScopeCertificatesRead},
+	"POST /api/certificates/cleanup":                {apiScopeCertificatesWrite},
+	"POST /api/certificates/cleanup/preview":        {apiScopeCertificatesRead},
+	"POST /api/certificate-requests":                {apiScopeCertificatesRequest},
+	"GET /api/certificate-requests":                 {apiScopeCertificatesRequest},
+	"GET /api/certificate-requests/:id":             {apiScopeCertificatesRequest},
+	"GET /api/certificate-requests/:id/certificate": {apiScopeCertificatesRequest},
+	"POST /api/certificate-requests/:id/cancel":     {apiScopeCertificatesRequest},
+	"POST /api/certificate-requests/:id/retry":      {apiScopeCertificatesRequest},
+	"GET /api/certificates/:id":                     {apiScopeCertificatesRead},
+	"GET /api/certificates/:id/analysis":            {apiScopeCertificatesRead},
+	"GET /api/certificates/:id/download":            {apiScopeCertificatesRead},
+	"GET /api/certificates/:id/pem":                 {apiScopeCertificatesRead},
+	"POST /api/certificates/:id/deploy":             {apiScopeDeployExecute},
+	"DELETE /api/certificates/:id":                  {apiScopeCertificatesWrite},
 
 	"GET /api/deployments": {apiScopeDeploymentsRead},
 

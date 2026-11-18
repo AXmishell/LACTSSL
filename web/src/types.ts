@@ -431,6 +431,8 @@ export interface Certificate {
   issuer: string
   ca: string
   source?: string
+  csr_request_id?: number
+  key_available?: boolean
   cert_pem: string
   fullchain_pem: string
   serial: string

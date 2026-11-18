@@ -222,6 +222,7 @@ func (s *Store) Maintenance() error {
 	exec(`DELETE FROM password_resets WHERE expires_at < ?`, nowUTC())
 	exec(`DELETE FROM logs WHERE category=? AND created_at < ?`, model.LogCategoryOperation, nowUTC().AddDate(0, 0, -90))
 	exec(`DELETE FROM deploy_records WHERE created_at < ?`, nowUTC().AddDate(0, 0, -180))
+	exec(`DELETE FROM certificate_requests WHERE status IN ('issued','failed','cancelled','expired') AND updated_at < ?`, nowUTC().AddDate(0, 0, -90))
 	if err := s.CleanupSystemLogs(); err != nil && firstErr == nil {
 		firstErr = err
 	}
@@ -809,9 +810,9 @@ func (s *Store) insertCertificate(exec certificateExecer, c *model.Certificate) 
 	if err != nil {
 		return err
 	}
-	res, err := exec.Exec(`INSERT INTO certificates(task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.TaskID, string(domains), c.PrimaryDomain, c.Issuer, c.CA, source, c.PrivateCAID, c.ACMEOrderID, c.ACMEAccountID, c.CertPEM, encryptedKey, c.FullchainPEM, c.Serial, c.NotBefore, c.NotAfter, c.Status, now)
+	res, err := exec.Exec(`INSERT INTO certificates(task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.TaskID, string(domains), c.PrimaryDomain, c.Issuer, c.CA, source, c.PrivateCAID, c.ACMEOrderID, c.ACMEAccountID, c.CSRRequestID, c.CertPEM, encryptedKey, c.FullchainPEM, c.Serial, c.NotBefore, c.NotAfter, c.Status, now)
 	if err != nil {
 		return err
 	}
@@ -882,13 +883,13 @@ func (s *Store) MigrateCertificateKeys() error {
 
 // GetCertificate 查询证书。
 func (s *Store) GetCertificate(id int64) (*model.Certificate, error) {
-	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at FROM certificates WHERE id=?`, id)
+	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates WHERE id=?`, id)
 	return s.scanCertificate(row)
 }
 
 // ListCertificates 返回全部证书（不包含 PEM 大字段）。
 func (s *Store) ListCertificates() ([]model.Certificate, error) {
-	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,'','','',serial,not_before,not_after,status,revoked_at,revoke_reason,created_at FROM certificates ORDER BY id DESC`)
+	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,'','','',serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1027,6 +1028,9 @@ func (s *Store) deleteCertificatesWhere(where string, args ...any) (int64, error
 	if _, err := tx.Exec(`UPDATE acme_orders SET certificate_id=0 WHERE certificate_id IN (SELECT id FROM certificates WHERE `+where+`)`, args...); err != nil {
 		return 0, err
 	}
+	if _, err := tx.Exec(`UPDATE certificate_requests SET certificate_id=0 WHERE certificate_id IN (SELECT id FROM certificates WHERE `+where+`)`, args...); err != nil {
+		return 0, err
+	}
 	res, err := tx.Exec(`DELETE FROM certificates WHERE `+where, args...)
 	if err != nil {
 		return 0, err
@@ -1045,9 +1049,11 @@ func (s *Store) scanCertificate(row interface{ Scan(...any) error }) (*model.Cer
 	var c model.Certificate
 	var domainsJSON string
 	var revokedAt sql.NullTime
-	if err := row.Scan(&c.ID, &c.TaskID, &domainsJSON, &c.PrimaryDomain, &c.Issuer, &c.CA, &c.Source, &c.PrivateCAID, &c.ACMEOrderID, &c.ACMEAccountID, &c.CertPEM, &c.KeyPEM, &c.FullchainPEM, &c.Serial, &c.NotBefore, &c.NotAfter, &c.Status, &revokedAt, &c.RevokeReason, &c.CreatedAt); err != nil {
+	var keyAvailable int
+	if err := row.Scan(&c.ID, &c.TaskID, &domainsJSON, &c.PrimaryDomain, &c.Issuer, &c.CA, &c.Source, &c.PrivateCAID, &c.ACMEOrderID, &c.ACMEAccountID, &c.CSRRequestID, &c.CertPEM, &c.KeyPEM, &c.FullchainPEM, &c.Serial, &c.NotBefore, &c.NotAfter, &c.Status, &revokedAt, &c.RevokeReason, &c.CreatedAt, &keyAvailable); err != nil {
 		return nil, err
 	}
+	c.KeyAvailable = keyAvailable == 1
 	if revokedAt.Valid {
 		c.RevokedAt = &revokedAt.Time
 	}

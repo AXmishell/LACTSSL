@@ -311,6 +311,13 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.GET("/certificates", s.listCertificates)
 	g.POST("/certificates/cleanup", s.cleanupCertificates)
 	g.POST("/certificates/cleanup/preview", s.previewCleanupCertificates)
+	// 客户端 CSR 申请：服务端作为中间环节向权威 CA 完成域名验证与签发。
+	g.POST("/certificate-requests", s.createCSRRequest)
+	g.GET("/certificate-requests", s.listCSRRequests)
+	g.GET("/certificate-requests/:id", s.getCSRRequest)
+	g.GET("/certificate-requests/:id/certificate", s.downloadCSRRequestCertificate)
+	g.POST("/certificate-requests/:id/cancel", s.cancelCSRRequest)
+	g.POST("/certificate-requests/:id/retry", s.retryCSRRequest)
 	g.GET("/certificates/:id", s.getCertificate)
 	g.GET("/certificates/:id/analysis", s.analyzeCertificate)
 	g.GET("/certificates/:id/download", s.downloadCertificate)

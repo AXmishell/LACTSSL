@@ -78,6 +78,80 @@ func TestOpenCreatesACMETables(t *testing.T) {
 	}
 }
 
+func TestOpenCreatesCSRRequestTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "csr.db")
+	conn, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	var name string
+	if err := conn.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='certificate_requests'`).Scan(&name); err != nil {
+		t.Fatalf("缺少 certificate_requests 表: %v", err)
+	}
+	rows, err := conn.Query(`PRAGMA table_info(certificates)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var (
+			cid        int
+			column     string
+			colType    string
+			notNull    int
+			defaultVal any
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &column, &colType, &notNull, &defaultVal, &primaryKey); err != nil {
+			t.Fatal(err)
+		}
+		if column == "csr_request_id" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("certificates 表缺少 csr_request_id 字段")
+	}
+}
+
+func TestOpenMigratesLegacyCertificatesTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-certificates.db")
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmts := []string{
+		`CREATE TABLE certificates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL DEFAULT 0,
+			not_after DATETIME
+		)`,
+		`PRAGMA user_version = 5`,
+	}
+	for _, stmt := range stmts {
+		if _, err := legacy.Exec(stmt); err != nil {
+			_ = legacy.Close()
+			t.Fatalf("准备旧证书表失败: %v", err)
+		}
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	conn, err := Open(path)
+	if err != nil {
+		t.Fatalf("打开旧数据库失败: %v", err)
+	}
+	defer conn.Close()
+	var column string
+	if err := conn.QueryRow(`SELECT name FROM pragma_table_info('certificates') WHERE name='csr_request_id'`).Scan(&column); err != nil {
+		t.Fatalf("旧证书表未补充 csr_request_id: %v", err)
+	}
+}
+
 func TestOpenMigratesLegacyLogsTable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy-logs.db")
 	legacy, err := sql.Open("sqlite", path)

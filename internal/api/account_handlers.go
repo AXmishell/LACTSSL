@@ -169,6 +169,10 @@ func (s *Server) deleteDNSAccount(c *gin.Context) {
 			return
 		}
 	}
+	if count, err := s.Store.CountActiveCSRRequestsForDNSAccount(id); err == nil && count > 0 {
+		failKey(c, http.StatusBadRequest, "api.error.dns_account_has_csr_requests", "count", count)
+		return
+	}
 	if err := s.Store.DeleteDNSAccount(id); err != nil {
 		failErr(c, http.StatusInternalServerError, err)
 		return

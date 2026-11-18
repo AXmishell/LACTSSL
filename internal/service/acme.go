@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,19 +56,26 @@ func (u *acmeUser) GetPrivateKey() crypto.PrivateKey        { return u.key }
 
 // Manager 是核心业务调度器。
 type Manager struct {
-	Store   *store.Store
-	acmeMu  sync.Mutex
-	running sync.Map
-	queued  sync.Map
+	Store  *store.Store
+	acmeMu sync.Mutex
+	// accountMu 串行化 ACME 账户密钥加载、客户端创建与注册，
+	// 避免 CSR 申请与普通任务同时首次注册同一上游账户。
+	accountMu sync.Mutex
+	running   sync.Map
+	queued    sync.Map
 	// monitorRunning 对同一监控项的并发检查去重：手动点击与定时任务
 	// 可能同时触发，避免重复外拨、重复写库与重复通知。
 	monitorRunning sync.Map
 	batchSem       chan struct{}
+	// csrSem 限制 CSR 申请与上游 CA 交互的并发数。
+	csrSem chan struct{}
+	// dnsLocks 按 DNS 账户串行化挑战写入，避免同一服务商凭据并发冲突。
+	dnsLocks keyedLocks
 }
 
 // New 创建业务管理器。
 func New(st *store.Store) *Manager {
-	return &Manager{Store: st, batchSem: make(chan struct{}, 4)}
+	return &Manager{Store: st, batchSem: make(chan struct{}, 4), csrSem: make(chan struct{}, 4)}
 }
 
 // Locale 返回系统设置中保存的语言，供后台任务与邮件使用。
@@ -89,11 +97,6 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 	m.acmeMu.Lock()
 	defer m.acmeMu.Unlock()
 
-	user, err := m.loadACMEUser(ca.Value, req.Email)
-	if err != nil {
-		return nil, err
-	}
-
 	if req.DNSAccount == nil {
 		return nil, i18n.E("service.acme.dns_account_required")
 	}
@@ -102,9 +105,19 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 		return nil, err
 	}
 	defer undo()
+	// 与 CSR 申请共用按 DNS 账户的锁，避免任务签发和 CSR 申请同时
+	// 向同一服务商写入/清理 TXT 记录。
+	unlockDNS := m.dnsLocks.Lock(strconv.FormatInt(req.DNSAccount.ID, 10))
+	defer unlockDNS()
 
 	keyType := certificateKeyType(req.KeyType)
 	if ca.Protocol == "v1" {
+		m.accountMu.Lock()
+		user, err := m.loadACMEUser(ca.Value, req.Email)
+		m.accountMu.Unlock()
+		if err != nil {
+			return nil, err
+		}
 		result, err := m.obtainV1(ca, user, req, provider, keyType)
 		if err != nil {
 			return nil, err
@@ -115,38 +128,10 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 		return result, nil
 	}
 
-	cfg := lego.NewConfig(user)
-	cfg.CADirURL = ca.URL
-	cfg.UserAgent = "LACTSSL/1.0"
-	cfg.Certificate.KeyType = keyType
-
-	client, err := lego.NewClient(cfg)
+	client, _, err := m.newACMEClient(ca, req.Email, keyType, provider, req.EABKid, req.EABHMAC)
 	if err != nil {
-		return nil, i18n.E("service.acme.client_init_failed", "error", err.Error())
+		return nil, err
 	}
-
-	if err := client.Challenge.SetDNS01Provider(provider); err != nil {
-		return nil, i18n.E("service.acme.dns01_config_failed", "error", err.Error())
-	}
-
-	// 注册或复用 ACME 账户。
-	var reg *registration.Resource
-	if ca.EAB {
-		if req.EABKid == "" || req.EABHMAC == "" {
-			return nil, i18n.E("service.acme.eab_required", "ca", ca.Localized(m.Locale()).Label)
-		}
-		reg, err = client.Registration.RegisterWithExternalAccountBinding(registration.RegisterEABOptions{
-			TermsOfServiceAgreed: true,
-			Kid:                  strings.TrimSpace(req.EABKid),
-			HmacEncoded:          normalizeEABKey(req.EABHMAC),
-		})
-	} else {
-		reg, err = client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
-	}
-	if err != nil {
-		return nil, i18n.E("service.acme.register_failed", "error", err.Error())
-	}
-	user.reg = reg
 
 	request := certificate.ObtainRequest{
 		Domains: req.Domains,
@@ -186,6 +171,52 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+// newACMEClient 创建并注册 ACME v2 客户端。账户密钥与注册过程串行化，
+// 供普通任务签发和 CSR 申请共用，避免并发首次注册产生不同账户。
+func (m *Manager) newACMEClient(ca CADef, email string, keyType certcrypto.KeyType, provider challenge.Provider, eabKid, eabHMAC string) (*lego.Client, *acmeUser, error) {
+	m.accountMu.Lock()
+	defer m.accountMu.Unlock()
+
+	user, err := m.loadACMEUser(ca.Value, email)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cfg := lego.NewConfig(user)
+	cfg.CADirURL = ca.URL
+	cfg.UserAgent = "LACTSSL/1.0"
+	cfg.Certificate.KeyType = keyType
+
+	client, err := lego.NewClient(cfg)
+	if err != nil {
+		return nil, nil, i18n.E("service.acme.client_init_failed", "error", err.Error())
+	}
+	if provider != nil {
+		if err := client.Challenge.SetDNS01Provider(provider); err != nil {
+			return nil, nil, i18n.E("service.acme.dns01_config_failed", "error", err.Error())
+		}
+	}
+
+	var reg *registration.Resource
+	if ca.EAB {
+		if eabKid == "" || eabHMAC == "" {
+			return nil, nil, i18n.E("service.acme.eab_required", "ca", ca.Localized(m.Locale()).Label)
+		}
+		reg, err = client.Registration.RegisterWithExternalAccountBinding(registration.RegisterEABOptions{
+			TermsOfServiceAgreed: true,
+			Kid:                  strings.TrimSpace(eabKid),
+			HmacEncoded:          normalizeEABKey(eabHMAC),
+		})
+	} else {
+		reg, err = client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+	}
+	if err != nil {
+		return nil, nil, i18n.E("service.acme.register_failed", "error", err.Error())
+	}
+	user.reg = reg
+	return client, user, nil
 }
 
 // validateACMEResult 校验上游返回的证书确实覆盖请求域名，且私钥与证书匹配。

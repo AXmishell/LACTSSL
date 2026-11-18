@@ -12,6 +12,7 @@ func (m *Manager) Start(ctx context.Context) {
 	// 也必须恢复，否则客户端无法重新触发验证。
 	m.Store.ResetProcessingACMEChallenges()
 	m.Store.AddLogKey("system", 0, "info", "log.system.scheduler_started", nil)
+	m.StartCSRWorker(ctx)
 
 	go func() {
 		// 启动后先等待几秒，确保 HTTP 服务已就绪。

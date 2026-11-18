@@ -209,6 +209,7 @@ const sources = [
   { value: 'system', label: 'logs.sourceSystem' },
   { value: 'acme', label: 'logs.sourceACME' },
   { value: 'cert', label: 'logs.sourceCert' },
+  { value: 'csr', label: 'logs.sourceCSR' },
   { value: 'apikey', label: 'logs.sourceAPIKeys' }
 ]
 

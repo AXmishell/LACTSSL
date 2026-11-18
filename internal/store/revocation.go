@@ -8,14 +8,14 @@ import (
 
 // GetCertificateBySerial 按私有 CA 与序列号查询证书。
 func (s *Store) GetCertificateBySerial(caID int64, serial string) (*model.Certificate, error) {
-	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at
+	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'')
 		FROM certificates WHERE private_ca_id=? AND serial=?`, caID, serial)
 	return s.scanCertificate(row)
 }
 
 // ListRevokedCertificates 返回指定 CA 已撤销的证书。
 func (s *Store) ListRevokedCertificates(caID int64) ([]model.Certificate, error) {
-	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,'','','',serial,not_before,not_after,status,revoked_at,revoke_reason,created_at
+	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,'','','',serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'')
 		FROM certificates WHERE private_ca_id=? AND revoked_at IS NOT NULL ORDER BY revoked_at`, caID)
 	if err != nil {
 		return nil, err

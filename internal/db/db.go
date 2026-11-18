@@ -37,8 +37,9 @@ func Open(path string) (*sql.DB, error) {
 //
 // 版本历史：
 //   - 4：插件化阶段；
-//   - 5：logs 表合并进程日志（category/ref_type/fields/request_id）。
-const schemaVersion = 5
+//   - 5：logs 表合并进程日志（category/ref_type/fields/request_id）；
+//   - 6：CSR 申请（certificate_requests）与证书来源关联。
+const schemaVersion = 6
 
 func migrate(conn *sql.DB) error {
 	var version int
@@ -366,6 +367,33 @@ func migrate(conn *sql.DB) error {
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
 		)`,
+		// certificate_requests 保存客户端提交的 CSR 申请。服务端只保存 CSR
+		// 公钥与域名声明，不保存私钥；证书签发后通过 certificate_id 关联。
+		`CREATE TABLE IF NOT EXISTS certificate_requests (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			public_id TEXT NOT NULL UNIQUE,
+			csr_pem TEXT NOT NULL,
+			csr_sha256 TEXT NOT NULL,
+			identifiers TEXT NOT NULL DEFAULT '[]',
+			primary_domain TEXT NOT NULL DEFAULT '',
+			ca TEXT NOT NULL,
+			challenge TEXT NOT NULL DEFAULT 'dns01',
+			dns_account_id INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'pending',
+			error_code TEXT NOT NULL DEFAULT '',
+			error_message TEXT NOT NULL DEFAULT '',
+			retryable INTEGER NOT NULL DEFAULT 0,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			certificate_id INTEGER NOT NULL DEFAULT 0,
+			upstream_order_id TEXT NOT NULL DEFAULT '',
+			idempotency_key TEXT NOT NULL DEFAULT '',
+			user_id INTEGER NOT NULL DEFAULT 0,
+			api_key_id INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			expires_at DATETIME,
+			completed_at DATETIME
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, last_seen_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_passkeys_user ON passkeys(user_id, created_at)`,
@@ -385,6 +413,11 @@ func migrate(conn *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_acme_authz_order ON acme_authorizations(order_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_acme_challenge_authz ON acme_challenges(authz_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_acme_challenge_next ON acme_challenges(next_check_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_cert_request_status_created ON certificate_requests(status, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_cert_request_hash ON certificate_requests(csr_sha256, ca)`,
+		// 同一调用方对同一 CSR 与 CA 只允许一个在途申请，避免并发提交产生重复订单；
+		// 已签发/失败/取消后允许重新提交。
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cert_request_active_hash ON certificate_requests(csr_sha256, ca, api_key_id) WHERE status IN ('pending','running')`,
 	}
 	for _, stmt := range stmts {
 		if _, err := conn.Exec(stmt); err != nil {
@@ -465,12 +498,16 @@ func migrate(conn *sql.DB) error {
 		{"private_ca_id", `INTEGER NOT NULL DEFAULT 0`},
 		{"acme_order_id", `INTEGER NOT NULL DEFAULT 0`},
 		{"acme_account_id", `INTEGER NOT NULL DEFAULT 0`},
+		{"csr_request_id", `INTEGER NOT NULL DEFAULT 0`},
 		{"revoked_at", `DATETIME`},
 		{"revoke_reason", `INTEGER NOT NULL DEFAULT 0`},
 	} {
 		if err := ensureColumn(conn, "certificates", column.name, column.definition); err != nil {
 			return fmt.Errorf("升级数据库结构失败: %w", err)
 		}
+	}
+	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_cert_csr_request ON certificates(csr_request_id)`); err != nil {
+		return fmt.Errorf("创建证书申请索引失败: %w", err)
 	}
 	if err := ensureColumn(conn, "private_cas", "crl_number", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
