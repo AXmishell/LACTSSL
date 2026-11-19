@@ -10,390 +10,416 @@
       </div>
     </div>
 
-    <div v-if="program" class="k-card" style="margin-bottom: 16px">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('upgrade.program.title') }}</h3>
-          <div class="sub">
-            {{ t('upgrade.program.subtitle', { repo: program.repo, channel: program.channel }) }}
+    <el-tabs v-model="tab" v-loading="loading" class="upgrade-tabs">
+      <el-tab-pane :label="t('upgrade.tabs.program')" name="program">
+        <div v-if="program" class="k-card" style="margin-bottom: 16px">
+          <div class="card-head">
+            <div>
+              <h3>{{ t('upgrade.program.title') }}</h3>
+              <div class="sub">
+                {{ t('upgrade.program.subtitle', { repo: program.repo, channel: program.channel }) }}
+              </div>
+            </div>
+            <div class="flex gap-10 wrap" style="align-items: center">
+              <el-tag effect="plain" round size="small">{{ program.platform }}</el-tag>
+              <el-button
+                :icon="RefreshRight"
+                :loading="programChecking"
+                :disabled="!program.enabled"
+                @click="checkProgram"
+              >
+                {{ t('upgrade.program.check') }}
+              </el-button>
+              <el-button
+                v-if="program.restart_pending"
+                type="success"
+                :icon="SwitchButton"
+                :loading="programRestarting"
+                @click="restartProgram"
+              >
+                {{ t('upgrade.program.restartNow') }}
+              </el-button>
+              <el-button
+                v-else-if="program.can_update"
+                type="primary"
+                :icon="Download"
+                :loading="programApplying"
+                @click="applyProgram"
+              >
+                {{ t('upgrade.program.updateTo', { version: program.latest?.version }) }}
+              </el-button>
+            </div>
           </div>
-        </div>
-        <div class="flex gap-10 wrap" style="align-items: center">
-          <el-tag effect="plain" round size="small">{{ program.platform }}</el-tag>
-          <el-button
-            :icon="RefreshRight"
-            :loading="programChecking"
-            :disabled="!program.enabled"
-            @click="checkProgram"
-          >
-            {{ t('upgrade.program.check') }}
-          </el-button>
-          <el-button
-            v-if="program.restart_pending"
-            type="success"
-            :icon="SwitchButton"
-            :loading="programRestarting"
-            @click="restartProgram"
-          >
-            {{ t('upgrade.program.restartNow') }}
-          </el-button>
-          <el-button
-            v-else-if="program.can_update"
-            type="primary"
-            :icon="Download"
-            :loading="programApplying"
-            @click="applyProgram"
-          >
-            {{ t('upgrade.program.updateTo', { version: program.latest?.version }) }}
-          </el-button>
-        </div>
-      </div>
 
-      <div class="program-grid">
-        <div>
-          <div class="stat-label">{{ t('upgrade.program.current') }}</div>
-          <div class="program-value mono">{{ program.current_version }}</div>
-        </div>
-        <div>
-          <div class="stat-label">{{ t('upgrade.program.latest') }}</div>
-          <div class="program-value mono">{{ program.latest ? `v${program.latest.version}` : t('common.none') }}</div>
-        </div>
-        <div>
-          <div class="stat-label">{{ t('upgrade.program.published') }}</div>
-          <div class="program-value">
-            {{ program.latest?.published_at ? formatDate(program.latest.published_at) : t('common.none') }}
+          <div class="program-grid">
+            <div>
+              <div class="stat-label">{{ t('upgrade.program.current') }}</div>
+              <div class="program-value mono">{{ program.current_version }}</div>
+            </div>
+            <div>
+              <div class="stat-label">{{ t('upgrade.program.latest') }}</div>
+              <div class="program-value mono">{{ program.latest ? `v${program.latest.version}` : t('common.none') }}</div>
+            </div>
+            <div>
+              <div class="stat-label">{{ t('upgrade.program.published') }}</div>
+              <div class="program-value">
+                {{ program.latest?.published_at ? formatDate(program.latest.published_at) : t('common.none') }}
+              </div>
+            </div>
+            <div>
+              <div class="stat-label">{{ t('upgrade.program.checked') }}</div>
+              <div class="program-value">{{ program.checked_at ? formatDate(program.checked_at) : t('common.none') }}</div>
+            </div>
           </div>
-        </div>
-        <div>
-          <div class="stat-label">{{ t('upgrade.program.checked') }}</div>
-          <div class="program-value">{{ program.checked_at ? formatDate(program.checked_at) : t('common.none') }}</div>
-        </div>
-      </div>
 
-      <el-alert
-        v-if="program.check_error"
-        type="error"
-        :closable="false"
-        show-icon
-        :title="t('upgrade.program.checkFailed', { error: program.check_error })"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-else-if="program.restart_pending"
-        type="success"
-        :closable="false"
-        show-icon
-        :title="t('upgrade.program.restartPending', { version: program.last_run?.to_version || program.latest?.version })"
-        :description="program.restart_mode === 'exit' ? t('upgrade.program.restartExitHint') : t('upgrade.program.restartHint')"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-else-if="program.reason && !program.can_update"
-        :type="program.update_available ? 'warning' : 'info'"
-        :closable="false"
-        show-icon
-        :title="program.reason"
-        style="margin-top: 12px"
-      />
-
-      <el-collapse v-if="program.latest?.notes" style="margin-top: 12px">
-        <el-collapse-item :title="t('upgrade.program.releaseNotes')" name="notes">
-          <pre class="release-notes">{{ program.latest.notes }}</pre>
-        </el-collapse-item>
-      </el-collapse>
-
-      <el-alert
-        v-if="program.last_run?.error"
-        type="error"
-        :closable="false"
-        show-icon
-        :title="program.last_run.error"
-        style="margin-top: 12px"
-      />
-      <div v-if="program.last_run" class="muted" style="margin-top: 12px">
-        {{ t('upgrade.program.lastRun', {
-          from: program.last_run.from_version,
-          to: program.last_run.to_version,
-          time: formatDate(program.last_run.finished_at)
-        }) }}
-        <span v-if="program.last_run.backup_path" class="mono break-all"> · {{ program.last_run.backup_path }}</span>
-      </div>
-    </div>
-
-    <div class="k-card" style="margin-bottom: 16px">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('upgrade.database.title') }}</h3>
-          <div class="sub">
-            {{ t('upgrade.database.current', {
-              driver: dbStatus?.source.driver || 'sqlite',
-              target: dbStatus?.source.path || dbStatus?.source.dsn || t('common.none')
-            }) }}
-          </div>
-        </div>
-        <el-tag v-if="dbStatus?.running" type="warning" effect="plain" round size="small">
-          {{ t('upgrade.database.running') }}
-        </el-tag>
-      </div>
-
-      <div class="database-grid">
-        <div>
-          <div class="stat-label">{{ t('upgrade.database.targetDriver') }}</div>
-          <el-select v-model="dbTargetDriver" style="width: 100%" :disabled="dbStatus?.running">
-            <el-option value="postgres" label="PostgreSQL 18" />
-            <el-option value="sqlite" label="SQLite" />
-          </el-select>
-        </div>
-        <div v-if="dbTargetDriver === 'postgres'">
-          <div class="stat-label">{{ t('upgrade.database.dsn') }}</div>
-          <el-input v-model="dbTargetDSN" class="mono" placeholder="postgres://user:pass@host:5432/db?sslmode=verify-full" :disabled="dbStatus?.running" />
-        </div>
-        <div v-else>
-          <div class="stat-label">{{ t('upgrade.database.path') }}</div>
-          <el-input v-model="dbTargetPath" class="mono" placeholder="data/lactssl-converted.db" :disabled="dbStatus?.running" />
-        </div>
-        <div class="database-force">
-          <el-checkbox v-model="dbForce" :disabled="dbStatus?.running">
-            {{ t('upgrade.database.force') }}
-          </el-checkbox>
-        </div>
-      </div>
-
-      <div class="flex gap-10 wrap" style="margin-top: 14px">
-        <el-button :loading="dbTesting" :disabled="dbStatus?.running" @click="testDatabaseTarget">
-          {{ t('upgrade.database.test') }}
-        </el-button>
-        <el-button :loading="dbPreflighting" :disabled="dbStatus?.running" @click="preflightDatabaseConvert">
-          {{ t('upgrade.database.preflight') }}
-        </el-button>
-      </div>
-
-      <el-alert
-        v-if="dbTargetMessage"
-        :type="dbTargetError ? 'error' : 'success'"
-        :closable="false"
-        show-icon
-        :title="dbTargetMessage"
-        style="margin-top: 12px"
-      />
-      <div v-if="dbPreflight" class="muted" style="margin-top: 10px">
-        {{ t('upgrade.database.preflightSummary', {
-          tables: dbPreflight.source_tables,
-          rows: dbPreflight.source_rows,
-          size: formatBytes(dbPreflight.source_bytes),
-          empty: dbPreflight.target_empty ? t('common.yes') : t('common.no')
-        }) }}
-      </div>
-
-      <el-collapse v-if="dbStatus?.state || dbStatus?.progress" style="margin-top: 12px">
-        <el-collapse-item :title="t('upgrade.database.progress')" name="progress">
-          <div class="muted">
-            {{ t('upgrade.database.phaseLabel', { phase: dbProgressLabel }) }}
-            <span v-if="dbStatus?.progress.table"> · {{ dbStatus.progress.table }}</span>
-            <span v-if="dbStatus?.progress.table_total">
-              ({{ dbStatus.progress.table_index }}/{{ dbStatus.progress.table_total }})
-            </span>
-          </div>
-          <el-progress
-            :percentage="dbPercent"
-            :status="dbStatus?.state?.phase === 'failed' ? 'exception' : undefined"
-            style="margin-top: 8px"
-          />
-          <div class="muted" style="margin-top: 6px">
-            {{ t('upgrade.database.rows', {
-              rows: dbStatus?.progress.rows || 0,
-              total: dbStatus?.progress.total_rows || 0
-            }) }}
-          </div>
           <el-alert
-            v-if="dbStatus?.state?.error"
+            v-if="program.check_error"
             type="error"
             :closable="false"
             show-icon
-            :title="dbStatus.state.error"
+            :title="t('upgrade.program.checkFailed', { error: program.check_error })"
+            style="margin-top: 12px"
+          />
+          <el-alert
+            v-else-if="program.restart_pending"
+            type="success"
+            :closable="false"
+            show-icon
+            :title="t('upgrade.program.restartPending', { version: program.last_run?.to_version || program.latest?.version })"
+            :description="program.restart_mode === 'exit' ? t('upgrade.program.restartExitHint') : t('upgrade.program.restartHint')"
+            style="margin-top: 12px"
+          />
+          <el-alert
+            v-else-if="program.reason && !program.can_update"
+            :type="program.update_available ? 'warning' : 'info'"
+            :closable="false"
+            show-icon
+            :title="program.reason"
+            style="margin-top: 12px"
+          />
+
+          <el-collapse v-if="program.latest?.notes" style="margin-top: 12px">
+            <el-collapse-item :title="t('upgrade.program.releaseNotes')" name="notes">
+              <pre class="release-notes">{{ program.latest.notes }}</pre>
+            </el-collapse-item>
+          </el-collapse>
+
+          <el-alert
+            v-if="program.last_run?.error"
+            type="error"
+            :closable="false"
+            show-icon
+            :title="program.last_run.error"
+            style="margin-top: 12px"
+          />
+          <div v-if="program.last_run" class="muted" style="margin-top: 12px">
+            {{ t('upgrade.program.lastRun', {
+              from: program.last_run.from_version,
+              to: program.last_run.to_version,
+              time: formatDate(program.last_run.finished_at)
+            }) }}
+            <span v-if="program.last_run.backup_path" class="mono break-all"> · {{ program.last_run.backup_path }}</span>
+          </div>
+        </div>
+        <el-alert
+          v-else
+          type="info"
+          :closable="false"
+          show-icon
+          :title="t('upgrade.program.unavailable')"
+        />
+      </el-tab-pane>
+
+      <el-tab-pane :label="t('upgrade.tabs.database')" name="database">
+        <div class="k-card" style="margin-bottom: 16px">
+          <div class="card-head">
+            <div>
+              <h3>{{ t('upgrade.database.title') }}</h3>
+              <div class="sub">
+                {{ t('upgrade.database.current', {
+                  driver: dbStatus?.source.driver || 'sqlite',
+                  target: dbStatus?.source.path || dbStatus?.source.dsn || t('common.none')
+                }) }}
+              </div>
+            </div>
+            <el-tag v-if="dbStatus?.running" type="warning" effect="plain" round size="small">
+              {{ t('upgrade.database.running') }}
+            </el-tag>
+          </div>
+
+          <div class="database-grid">
+            <div>
+              <div class="stat-label">{{ t('upgrade.database.targetDriver') }}</div>
+              <el-select v-model="dbTargetDriver" style="width: 100%" :disabled="dbStatus?.running">
+                <el-option value="postgres" label="PostgreSQL 18" />
+                <el-option value="sqlite" label="SQLite" />
+              </el-select>
+            </div>
+            <div v-if="dbTargetDriver === 'postgres'">
+              <div class="stat-label">{{ t('upgrade.database.dsn') }}</div>
+              <el-input v-model="dbTargetDSN" class="mono" placeholder="postgres://user:pass@host:5432/db?sslmode=verify-full" :disabled="dbStatus?.running" />
+            </div>
+            <div v-else>
+              <div class="stat-label">{{ t('upgrade.database.path') }}</div>
+              <el-input v-model="dbTargetPath" class="mono" placeholder="data/lactssl-converted.db" :disabled="dbStatus?.running" />
+            </div>
+            <div class="database-force">
+              <el-checkbox v-model="dbForce" :disabled="dbStatus?.running">
+                {{ t('upgrade.database.force') }}
+              </el-checkbox>
+            </div>
+          </div>
+
+          <div class="flex gap-10 wrap" style="margin-top: 14px">
+            <el-button :loading="dbTesting" :disabled="dbStatus?.running" @click="testDatabaseTarget">
+              {{ t('upgrade.database.test') }}
+            </el-button>
+            <el-button :loading="dbPreflighting" :disabled="dbStatus?.running" @click="preflightDatabaseConvert">
+              {{ t('upgrade.database.preflight') }}
+            </el-button>
+          </div>
+
+          <el-alert
+            v-if="dbTargetMessage"
+            :type="dbTargetError ? 'error' : 'success'"
+            :closable="false"
+            show-icon
+            :title="dbTargetMessage"
+            style="margin-top: 12px"
+          />
+          <div v-if="dbPreflight" class="muted" style="margin-top: 10px">
+            {{ t('upgrade.database.preflightSummary', {
+              tables: dbPreflight.source_tables,
+              rows: dbPreflight.source_rows,
+              size: formatBytes(dbPreflight.source_bytes),
+              empty: dbPreflight.target_empty ? t('common.yes') : t('common.no')
+            }) }}
+          </div>
+
+          <el-collapse v-if="dbStatus?.state || dbStatus?.progress" style="margin-top: 12px">
+            <el-collapse-item :title="t('upgrade.database.progress')" name="progress">
+              <div class="muted">
+                {{ t('upgrade.database.phaseLabel', { phase: dbProgressLabel }) }}
+                <span v-if="dbStatus?.progress.table"> · {{ dbStatus.progress.table }}</span>
+                <span v-if="dbStatus?.progress.table_total">
+                  ({{ dbStatus.progress.table_index }}/{{ dbStatus.progress.table_total }})
+                </span>
+              </div>
+              <el-progress
+                :percentage="dbPercent"
+                :status="dbStatus?.state?.phase === 'failed' ? 'exception' : undefined"
+                style="margin-top: 8px"
+              />
+              <div class="muted" style="margin-top: 6px">
+                {{ t('upgrade.database.rows', {
+                  rows: dbStatus?.progress.rows || 0,
+                  total: dbStatus?.progress.total_rows || 0
+                }) }}
+              </div>
+              <el-alert
+                v-if="dbStatus?.state?.error"
+                type="error"
+                :closable="false"
+                show-icon
+                :title="dbStatus.state.error"
+                style="margin-top: 8px"
+              />
+              <div v-if="dbStatus?.report?.backup_path" class="muted mono break-all" style="margin-top: 8px">
+                {{ t('upgrade.database.backup') }}: {{ dbStatus.report.backup_path }}
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+
+          <div style="margin-top: 14px">
+            <el-input v-model="dbPassword" type="password" show-password :placeholder="t('upgrade.database.password')" style="max-width: 280px" />
+            <el-input v-model="dbTOTP" :placeholder="t('upgrade.database.totp')" style="max-width: 180px; margin-left: 8px" />
+            <el-input v-model="dbConfirm" :placeholder="t('upgrade.database.confirmPlaceholder')" style="max-width: 180px; margin-left: 8px" />
+            <el-button type="primary" :loading="dbStarting" :disabled="dbStatus?.running" style="margin-left: 8px" @click="startDatabaseConvert">
+              {{ t('upgrade.database.start') }}
+            </el-button>
+            <el-button v-if="dbStatus?.running" @click="cancelDatabaseConvert">
+              {{ t('common.cancel') }}
+            </el-button>
+          </div>
+          <div v-if="dbStatus?.state?.phase === 'completed'" style="margin-top: 10px">
+            <el-input v-model="dbRollbackConfirm" :placeholder="t('upgrade.database.rollbackPlaceholder')" style="max-width: 180px" />
+            <el-button type="danger" plain :loading="dbRollingBack" style="margin-left: 8px" @click="rollbackDatabaseConvert">
+              {{ t('upgrade.database.rollback') }}
+            </el-button>
+          </div>
+          <el-alert
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="t('upgrade.database.warning')"
+            style="margin-top: 12px"
+          />
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane :label="t('upgrade.tabs.maintenance')" name="maintenance">
+        <el-alert
+          v-if="status && status.needs_upgrade"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="t('upgrade.pendingTitle')"
+          :description="t('upgrade.pendingDesc', { stored: status.stored_version, current: status.current_version })"
+          style="margin-bottom: 16px"
+        />
+        <el-alert
+          v-else-if="status"
+          type="success"
+          :closable="false"
+          show-icon
+          :title="t('upgrade.upToDateTitle')"
+          :description="t('upgrade.upToDateDesc', { version: status.current_version })"
+          style="margin-bottom: 16px"
+        />
+
+        <div v-if="status" class="upgrade-grid">
+          <div class="k-card stat-card">
+            <div class="stat-label">{{ t('upgrade.appVersion') }}</div>
+            <div class="stat-value">{{ status.app_version || t('common.none') }}</div>
+            <div class="muted">{{ t('upgrade.checkedAt', { time: formatDate(status.checked_at) }) }}</div>
+          </div>
+          <div class="k-card stat-card">
+            <div class="stat-label">{{ t('upgrade.dataVersion') }}</div>
+            <div class="stat-value">v{{ status.stored_version }} → v{{ status.current_version }}</div>
+            <div class="muted">{{ status.version_label }}</div>
+          </div>
+          <div class="k-card stat-card">
+            <div class="stat-label">{{ t('upgrade.databaseSize') }}</div>
+            <div class="stat-value">{{ formatBytes(status.database.file_size + status.database.wal_size) }}</div>
+            <div class="muted">{{ t('upgrade.freePages', { size: formatBytes(status.database.free_bytes) }) }}</div>
+          </div>
+          <div class="k-card stat-card">
+            <div class="stat-label">{{ t('upgrade.integrity') }}</div>
+            <div class="stat-value" :class="status.database.integrity === 'ok' ? 'text-green' : 'text-red'">
+              {{ status.database.integrity }}
+            </div>
+            <div class="muted">
+              {{ t('upgrade.dbMeta', { tables: status.database.tables, indexes: status.database.indexes, mode: status.database.journal_mode }) }}
+            </div>
+          </div>
+        </div>
+
+        <div v-if="status" class="k-card" style="margin-top: 16px">
+          <div class="card-head">
+            <div>
+              <h3>{{ t('upgrade.actionsTitle') }}</h3>
+              <div class="sub">{{ t('upgrade.actionsSub') }}</div>
+            </div>
+            <div class="flex gap-10 wrap" style="align-items: center">
+              <el-switch v-model="vacuum" :disabled="!status.vacuum_allowed" :active-text="t('upgrade.vacuum')" />
+              <el-button :icon="Refresh" :loading="optimizing" @click="optimize">{{ t('upgrade.optimizeOnly') }}</el-button>
+              <el-button type="primary" :icon="MagicStick" :loading="running" @click="runAll">{{ t('upgrade.runAll') }}</el-button>
+            </div>
+          </div>
+          <div class="form-help">
+            {{ t('upgrade.autoState', { state: status.auto_enabled ? t('common.enabled') : t('common.disabled') }) }}
+            · {{ t('upgrade.vacuumState', { state: status.vacuum_allowed ? t('common.enabled') : t('common.disabled') }) }}
+          </div>
+          <el-alert
+            v-for="warning in status.warnings"
+            :key="warning"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="warning"
             style="margin-top: 8px"
           />
-          <div v-if="dbStatus?.report?.backup_path" class="muted mono break-all" style="margin-top: 8px">
-            {{ t('upgrade.database.backup') }}: {{ dbStatus.report.backup_path }}
+        </div>
+
+        <div v-if="report" class="k-card" style="margin-top: 16px">
+          <div class="card-head">
+            <div>
+              <h3>{{ t('upgrade.lastResult') }}</h3>
+              <div class="sub">
+                {{ t('upgrade.resultSummary', {
+                  from: report.from_version,
+                  to: report.to_version,
+                  changes: report.config.changes.length,
+                  reclaimed: formatBytes(report.database.reclaimed_bytes)
+                }) }}
+              </div>
+            </div>
           </div>
-        </el-collapse-item>
-      </el-collapse>
-
-      <div style="margin-top: 14px">
-        <el-input v-model="dbPassword" type="password" show-password :placeholder="t('upgrade.database.password')" style="max-width: 280px" />
-        <el-input v-model="dbTOTP" :placeholder="t('upgrade.database.totp')" style="max-width: 180px; margin-left: 8px" />
-        <el-input v-model="dbConfirm" :placeholder="t('upgrade.database.confirmPlaceholder')" style="max-width: 180px; margin-left: 8px" />
-        <el-button type="primary" :loading="dbStarting" :disabled="dbStatus?.running" style="margin-left: 8px" @click="startDatabaseConvert">
-          {{ t('upgrade.database.start') }}
-        </el-button>
-        <el-button v-if="dbStatus?.running" @click="cancelDatabaseConvert">
-          {{ t('common.cancel') }}
-        </el-button>
-      </div>
-      <div v-if="dbStatus?.state?.phase === 'completed'" style="margin-top: 10px">
-        <el-input v-model="dbRollbackConfirm" :placeholder="t('upgrade.database.rollbackPlaceholder')" style="max-width: 180px" />
-        <el-button type="danger" plain :loading="dbRollingBack" style="margin-left: 8px" @click="rollbackDatabaseConvert">
-          {{ t('upgrade.database.rollback') }}
-        </el-button>
-      </div>
-      <el-alert
-        type="warning"
-        :closable="false"
-        show-icon
-        :title="t('upgrade.database.warning')"
-        style="margin-top: 12px"
-      />
-    </div>
-
-    <el-alert
-      v-if="status && status.needs_upgrade"
-      type="warning"
-      :closable="false"
-      show-icon
-      :title="t('upgrade.pendingTitle')"
-      :description="t('upgrade.pendingDesc', { stored: status.stored_version, current: status.current_version })"
-      style="margin-bottom: 16px"
-    />
-    <el-alert
-      v-else-if="status"
-      type="success"
-      :closable="false"
-      show-icon
-      :title="t('upgrade.upToDateTitle')"
-      :description="t('upgrade.upToDateDesc', { version: status.current_version })"
-      style="margin-bottom: 16px"
-    />
-
-    <div v-if="status" class="upgrade-grid">
-      <div class="k-card stat-card">
-        <div class="stat-label">{{ t('upgrade.appVersion') }}</div>
-        <div class="stat-value">{{ status.app_version || t('common.none') }}</div>
-        <div class="muted">{{ t('upgrade.checkedAt', { time: formatDate(status.checked_at) }) }}</div>
-      </div>
-      <div class="k-card stat-card">
-        <div class="stat-label">{{ t('upgrade.dataVersion') }}</div>
-        <div class="stat-value">v{{ status.stored_version }} → v{{ status.current_version }}</div>
-        <div class="muted">{{ status.version_label }}</div>
-      </div>
-      <div class="k-card stat-card">
-        <div class="stat-label">{{ t('upgrade.databaseSize') }}</div>
-        <div class="stat-value">{{ formatBytes(status.database.file_size + status.database.wal_size) }}</div>
-        <div class="muted">{{ t('upgrade.freePages', { size: formatBytes(status.database.free_bytes) }) }}</div>
-      </div>
-      <div class="k-card stat-card">
-        <div class="stat-label">{{ t('upgrade.integrity') }}</div>
-        <div class="stat-value" :class="status.database.integrity === 'ok' ? 'text-green' : 'text-red'">
-          {{ status.database.integrity }}
+          <div v-if="report.backup_dir" class="muted mono break-all">{{ t('upgrade.backupDir') }}: {{ report.backup_dir }}</div>
+          <el-alert
+            v-for="warning in report.warnings"
+            :key="warning"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="warning"
+            style="margin-top: 8px"
+          />
+          <ul v-if="report.database.actions.length" class="action-list">
+            <li v-for="action in report.database.actions" :key="action">{{ action }}</li>
+          </ul>
         </div>
-        <div class="muted">
-          {{ t('upgrade.dbMeta', { tables: status.database.tables, indexes: status.database.indexes, mode: status.database.journal_mode }) }}
-        </div>
-      </div>
-    </div>
+      </el-tab-pane>
 
-    <div v-if="status" class="k-card" style="margin-top: 16px">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('upgrade.actionsTitle') }}</h3>
-          <div class="sub">{{ t('upgrade.actionsSub') }}</div>
-        </div>
-        <div class="flex gap-10 wrap" style="align-items: center">
-          <el-switch v-model="vacuum" :disabled="!status.vacuum_allowed" :active-text="t('upgrade.vacuum')" />
-          <el-button :icon="Refresh" :loading="optimizing" @click="optimize">{{ t('upgrade.optimizeOnly') }}</el-button>
-          <el-button type="primary" :icon="MagicStick" :loading="running" @click="runAll">{{ t('upgrade.runAll') }}</el-button>
-        </div>
-      </div>
-      <div class="form-help">
-        {{ t('upgrade.autoState', { state: status.auto_enabled ? t('common.enabled') : t('common.disabled') }) }}
-        · {{ t('upgrade.vacuumState', { state: status.vacuum_allowed ? t('common.enabled') : t('common.disabled') }) }}
-      </div>
-      <el-alert
-        v-for="warning in status.warnings"
-        :key="warning"
-        type="warning"
-        :closable="false"
-        show-icon
-        :title="warning"
-        style="margin-top: 8px"
-      />
-    </div>
-
-    <div v-if="report" class="k-card" style="margin-top: 16px">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('upgrade.lastResult') }}</h3>
-          <div class="sub">
-            {{ t('upgrade.resultSummary', {
-              from: report.from_version,
-              to: report.to_version,
-              changes: report.config.changes.length,
-              reclaimed: formatBytes(report.database.reclaimed_bytes)
-            }) }}
+      <el-tab-pane :label="t('upgrade.tabs.config')" name="config">
+        <div v-if="status" class="k-card" style="padding: 24px">
+          <div class="card-head">
+            <div>
+              <h3>{{ t('upgrade.configTitle') }}</h3>
+              <div class="sub">{{ t('upgrade.configSub', { path: status.config.path || t('common.none'), count: status.config.changes.length }) }}</div>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <el-table :data="status.config.changes" style="width: 100%">
+              <el-table-column min-width="220" prop="key" :label="t('upgrade.configKey')" />
+              <el-table-column width="110" :label="t('upgrade.actionLabel')">
+                <template #default="{ row }">
+                  <el-tag :type="row.action === 'added' ? 'success' : 'info'" effect="light" round size="small">
+                    {{ t(`upgrade.action.${row.action}`) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column min-width="160" :label="t('upgrade.before')">
+                <template #default="{ row }"><span class="mono break-all">{{ row.before || t('common.none') }}</span></template>
+              </el-table-column>
+              <el-table-column min-width="160" :label="t('upgrade.after')">
+                <template #default="{ row }"><span class="mono break-all">{{ row.after || t('common.none') }}</span></template>
+              </el-table-column>
+              <template #empty>
+                <div style="padding: 36px 0; color: #94a3b8">{{ t('upgrade.noConfigChanges') }}</div>
+              </template>
+            </el-table>
           </div>
         </div>
-      </div>
-      <div v-if="report.backup_dir" class="muted mono break-all">{{ t('upgrade.backupDir') }}: {{ report.backup_dir }}</div>
-      <el-alert
-        v-for="warning in report.warnings"
-        :key="warning"
-        type="warning"
-        :closable="false"
-        show-icon
-        :title="warning"
-        style="margin-top: 8px"
-      />
-      <ul v-if="report.database.actions.length" class="action-list">
-        <li v-for="action in report.database.actions" :key="action">{{ action }}</li>
-      </ul>
-    </div>
+      </el-tab-pane>
 
-    <div v-if="status" class="k-card" style="margin-top: 16px; padding: 24px">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('upgrade.configTitle') }}</h3>
-          <div class="sub">{{ t('upgrade.configSub', { path: status.config.path || t('common.none'), count: status.config.changes.length }) }}</div>
-        </div>
-      </div>
-      <div class="table-scroll">
-        <el-table :data="status.config.changes" style="width: 100%">
-          <el-table-column min-width="220" prop="key" :label="t('upgrade.configKey')" />
-          <el-table-column width="110" :label="t('upgrade.actionLabel')">
-            <template #default="{ row }">
-              <el-tag :type="row.action === 'added' ? 'success' : 'info'" effect="light" round size="small">
-                {{ t(`upgrade.action.${row.action}`) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column min-width="160" :label="t('upgrade.before')">
-            <template #default="{ row }"><span class="mono break-all">{{ row.before || t('common.none') }}</span></template>
-          </el-table-column>
-          <el-table-column min-width="160" :label="t('upgrade.after')">
-            <template #default="{ row }"><span class="mono break-all">{{ row.after || t('common.none') }}</span></template>
-          </el-table-column>
-          <template #empty>
-            <div style="padding: 36px 0; color: #94a3b8">{{ t('upgrade.noConfigChanges') }}</div>
-          </template>
-        </el-table>
-      </div>
-    </div>
-
-    <div v-if="status?.last_run" class="k-card" style="margin-top: 16px">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('upgrade.lastRunTitle') }}</h3>
-          <div class="sub">
-            {{ t('upgrade.lastRunDesc', {
-              source: status.last_run.source,
-              time: formatDate(status.last_run.finished_at),
-              steps: status.last_run.changed_steps,
-              changes: status.last_run.config_changes,
-              reclaimed: formatBytes(status.last_run.reclaimed_bytes)
-            }) }}
+      <el-tab-pane :label="t('upgrade.tabs.history')" name="history">
+        <div v-if="status?.last_run" class="k-card">
+          <div class="card-head">
+            <div>
+              <h3>{{ t('upgrade.lastRunTitle') }}</h3>
+              <div class="sub">
+                {{ t('upgrade.lastRunDesc', {
+                  source: status.last_run.source,
+                  time: formatDate(status.last_run.finished_at),
+                  steps: status.last_run.changed_steps,
+                  changes: status.last_run.config_changes,
+                  reclaimed: formatBytes(status.last_run.reclaimed_bytes)
+                }) }}
+              </div>
+            </div>
           </div>
+          <el-alert v-if="status.last_run.error" type="error" :closable="false" show-icon :title="status.last_run.error" />
         </div>
-      </div>
-      <el-alert v-if="status.last_run.error" type="error" :closable="false" show-icon :title="status.last_run.error" />
-    </div>
+        <el-alert
+          v-else
+          type="info"
+          :closable="false"
+          show-icon
+          :title="t('upgrade.noHistory')"
+        />
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -416,6 +442,8 @@ import type {
 const status = ref<UpgradeStatus | null>(null)
 const report = ref<UpgradeRunReport | null>(null)
 const loading = ref(false)
+const tab = ref('program')
+let initialTabPicked = false
 const running = ref(false)
 const optimizing = ref(false)
 const vacuum = ref(true)
@@ -601,6 +629,20 @@ async function load(): Promise<void> {
     loading.value = false
   }
   await Promise.all([loadProgram(), loadDatabaseStatus()])
+  pickInitialTab()
+}
+
+// 首次进入时跳到最需要关注的分区；之后刷新保持用户当前所在的标签页。
+function pickInitialTab(): void {
+  if (initialTabPicked) return
+  initialTabPicked = true
+  if (dbStatus.value?.running) {
+    tab.value = 'database'
+  } else if (status.value?.needs_upgrade) {
+    tab.value = 'maintenance'
+  } else if (program.value?.restart_pending || program.value?.update_available) {
+    tab.value = 'program'
+  }
 }
 
 // 程序升级依赖 GitHub，网络失败不应影响数据迁移预检的展示。
@@ -772,6 +814,10 @@ onUnmounted(stopDatabasePolling)
 </script>
 
 <style scoped>
+.upgrade-tabs :deep(.el-tabs__header) {
+  margin-bottom: 20px;
+}
+
 .upgrade-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

@@ -1833,6 +1833,7 @@ export default {
     program: {
       title: 'Program update',
       subtitle: 'Check and install a new binary from {repo} ({channel} channel). Downloads are always verified with SHA-256.',
+      unavailable: 'Program update information is unavailable. Refresh and try again later.',
       current: 'Current version',
       latest: 'Latest version',
       published: 'Published',
@@ -1896,6 +1897,14 @@ export default {
     },
     title: 'Upgrade & Optimization',
     subtitle: 'Run legacy data migrations, database maintenance, and configuration normalization in one place.',
+    tabs: {
+      program: 'Program update',
+      database: 'Database conversion',
+      maintenance: 'Upgrade & optimization',
+      config: 'Configuration file',
+      history: 'Last run'
+    },
+    noHistory: 'No runs yet',
     pendingTitle: 'A data migration is pending',
     pendingDesc: 'The data format is v{stored}, but this build expects v{current}. Back up first, then run the migration and optimization.',
     upToDateTitle: 'Data format is up to date',

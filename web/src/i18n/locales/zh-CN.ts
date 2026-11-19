@@ -1833,6 +1833,7 @@ export default {
     program: {
       title: '程序升级',
       subtitle: '从 {repo}（{channel} 通道）检查并安装新的程序二进制；下载后强制校验 SHA-256。',
+      unavailable: '程序升级信息不可用，请稍后刷新重试',
       current: '当前程序版本',
       latest: '最新版本',
       published: '发布时间',
@@ -1896,6 +1897,14 @@ export default {
     },
     title: '版本升级与优化',
     subtitle: '集中执行历史遗留数据迁移、数据库维护与配置文件规范化。',
+    tabs: {
+      program: '程序升级',
+      database: '数据库转换',
+      maintenance: '升级与优化',
+      config: '配置文件优化',
+      history: '最近一次执行'
+    },
+    noHistory: '暂无执行记录',
     pendingTitle: '检测到待执行的数据迁移',
     pendingDesc: '当前数据格式为 v{stored}，程序要求 v{current}。建议先备份，再执行迁移与优化。',
     upToDateTitle: '数据格式已是最新',
