@@ -6,6 +6,11 @@
 
 依赖：Python 3.9+、OpenSSL 1.1.1+（命令行工具）。
 
+交互式向导（推荐首次使用）：
+    python3 scripts/csr_client.py --interactive
+    # 或直接不带参数在终端运行，也会自动进入交互模式
+    python3 scripts/csr_client.py
+
 示例（首次申请）：
     export LACTSSL_URL="https://ssl.example.com"
     export LACTSSL_TOKEN="lactssl_xxxxxxxxxxxxxxxx"
@@ -31,6 +36,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import re
@@ -430,6 +436,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--insecure", action="store_true", help="跳过 HTTPS 证书校验（不推荐）")
     parser.add_argument("--force", action="store_true", help="覆盖已存在的输出文件")
     parser.add_argument("--quiet", action="store_true", help="减少进度输出")
+    parser.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="进入交互式向导，逐项询问缺少的参数",
+    )
     return parser.parse_args()
 
 
@@ -445,8 +457,273 @@ def ensure_same_domains(expected: list[str], actual: list[str], label: str) -> N
     )
 
 
+# ---------------------------------------------------------------------------
+# 交互模式
+# ---------------------------------------------------------------------------
+
+
+def prompt_line(prompt: str) -> str:
+    try:
+        return input(prompt)
+    except EOFError as exc:
+        raise ClientError("输入已结束，无法继续交互模式") from exc
+
+
+def ask_text(
+    label: str,
+    default: str | None = None,
+    required: bool = False,
+    secret: bool = False,
+    hint: str | None = None,
+) -> str:
+    """读取一行文本；留空时使用默认值，required 时拒绝空值。"""
+    default_text = str(default).strip() if default is not None else ""
+    prompt = label
+    if hint:
+        prompt += f"（{hint}）"
+    if default_text and not secret:
+        prompt += f" [{default_text}]"
+    prompt += ": "
+    while True:
+        try:
+            raw = getpass.getpass(prompt) if secret else prompt_line(prompt)
+        except EOFError as exc:
+            raise ClientError("输入已结束，无法继续交互模式") from exc
+        value = raw.strip() or default_text
+        if value or not required:
+            return value
+        print("  该项不能为空，请重新输入。")
+
+
+def ask_int(
+    label: str,
+    default: int | None = None,
+    required: bool = False,
+    minimum: int | None = None,
+) -> int | None:
+    while True:
+        raw = ask_text(label, None if default is None else str(default), required=required)
+        if not raw:
+            return None
+        try:
+            value = int(raw)
+        except ValueError:
+            print("  请输入整数。")
+            continue
+        if minimum is not None and value < minimum:
+            print(f"  请输入不小于 {minimum} 的整数。")
+            continue
+        return value
+
+
+def ask_yes_no(label: str, default: bool = True) -> bool:
+    suffix = "Y/n" if default else "y/N"
+    while True:
+        raw = prompt_line(f"{label} [{suffix}]: ").strip().lower()
+        if not raw:
+            return default
+        if raw in {"y", "yes", "是"}:
+            return True
+        if raw in {"n", "no", "否"}:
+            return False
+        print("  请输入 y 或 n。")
+
+
+def ask_choice(label: str, options: list[tuple[str, str]], default: str) -> str:
+    keys = [key for key, _ in options]
+    default_index = keys.index(default) if default in keys else 0
+    print(label)
+    for index, (_, description) in enumerate(options, 1):
+        mark = "（默认）" if index == default_index + 1 else ""
+        print(f"  {index}. {description}{mark}")
+    while True:
+        raw = prompt_line(f"请选择 [1-{len(options)}]: ").strip()
+        if not raw:
+            return options[default_index][0]
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return options[int(raw) - 1][0]
+        print("  请输入列表中的序号。")
+
+
+def ask_existing_file(
+    label: str,
+    default: str | None = None,
+    required: bool = False,
+) -> str | None:
+    while True:
+        raw = ask_text(label, default, required=required)
+        if not raw:
+            return None
+        path = Path(raw).expanduser()
+        if path.is_file():
+            return str(path)
+        print(f"  文件不存在: {path}")
+
+
+def interactive_configure(args: argparse.Namespace) -> None:
+    """逐项询问交互模式所需参数，直接写入 args。"""
+    print()
+    print("== 连接设置 ==")
+    args.base_url = ask_text("LACTSSL 地址", args.base_url or "http://127.0.0.1:8080")
+    if not re.match(r"^https?://", args.base_url, re.IGNORECASE):
+        args.base_url = "https://" + args.base_url
+    token_default = args.token or None
+    if token_default and ask_yes_no("检测到已提供的 API 密钥，是否沿用？", True):
+        args.token = token_default
+    else:
+        args.token = ask_text(
+            "API 密钥",
+            required=True,
+            secret=True,
+            hint="输入不回显",
+        )
+    if args.base_url.lower().startswith("https://"):
+        args.insecure = ask_yes_no("跳过 HTTPS 证书校验（不推荐）？", args.insecure)
+        if not args.insecure:
+            args.ca_bundle = ask_existing_file(
+                "自定义 CA 证书文件（可选，用于自建 HTTPS）", args.ca_bundle or None
+            )
+    args.challenge = "dns01"
+
+    print()
+    print("== 申请方式 ==")
+    default_mode = "resume" if args.request_id else ("csr" if args.csr else "new")
+    mode = ask_choice(
+        "请选择操作：",
+        [
+            ("new", "新建申请（本地生成私钥和 CSR）"),
+            ("resume", "续传已有申请（只下载证书，不创建新申请）"),
+            ("csr", "使用已有 CSR 和私钥"),
+        ],
+        default_mode,
+    )
+
+    if mode == "new":
+        args.request_id = None
+        args.csr = None
+        args.key = None
+        print()
+        print("== 申请内容 ==")
+        current_domains = ",".join(normalize_domains(args.domains))
+        domains = ask_text(
+            "申请域名（逗号或空格分隔，首个为主域名，通配符写作 *.example.com）",
+            current_domains or None,
+            required=True,
+        )
+        args.domains = [domains]
+        args.dns_account_id = ask_int(
+            "DNS 账户 ID（用于 DNS-01 验证）", args.dns_account_id, required=True, minimum=1
+        )
+        args.ca = ask_text("权威 CA 标识", args.ca or "letsencrypt")
+        args.key_type = ask_choice(
+            "私钥类型：",
+            [
+                ("ecdsa", "ECDSA P-256（推荐）"),
+                ("rsa2048", "RSA 2048"),
+                ("rsa4096", "RSA 4096"),
+            ],
+            args.key_type,
+        )
+    elif mode == "resume":
+        args.csr = None
+        args.domains = []
+        print()
+        print("== 续传申请 ==")
+        args.request_id = ask_text("申请 ID", args.request_id, required=True)
+        args.key = ask_existing_file(
+            "本地私钥路径（可选，用于校验证书与私钥匹配）", args.key or None
+        )
+    else:
+        args.request_id = None
+        print()
+        print("== 已有 CSR ==")
+        args.csr = ask_existing_file("CSR 文件路径", args.csr, required=True)
+        args.key = ask_existing_file(
+            "私钥文件路径（可选，用于校验证书与私钥匹配）", args.key or None
+        )
+        args.dns_account_id = ask_int(
+            "DNS 账户 ID（用于 DNS-01 验证）", args.dns_account_id, required=True, minimum=1
+        )
+        args.ca = ask_text("权威 CA 标识", args.ca or "letsencrypt")
+        domains = ask_text(
+            "申请域名（可选，留空以 CSR 中的 SAN 为准；填写则做一致性校验）",
+            ",".join(normalize_domains(args.domains)) or None,
+        )
+        args.domains = [domains] if domains else []
+
+    print()
+    print("== 输出设置 ==")
+    args.out_dir = ask_text("输出目录", args.out_dir or ".")
+    args.name = ask_text("输出文件基名（留空使用首个域名）", args.name) or None
+    args.force = ask_yes_no("若输出文件已存在，是否覆盖？", args.force)
+
+
+def print_interactive_summary(args: argparse.Namespace) -> None:
+    print()
+    print("== 即将执行 ==")
+    print(f"  服务地址: {args.base_url}")
+    print(f"  API 密钥: {'已设置' if args.token else '未设置'}")
+    if args.request_id:
+        print(f"  操作:     续传申请 {args.request_id}")
+        if args.key:
+            print(f"  私钥:     {args.key}")
+    elif args.csr:
+        print("  操作:     使用已有 CSR")
+        print(f"  CSR:      {args.csr}")
+        if args.key:
+            print(f"  私钥:     {args.key}")
+        print(f"  DNS 账户: {args.dns_account_id}")
+        print(f"  CA:       {args.ca}")
+    else:
+        print("  操作:     新建申请")
+        print(f"  域名:     {', '.join(normalize_domains(args.domains))}")
+        print(f"  DNS 账户: {args.dns_account_id}")
+        print(f"  CA:       {args.ca}")
+        print(f"  私钥类型: {args.key_type}")
+    print(f"  输出目录: {args.out_dir}")
+    print(f"  输出基名: {args.name or '（首个域名）'}")
+
+
+def interactive_main(args: argparse.Namespace) -> int:
+    if not sys.stdin.isatty():
+        raise ClientError("交互模式需要在终端中运行（未检测到 TTY），或改用命令行参数")
+    print("LACTSSL CSR 客户端 · 交互模式")
+    print("私钥只在本地生成并保存，不会上传到服务端。按 Ctrl+C 可随时退出。")
+    while True:
+        interactive_configure(args)
+        print_interactive_summary(args)
+        if not ask_yes_no("确认开始？", True):
+            print("已取消。", file=sys.stderr)
+            return 130
+        try:
+            return execute(args)
+        except ClientError as exc:
+            print(f"错误: {exc}", file=sys.stderr)
+            if not ask_yes_no("返回向导修改配置后重试？", True):
+                return 1
+
+
+def should_use_interactive(args: argparse.Namespace) -> bool:
+    """终端中缺少关键参数时自动进入向导；命令行完整时保持原行为。"""
+    if args.interactive:
+        return True
+    if not sys.stdin.isatty():
+        return False
+    if not args.token:
+        return True
+    if args.request_id or args.csr:
+        return False
+    return not normalize_domains(args.domains) or args.dns_account_id is None
+
+
 def main() -> int:
     args = parse_args()
+    if should_use_interactive(args):
+        return interactive_main(args)
+    return execute(args)
+
+
+def execute(args: argparse.Namespace) -> int:
     if not args.token:
         raise ClientError("缺少 API 密钥，请使用 --token 或设置 LACTSSL_TOKEN")
     if args.key and not args.csr and not args.request_id:

@@ -310,6 +310,12 @@ python3 scripts/csr_client.py \
   --out-dir ./certs
 ```
 
+也可以使用交互式向导逐项填写，无需记忆参数（不带任何参数在终端中运行也会自动进入向导）：
+
+```bash
+python3 scripts/csr_client.py --interactive
+```
+
 脚本只上传 CSR，私钥始终保存在客户端；输出包括 `.key`、`.csr`、`.crt`、`.fullchain.crt` 和 `.request.json`。如果申请已创建但下载中断，可使用 `--request-id csr_xxxxxxxx` 续传。
 
 ### 6.7 验证凭据可用性

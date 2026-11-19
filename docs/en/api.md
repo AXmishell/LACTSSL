@@ -310,6 +310,12 @@ python3 scripts/csr_client.py \
   --out-dir ./certs
 ```
 
+You can also use the interactive wizard to fill in each value (running with no arguments in a terminal starts it automatically):
+
+```bash
+python3 scripts/csr_client.py --interactive
+```
+
 The script uploads only the CSR; the private key never leaves the client. Outputs include `.key`, `.csr`, `.crt`, `.fullchain.crt`, and `.request.json`. If the request was created but the download was interrupted, resume with `--request-id csr_xxxxxxxx`.
 
 ### 6.7 Verifying Credential Availability
