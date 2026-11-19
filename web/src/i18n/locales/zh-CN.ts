@@ -417,6 +417,7 @@ export default {
     batchDeploy: '批量部署',
     batchDeployTitle: '批量部署 {count} 张证书',
     batchDeployDesc: '将选中的 {count} 张证书部署到以下目标凭据，证书内容会立即下发。',
+    batchDeploySiteHint: '网站类目标（如宝塔网站）会按每张证书的域名匹配站点：站点留空时自动使用证书域名；填写域名站点时只保留与当前证书匹配的项。同一站点只能部署一张证书。',
     batchDelete: '批量删除',
     batchDeleteTitle: '批量删除证书',
     batchDeleteConfirm: '确定删除选中的 {count} 张证书吗？该操作不可恢复。',

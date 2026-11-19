@@ -345,28 +345,33 @@ func (s *Server) deployCertificate(c *gin.Context) {
 		if len(deployCfg) == 0 {
 			deployCfg = service.ExtractDeployConfig(def, account.Config)
 		}
-		result := gin.H{"deploy_account_id": account.ID, "name": account.Name, "success": true, "message": i18n.T(locale(c), "deploy.success", nil)}
-		record := &model.DeployRecord{
-			CertID:          cert.ID,
-			DeployAccountID: account.ID,
-			AccountName:     account.Name,
-			TaskID:          cert.TaskID,
-			Status:          "success",
-			Message:         i18n.Encode("deploy.success_manual", nil),
-		}
-		if err := s.Manager.DeployContext(c.Request.Context(), cert, account, deployCfg); err != nil {
-			result["success"] = false
-			result["message"] = i18n.ErrorText(locale(c), err)
-			record.Status = "failed"
-			record.Message = truncateText(i18n.EncodeError(err), 800)
-			s.Store.AddLogKey("deploy", cert.TaskID, "error", "log.deploy.manual_failed", map[string]any{"account": account.Name, "message": i18n.ErrorText(locale(c), err)})
-		} else {
-			s.Store.AddLogKey("deploy", cert.TaskID, "success", "log.deploy.manual_success", map[string]any{"account": account.Name})
-		}
-		_ = s.Store.CreateDeployRecord(record)
-		results = append(results, result)
+		results = append(results, s.deployToTarget(c, cert, account, deployCfg))
 	}
 	ok(c, gin.H{"results": results})
+}
+
+// deployToTarget 执行单个目标的部署，并写入部署记录与任务日志。
+func (s *Server) deployToTarget(c *gin.Context, cert *model.Certificate, account *model.DeployAccount, deployCfg map[string]string) gin.H {
+	result := gin.H{"deploy_account_id": account.ID, "name": account.Name, "success": true, "message": i18n.T(locale(c), "deploy.success", nil)}
+	record := &model.DeployRecord{
+		CertID:          cert.ID,
+		DeployAccountID: account.ID,
+		AccountName:     account.Name,
+		TaskID:          cert.TaskID,
+		Status:          "success",
+		Message:         i18n.Encode("deploy.success_manual", nil),
+	}
+	if err := s.Manager.DeployContext(c.Request.Context(), cert, account, deployCfg); err != nil {
+		result["success"] = false
+		result["message"] = i18n.ErrorText(locale(c), err)
+		record.Status = "failed"
+		record.Message = truncateText(i18n.EncodeError(err), 800)
+		s.Store.AddLogKey("deploy", cert.TaskID, "error", "log.deploy.manual_failed", map[string]any{"account": account.Name, "message": i18n.ErrorText(locale(c), err)})
+	} else {
+		s.Store.AddLogKey("deploy", cert.TaskID, "success", "log.deploy.manual_success", map[string]any{"account": account.Name})
+	}
+	_ = s.Store.CreateDeployRecord(record)
+	return result
 }
 
 // taskDeployConfigs 返回证书所属任务中按目标凭据索引的部署参数。

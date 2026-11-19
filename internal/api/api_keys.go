@@ -249,6 +249,7 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"GET /api/certificates":                         {apiScopeCertificatesRead},
 	"POST /api/certificates/cleanup":                {apiScopeCertificatesWrite},
 	"POST /api/certificates/cleanup/preview":        {apiScopeCertificatesRead},
+	"POST /api/certificates/batch/deploy":           {apiScopeDeployExecute},
 	"POST /api/certificate-requests":                {apiScopeCertificatesRequest},
 	"GET /api/certificate-requests":                 {apiScopeCertificatesRequest},
 	"GET /api/certificate-requests/:id":             {apiScopeCertificatesRequest},

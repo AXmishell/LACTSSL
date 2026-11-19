@@ -711,6 +711,8 @@ export interface DeployResult {
   success: boolean
   name: string
   message: string
+  certificate_id?: number
+  domain?: string
 }
 
 export interface DeployResponse {

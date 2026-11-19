@@ -211,6 +211,14 @@
       <p class="muted" style="margin-top: 0">
         {{ deployCerts.length > 1 ? t('certs.batchDeployDesc', { count: deployCerts.length }) : t('certs.deployDesc') }}
       </p>
+      <el-alert
+        v-if="deployCerts.length > 1"
+        :title="t('certs.batchDeploySiteHint')"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
       <div v-for="(target, index) in deployTargets" :key="index" class="deploy-target">
         <div class="deploy-target-head">
           <el-select
@@ -666,27 +674,31 @@ async function submitDeploy(): Promise<void> {
   if (!deployCerts.value.length) return
   deploying.value = true
   deployResults.value = []
-  const results: DeployResult[] = []
-  let failed = 0
   try {
-    for (const cert of deployCerts.value) {
-      try {
-        const data = await api.post<DeployResponse>(`/certificates/${cert.id}/deploy`, { targets: deployTargets.value })
-        const mapped = (data.results || []).map((item) => ({
-          ...item,
-          name: deployCerts.value.length > 1 ? `${cert.primary_domain} · ${item.name}` : item.name
-        }))
-        results.push(...mapped)
-        failed += mapped.filter((item) => !item.success).length
-      } catch (error: any) {
-        results.push({ success: false, name: cert.primary_domain, message: error.message })
-        failed++
-      }
-    }
-    deployResults.value = results
+    const batch = deployCerts.value.length > 1
+    // 批量部署必须交给后端统一预检：站点类目标需要按证书域名逐张解析，
+    // 并在执行前拦截同一站点被多张证书覆盖的情况。
+    const data = batch
+      ? await api.post<DeployResponse>('/certificates/batch/deploy', {
+          certificate_ids: deployCerts.value.map((cert) => cert.id),
+          targets: deployTargets.value
+        })
+      : await api.post<DeployResponse>(`/certificates/${deployCerts.value[0].id}/deploy`, { targets: deployTargets.value })
+    deployResults.value = (data.results || []).map((item) => ({
+      ...item,
+      name: batch && item.domain ? `${item.domain} · ${item.name}` : item.name
+    }))
+    const failed = deployResults.value.filter((item) => !item.success).length
     if (failed) ElMessage.warning(t('certs.deployFailed', { count: failed }))
     else ElMessage.success(t('certs.deployDone'))
     load()
+  } catch (error: any) {
+    deployResults.value = [{
+      success: false,
+      name: deployCerts.value.length > 1 ? t('certs.batchDeploy') : deployCerts.value[0].primary_domain,
+      message: error.message
+    }]
+    ElMessage.error(error.message)
   } finally {
     deploying.value = false
   }

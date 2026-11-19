@@ -417,6 +417,7 @@ export default {
     batchDeploy: 'Deploy selected',
     batchDeployTitle: 'Deploy {count} certificates',
     batchDeployDesc: 'Deploy the {count} selected certificates to the target credentials below; delivery happens immediately.',
+    batchDeploySiteHint: 'Website targets (such as BaoTa sites) match sites by each certificate\'s domains: leave sites empty to use the certificate domains automatically, or fill in domain-based sites and only matching ones are kept. Each site can hold only one certificate.',
     batchDelete: 'Delete selected',
     batchDeleteTitle: 'Delete certificates',
     batchDeleteConfirm: 'Delete the {count} selected certificates? This cannot be undone.',
