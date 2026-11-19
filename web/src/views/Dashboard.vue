@@ -3,7 +3,7 @@
     <section class="hero">
       <div class="hero-main">
         <h2>{{ greeting }}，{{ state.user?.email?.split('@')[0] || t('dashboard.admin') }}</h2>
-        <p>{{ t('dashboard.heroDesc', { certs: data?.cert_total || 0, tasks: data?.task_enabled || 0 }) }}</p>
+        <p v-if="data">{{ t('dashboard.heroDesc', { certs: data.cert_total, tasks: data.task_enabled }) }}</p>
         <div class="hero-clock">
           <div class="clock-head">
             <div class="clock-label">
@@ -14,22 +14,22 @@
           <div class="clock-value">{{ clockText }}</div>
         </div>
       </div>
-      <div class="hero-side">
+      <div v-if="data" class="hero-side">
         <div class="hero-score">
           <div class="score-num">
-            <template v-if="(data?.cert_total || 0) > 0 && (data?.deploy_total || 0) > 0">{{ Math.round(data?.success_rate || 0) }}<small>%</small></template>
+            <template v-if="data.cert_total > 0 && data.deploy_total > 0">{{ Math.round(data.success_rate || 0) }}<small>%</small></template>
             <template v-else>-</template>
           </div>
           <div class="score-label">{{ t('dashboard.deploySuccessRate') }}</div>
         </div>
         <div class="hero-mini">
-          <div><span>{{ data?.deploy_total || 0 }}</span>{{ t('dashboard.totalDeployments') }}</div>
-          <div><span>{{ data?.monitor_total || 0 }}</span>{{ t('dashboard.monitoredSites') }}</div>
+          <div><span>{{ data.deploy_total }}</span>{{ t('dashboard.totalDeployments') }}</div>
+          <div><span>{{ data.monitor_total }}</span>{{ t('dashboard.monitoredSites') }}</div>
         </div>
       </div>
     </section>
 
-    <div v-if="(data?.cert_total || 0) === 0" class="first-run">
+    <div v-if="loaded && data && data.cert_total === 0" class="first-run">
       <div class="first-run-main">
         <div class="first-run-title">{{ t('dashboard.firstRunTitle') }}</div>
         <div class="first-run-desc">{{ t('dashboard.firstRunDesc') }}</div>
@@ -40,7 +40,7 @@
       </div>
     </div>
 
-    <div class="grid grid-4 mt-20">
+    <div v-if="data" class="grid grid-4 mt-20">
       <div class="stat-card">
         <div class="top">
           <div>
@@ -83,7 +83,7 @@
       </div>
     </div>
 
-    <div class="grid grid-2 mt-20">
+    <div v-if="data" class="grid grid-2 mt-20">
       <div class="k-card">
         <div class="card-head">
           <div>
@@ -139,7 +139,7 @@
       </div>
     </div>
 
-    <div class="grid grid-2 mt-20">
+    <div v-if="data" class="grid grid-2 mt-20">
       <div class="k-card">
         <div class="card-head">
           <div>
@@ -195,6 +195,8 @@ const router = useRouter()
 const { t } = useI18n()
 const loading = ref(false)
 const data = ref<Dashboard | null>(null)
+// 数据请求成功后才置为 true：避免把“加载中/请求失败”误判成“还没有证书的首次使用”。
+const loaded = ref(false)
 // 悬停的柱状图列索引：整张趋势图只渲染一个原生气泡，避免逐个 el-tooltip 淡出叠加成拖影。
 const hoverIndex = ref(-1)
 let timer: ReturnType<typeof setInterval> | null = null
@@ -287,21 +289,23 @@ function logDot(level: string): string {
   return map[level] || '#3b82f6'
 }
 
-async function load(): Promise<void> {
-  loading.value = true
+async function load(silent = false): Promise<void> {
+  // 轮询使用静默模式：不触发整页 v-loading 遮罩，避免仪表盘每分钟闪一次。
+  if (!silent) loading.value = true
   try {
     data.value = await api.get<Dashboard>('/dashboard')
     syncServerClock(data.value)
+    loaded.value = true
   } catch (error: any) {
     ElMessage.error(error.message)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
 onMounted(() => {
   load()
-  timer = setInterval(load, 60 * 1000)
+  timer = setInterval(() => load(true), 60 * 1000)
   clockTimer = setInterval(tickClock, 1000)
 })
 onUnmounted(() => {
