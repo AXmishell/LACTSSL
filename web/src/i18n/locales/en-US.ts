@@ -1425,6 +1425,8 @@ export default {
     repoInstalledMessage: '{name} installed',
     repoInstalledDisabledHint: '{name} is installed with its plugin file disabled by default. Enable the file in the plugin list, then enable the items you need.',
     repoUpdated: '{name} updated',
+    repoUpdateNoChange: '{name} is already up to date',
+    repoProcessing: 'Working…',
     repoUninstalled: '{name} uninstalled',
     repoInstallTitle: 'Install plugin',
     repoInstallConfirm: 'This will download and execute third-party binary {name} as the service account. Install?',

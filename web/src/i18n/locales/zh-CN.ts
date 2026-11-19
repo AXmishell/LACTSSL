@@ -1425,6 +1425,8 @@ export default {
     repoInstalledMessage: '{name} 已安装',
     repoInstalledDisabledHint: '{name} 已安装，插件文件默认停用；请先在插件列表启用文件，再按需启用条目。',
     repoUpdated: '{name} 已更新',
+    repoUpdateNoChange: '{name} 已是仓库中的最新版本',
+    repoProcessing: '处理中…',
     repoUninstalled: '{name} 已卸载',
     repoInstallTitle: '安装插件',
     repoInstallConfirm: '将下载并以服务账号执行 {name} 的第三方二进制，确认安装？',

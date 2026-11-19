@@ -414,6 +414,7 @@
           <template #default="{ row }">
             <el-tag v-if="!row.compatible" type="info" size="small">{{ t('plugins.repoIncompatible') }}</el-tag>
             <el-tag v-else-if="!row.platform_available" type="info" size="small">{{ t('plugins.repoPlatformUnsupported') }}</el-tag>
+            <el-tag v-else-if="marketBusy[row.kind + '/' + row.id]" type="warning" size="small">{{ t('plugins.repoProcessing') }}</el-tag>
             <el-tag v-else-if="row.update_available" type="warning" size="small">{{ t('plugins.repoUpdatable') }}</el-tag>
             <el-tag v-else-if="row.installed" type="success" size="small">{{ t('plugins.repoInstalled') }}</el-tag>
             <el-tag v-else type="info" size="small">{{ t('plugins.repoNotInstalled') }}</el-tag>
@@ -509,7 +510,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, type Ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, UploadInstance } from 'element-plus'
@@ -518,7 +519,7 @@ import { api, errorText } from '../api'
 import { notifyChannelLabelKey } from '../notifyChannels'
 import { formatSize, formatVersion } from '../utils'
 import PluginGroupTable from '../components/PluginGroupTable.vue'
-import type { LegacyPluginFile, NotifyPluginChannel, PluginFile, PluginProvider, PluginGroup, PluginRepoItem, PluginRepoStatus, PluginStatus, PluginUploadResult } from '../types'
+import type { LegacyPluginFile, NotifyPluginChannel, PluginFile, PluginInstallation, PluginProvider, PluginGroup, PluginRepoInstallResult, PluginRepoItem, PluginRepoStatus, PluginRepoUpdateResult, PluginStatus, PluginUploadResult } from '../types'
 
 const { t } = useI18n()
 const plugins = ref<PluginStatus | null>(null)
@@ -559,6 +560,11 @@ const marketPlugins = ref<PluginRepoItem[]>([])
 const marketKind = ref<'all' | 'dns' | 'deploy' | 'notify'>('all')
 const marketQuery = ref('')
 const marketBusy = ref<Record<string, boolean>>({})
+// 插件安装/更新由服务端同步完成，下载大包可能需要较长时间；市场弹窗打开时
+// 静默刷新列表，保证自动更新或其它会话触发的版本变化也能及时反映到状态列。
+const MARKET_POLL_MS = 15000
+let marketTimer: ReturnType<typeof setInterval> | null = null
+let marketPolling = false
 const repoForm = ref({
   enabled: true,
   url: '',
@@ -1130,13 +1136,46 @@ async function refreshRepo(): Promise<void> {
   }
 }
 
-async function openMarket(): Promise<void> {
+function openMarket(): void {
   marketVisible.value = true
-  await loadMarket()
 }
 
-async function loadMarket(): Promise<void> {
-  marketLoading.value = true
+function marketHasBusy(): boolean {
+  return Object.keys(marketBusy.value).length > 0
+}
+
+function startMarketPolling(): void {
+  if (marketTimer) return
+  marketTimer = setInterval(() => {
+    void pollMarket()
+  }, MARKET_POLL_MS)
+}
+
+function stopMarketPolling(): void {
+  if (!marketTimer) return
+  clearInterval(marketTimer)
+  marketTimer = null
+}
+
+// 轮询只静默更新市场列表，不触发整页 loading，也不在操作进行中覆盖乐观更新。
+async function pollMarket(): Promise<void> {
+  if (!marketVisible.value || marketPolling || marketLoading.value || marketHasBusy()) return
+  if (document.visibilityState === 'hidden') return
+  marketPolling = true
+  try {
+    await loadMarket(true)
+  } finally {
+    marketPolling = false
+  }
+}
+
+// 标签页重新可见时立即补一次刷新，避免后台期间状态已经变化却仍显示旧值。
+function onMarketVisibilityChange(): void {
+  if (document.visibilityState === 'visible') void pollMarket()
+}
+
+async function loadMarket(silent = false): Promise<void> {
+  if (!silent) marketLoading.value = true
   try {
     const params: Record<string, any> = {}
     if (marketKind.value !== 'all') params.kind = marketKind.value
@@ -1144,11 +1183,23 @@ async function loadMarket(): Promise<void> {
     const result = await api.get<{ plugins: PluginRepoItem[] }>('/plugins/repo/plugins', params)
     marketPlugins.value = result.plugins || []
   } catch (error) {
-    marketPlugins.value = []
-    ElMessage.error(errorText(error))
+    // 静默轮询失败时保留现有列表，等待下一次重试，避免状态列突然清空。
+    if (!silent) {
+      marketPlugins.value = []
+      ElMessage.error(errorText(error))
+    }
   } finally {
-    marketLoading.value = false
+    if (!silent) marketLoading.value = false
   }
+}
+
+// applyUpdatedPlugin 用服务端返回的安装记录立即刷新当前行，避免状态列在
+// 二次列表请求返回前仍显示“可更新”。
+function applyUpdatedPlugin(item: PluginRepoItem, plugin?: PluginInstallation): void {
+  if (!plugin) return
+  item.installed = true
+  item.installed_version = plugin.version
+  item.update_available = false
 }
 
 async function installRepoPlugin(item: PluginRepoItem, update: boolean): Promise<void> {
@@ -1164,18 +1215,42 @@ async function installRepoPlugin(item: PluginRepoItem, update: boolean): Promise
   const key = item.kind + '/' + item.id
   marketBusy.value[key] = true
   try {
-    const result = await api.post<{ errors?: string[] }>(update ? '/plugins/repo/update' : '/plugins/repo/install', {
+    const result = await api.post<PluginRepoInstallResult & PluginRepoUpdateResult>(
+      update ? '/plugins/repo/update' : '/plugins/repo/install',
+      {
         kind: item.kind,
         id: item.id,
         version: update ? undefined : item.version
-      })
+      }
+    )
     if (!result) return
-    ElMessage.success(update ? t('plugins.repoUpdated', { name: item.name || item.id }) : t('plugins.repoInstalledMessage', { name: item.name || item.id }))
-    if (!update) ElMessage.info(t('plugins.repoInstalledDisabledHint', { name: item.name || item.id }))
-    if (result.errors?.length) ElMessage.warning(result.errors.join('；'))
+    if (update) {
+      const results = result.results || []
+      const target = results.find(
+        (entry) => entry.kind.toLowerCase() === item.kind.toLowerCase() && entry.id.toLowerCase() === item.id.toLowerCase()
+      )
+      const failure = target?.error || results.find((entry) => entry.error)?.error
+      if (failure) {
+        ElMessage.error(failure)
+      } else if (target && target.updated !== false) {
+        applyUpdatedPlugin(item, target.plugin)
+        ElMessage.success(t('plugins.repoUpdated', { name: item.name || item.id }))
+      } else {
+        ElMessage.warning(t('plugins.repoUpdateNoChange', { name: item.name || item.id }))
+      }
+      const scanErrors = results.flatMap((entry) => entry.errors || [])
+      if (scanErrors.length) ElMessage.warning(scanErrors.join('；'))
+    } else {
+      applyUpdatedPlugin(item, result.plugin)
+      ElMessage.success(t('plugins.repoInstalledMessage', { name: item.name || item.id }))
+      ElMessage.info(t('plugins.repoInstalledDisabledHint', { name: item.name || item.id }))
+      if (result.errors?.length) ElMessage.warning(result.errors.join('；'))
+    }
     await Promise.all([loadMarket(), load(), loadRepo()])
   } catch (error) {
     ElMessage.error(errorText(error))
+    // 失败时也静默刷新一次：若服务端已完成更新（例如响应超时），状态列能立即纠正。
+    await loadMarket(true)
   } finally {
     delete marketBusy.value[key]
   }
@@ -1196,6 +1271,9 @@ async function uninstallRepoPlugin(item: PluginRepoItem): Promise<void> {
   try {
     const result = await api.delete<{ errors?: string[] }>(`/plugins/repo/plugins/${encodeURIComponent(item.kind)}/${encodeURIComponent(item.id)}`)
     if (!result) return
+    item.installed = false
+    item.installed_version = ''
+    item.update_available = false
     ElMessage.success(t('plugins.repoUninstalled', { name: item.name || item.id }))
     if (result.errors?.length) ElMessage.warning(result.errors.join('；'))
     await Promise.all([loadMarket(), load(), loadRepo()])
@@ -1221,9 +1299,24 @@ async function migrateLegacy(kind: string): Promise<void> {
   }
 }
 
+watch(marketVisible, (visible) => {
+  if (visible) {
+    void loadMarket()
+    startMarketPolling()
+  } else {
+    stopMarketPolling()
+  }
+})
+
 onMounted(() => {
   load()
   loadRepo()
+  document.addEventListener('visibilitychange', onMarketVisibilityChange)
+})
+
+onUnmounted(() => {
+  stopMarketPolling()
+  document.removeEventListener('visibilitychange', onMarketVisibilityChange)
 })
 </script>
 

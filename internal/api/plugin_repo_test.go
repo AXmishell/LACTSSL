@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -328,6 +329,172 @@ func TestListPluginRepoPlugins(t *testing.T) {
 		if item.ID == "cloudflare" && (!item.Installed || !item.UpdateAvailable || item.InstalledVersion != "0.9.0") {
 			t.Fatalf("unexpected cloudflare view: %+v", item)
 		}
+	}
+}
+
+// TestUpdatePluginFromRepoRefreshesStatus 验证更新接口返回的结构足以让前端立即
+// 刷新状态，并且更新后列表中的 installed_version / update_available 同步变化。
+func TestUpdatePluginFromRepoRefreshesStatus(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell helper test is unix-only")
+	}
+	dir := t.TempDir()
+	archives := map[string][]byte{}
+	for _, version := range []string{"0.9.0", "1.0.0"} {
+		script := `#!/bin/sh
+case "$1" in
+manifest)
+  cat <<'JSON'
+{"protocol":"v1","name":"test dns plugin","version":"` + version + `","providers":[{"id":"cloudflare"}]}
+JSON
+  ;;
+esac
+`
+		pluginJSON := `{"schema":1,"kind":"dns","id":"cloudflare","version":"` + version + `","protocol":"v1","os":"` + runtime.GOOS + `","arch":"` + runtime.GOARCH + `","entrypoint":"lactssl-dns-cloudflare"}`
+		path := filepath.Join(t.TempDir(), version+".tar.gz")
+		writeTestArchive(t, path, map[string]string{
+			"plugin.json":            pluginJSON,
+			"lactssl-dns-cloudflare": script,
+		})
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		archives[version] = raw
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, ok := archives[strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), ".tar.gz")]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(raw)
+	}))
+	defer server.Close()
+
+	newRaw := archives["1.0.0"]
+	newSum := sha256.Sum256(newRaw)
+	index := `{"schema":1,"channel":"stable","protocol":"v1","plugins":[{"kind":"dns","id":"cloudflare","name":"Cloudflare","version":"1.0.0","protocol":"v1","single":true,"assets":{"` + runtime.GOOS + `/` + runtime.GOARCH + `":{"url":"` + server.URL + `/1.0.0.tar.gz","sha256":"` + hex.EncodeToString(newSum[:]) + `","size":` + strconv.Itoa(len(newRaw)) + `}}}]}`
+	indexServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(index))
+	}))
+	defer indexServer.Close()
+
+	conn, err := db.Open(filepath.Join(t.TempDir(), "plugins.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	cipher, err := util.NewCipher([]byte("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{
+		Store:                   store.New(conn, cipher),
+		PluginRepoEnabled:       true,
+		PluginsEnabled:          true,
+		PluginDir:               dir,
+		PluginMemoryLimitMB:     128,
+		PluginTimeout:           5 * time.Second,
+		PluginMaxOutputKB:       64,
+		PluginRepoURL:           indexServer.URL,
+		PluginRepoTimeout:       5 * time.Second,
+		PluginRepoMaxDownloadMB: 8,
+	}
+	oldRaw := archives["0.9.0"]
+	oldSum := sha256.Sum256(oldRaw)
+	oldPlugin := pluginrepo.Plugin{Kind: "dns", ID: "cloudflare", Version: "0.9.0", Protocol: "v1", Single: true}
+	oldAsset := pluginrepo.Asset{URL: server.URL + "/0.9.0.tar.gz", SHA256: hex.EncodeToString(oldSum[:]), Size: int64(len(oldRaw))}
+	if _, _, err := s.installRepoPlugin("dns", oldPlugin, oldAsset); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dnsplugin.Discover(dnsplugin.DiscoverConfig{}) })
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/plugins/repo/plugins", s.listPluginRepoPlugins)
+	r.POST("/plugins/repo/update", s.updatePluginFromRepo)
+
+	listPlugins := func() repoPluginView {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/plugins/repo/plugins", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Data struct {
+				Plugins []repoPluginView `json:"plugins"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Data.Plugins) != 1 {
+			t.Fatalf("plugins=%+v", body.Data.Plugins)
+		}
+		return body.Data.Plugins[0]
+	}
+
+	if before := listPlugins(); !before.UpdateAvailable || before.InstalledVersion != "0.9.0" {
+		t.Fatalf("unexpected state before update: %+v", before)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/plugins/repo/update", strings.NewReader(`{"kind":"dns","id":"cloudflare"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var updated struct {
+		Data struct {
+			Results []struct {
+				Kind    string                   `json:"kind"`
+				ID      string                   `json:"id"`
+				To      string                   `json:"to"`
+				Updated bool                     `json:"updated"`
+				Error   string                   `json:"error"`
+				Plugin  model.PluginInstallation `json:"plugin"`
+			} `json:"results"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Data.Results) != 1 {
+		t.Fatalf("results=%+v", updated.Data.Results)
+	}
+	item := updated.Data.Results[0]
+	if !item.Updated || item.Error != "" || item.To != "1.0.0" || item.Plugin.Version != "1.0.0" {
+		t.Fatalf("unexpected update result: %+v", item)
+	}
+
+	after := listPlugins()
+	if after.UpdateAvailable || after.InstalledVersion != "1.0.0" {
+		t.Fatalf("status not refreshed after update: %+v", after)
+	}
+
+	// 再次更新应明确返回 updated=false，前端据此提示“已是最新”，而不是报成功。
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/plugins/repo/update", strings.NewReader(`{"kind":"dns","id":"cloudflare"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+	updated.Data.Results = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Data.Results) != 1 || updated.Data.Results[0].Updated {
+		t.Fatalf("repeat update should be a no-op: %+v", updated.Data.Results)
+	}
+
+	// 指定未安装的插件时返回 404，避免前端把静默成功当成已更新。
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/plugins/repo/update", strings.NewReader(`{"kind":"dns","id":"missing"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

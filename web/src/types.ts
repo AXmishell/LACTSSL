@@ -404,6 +404,37 @@ export interface PluginRepoItem {
   download_size?: number
 }
 
+export interface PluginInstallation {
+  kind: string
+  id: string
+  version: string
+  filename: string
+  source: string
+  repo_url?: string
+  installed_at?: string
+  updated_at?: string
+}
+
+export interface PluginRepoUpdateItem {
+  kind: string
+  id: string
+  from?: string
+  to?: string
+  updated?: boolean
+  errors?: string[]
+  error?: string
+  plugin?: PluginInstallation
+}
+
+export interface PluginRepoUpdateResult {
+  results?: PluginRepoUpdateItem[]
+}
+
+export interface PluginRepoInstallResult {
+  plugin?: PluginInstallation
+  errors?: string[]
+}
+
 export interface LegacyPluginFile {
   kind: 'dns' | 'deploy' | 'notify'
   file: string

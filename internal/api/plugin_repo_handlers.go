@@ -1140,6 +1140,8 @@ func (s *Server) updatePluginFromRepo(c *gin.Context) {
 	}
 	kind := strings.ToLower(strings.TrimSpace(body.Kind))
 	id := strings.ToLower(strings.TrimSpace(body.ID))
+	targeted := kind != "" && id != ""
+	matched := 0
 	results := make([]gin.H, 0)
 	s.pluginUploadMu.Lock()
 	defer s.pluginUploadMu.Unlock()
@@ -1150,21 +1152,50 @@ func (s *Server) updatePluginFromRepo(c *gin.Context) {
 		if id != "" && record.ID != id {
 			continue
 		}
+		matched++
 		plugin, found := s.findRepoPlugin(index, record.Kind, record.ID, "")
-		if !found || pluginrepo.CompareVersion(plugin.Version, record.Version) <= 0 {
+		if !found {
+			// 前端据此把“可更新”改成真实状态，而不是继续显示旧标记。
+			results = append(results, gin.H{
+				"kind": record.Kind, "id": record.ID, "from": record.Version,
+				"updated": false, "error": "仓库中不存在该插件",
+			})
+			continue
+		}
+		if pluginrepo.CompareVersion(plugin.Version, record.Version) <= 0 {
+			// 保留“无需更新”的结果，前端能区分“已是最新”和“没有找到安装记录”。
+			results = append(results, gin.H{
+				"kind": record.Kind, "id": record.ID, "from": record.Version,
+				"to": record.Version, "updated": false,
+			})
 			continue
 		}
 		asset, okAsset := pluginrepo.SelectAsset(plugin, runtime.GOOS, runtime.GOARCH)
 		if !okAsset || !pluginrepo.Compatible(plugin, Version) {
-			results = append(results, gin.H{"kind": record.Kind, "id": record.ID, "error": "当前平台或宿主版本不兼容"})
+			results = append(results, gin.H{
+				"kind": record.Kind, "id": record.ID, "from": record.Version,
+				"to": plugin.Version, "updated": false, "error": "当前平台或宿主版本不兼容",
+			})
 			continue
 		}
-		_, scanErrors, err := s.installRepoPlugin(record.Kind, plugin, asset)
-		item := gin.H{"kind": record.Kind, "id": record.ID, "from": record.Version, "to": plugin.Version, "errors": scanErrors}
+		updatedRecord, scanErrors, err := s.installRepoPlugin(record.Kind, plugin, asset)
+		item := gin.H{
+			"kind": record.Kind, "id": record.ID, "from": record.Version,
+			"to": plugin.Version, "updated": err == nil, "errors": scanErrors,
+		}
 		if err != nil {
 			item["error"] = err.Error()
+		} else {
+			// 直接返回更新后的安装记录，前端可立即刷新该行状态，无需等待二次列表请求。
+			item["plugin"] = updatedRecord
 		}
 		results = append(results, item)
+	}
+	if targeted && matched == 0 {
+		// 指定了 kind/id 却没有任何安装记录：以前会静默返回成功，界面因此一直
+		// 显示“可更新”。这里明确报错，让前端刷新列表并提示真实原因。
+		failKey(c, http.StatusNotFound, "api.error.plugin_repo_not_installed")
+		return
 	}
 	ok(c, gin.H{"results": results})
 }
