@@ -4,13 +4,14 @@
       <div class="hero-main">
         <h2>{{ greeting }}，{{ state.user?.email?.split('@')[0] || t('dashboard.admin') }}</h2>
         <p>{{ t('dashboard.heroDesc', { certs: data?.cert_total || 0, tasks: data?.task_enabled || 0 }) }}</p>
-        <div class="hero-actions">
-          <el-button type="primary" size="large" @click="router.push('/tasks')">
-            <el-icon><Plus /></el-icon>{{ t('dashboard.newTask') }}
-          </el-button>
-          <el-button size="large" @click="router.push('/monitors')">
-            <el-icon><Monitor /></el-icon>{{ t('dashboard.addMonitor') }}
-          </el-button>
+        <div class="hero-clock">
+          <div class="clock-head">
+            <div class="clock-label">
+              <el-icon><Timer /></el-icon>{{ t('dashboard.systemTime') }}
+            </div>
+            <div class="clock-zone">{{ clockZoneText }}</div>
+          </div>
+          <div class="clock-value">{{ clockText }}</div>
         </div>
       </div>
       <div class="hero-side">
@@ -198,6 +199,47 @@ const data = ref<Dashboard | null>(null)
 const hoverIndex = ref(-1)
 let timer: ReturnType<typeof setInterval> | null = null
 
+// 仪表盘时钟以服务端返回的时间为基准，按客户端时钟推进，避免浏览器时区/时间偏差。
+const clockNow = ref(new Date())
+const clockSkew = ref(0)
+const clockOffset = ref(-new Date().getTimezoneOffset() * 60)
+const clockZone = ref('')
+let clockTimer: ReturnType<typeof setInterval> | null = null
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+const clockText = computed(() => {
+  // 用 UTC getter 读取“服务器本地时间”，显示结果不受浏览器时区影响。
+  const date = new Date(clockNow.value.getTime() + clockOffset.value * 1000)
+  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`
+})
+
+const clockZoneText = computed(() => {
+  const seconds = clockOffset.value
+  const sign = seconds >= 0 ? '+' : '-'
+  const abs = Math.abs(seconds)
+  const zone = `UTC${sign}${pad2(Math.floor(abs / 3600))}:${pad2(Math.floor((abs % 3600) / 60))}`
+  return clockZone.value ? `${zone} · ${clockZone.value}` : zone
+})
+
+function tickClock(): void {
+  clockNow.value = new Date(Date.now() + clockSkew.value)
+}
+
+function syncServerClock(value: Dashboard | null): void {
+  if (!value?.server_time) return
+  const serverTime = new Date(value.server_time)
+  if (Number.isNaN(serverTime.getTime())) return
+  clockSkew.value = serverTime.getTime() - Date.now()
+  if (Number.isFinite(value.server_utc_offset)) {
+    clockOffset.value = value.server_utc_offset
+  }
+  clockZone.value = value.server_timezone || ''
+  tickClock()
+}
+
 const greeting = computed(() => {
   const hour = new Date().getHours()
   if (hour < 6) return t('dashboard.greetingNight')
@@ -249,6 +291,7 @@ async function load(): Promise<void> {
   loading.value = true
   try {
     data.value = await api.get<Dashboard>('/dashboard')
+    syncServerClock(data.value)
   } catch (error: any) {
     ElMessage.error(error.message)
   } finally {
@@ -259,9 +302,11 @@ async function load(): Promise<void> {
 onMounted(() => {
   load()
   timer = setInterval(load, 60 * 1000)
+  clockTimer = setInterval(tickClock, 1000)
 })
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  if (clockTimer) clearInterval(clockTimer)
 })
 </script>
 
@@ -293,18 +338,12 @@ onUnmounted(() => {
   line-height: 1.75;
 }
 
-.hero-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 18px;
-}
-
 .hero-side {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 14px;
-  min-width: 180px;
+  min-width: 220px;
 }
 
 .hero-score {
@@ -345,6 +384,46 @@ onUnmounted(() => {
   font-size: 15px;
   font-weight: 600;
   text-align: center;
+}
+
+.hero-clock {
+  display: inline-block;
+  margin-top: 14px;
+  text-align: left;
+  border-radius: 12px;
+}
+
+.clock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+}
+
+.clock-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  color: var(--kp-muted);
+  font-size: 10px;
+}
+
+.clock-value {
+  margin-top: 3px;
+  color: var(--kp-text);
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.clock-zone {
+  color: var(--kp-muted);
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .health-note {
@@ -411,6 +490,7 @@ onUnmounted(() => {
   }
   .hero-side {
     flex-direction: row;
+    flex-wrap: wrap;
     min-width: 0;
   }
   .hero-score {
