@@ -45,14 +45,48 @@ type VerifyResult struct {
 	Checks     []VerifyCheck `json:"checks"`
 	Message    string        `json:"message,omitempty"`
 	VerifiedAt time.Time     `json:"verified_at"`
+	loc        i18n.Locale
 }
 
-func newVerifyResult(mode string) *VerifyResult {
-	return &VerifyResult{Mode: mode, VerifiedAt: time.Now().UTC()}
+func newVerifyResult(mode string, loc i18n.Locale) *VerifyResult {
+	return &VerifyResult{Mode: mode, VerifiedAt: time.Now().UTC(), loc: loc}
+}
+
+// tlsVerifyErrorMarkers 是 Go 标准库在证书校验失败时输出的稳定片段。
+// 插件返回的消息已经过本地化包装，但底层 x509/tls 错误仍是英文原文，
+// 因此宿主无法还原结构化错误，只能在展示边界按文本归一化。
+var tlsVerifyErrorMarkers = []string{
+	"tls: failed to verify certificate",
+	"x509: certificate signed by unknown authority",
+	"x509: certificate has expired",
+	"x509: certificate is not yet valid",
+	"x509: certificate is not valid for any names",
+	"x509: certificate is valid for",
+	"x509: cannot validate certificate",
+}
+
+// isTLSVerifyError 判断消息中是否包含证书校验失败。
+func isTLSVerifyError(message string) bool {
+	text := strings.ToLower(message)
+	for _, marker := range tlsVerifyErrorMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeVerifyMessage 把冗长的 TLS 证书校验错误收敛为简短提示，
+// 避免把面板地址、x509 细节和过期时间直接展示给用户。
+func normalizeVerifyMessage(loc i18n.Locale, message string) string {
+	if isTLSVerifyError(message) {
+		return i18n.T(loc, "service.verify.tls_failed", nil)
+	}
+	return message
 }
 
 func (r *VerifyResult) add(key, status, message string) {
-	r.Checks = append(r.Checks, VerifyCheck{Key: key, Status: status, Message: message})
+	r.Checks = append(r.Checks, VerifyCheck{Key: key, Status: status, Message: normalizeVerifyMessage(r.loc, message)})
 }
 
 // finish 汇总结果：全部检查通过（允许 skipped）时才算成功。
@@ -104,7 +138,7 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 		ctx = context.Background()
 	}
 	mode = VerifyModeNormalize(mode)
-	res := newVerifyResult(mode)
+	res := newVerifyResult(mode, loc)
 	defer func() {
 		res.finish()
 		result = *res
@@ -232,7 +266,7 @@ func (m *Manager) VerifyDeployAccount(ctx context.Context, loc i18n.Locale, acco
 		ctx = context.Background()
 	}
 	mode = VerifyModeNormalize(mode)
-	res := newVerifyResult(mode)
+	res := newVerifyResult(mode, loc)
 	defer func() {
 		res.finish()
 		result = *res

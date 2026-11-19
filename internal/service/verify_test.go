@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/go-acme/lego/v4/challenge"
 	"lactssl/internal/i18n"
+	deployplugin "lactssl/internal/plugin/deploy"
 	dnsplugin "lactssl/internal/plugin/dns"
 	pluginproto "lactssl/internal/plugin/proto"
 )
@@ -215,4 +217,131 @@ func TestVerifyDNSAccountUsesReadOnlyWhenAvailable(t *testing.T) {
 	if !result.OK || result.Mode != "write" || fake.presentCalls != 1 || fake.cleanupCalls != 1 {
 		t.Fatalf("unsupported 应回退到写测试: %+v present=%d cleanup=%d", result, fake.presentCalls, fake.cleanupCalls)
 	}
+}
+
+const tlsVerifyFailureMessage = `验证失败: 请求宝塔面板 API 失败: Post "https://panel.example.com:22462/***?***": tls: failed to verify certificate: x509: certificate has expired or is not yet valid: current time 2026-11-19T08:15:11+08:00 is after 2026-11-17T10:59:59Z`
+
+func TestNormalizeVerifyMessage(t *testing.T) {
+	cases := []struct {
+		name    string
+		loc     i18n.Locale
+		message string
+		want    string
+	}{
+		{name: "expired", loc: i18n.ZhCN, message: tlsVerifyFailureMessage, want: "TLS 校验失败"},
+		{name: "unknown authority", loc: i18n.EnUS, message: "x509: certificate signed by unknown authority", want: "TLS verification failed"},
+		{name: "case insensitive", loc: i18n.ZhCN, message: "TLS: FAILED TO VERIFY CERTIFICATE", want: "TLS 校验失败"},
+		{name: "plain error", loc: i18n.ZhCN, message: "部署目标验证失败: 认证失败", want: "部署目标验证失败: 认证失败"},
+		{name: "empty", loc: i18n.ZhCN, message: "", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeVerifyMessage(tc.loc, tc.message); got != tc.want {
+				t.Fatalf("normalizeVerifyMessage() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+type fakeTLSVerifyingDNSPlugin struct {
+	fakeDNSPlugin
+	id       string
+	response pluginproto.VerifyResponse
+}
+
+func (p *fakeTLSVerifyingDNSPlugin) ID() string { return p.id }
+func (p *fakeTLSVerifyingDNSPlugin) Verify(context.Context, map[string]string, string, string, string) (pluginproto.VerifyResponse, error) {
+	return p.response, nil
+}
+
+func TestVerifyDNSAccountNormalizesTLSFailure(t *testing.T) {
+	plugin := &fakeTLSVerifyingDNSPlugin{
+		fakeDNSPlugin: fakeDNSPlugin{provider: &fakeChallengeProvider{}},
+		id:            "verify-tls-dns",
+		response: pluginproto.VerifyResponse{Checks: []pluginproto.VerifyCheck{
+			{Key: "verify", Status: pluginproto.VerifyStatusFailed, Message: tlsVerifyFailureMessage},
+		}},
+	}
+	if err := dnsplugin.RegisterExternal(plugin); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dnsplugin.UnregisterSource(dnsplugin.SourceExec) })
+
+	m := New(nil)
+	result := m.VerifyDNSAccount(context.Background(), i18n.ZhCN, "", plugin.id, nil, "example.com", "read")
+	if result.OK {
+		t.Fatalf("TLS 校验失败时不能返回通过: %+v", result)
+	}
+	if result.Message != "TLS 校验失败" {
+		t.Fatalf("result.Message = %q", result.Message)
+	}
+	if got := verifyCheckMessage(result, "verify"); got != "TLS 校验失败" {
+		t.Fatalf("verify check message = %q", got)
+	}
+}
+
+type fakeVerifyingDeployer struct {
+	id       string
+	response pluginproto.VerifyResponse
+	err      error
+}
+
+func (d *fakeVerifyingDeployer) ID() string                  { return d.id }
+func (d *fakeVerifyingDeployer) Aliases() []string           { return nil }
+func (d *fakeVerifyingDeployer) Source() deployplugin.Source { return deployplugin.SourceExec }
+func (d *fakeVerifyingDeployer) Deploy(context.Context, deployplugin.Request) error {
+	return nil
+}
+func (d *fakeVerifyingDeployer) Info() deployplugin.ExternalDeployer {
+	return deployplugin.ExternalDeployer{ID: d.id, Name: "TLS Verify", Enabled: true}
+}
+func (d *fakeVerifyingDeployer) Verify(context.Context, deployplugin.Request) (pluginproto.VerifyResponse, error) {
+	return d.response, d.err
+}
+
+func TestVerifyDeployAccountNormalizesTLSFailure(t *testing.T) {
+	deployer := &fakeVerifyingDeployer{id: "verify-tls-deploy"}
+	if err := deployplugin.RegisterExternal(deployer); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { deployplugin.UnregisterSource(deployplugin.SourceExec) })
+
+	m := New(nil)
+	deployer.response = pluginproto.VerifyResponse{Checks: []pluginproto.VerifyCheck{
+		{Key: "verify", Status: pluginproto.VerifyStatusFailed, Message: tlsVerifyFailureMessage},
+	}}
+	result := m.VerifyDeployAccount(context.Background(), i18n.ZhCN, deployer.id, nil, nil, "auto", nil)
+	if result.OK {
+		t.Fatalf("TLS 校验失败时不能返回通过: %+v", result)
+	}
+	if result.Message != "TLS 校验失败" {
+		t.Fatalf("result.Message = %q", result.Message)
+	}
+	if got := verifyCheckMessage(result, "verify"); got != "TLS 校验失败" {
+		t.Fatalf("verify check message = %q", got)
+	}
+
+	// 插件进程执行失败时同样收敛提示。
+	deployer.response = pluginproto.VerifyResponse{}
+	deployer.err = errors.New(tlsVerifyFailureMessage)
+	result = m.VerifyDeployAccount(context.Background(), i18n.ZhCN, deployer.id, nil, nil, "auto", nil)
+	if result.OK || result.Message != "TLS 校验失败" {
+		t.Fatalf("执行错误未归一化: %+v", result)
+	}
+
+	// 非 TLS 错误必须原样保留，避免掩盖鉴权、权限等问题。
+	deployer.err = errors.New("authentication failed")
+	result = m.VerifyDeployAccount(context.Background(), i18n.ZhCN, deployer.id, nil, nil, "auto", nil)
+	if result.OK || result.Message != "部署目标验证失败: authentication failed" {
+		t.Fatalf("非 TLS 错误不应被改写: %+v", result)
+	}
+}
+
+func verifyCheckMessage(result VerifyResult, key string) string {
+	for _, check := range result.Checks {
+		if check.Key == key {
+			return check.Message
+		}
+	}
+	return ""
 }

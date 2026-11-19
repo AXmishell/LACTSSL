@@ -922,6 +922,7 @@
   "service.verify.scope_skipped": "No deployment path provided; only connectivity and authentication were verified",
   "service.verify.deploy_unsupported": "This deployment plugin version does not support verification; upgrade the plugin",
   "service.verify.deploy_failed": "Deployment target verification failed: {error}",
+  "service.verify.tls_failed": "TLS verification failed",
   "log.dns.verify_success": "DNS account \"{name}\" verified ({mode})",
   "log.dns.verify_failed": "DNS account \"{name}\" verification failed: {message}",
   "log.deploy.verify_success": "Target credential \"{name}\" verified ({mode})",
