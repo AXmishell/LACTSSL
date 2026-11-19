@@ -48,6 +48,7 @@ const (
 	apiScopeDeployAccountsRead  = "deploy_accounts:read"
 	apiScopeDeployAccountsWrite = "deploy_accounts:write"
 	apiScopeDeploymentsRead     = "deployments:read"
+	apiScopeDeploymentsWrite    = "deployments:write"
 	// apiScopeDeployExecute 允许手动部署证书，或创建/运行包含部署节点的任务。
 	// 本地/SSH 部署会执行服务端命令，因此必须与普通的证书/任务写权限区分开。
 	apiScopeDeployExecute = "deploy:execute"
@@ -105,6 +106,7 @@ var apiKeyScopeDefs = []apiKeyScopeDef{
 	{apiScopeDeployAccountsRead, "credentials", "api.scope.deploy_accounts_read.label", "api.scope.deploy_accounts_read.desc", false},
 	{apiScopeDeployAccountsWrite, "credentials", "api.scope.deploy_accounts_write.label", "api.scope.deploy_accounts_write.desc", true},
 	{apiScopeDeploymentsRead, "credentials", "api.scope.deployments_read.label", "api.scope.deployments_read.desc", false},
+	{apiScopeDeploymentsWrite, "credentials", "api.scope.deployments_write.label", "api.scope.deployments_write.desc", true},
 	{apiScopeCARead, "ca", "api.scope.ca_read.label", "api.scope.ca_read.desc", false},
 	{apiScopeCAWrite, "ca", "api.scope.ca_write.label", "api.scope.ca_write.desc", true},
 	{apiScopePrivateCARead, "private_ca", "api.scope.private_ca_read.label", "api.scope.private_ca_read.desc", false},
@@ -263,7 +265,8 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"POST /api/certificates/:id/deploy":             {apiScopeDeployExecute},
 	"DELETE /api/certificates/:id":                  {apiScopeCertificatesWrite},
 
-	"GET /api/deployments": {apiScopeDeploymentsRead},
+	"GET /api/deployments":    {apiScopeDeploymentsRead},
+	"DELETE /api/deployments": {apiScopeDeploymentsWrite},
 
 	"GET /api/monitors":            {apiScopeMonitorsRead},
 	"POST /api/monitors":           {apiScopeMonitorsWrite},

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -272,6 +273,28 @@ func (s *Server) listDeployments(c *gin.Context) {
 		list[index].Message = localize(c, list[index].Message)
 	}
 	ok(c, list)
+}
+
+// clearDeployments 清空部署记录。清理属于破坏性操作，需单独限流并写入操作日志。
+func (s *Server) clearDeployments(c *gin.Context) {
+	user := getUser(c)
+	if user == nil {
+		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
+		return
+	}
+	if allowed, wait := s.limiter.Allow("deployments:clear:"+strconv.FormatInt(user.ID, 10), 3, 10*time.Minute); !allowed {
+		rateLimited(c, wait)
+		return
+	}
+	count, err := s.Store.ClearDeployRecords()
+	if err != nil {
+		failErr(c, http.StatusInternalServerError, err)
+		return
+	}
+	if count > 0 {
+		s.Store.AddLogKey("deploy", 0, "warning", "log.deploy.records_cleared", map[string]any{"count": count})
+	}
+	ok(c, gin.H{"deleted": count})
 }
 
 type deployTargetBody struct {

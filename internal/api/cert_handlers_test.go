@@ -135,3 +135,40 @@ func TestCleanupCertificatesEndpoint(t *testing.T) {
 		t.Fatalf("清理全部证书后仍有记录: %v %+v", err, certs)
 	}
 }
+
+func TestClearDeployRecords(t *testing.T) {
+	router, st, session := setupLogTestServer(t)
+	for _, record := range []*model.DeployRecord{
+		{CertID: 1, AccountName: "local", Status: "success", Message: "部署成功"},
+		{CertID: 1, AccountName: "remote", Status: "failed", Message: "部署失败"},
+	} {
+		if err := st.CreateDeployRecord(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	w := sessionRequest(t, router, http.MethodDelete, "/api/deployments", "", []*http.Cookie{session}, map[string]string{
+		csrfHeaderName: "test-csrf",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("清空部署记录失败: %d %s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"deleted":2`) {
+		t.Fatalf("删除行数不正确: %s", body)
+	}
+	records, err := st.ListDeployRecords(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("部署记录未清空: %+v", records)
+	}
+
+	logs, _, err := st.ListLogs("deploy", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) == 0 || logs[0].Level != "warning" {
+		t.Fatalf("清空操作应写入操作日志: %+v", logs)
+	}
+}

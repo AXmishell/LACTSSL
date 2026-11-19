@@ -107,7 +107,19 @@
           <h3>{{ t('credentials.recentDeployments') }}</h3>
           <div class="sub">{{ t('credentials.recentDeploymentsSub') }}</div>
         </div>
-        <el-button text type="primary" @click="loadRecords">{{ t('credentials.refresh') }}</el-button>
+        <div class="deploy-record-actions">
+          <el-button text type="primary" @click="loadRecords">{{ t('credentials.refresh') }}</el-button>
+          <el-button
+            text
+            type="danger"
+            :icon="Delete"
+            :loading="clearingRecords"
+            :disabled="!records.length"
+            @click="clearRecords"
+          >
+            {{ t('credentials.clearRecords') }}
+          </el-button>
+        </div>
       </div>
       <div class="table-scroll">
         <el-table :data="records" size="small" class="recent-deploy-table" style="width: 100%">
@@ -344,6 +356,7 @@ const items = ref<CredentialItem[]>([])
 const meta = ref<Meta | null>(null)
 const records = ref<DeployRecord[]>([])
 const certificates = ref<Certificate[]>([])
+const clearingRecords = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref(0)
 const verifyVisible = ref(false)
@@ -551,6 +564,29 @@ async function loadRecords(): Promise<void> {
     certificates.value = certs || []
   } catch (error: any) {
     ElMessage.error(error.message)
+  }
+}
+
+async function clearRecords(): Promise<void> {
+  if (!records.value.length) return
+  try {
+    await ElMessageBox.confirm(t('credentials.clearRecordsConfirm'), t('credentials.clearRecordsTitle'), {
+      confirmButtonText: t('credentials.clearRecords'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning'
+    })
+  } catch (_) {
+    return
+  }
+  clearingRecords.value = true
+  try {
+    const data = await api.delete<{ deleted: number }>('/deployments')
+    ElMessage.success(t('credentials.recordsCleared', { count: data?.deleted || 0 }))
+    records.value = []
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    clearingRecords.value = false
   }
 }
 
@@ -777,6 +813,12 @@ onMounted(() => {
 
 .recent-deploy-card .card-head {
   padding: 12px 20px 0;
+}
+
+.recent-deploy-card .deploy-record-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* 最近部署记录：单行固定高度，超长内容省略并悬浮显示完整内容 */

@@ -341,6 +341,7 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/certificates/:id/deploy", s.deployCertificate)
 	g.DELETE("/certificates/:id", s.deleteCertificate)
 	g.GET("/deployments", s.listDeployments)
+	g.DELETE("/deployments", s.clearDeployments)
 	g.GET("/monitors", s.listMonitors)
 	g.POST("/monitors", s.createMonitor)
 	g.PUT("/monitors/:id", s.updateMonitor)

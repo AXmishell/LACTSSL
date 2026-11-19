@@ -1188,6 +1188,15 @@ func (s *Store) ListDeployRecords(limit int) ([]model.DeployRecord, error) {
 	return list, rows.Err()
 }
 
+// ClearDeployRecords 删除全部部署记录，返回删除行数。
+func (s *Store) ClearDeployRecords() (int64, error) {
+	res, err := s.DB.Exec(`DELETE FROM deploy_records`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // ---------------------------- 监控 ----------------------------
 
 // ListMonitors 返回监控项。
