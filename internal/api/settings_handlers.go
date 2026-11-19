@@ -42,11 +42,13 @@ func (s *Server) handleMeta(c *gin.Context) {
 			})
 		}
 	}
+	caPools, _ := s.Store.ListCAPoolSummaries()
 	ok(c, gin.H{
 		"version":       Version,
 		"language":      string(current),
 		"languages":     supportedLanguages(),
 		"cas":           service.LocalizedCADefs(s.Store, current),
+		"ca_pools":      caPools,
 		"private_cas":   privateCAs,
 		"dns_providers": service.LocalizeDNSProviders(current),
 		"deploy_types":  service.LocalizeDeployTypes(current),
@@ -109,6 +111,7 @@ func (s *Server) getSettings(c *gin.Context) {
 		"language":            s.setting("language", string(i18n.Default)),
 		"acme_email":          s.setting("acme.email", ""),
 		"acme_ca":             s.setting("acme.ca", "letsencrypt"),
+		"acme_ca_pool_id":     s.settingInt(service.CAPoolSettingKey, 0),
 		"acme_key_type":       s.setting("acme.key_type", "ecdsa"),
 		"acme_renew_days":     s.settingInt("acme.renew_days", 30),
 		"csr_allowed_domains": s.setting("csr.allowed_domains", ""),
@@ -143,6 +146,7 @@ func (s *Server) updateSettings(c *gin.Context) {
 		Language          *string                                `json:"language"`
 		ACMEEmail         *string                                `json:"acme_email"`
 		ACMECA            *string                                `json:"acme_ca"`
+		ACMECAPoolID      *int64                                 `json:"acme_ca_pool_id"`
 		ACMEKeyType       *string                                `json:"acme_key_type"`
 		ACMERenew         *int                                   `json:"acme_renew_days"`
 		CSRAllowedDomains *string                                `json:"csr_allowed_domains"`
@@ -198,6 +202,24 @@ func (s *Server) updateSettings(c *gin.Context) {
 			return
 		}
 		_ = s.Store.SetSetting("acme.ca", *body.ACMECA)
+	}
+	if body.ACMECAPoolID != nil {
+		if *body.ACMECAPoolID > 0 {
+			pool, err := s.Store.GetCAPool(*body.ACMECAPoolID)
+			if err != nil {
+				failKey(c, http.StatusBadRequest, "api.error.ca_pool_not_found")
+				return
+			}
+			if !pool.Enabled {
+				failKey(c, http.StatusBadRequest, "api.error.ca_pool_disabled")
+				return
+			}
+			if len(pool.EnabledItems()) == 0 {
+				failKey(c, http.StatusBadRequest, "api.error.ca_pool_empty")
+				return
+			}
+		}
+		_ = s.Store.SetSetting(service.CAPoolSettingKey, strconv.FormatInt(*body.ACMECAPoolID, 10))
 	}
 	if body.ACMEKeyType != nil {
 		allowed := map[string]bool{"ecdsa": true, "ecdsa384": true, "rsa2048": true, "rsa4096": true}

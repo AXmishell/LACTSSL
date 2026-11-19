@@ -23,6 +23,7 @@ type PipelineConfig struct {
 	Domains      []string `json:"domains,omitempty"`
 	DNSAccountID int64    `json:"dns_account_id,omitempty"`
 	CA           string   `json:"ca,omitempty"`
+	CAPoolID     int64    `json:"ca_pool_id,omitempty"`
 	KeyType      string   `json:"key_type,omitempty"`
 	AutoRenew    bool     `json:"auto_renew,omitempty"`
 	RenewDays    int      `json:"renew_days,omitempty"`
@@ -64,6 +65,7 @@ func (t *Task) EffectivePipeline() []PipelineNode {
 			Domains:      append([]string(nil), t.Domains...),
 			DNSAccountID: t.DNSAccountID,
 			CA:           t.CA,
+			CAPoolID:     t.CAPoolID,
 			KeyType:      t.KeyType,
 			AutoRenew:    t.AutoRenew,
 			RenewDays:    t.RenewDays,

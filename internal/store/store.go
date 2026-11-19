@@ -665,7 +665,7 @@ func (s *Store) DeletePrivateCA(id int64) error {
 
 // ListTasks 返回全部任务。
 func (s *Store) ListTasks() ([]model.Task, error) {
-	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks ORDER BY id DESC`)
+	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -683,7 +683,7 @@ func (s *Store) ListTasks() ([]model.Task, error) {
 
 // GetTask 查询单个任务。
 func (s *Store) GetTask(id int64) (*model.Task, error) {
-	row := s.DB.QueryRow(`SELECT id,name,domains,challenge,dns_account_id,ca,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks WHERE id=?`, id)
+	row := s.DB.QueryRow(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks WHERE id=?`, id)
 	return scanTask(row)
 }
 
@@ -693,9 +693,9 @@ func (s *Store) CreateTask(t *model.Task) error {
 	deployIDs, _ := json.Marshal(t.DeployIDs)
 	pipeline, _ := json.Marshal(t.Pipeline)
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO tasks(name,domains,challenge,dns_account_id,ca,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,0,?,?)`,
-		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), boolInt(t.Enabled), t.Status, t.Message, now, now, now)
+	res, err := s.DB.Exec(`INSERT INTO tasks(name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,0,?,?)`,
+		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.CAPoolID, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), boolInt(t.Enabled), t.Status, t.Message, now, now, now)
 	if err != nil {
 		return err
 	}
@@ -709,8 +709,8 @@ func (s *Store) UpdateTask(t *model.Task) error {
 	domains, _ := json.Marshal(t.Domains)
 	deployIDs, _ := json.Marshal(t.DeployIDs)
 	pipeline, _ := json.Marshal(t.Pipeline)
-	_, err := s.DB.Exec(`UPDATE tasks SET name=?,domains=?,challenge=?,dns_account_id=?,ca=?,key_type=?,auto_renew=?,renew_days=?,deploy_ids=?,pipeline=?,enabled=?,updated_at=? WHERE id=?`,
-		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), boolInt(t.Enabled), nowUTC(), t.ID)
+	_, err := s.DB.Exec(`UPDATE tasks SET name=?,domains=?,challenge=?,dns_account_id=?,ca=?,ca_pool_id=?,key_type=?,auto_renew=?,renew_days=?,deploy_ids=?,pipeline=?,enabled=?,updated_at=? WHERE id=?`,
+		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.CAPoolID, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), boolInt(t.Enabled), nowUTC(), t.ID)
 	return err
 }
 
@@ -762,7 +762,7 @@ func (s *Store) SetTasksEnabled(ids []int64, enabled bool, nextRuns map[int64]*t
 
 // DueTasks 返回到达执行时间的任务。
 func (s *Store) DueTasks(now time.Time) ([]model.Task, error) {
-	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at
+	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at
 		FROM tasks WHERE enabled=1 AND status<>'running' AND next_run_at IS NOT NULL AND next_run_at<=? ORDER BY next_run_at LIMIT 10`, now)
 	if err != nil {
 		return nil, err
@@ -784,7 +784,7 @@ func scanTask(row interface{ Scan(...any) error }) (*model.Task, error) {
 	var domainsJSON, deployJSON, pipelineJSON string
 	var autoRenew, enabled int
 	var lastRun, nextRun sql.NullTime
-	err := row.Scan(&t.ID, &t.Name, &domainsJSON, &t.Challenge, &t.DNSAccountID, &t.CA, &t.KeyType, &autoRenew, &t.RenewDays, &deployJSON, &pipelineJSON, &enabled, &t.Status, &t.Message, &lastRun, &nextRun, &t.CertID, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.Name, &domainsJSON, &t.Challenge, &t.DNSAccountID, &t.CA, &t.CAPoolID, &t.KeyType, &autoRenew, &t.RenewDays, &deployJSON, &pipelineJSON, &enabled, &t.Status, &t.Message, &lastRun, &nextRun, &t.CertID, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -926,6 +926,34 @@ func (s *Store) LatestTaskCertificate(taskID int64) (*model.Certificate, error) 
 // 用于任务执行前复用同一组域名的证书，避免重复向上游 CA 下单。
 func (s *Store) ListReusableCertificates(ca string) ([]model.Certificate, error) {
 	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates WHERE ca=? AND status='valid' AND revoked_at IS NULL AND not_after>? AND key_pem<>'' ORDER BY id DESC`, ca, nowUTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]model.Certificate, 0)
+	for rows.Next() {
+		cert, err := s.scanCertificate(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, *cert)
+	}
+	return list, rows.Err()
+}
+
+// ListReusableCertificatesForCAs 返回多个 CA 中仍有效、未撤销且保存了私钥的证书。
+// 用于 CA 调度组的证书复用，避免只匹配单个 CA 时无法复用组内其他 CA 的证书。
+func (s *Store) ListReusableCertificatesForCAs(cas []string) ([]model.Certificate, error) {
+	if len(cas) == 0 {
+		return []model.Certificate{}, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(cas)), ",")
+	args := make([]any, 0, len(cas)+1)
+	for _, ca := range cas {
+		args = append(args, ca)
+	}
+	args = append(args, nowUTC())
+	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates WHERE ca IN (`+placeholders+`) AND status='valid' AND revoked_at IS NULL AND not_after>? AND key_pem<>'' ORDER BY id DESC`, args...)
 	if err != nil {
 		return nil, err
 	}

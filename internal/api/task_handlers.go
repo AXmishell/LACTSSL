@@ -20,6 +20,7 @@ type taskBody struct {
 	Challenge    string               `json:"challenge"`
 	DNSAccountID int64                `json:"dns_account_id"`
 	CA           string               `json:"ca"`
+	CAPoolID     int64                `json:"ca_pool_id"`
 	KeyType      string               `json:"key_type"`
 	AutoRenew    bool                 `json:"auto_renew"`
 	RenewDays    int                  `json:"renew_days"`
@@ -62,6 +63,9 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		if body.CA == "" {
 			body.CA = cfg.CA
 		}
+		if body.CAPoolID == 0 {
+			body.CAPoolID = cfg.CAPoolID
+		}
 		if body.KeyType == "" {
 			body.KeyType = cfg.KeyType
 		}
@@ -86,26 +90,54 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		return i18n.E("task.error.dns01_only")
 	}
 	body.Challenge = "dns01"
-	if body.CA == "" {
-		body.CA = s.setting("acme.ca", "letsencrypt")
+	if body.CA != "" && body.CAPoolID > 0 {
+		return i18n.E("task.error.ca_and_pool_conflict")
+	}
+	if body.CAPoolID > 0 {
+		pool, err := s.Store.GetCAPool(body.CAPoolID)
+		if err != nil {
+			return i18n.E("task.error.ca_pool_not_found")
+		}
+		if !pool.Enabled {
+			return i18n.E("task.error.ca_pool_disabled")
+		}
+		if len(pool.EnabledItems()) == 0 {
+			return i18n.E("task.error.ca_pool_empty")
+		}
+	} else if body.CA == "" {
+		// 新建任务未指定 CA 时优先使用全局默认调度组；
+		// 调度组不可用时退回单一 CA，避免默认配置失效导致任务无法创建。
+		defaultPoolID := int64(s.settingInt(service.CAPoolSettingKey, 0))
+		if defaultPoolID > 0 {
+			if pool, err := s.Store.GetCAPool(defaultPoolID); err == nil && pool.Enabled && len(pool.EnabledItems()) > 0 {
+				body.CAPoolID = defaultPoolID
+			}
+		}
+		if body.CAPoolID == 0 {
+			body.CA = s.setting("acme.ca", "letsencrypt")
+		}
 	}
 	isPrivateCA := false
-	if caID, ok := service.ParsePrivateCAValue(body.CA); ok {
-		ca, err := s.Store.GetPrivateCA(caID)
-		if err != nil {
-			return i18n.E("task.error.private_ca_not_found")
+	if body.CAPoolID == 0 {
+		if caID, ok := service.ParsePrivateCAValue(body.CA); ok {
+			ca, err := s.Store.GetPrivateCA(caID)
+			if err != nil {
+				return i18n.E("task.error.private_ca_not_found")
+			}
+			if time.Now().After(ca.NotAfter) {
+				return i18n.E("task.error.private_ca_expired")
+			}
+			isPrivateCA = true
 		}
-		if time.Now().After(ca.NotAfter) {
-			return i18n.E("task.error.private_ca_expired")
-		}
-		isPrivateCA = true
 	}
 	if !isPrivateCA {
 		if _, err := s.Store.GetDNSAccount(body.DNSAccountID); err != nil {
 			return i18n.E("task.error.dns_account_required")
 		}
-		if _, err := s.Manager.ResolveCA(body.CA); err != nil {
-			return i18n.E("task.error.ca_unsupported")
+		if body.CAPoolID == 0 {
+			if _, err := s.Manager.ResolveCA(body.CA); err != nil {
+				return i18n.E("task.error.ca_unsupported")
+			}
 		}
 	}
 	if body.KeyType == "" {
@@ -173,6 +205,7 @@ func (s *Server) normalizePipeline(body *taskBody) ([]model.PipelineNode, error)
 			Domains:      body.Domains,
 			DNSAccountID: body.DNSAccountID,
 			CA:           body.CA,
+			CAPoolID:     body.CAPoolID,
 			KeyType:      body.KeyType,
 			AutoRenew:    body.AutoRenew,
 			RenewDays:    body.RenewDays,
@@ -333,6 +366,7 @@ func (s *Server) createTask(c *gin.Context) {
 		Challenge:    body.Challenge,
 		DNSAccountID: body.DNSAccountID,
 		CA:           body.CA,
+		CAPoolID:     body.CAPoolID,
 		KeyType:      body.KeyType,
 		AutoRenew:    body.AutoRenew,
 		RenewDays:    body.RenewDays,
@@ -392,6 +426,7 @@ func (s *Server) updateTask(c *gin.Context) {
 	task.Challenge = body.Challenge
 	task.DNSAccountID = body.DNSAccountID
 	task.CA = body.CA
+	task.CAPoolID = body.CAPoolID
 	task.KeyType = body.KeyType
 	task.AutoRenew = body.AutoRenew
 	task.RenewDays = body.RenewDays

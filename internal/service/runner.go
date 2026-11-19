@@ -167,6 +167,20 @@ func (m *Manager) runApplyNode(task *model.Task, node model.PipelineNode, opts R
 	if caValue == "" {
 		caValue = "letsencrypt"
 	}
+	poolID := m.CAPoolIDForTask(task, cfg)
+	_, isPrivateCA := ParsePrivateCAValue(caValue)
+
+	// 私有 CA 不参与公共 ACME 调度组；显式配置的私有 CA 优先。
+	var candidates []CACandidate
+	var err error
+	if !isPrivateCA && poolID > 0 {
+		// 先只读加载候选用于证书复用判断；真正签发前再推进轮询游标。
+		candidates, err = m.SelectCACandidates(poolID, false)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
 	keyType := cfg.KeyType
 	if keyType == "" {
 		keyType = task.KeyType
@@ -185,8 +199,16 @@ func (m *Manager) runApplyNode(task *model.Task, node model.PipelineNode, opts R
 
 	// 证书仍在有效期内且不处于续期窗口时，复用已有证书，只执行后续部署节点。
 	// 手动执行、批量执行、重复任务都会经过这里，避免无意中消耗 CA 配额。
+	allowedCAs := map[string]bool{}
+	if isPrivateCA || len(candidates) == 0 {
+		allowedCAs[caValue] = true
+	} else {
+		for _, candidate := range candidates {
+			allowedCAs[candidate.Value] = true
+		}
+	}
 	if !opts.ForceIssue {
-		if cert, ok := m.findReusableCertificate(task, caValue, keyType, domains); ok {
+		if cert, ok := m.findReusableCertificate(task, caValue, allowedCAs, keyType, domains); ok {
 			m.Store.AddLogKey("task", task.ID, "info", "log.task.reused", map[string]any{
 				"time": cert.NotAfter.Local().Format("2006-01-02 15:04:05"),
 			})
@@ -195,9 +217,17 @@ func (m *Manager) runApplyNode(task *model.Task, node model.PipelineNode, opts R
 	} else {
 		m.Store.AddLogKey("task", task.ID, "info", "log.task.force_issue", nil)
 	}
+	if !isPrivateCA && poolID > 0 {
+		// 确认需要签发后再推进游标，确保证书复用不会打乱轮询顺序。
+		candidates, err = m.SelectCACandidates(poolID, true)
+		if err != nil {
+			return nil, false, err
+		}
+	}
 
 	var result *ACMEResult
-	var err error
+	usedCA := caValue
+	usedLabel := caValue
 	if caID, isPrivate := ParsePrivateCAValue(caValue); isPrivate {
 		ca, caErr := m.Store.GetPrivateCA(caID)
 		if caErr != nil {
@@ -217,7 +247,6 @@ func (m *Manager) runApplyNode(task *model.Task, node model.PipelineNode, opts R
 		if strings.TrimSpace(email) == "" {
 			return nil, false, i18n.E("task.error.acme_email_required")
 		}
-		eabKid, eabHMAC := m.loadCAEABSettings(caValue)
 
 		dnsAccountID := cfg.DNSAccountID
 		if dnsAccountID == 0 {
@@ -231,18 +260,57 @@ func (m *Manager) runApplyNode(task *model.Task, node model.PipelineNode, opts R
 			return nil, false, i18n.E("task.error.dns_account_not_found", "error", err.Error())
 		}
 
-		m.Store.AddLogKey("task", task.ID, "info", "log.task.applying", map[string]any{"node": nodeName})
-		result, err = m.Obtain(ACMERequest{
-			Domains:    domains,
-			DNSAccount: dnsAccount,
-			CA:         caValue,
-			KeyType:    keyType,
-			Email:      email,
-			EABKid:     eabKid,
-			EABHMAC:    eabHMAC,
-		})
-		if err != nil {
-			return nil, false, err
+		if len(candidates) == 0 {
+			label := caValue
+			if ca, resolveErr := m.ResolveCA(caValue); resolveErr == nil {
+				if localized := ca.Localized(m.Locale()).Label; localized != "" {
+					label = localized
+				}
+			}
+			candidates = []CACandidate{{Value: caValue, Label: label}}
+		}
+		attempts := make([]CAFailure, 0, len(candidates))
+		issued := false
+		for index, candidate := range candidates {
+			eabKid, eabHMAC := m.loadCAEABSettings(candidate.Value)
+			m.Store.AddLogKey("task", task.ID, "info", "log.task.applying_ca", map[string]any{"node": nodeName, "ca": candidate.Label})
+			current, obtainErr := m.Obtain(ACMERequest{
+				Domains:    domains,
+				DNSAccount: dnsAccount,
+				CA:         candidate.Value,
+				KeyType:    keyType,
+				Email:      email,
+				EABKid:     eabKid,
+				EABHMAC:    eabHMAC,
+			})
+			if obtainErr == nil {
+				result = current
+				usedCA = candidate.Value
+				usedLabel = candidate.Label
+				issued = true
+				break
+			}
+			if !shouldFailoverCA(obtainErr) {
+				return nil, false, obtainErr
+			}
+			attempts = append(attempts, CAFailure{CA: candidate.Value, Label: candidate.Label, Err: obtainErr})
+			if index < len(candidates)-1 {
+				m.Store.AddLogKey("task", task.ID, "warning", "log.task.ca_failover", map[string]any{
+					"from":  candidate.Label,
+					"to":    candidates[index+1].Label,
+					"error": i18n.ErrorText(m.Locale(), obtainErr),
+				})
+			}
+		}
+		if !issued {
+			// 单 CA 任务保持原有错误形态，避免把普通签发失败包装成调度组错误。
+			if poolID == 0 && len(attempts) == 1 {
+				return nil, false, attempts[0].Err
+			}
+			return nil, false, newCAPoolError(poolID, m.CAPoolName(poolID), attempts)
+		}
+		if len(candidates) > 1 {
+			m.Store.AddLogKey("task", task.ID, "info", "log.task.ca_used", map[string]any{"ca": usedLabel})
 		}
 	}
 	m.Store.AddLogKey("task", task.ID, "success", "log.task.issued", map[string]any{"time": result.NotAfter.Local().Format("2006-01-02 15:04:05")})
@@ -252,7 +320,7 @@ func (m *Manager) runApplyNode(task *model.Task, node model.PipelineNode, opts R
 		Domains:       domains,
 		PrimaryDomain: domains[0],
 		Issuer:        result.Issuer,
-		CA:            caValue,
+		CA:            usedCA,
 		CertPEM:       result.CertPEM,
 		KeyPEM:        result.KeyPEM,
 		FullchainPEM:  result.FullchainPEM,
@@ -270,15 +338,20 @@ func (m *Manager) runApplyNode(task *model.Task, node model.PipelineNode, opts R
 // findReusableCertificate 查找可以复用的有效证书。
 // 优先当前任务的证书，其次是同一 CA 下标识符集合完全相同的证书，
 // 这样重复创建的任务也不会反复向上游 CA 下单。
-func (m *Manager) findReusableCertificate(task *model.Task, caValue, keyType string, domains []string) (*model.Certificate, bool) {
+func (m *Manager) findReusableCertificate(task *model.Task, caValue string, allowedCAs map[string]bool, keyType string, domains []string) (*model.Certificate, bool) {
 	seen := map[int64]bool{}
 	if cert, err := m.Store.LatestTaskCertificate(task.ID); err == nil && cert != nil {
 		seen[cert.ID] = true
-		if certificateReusable(cert, task.RenewDays, caValue, keyType, domains) {
+		if certificateReusable(cert, task.RenewDays, caValue, allowedCAs, keyType, domains) {
 			return cert, true
 		}
 	}
-	certs, err := m.Store.ListReusableCertificates(caValue)
+	// 调度组可能包含多个 CA，需要同时列出组内所有 CA 的证书。
+	cas := make([]string, 0, len(allowedCAs))
+	for ca := range allowedCAs {
+		cas = append(cas, ca)
+	}
+	certs, err := m.Store.ListReusableCertificatesForCAs(cas)
 	if err != nil {
 		return nil, false
 	}
@@ -287,7 +360,7 @@ func (m *Manager) findReusableCertificate(task *model.Task, caValue, keyType str
 		if seen[cert.ID] {
 			continue
 		}
-		if certificateReusable(cert, task.RenewDays, caValue, keyType, domains) {
+		if certificateReusable(cert, task.RenewDays, caValue, allowedCAs, keyType, domains) {
 			return cert, true
 		}
 	}
@@ -295,8 +368,8 @@ func (m *Manager) findReusableCertificate(task *model.Task, caValue, keyType str
 }
 
 // certificateReusable 判断证书是否可以安全复用：
-// 域名集合完全一致、CA 与私钥类型一致、未过期且尚未进入续期窗口。
-func certificateReusable(cert *model.Certificate, renewDays int, caValue, keyType string, domains []string) bool {
+// 域名集合完全一致、CA 仍属于当前候选、私钥类型一致、未过期且尚未进入续期窗口。
+func certificateReusable(cert *model.Certificate, renewDays int, caValue string, allowedCAs map[string]bool, keyType string, domains []string) bool {
 	if cert == nil || cert.ID == 0 {
 		return false
 	}
@@ -313,7 +386,11 @@ func certificateReusable(cert *model.Certificate, renewDays int, caValue, keyTyp
 	if cert.NotBefore.After(now) {
 		return false
 	}
-	if cert.CA != caValue {
+	if len(allowedCAs) > 0 {
+		if !allowedCAs[cert.CA] {
+			return false
+		}
+	} else if cert.CA != caValue {
 		return false
 	}
 	if !sameDomainSet(cert.Domains, domains) {

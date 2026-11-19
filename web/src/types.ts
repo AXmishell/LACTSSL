@@ -135,6 +135,37 @@ export interface CAConfig extends CADef {
   is_default: boolean
 }
 
+export type CAPoolStrategy = 'round_robin' | 'random' | 'priority'
+
+export interface CAPoolItem {
+  id?: number
+  pool_id?: number
+  ca_value: string
+  priority: number
+  weight: number
+  enabled: boolean
+}
+
+export interface CAPool {
+  id: number
+  public_id: string
+  name: string
+  strategy: CAPoolStrategy
+  enabled: boolean
+  items: CAPoolItem[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CAPoolSummary {
+  id: number
+  public_id: string
+  name: string
+  strategy: CAPoolStrategy
+  enabled: boolean
+  count: number
+}
+
 export interface PrivateCA {
   id: number
   name: string
@@ -168,6 +199,7 @@ export interface Meta {
   language?: string
   languages?: FieldOption[]
   cas?: CADef[]
+  ca_pools?: CAPoolSummary[]
   private_cas?: PrivateCAOption[]
   key_types?: FieldOption[]
   dns_providers?: ProviderDef[]
@@ -181,6 +213,7 @@ export interface Settings {
   language?: string
   acme_email?: string
   acme_ca?: string
+  acme_ca_pool_id?: number
   acme_key_type?: string
   acme_renew_days?: number
   smtp_host?: string
@@ -460,6 +493,7 @@ export interface PipelineConfig {
   domains?: string[]
   dns_account_id?: number
   ca?: string
+  ca_pool_id?: number
   key_type?: string
   auto_renew?: boolean
   renew_days?: number
@@ -486,6 +520,7 @@ export interface Task {
   challenge: string
   dns_account_id: number
   ca: string
+  ca_pool_id: number
   key_type: string
   auto_renew: boolean
   renew_days: number
@@ -611,6 +646,9 @@ export interface Dashboard {
   recent_tasks: Task[]
   recent_certs: Certificate[]
   recent_logs: LogEntry[]
+  server_time: string
+  server_timezone: string
+  server_utc_offset: number
 }
 
 // 会话令牌通过 HttpOnly Cookie 下发，响应体只返回用户信息。

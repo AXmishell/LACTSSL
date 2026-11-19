@@ -234,7 +234,7 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 		if limited := rateLimitErrorFrom(err); limited != nil {
 			return nil, limited
 		}
-		return nil, i18n.E("service.acme.issue_failed", "error", err.Error())
+		return nil, i18n.Wrap("service.acme.issue_failed", err, "error", err.Error())
 	}
 
 	leaf, err := pickLeaf(resource.Certificate, req.Domains)
@@ -286,7 +286,7 @@ func (m *Manager) newACMEClient(ca CADef, email string, keyType certcrypto.KeyTy
 
 	client, err := lego.NewClient(cfg)
 	if err != nil {
-		return nil, nil, i18n.E("service.acme.client_init_failed", "error", err.Error())
+		return nil, nil, i18n.Wrap("service.acme.client_init_failed", err, "error", err.Error())
 	}
 	if provider != nil {
 		if err := client.Challenge.SetDNS01Provider(provider); err != nil {
@@ -308,7 +308,7 @@ func (m *Manager) newACMEClient(ca CADef, email string, keyType certcrypto.KeyTy
 		reg, err = client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
 	}
 	if err != nil {
-		return nil, nil, i18n.E("service.acme.register_failed", "error", err.Error())
+		return nil, nil, i18n.Wrap("service.acme.register_failed", err, "error", err.Error())
 	}
 	user.reg = reg
 	return client, user, nil
@@ -322,7 +322,7 @@ func validateACMEResult(domains []string, result *ACMEResult) error {
 	}
 	leaf, err := parseFirstCertificate(result.CertPEM)
 	if err != nil {
-		return i18n.E("service.acme.chain_parse_failed", "error", err.Error())
+		return i18n.Wrap("service.acme.chain_parse_failed", err, "error", err.Error())
 	}
 	for _, domain := range domains {
 		if !certificateCoversDomain(leaf, domain) {
@@ -331,7 +331,7 @@ func validateACMEResult(domains []string, result *ACMEResult) error {
 	}
 	key, err := certcrypto.ParsePEMPrivateKey([]byte(result.KeyPEM))
 	if err != nil {
-		return i18n.E("service.acme.account_key_parse_failed", "error", err.Error())
+		return i18n.Wrap("service.acme.account_key_parse_failed", err, "error", err.Error())
 	}
 	if !publicKeysEqual(leaf.PublicKey, publicKey(key)) {
 		return i18n.E("service.acme.result_key_mismatch")

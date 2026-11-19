@@ -112,6 +112,13 @@ func (s *Store) GetACMECAByName(name string) (*model.ACMECA, error) {
 // DeleteACMECA 删除通用 ACME 上游；仍被任务或 CSR 申请引用时拒绝删除。
 func (s *Store) DeleteACMECA(id int64) error {
 	value := "acme-ca:" + strconv.FormatInt(id, 10)
+	pools, err := s.CountCAPoolsUsingCA(value)
+	if err != nil {
+		return err
+	}
+	if pools > 0 {
+		return i18n.E("api.error.acme_ca_in_use_by_pool", "count", pools)
+	}
 	var tasks int64
 	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM tasks WHERE ca=?`, value).Scan(&tasks); err != nil {
 		return err

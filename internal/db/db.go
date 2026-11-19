@@ -41,8 +41,9 @@ func Open(path string) (*sql.DB, error) {
 //   - 6：CSR 申请（certificate_requests）与证书来源关联；
 //   - 7：独立吊销记录表（revocations），删除证书不再抹掉 CRL/OCSP 吊销状态；
 //   - 8：导入的内部 CA 信任链（trusted_cas）；
-//   - 9：DNS 账户与目标凭据的可用性验证结果。
-const schemaVersion = 9
+//   - 9：DNS 账户与目标凭据的可用性验证结果；
+//   - 10：CA 调度组（ca_pools / ca_pool_items）与任务 CA 池引用。
+const schemaVersion = 10
 
 func migrate(conn *sql.DB) error {
 	var version int
@@ -238,6 +239,7 @@ func migrate(conn *sql.DB) error {
 			challenge TEXT NOT NULL DEFAULT 'dns01',
 			dns_account_id INTEGER NOT NULL DEFAULT 0,
 			ca TEXT NOT NULL DEFAULT 'letsencrypt',
+			ca_pool_id INTEGER NOT NULL DEFAULT 0,
 			key_type TEXT NOT NULL DEFAULT 'ecdsa',
 			auto_renew INTEGER NOT NULL DEFAULT 1,
 			renew_days INTEGER NOT NULL DEFAULT 30,
@@ -310,6 +312,29 @@ func migrate(conn *sql.DB) error {
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS ca_pools (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			public_id TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL,
+			strategy TEXT NOT NULL DEFAULT 'round_robin',
+			cursor INTEGER NOT NULL DEFAULT 0,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS ca_pool_items (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			pool_id INTEGER NOT NULL,
+			ca_value TEXT NOT NULL,
+			priority INTEGER NOT NULL DEFAULT 0,
+			weight INTEGER NOT NULL DEFAULT 1,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			UNIQUE(pool_id, ca_value),
+			FOREIGN KEY(pool_id) REFERENCES ca_pools(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ca_pool_items_pool ON ca_pool_items(pool_id, priority, id)`,
 		`CREATE TABLE IF NOT EXISTS acme_endpoints (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			public_id TEXT NOT NULL UNIQUE,
@@ -513,6 +538,13 @@ func migrate(conn *sql.DB) error {
 	// 兼容旧 ACME 订单表：补充 ARI replaces 字段。
 	if err := ensureColumn(conn, "acme_orders", "replaces", `TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	// 兼容旧任务表：补充 CA 调度组引用。
+	if err := ensureColumn(conn, "tasks", "ca_pool_id", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_ca_pool ON tasks(ca_pool_id)`); err != nil {
+		return fmt.Errorf("创建任务 CA 调度组索引失败: %w", err)
 	}
 	// 兼容旧 ACME 端点表：补充 TLS-ALPN-01 配置。
 	for _, column := range []struct {

@@ -191,6 +191,10 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"POST /api/acme-cas":         {apiScopeCAWrite},
 	"PUT /api/acme-cas/:id":      {apiScopeCAWrite},
 	"DELETE /api/acme-cas/:id":   {apiScopeCAWrite},
+	"GET /api/ca-pools":          {apiScopeCARead},
+	"POST /api/ca-pools":         {apiScopeCAWrite},
+	"PUT /api/ca-pools/:id":      {apiScopeCAWrite},
+	"DELETE /api/ca-pools/:id":   {apiScopeCAWrite},
 
 	"GET /api/private-cas":              {apiScopePrivateCARead},
 	"POST /api/private-cas":             {apiScopePrivateCAWrite},

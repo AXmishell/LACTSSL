@@ -297,6 +297,9 @@ type Error struct {
 	Key    string
 	Params map[string]any
 	Raw    string
+	// Cause 保留底层错误链，便于调用方用 errors.Is/errors.As 做类型判断，
+	// 同时仍然按 Key 给用户展示可翻译消息。
+	Cause error
 }
 
 // Error 返回默认语言文本，满足 error 接口。
@@ -321,6 +324,28 @@ func E(key string, pairs ...any) error {
 		params[name] = pairs[i+1]
 	}
 	return &Error{Key: key, Params: params}
+}
+
+// Unwrap 返回底层错误，供 errors.Is/errors.As 穿透包装。
+func (e *Error) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+// Wrap 构造带底层错误的可翻译错误。
+// 与 E 的区别是保留原始错误链，适合 ACME 上游错误分类等场景。
+func Wrap(key string, cause error, pairs ...any) error {
+	params := map[string]any{}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		name, ok := pairs[i].(string)
+		if !ok {
+			continue
+		}
+		params[name] = pairs[i+1]
+	}
+	return &Error{Key: key, Params: params, Cause: cause}
 }
 
 // EF 使用 fmt.Errorf 的格式构造原始错误，保持底层错误链。

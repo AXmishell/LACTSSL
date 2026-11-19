@@ -62,7 +62,7 @@ func reusableCertificateRecord(t *testing.T, taskID int64, domains []string, ca 
 func TestCertificateReusable(t *testing.T) {
 	domains := []string{"*.example.com"}
 	valid := reusableCertificateRecord(t, 1, domains, "letsencrypt", time.Now().Add(60*24*time.Hour))
-	if !certificateReusable(valid, 30, "letsencrypt", "ecdsa", domains) {
+	if !certificateReusable(valid, 30, "letsencrypt", map[string]bool{"letsencrypt": true}, "ecdsa", domains) {
 		t.Fatal("有效证书应当可以复用")
 	}
 
@@ -104,7 +104,7 @@ func TestCertificateReusable(t *testing.T) {
 			if test.domains != nil {
 				wantDomains = test.domains
 			}
-			if certificateReusable(cert, 30, ca, keyType, wantDomains) {
+			if certificateReusable(cert, 30, ca, map[string]bool{ca: true}, keyType, wantDomains) {
 				t.Fatal("不应复用该证书")
 			}
 		})

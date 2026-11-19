@@ -115,11 +115,11 @@ func (m *Manager) obtainV1(ca CADef, user *acmeUser, req ACMERequest, provider c
 	}
 	directory, err := client.directory()
 	if err != nil {
-		return nil, i18n.E("service.acme.v1_directory_failed", "error", err.Error())
+		return nil, i18n.Wrap("service.acme.v1_directory_failed", err, "error", err.Error())
 	}
 	_, newAuthzURL, err := client.register(directory, req.Email)
 	if err != nil {
-		return nil, i18n.E("service.acme.v1_register_failed", "error", err.Error())
+		return nil, i18n.Wrap("service.acme.v1_register_failed", err, "error", err.Error())
 	}
 
 	authzURLs := make([]string, 0, len(req.Domains))
@@ -137,7 +137,7 @@ func (m *Manager) obtainV1(ca CADef, user *acmeUser, req ACMERequest, provider c
 
 	certPEM, issuerPEM, keyPEM, leaf, err := client.obtainCertificate(newCertURL, req.Domains, authzURLs, keyType)
 	if err != nil {
-		return nil, i18n.E("service.acme.v1_certificate_failed", "error", err.Error())
+		return nil, i18n.Wrap("service.acme.v1_certificate_failed", err, "error", err.Error())
 	}
 
 	issuer := leaf.Issuer.CommonName
@@ -231,7 +231,7 @@ func (c *acmeV1Client) authorize(directory acmeV1Directory, newAuthzURL, domain 
 		"identifier": acmeV1Identifier{Type: "dns", Value: identifier},
 	})
 	if err != nil {
-		return "", "", i18n.E("service.acme.v1_authorization_failed", "domain", domain, "error", err.Error())
+		return "", "", i18n.Wrap("service.acme.v1_authorization_failed", err, "domain", domain, "error", err.Error())
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
 		return "", "", i18n.E("service.acme.v1_authorization_failed", "domain", domain, "error", responseError(resp.Status, resp.Body).Error())

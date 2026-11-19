@@ -36,7 +36,7 @@
         </el-table-column>
         <el-table-column width="140" :label="t('tasks.ca')">
           <template #default="{ row }">
-            <span class="tag-soft tag-gray">{{ caLabel(row.ca) }}</span>
+            <span class="tag-soft tag-gray">{{ taskCALabel(row) }}</span>
           </template>
         </el-table-column>
         <el-table-column width="190" :label="t('tasks.pipeline')">
@@ -239,9 +239,29 @@
                   <div v-if="!dnsAccounts.length" class="form-help warn">{{ t('tasks.noDns') }}</div>
                 </el-form-item>
                 <div v-else class="config-tip" style="margin-bottom: 16px">{{ t('tasks.privateCADnsTip') }}</div>
+                <el-form-item :label="t('tasks.caMode')">
+                  <el-radio-group v-model="form.ca_mode" @change="onCAModeChange">
+                    <el-radio-button value="single">{{ t('tasks.caModeSingle') }}</el-radio-button>
+                    <el-radio-button value="pool" :disabled="isPrivateCA">{{ t('tasks.caModePool') }}</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
                 <div class="grid grid-2" style="gap: 0 16px">
-                  <el-form-item :label="t('tasks.caLabel')">
-                    <el-select v-model="form.ca" style="width: 100%">
+                  <el-form-item v-if="form.ca_mode === 'pool'" :label="t('tasks.caPool')">
+                    <el-select v-model="form.ca_pool_id" style="width: 100%">
+                      <el-option
+                        v-for="pool in meta?.ca_pools || []"
+                        :key="pool.id"
+                        :label="`${pool.name} · ${caPoolStrategyLabel(pool)}`"
+                        :value="pool.id"
+                        :disabled="!pool.enabled"
+                      />
+                    </el-select>
+                    <div v-if="selectedCAPool" class="form-help">
+                      {{ t('tasks.caPoolHelp', { count: selectedCAPool.count }) }}
+                    </div>
+                  </el-form-item>
+                  <el-form-item v-else :label="t('tasks.caLabel')">
+                    <el-select v-model="form.ca" style="width: 100%" @change="onCAValueChange">
                       <el-option-group :label="t('tasks.publicCA')">
                         <el-option v-for="ca in meta?.cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
                       </el-option-group>
@@ -449,7 +469,9 @@ interface TaskForm {
   name: string
   domainsText: string
   dns_account_id: number | null
+  ca_mode: 'single' | 'pool'
   ca: string
+  ca_pool_id: number | null
   key_type: string
   auto_renew: boolean
   renew_days: number
@@ -503,7 +525,9 @@ const form = reactive<TaskForm>({
   name: '',
   domainsText: '',
   dns_account_id: null,
+  ca_mode: 'single',
   ca: 'letsencrypt',
+  ca_pool_id: null,
   key_type: 'ecdsa',
   auto_renew: true,
   renew_days: 30,
@@ -515,7 +539,49 @@ const selectedNode = computed(() => form.pipeline.find((node) => node.id === sel
 const selectedDeployAccount = computed(() =>
   deployAccounts.value.find((item) => item.id === selectedNode.value?.config.deploy_account_id) || null
 )
-const isPrivateCA = computed(() => form.ca.startsWith('private-ca:'))
+const isPrivateCA = computed(() => form.ca_mode === 'single' && form.ca.startsWith('private-ca:'))
+const selectedCAPool = computed(() => (meta.value?.ca_pools || []).find((pool) => pool.id === form.ca_pool_id) || null)
+
+function onCAModeChange(mode: 'single' | 'pool'): void {
+  if (mode === 'pool') {
+    form.ca = ''
+    if (!form.ca_pool_id) {
+      form.ca_pool_id = (meta.value?.ca_pools || []).find((pool) => pool.enabled)?.id || null
+    }
+    return
+  }
+  form.ca_pool_id = null
+  if (!form.ca) {
+    form.ca = notifySettings.value?.acme_ca || 'letsencrypt'
+  }
+}
+
+function onCAValueChange(value: string): void {
+  if (value.startsWith('private-ca:')) {
+    form.ca_mode = 'single'
+    form.ca_pool_id = null
+  }
+}
+
+function caPoolLabel(id?: number | null): string {
+  if (!id) return ''
+  return (meta.value?.ca_pools || []).find((pool) => pool.id === id)?.name || String(id)
+}
+
+function taskCALabel(row: Task): string {
+  return row.ca_pool_id ? caPoolLabel(row.ca_pool_id) : caLabel(row.ca)
+}
+
+function caPoolStrategyLabel(pool: { strategy?: string } | null): string {
+  switch (pool?.strategy) {
+    case 'random':
+      return t('ca.strategyRandom')
+    case 'priority':
+      return t('ca.strategyPriority')
+    default:
+      return t('ca.strategyRoundRobin')
+  }
+}
 
 function caLabel(value?: string): string {
   if (!value) return ''
@@ -678,6 +744,7 @@ function taskPipeline(row: Task): PipelineNode[] {
         domains: row.domains,
         dns_account_id: row.dns_account_id,
         ca: row.ca,
+        ca_pool_id: row.ca_pool_id,
         key_type: row.key_type,
         auto_renew: row.auto_renew,
         renew_days: row.renew_days
@@ -720,7 +787,8 @@ function pipelineSummary(row: Task): string {
 function nodeSummary(node: PipelineNode): string {
   if (node.type === 'apply') {
     const domains = splitLines(form.domainsText)
-    return `${domains.length ? shortDomains(domains, 2) : t('tasks.notSetDomains')} · ${caLabel(form.ca)}`
+    const ca = form.ca_mode === 'pool' ? caPoolLabel(form.ca_pool_id) : caLabel(form.ca)
+    return `${domains.length ? shortDomains(domains, 2) : t('tasks.notSetDomains')} · ${ca}`
   }
   if (node.type === 'deploy') {
     const account = deployAccounts.value.find((item) => item.id === node.config.deploy_account_id)
@@ -799,6 +867,8 @@ async function openCreate(): Promise<void> {
   editingId.value = 0
   const settings = await loadSettings(true).catch(() => null)
   notifySettings.value = settings
+  const defaultPoolID = dnsAccounts.value.length ? settings?.acme_ca_pool_id || 0 : 0
+  const usePool = !!defaultPoolID && (meta.value?.ca_pools || []).some((pool) => pool.id === defaultPoolID && pool.enabled)
   const defaultCA = dnsAccounts.value.length
     ? settings?.acme_ca || 'letsencrypt'
     : meta.value?.private_cas?.[0]?.value || settings?.acme_ca || 'letsencrypt'
@@ -806,7 +876,9 @@ async function openCreate(): Promise<void> {
     name: '',
     domainsText: '',
     dns_account_id: dnsAccounts.value[0]?.id || null,
-    ca: defaultCA,
+    ca_mode: usePool ? 'pool' : 'single',
+    ca: usePool ? '' : defaultCA,
+    ca_pool_id: usePool ? defaultPoolID : null,
     key_type: settings?.acme_key_type || 'ecdsa',
     auto_renew: true,
     renew_days: settings?.acme_renew_days || 30,
@@ -834,11 +906,16 @@ async function openEdit(row: Task): Promise<void> {
       )
     }
   }
+  const applyConfig = pipeline.find((node) => node.type === 'apply')?.config
+  const poolID = applyConfig?.ca_pool_id || row.ca_pool_id || 0
+  const caValue = applyConfig?.ca || row.ca
   Object.assign(form, {
     name: row.name,
     domainsText: (row.domains || []).join('\n'),
     dns_account_id: row.dns_account_id || null,
-    ca: row.ca,
+    ca_mode: poolID ? 'pool' : 'single',
+    ca: poolID ? '' : caValue,
+    ca_pool_id: poolID || null,
     key_type: row.key_type,
     auto_renew: row.auto_renew,
     renew_days: row.renew_days,
@@ -1180,7 +1257,8 @@ function buildPayload(): Record<string, unknown> {
         config: {
           domains,
           dns_account_id: form.dns_account_id || 0,
-          ca: form.ca,
+          ca: form.ca_mode === 'pool' ? '' : form.ca,
+          ca_pool_id: form.ca_mode === 'pool' ? form.ca_pool_id || 0 : 0,
           key_type: form.key_type,
           auto_renew: form.auto_renew,
           renew_days: form.renew_days
@@ -1194,7 +1272,8 @@ function buildPayload(): Record<string, unknown> {
     domains,
     challenge: 'dns01',
     dns_account_id: form.dns_account_id,
-    ca: form.ca,
+    ca: form.ca_mode === 'pool' ? '' : form.ca,
+    ca_pool_id: form.ca_mode === 'pool' ? form.ca_pool_id || 0 : 0,
     key_type: form.key_type,
     auto_renew: form.auto_renew,
     renew_days: form.renew_days,
@@ -1216,6 +1295,16 @@ async function save(): Promise<void> {
   }
   if (!isPrivateCA.value && !form.dns_account_id) {
     ElMessage.warning(t('tasks.dnsRequired'))
+    selectedNodeId.value = 'apply'
+    return
+  }
+  if (form.ca_mode === 'pool' && !form.ca_pool_id) {
+    ElMessage.warning(t('tasks.caPoolRequired'))
+    selectedNodeId.value = 'apply'
+    return
+  }
+  if (form.ca_mode === 'single' && !form.ca) {
+    ElMessage.warning(t('tasks.caRequired'))
     selectedNodeId.value = 'apply'
     return
   }

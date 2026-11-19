@@ -161,6 +161,7 @@ type Task struct {
 	Challenge    string         `json:"challenge"`
 	DNSAccountID int64          `json:"dns_account_id"`
 	CA           string         `json:"ca"`
+	CAPoolID     int64          `json:"ca_pool_id"`
 	KeyType      string         `json:"key_type"`
 	AutoRenew    bool           `json:"auto_renew"`
 	RenewDays    int            `json:"renew_days"`
@@ -288,6 +289,10 @@ type Dashboard struct {
 	RecentTasks   []Task        `json:"recent_tasks"`
 	RecentCerts   []Certificate `json:"recent_certs"`
 	RecentLogs    []LogEntry    `json:"recent_logs"`
+	// ServerTime 由接口在响应前填充，供仪表盘显示 LACTSSL 系统时间。
+	ServerTime          time.Time `json:"server_time"`
+	ServerTimezone      string    `json:"server_timezone"`
+	ServerOffsetSeconds int       `json:"server_utc_offset"`
 }
 
 // Bucket 表示到期时间分布。
