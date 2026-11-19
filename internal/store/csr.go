@@ -3,9 +3,11 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"lactssl/internal/model"
 )
 
@@ -45,7 +47,7 @@ func (s *Store) CreateCSRRequest(r *model.CSRRequest) error {
 		return err
 	}
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO certificate_requests(public_id,csr_pem,csr_sha256,identifiers,primary_domain,ca,challenge,dns_account_id,status,error_code,error_message,retryable,attempts,certificate_id,upstream_order_id,idempotency_key,user_id,api_key_id,created_at,updated_at,expires_at,completed_at)
+	id, err := s.DB.InsertID(`INSERT INTO certificate_requests(public_id,csr_pem,csr_sha256,identifiers,primary_domain,ca,challenge,dns_account_id,status,error_code,error_message,retryable,attempts,certificate_id,upstream_order_id,idempotency_key,user_id,api_key_id,created_at,updated_at,expires_at,completed_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.PublicID, r.CSRPEM, r.CSRHash, string(identifiers), r.PrimaryDomain, r.CA, r.Challenge, r.DNSAccountID,
 		r.Status, r.ErrorCode, r.ErrorMessage, boolInt(r.Retryable), r.Attempts, r.CertificateID,
@@ -53,7 +55,7 @@ func (s *Store) CreateCSRRequest(r *model.CSRRequest) error {
 	if err != nil {
 		return err
 	}
-	r.ID, _ = res.LastInsertId()
+	r.ID = id
 	r.CreatedAt, r.UpdatedAt = now, now
 	return nil
 }
@@ -238,5 +240,10 @@ func CSRRequestExists(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "unique constraint")
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "unique constraint") || strings.Contains(text, "duplicate key")
 }

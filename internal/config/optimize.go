@@ -97,7 +97,13 @@ func defaultSpec() map[string]any {
 		},
 		"data_dir": fc.DataDir,
 		"database": map[string]any{
-			"path": fc.Database.Path,
+			"driver":                    fc.Database.Driver,
+			"path":                      fc.Database.Path,
+			"dsn":                       fc.Database.DSN,
+			"max_open_conns":            fc.Database.MaxOpenConns,
+			"max_idle_conns":            fc.Database.MaxIdleConns,
+			"conn_max_lifetime_minutes": fc.Database.ConnMaxLifetime,
+			"allow_multi_instance":      fc.Database.AllowMultiInstance,
 		},
 		"security": map[string]any{
 			"entry":               fc.Security.Entry,

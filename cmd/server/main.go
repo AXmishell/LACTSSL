@@ -23,6 +23,7 @@ import (
 	"lactssl/internal/backup"
 	"lactssl/internal/config"
 	"lactssl/internal/db"
+	"lactssl/internal/dbconvert"
 	"lactssl/internal/i18n"
 	"lactssl/internal/logarchive"
 	"lactssl/internal/logging"
@@ -51,10 +52,12 @@ func main() {
 		log.Fatalf("%s: %v", cliText("cli.error.load_config"), err)
 	}
 	// 上次恢复请求写入的备份在打开数据库前应用，避免运行中替换 SQLite 文件。
+	restoreApplied := false
 	if restored, applied, err := applyPendingRestore(cfg); err != nil {
 		log.Printf("%s: %v", cliText("cli.error.restore_backup"), err)
 	} else if applied {
 		cfg = restored
+		restoreApplied = true
 		log.Println(cliText("cli.restore_applied"))
 	}
 
@@ -84,20 +87,37 @@ func main() {
 		"pid", os.Getpid(),
 		"addr", cfg.Addr,
 		"data_dir", cfg.DataDir,
+		"database_driver", cfg.DBDriver,
 		"log_level", cfg.Log.Level,
 		"log_file", cfg.Log.File,
 	)
-
-	conn, err := db.Open(cfg.DBPath)
-	if err != nil {
-		log.Fatalf("%s: %v", cliText("cli.error.init_db"), err)
-	}
-	defer conn.Close()
 
 	cipher, err := util.NewCipher(cfg.EncryptionKey)
 	if err != nil {
 		log.Fatalf("%s: %v", cliText("cli.error.init_crypto"), err)
 	}
+	conversionState, _ := dbconvert.LoadState(cfg.DataDir)
+	conn, err := openConfiguredDB(cfg)
+	if err != nil && conversionState != nil && conversionState.Phase == dbconvert.PhaseSwitching {
+		if restored, rollbackErr := rollbackConversion(cfg, conversionState, err); rollbackErr == nil {
+			cfg = restored
+			conn, err = openConfiguredDB(cfg)
+		}
+	}
+	if err != nil {
+		log.Fatalf("%s: %v", cliText("cli.error.init_db"), err)
+	}
+	cfg, conn, err = finalizeConversion(cfg, conn, conversionState, cipher)
+	if err != nil {
+		log.Fatalf("%s: %v", cliText("cli.error.init_db"), err)
+	}
+	defer conn.Close()
+	if restoreApplied {
+		if err := dbconvert.VerifyStarted(context.Background(), conn, cipher); err != nil {
+			log.Fatalf("恢复备份校验失败: %v", err)
+		}
+	}
+
 	st := store.New(conn, cipher)
 	// 系统日志落库使用独立异步接收器，避免 SQLite 写入阻塞请求。
 	// 日志表在 db.Open 的迁移中已经创建，此时可以安全挂载接收器。
@@ -227,6 +247,10 @@ func main() {
 	server.Upgrade = upgrader
 	server.LogArchives = logArchiveService
 	server.Program = programUpdater
+	converter := dbconvert.NewManager(conn, db.Dialect(cfg.DBDriver), cfg.DBPath, cfg.DBDSN, cfg.DataDir, cfg.File, cipher, api.Version)
+	converter.OnMaintenance = func(active bool) { server.SetMaintenance(active) }
+	converter.OnSwitching = func() { server.Restart() }
+	server.DBConvert = converter
 	server.ConfigFile = cfg.File
 	server.DataDir = cfg.DataDir
 	server.AccessLog = cfg.Log.AccessLog
@@ -323,8 +347,12 @@ func main() {
 	// 后者在优雅退出后直接 exec 新二进制，避免裸机部署升级后服务停摆。
 	restart := make(chan string, 1)
 	server.Restart = func() {
+		reason := "restore"
+		if state, _ := dbconvert.LoadState(cfg.DataDir); state != nil && state.Phase == dbconvert.PhaseSwitching {
+			reason = "convert"
+		}
 		select {
-		case restart <- "restore":
+		case restart <- reason:
 		default:
 		}
 	}
@@ -416,9 +444,12 @@ func main() {
 	case <-quit:
 		log.Println(cliText("cli.shutting_down"))
 	case restartReason = <-restart:
-		if restartReason == "program" {
+		switch restartReason {
+		case "program":
 			log.Println("程序升级完成，正在重启服务")
-		} else {
+		case "convert":
+			log.Println("数据库转换完成，正在重启服务")
+		default:
 			log.Println(cliText("cli.restoring_backup"))
 		}
 	}
@@ -515,7 +546,13 @@ func applyPendingRestore(cfg *config.Config) (*config.Config, bool, error) {
 		applied = true
 	}
 	if pending.DatabasePath != "" {
-		if err := backup.ApplyDatabase(current.DBPath, pending.DatabasePath); err != nil {
+		var applyErr error
+		if pending.Driver == "postgres" {
+			applyErr = backup.ApplyPostgresDatabase(current.DBDSN, pending.DatabasePath)
+		} else {
+			applyErr = backup.ApplyDatabase(current.DBPath, pending.DatabasePath)
+		}
+		if err := applyErr; err != nil {
 			// 配置已替换但数据库失败：必须回滚配置，否则下次启动会用新 salt 打开旧库。
 			if originalRead {
 				_ = os.WriteFile(cfg.File, originalConfig, 0o600)

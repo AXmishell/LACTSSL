@@ -51,13 +51,13 @@ func (s *Store) CreateTrustedCAs(list []*model.TrustedCA) error {
 	defer func() { _ = tx.Rollback() }()
 	now := nowUTC()
 	for _, ca := range list {
-		res, err := tx.Exec(`INSERT INTO trusted_cas(name,subject,issuer,serial,fingerprint,cert_pem,not_before,not_after,created_at)
+		id, err := tx.InsertID(`INSERT INTO trusted_cas(name,subject,issuer,serial,fingerprint,cert_pem,not_before,not_after,created_at)
 			VALUES(?,?,?,?,?,?,?,?,?)`,
 			ca.Name, ca.Subject, ca.Issuer, ca.Serial, ca.Fingerprint, ca.CertPEM, ca.NotBefore, ca.NotAfter, now)
 		if err != nil {
 			return err
 		}
-		ca.ID, _ = res.LastInsertId()
+		ca.ID = id
 		ca.CreatedAt = now
 	}
 	return tx.Commit()

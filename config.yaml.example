@@ -14,12 +14,23 @@ server:
   # 例如：["127.0.0.1", "10.0.0.0/8"]
   trusted_proxies: []
 
-# 数据目录：存放 SQLite 数据库
+# 数据目录：存放插件、日志与升级备份
 data_dir: "data"
 
 database:
-  # 留空表示 <data_dir>/lactssl.db
+  # sqlite（默认）或 postgres
+  driver: "sqlite"
+  # SQLite 文件路径；留空表示 <data_dir>/lactssl.db
   path: ""
+  # PostgreSQL 连接串；driver=postgres 时必填
+  # 生产环境建议使用 sslmode=verify-full，也可用 LACTSSL_DATABASE_DSN 覆盖
+  dsn: ""
+  # PostgreSQL 连接池；SQLite 固定为 1
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_max_lifetime_minutes: 30
+  # 是否允许多个实例共享同一个 PostgreSQL 数据库；默认 false
+  allow_multi_instance: false
 
 log:
   # 进程日志级别：debug、info、warn、error

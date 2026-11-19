@@ -9,6 +9,7 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/pbkdf2"
@@ -22,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -30,13 +32,18 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"lactssl/internal/config"
+	"lactssl/internal/db"
 	"lactssl/internal/util"
 	_ "modernc.org/sqlite"
 )
 
 const (
-	// DatabaseName 是备份包内数据库文件的固定名称。
+	// DatabaseName 是 SQLite 备份包内数据库文件的固定名称。
 	DatabaseName = "lactssl.db"
+	// PostgresDatabaseName 是 PostgreSQL 逻辑备份在包内的固定名称。
+	PostgresDatabaseName = "lactssl.dump"
+	// driverName 记录待恢复目录中的数据库驱动。
+	driverName = "driver"
 	// ConfigName 是备份包内配置文件的固定名称。
 	ConfigName = "config.yaml"
 	// ManifestName 是备份包内元数据文件的固定名称。
@@ -92,7 +99,7 @@ var requiredTables = []string{
 
 // Manager 负责生成和校验备份。
 type Manager struct {
-	DB         *sql.DB
+	DB         *db.Handle
 	DataDir    string
 	DBPath     string
 	ConfigFile string
@@ -102,9 +109,9 @@ type Manager struct {
 }
 
 // New 创建备份管理器。
-func New(db *sql.DB, dataDir, dbPath, configFile, version string) *Manager {
+func New(conn *db.Handle, dataDir, dbPath, configFile, version string) *Manager {
 	return &Manager{
-		DB:         db,
+		DB:         conn,
 		DataDir:    dataDir,
 		DBPath:     dbPath,
 		ConfigFile: configFile,
@@ -126,7 +133,9 @@ func (m *Manager) Info() (Info, error) {
 	defer m.mu.Unlock()
 
 	info := Info{}
-	if stat, err := os.Stat(m.DBPath); err == nil {
+	if m.DB != nil && m.DB.Dialect().IsPostgres() {
+		_ = m.DB.QueryRow(`SELECT pg_database_size(current_database())`).Scan(&info.DatabaseSize)
+	} else if stat, err := os.Stat(m.DBPath); err == nil {
 		info.DatabaseSize = stat.Size()
 	}
 	if stat, err := os.Stat(m.ConfigFile); err == nil && stat.Mode().IsRegular() {
@@ -142,6 +151,7 @@ func (m *Manager) Info() (Info, error) {
 type manifest struct {
 	App        string    `json:"app"`
 	Version    string    `json:"version"`
+	Driver     string    `json:"driver,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	Database   string    `json:"database,omitempty"`
 	Config     string    `json:"config,omitempty"`
@@ -165,7 +175,11 @@ func (m *Manager) Export(password string) (string, string, func(), error) {
 	}
 	cleanup := func() { _ = os.RemoveAll(tempDir) }
 
-	dbSnapshot := filepath.Join(tempDir, DatabaseName)
+	databaseName := DatabaseName
+	if m.DB != nil && m.DB.Dialect().IsPostgres() {
+		databaseName = PostgresDatabaseName
+	}
+	dbSnapshot := filepath.Join(tempDir, databaseName)
 	if err := m.snapshot(dbSnapshot); err != nil {
 		cleanup()
 		return "", "", func() {}, err
@@ -175,8 +189,12 @@ func (m *Manager) Export(password string) (string, string, func(), error) {
 	meta := manifest{
 		App:       "LACTSSL",
 		Version:   m.Version,
+		Driver:    "sqlite",
 		CreatedAt: time.Now().UTC(),
-		Database:  DatabaseName,
+		Database:  databaseName,
+	}
+	if databaseName == PostgresDatabaseName {
+		meta.Driver = "postgres"
 	}
 	if stat, err := os.Stat(m.ConfigFile); err == nil && stat.Mode().IsRegular() {
 		meta.Config = ConfigName
@@ -220,7 +238,11 @@ func writePlainArchive(target, dbSnapshot, configFile string, meta manifest) err
 	zw := zip.NewWriter(archive)
 
 	// 数据库快照压缩后通常很小，使用 Deflate 便于下载。
-	if err := addFileToZip(zw, DatabaseName, dbSnapshot); err != nil {
+	name := meta.Database
+	if name == "" {
+		name = DatabaseName
+	}
+	if err := addFileToZip(zw, name, dbSnapshot); err != nil {
 		_ = zw.Close()
 		_ = archive.Close()
 		return err
@@ -263,6 +285,8 @@ func encryptArchive(source, tempDir string, inner manifest, password string) (st
 	meta := manifest{
 		App:        inner.App,
 		Version:    inner.Version,
+		Driver:     inner.Driver,
+		Database:   inner.Database,
 		CreatedAt:  inner.CreatedAt,
 		Encrypted:  true,
 		KDF:        encryptionKDF,
@@ -447,6 +471,17 @@ func (m *Manager) snapshot(target string) error {
 	if _, err := os.Stat(target); err == nil {
 		return fmt.Errorf("备份目标文件已存在: %s", target)
 	}
+	if m.DB.Dialect().IsPostgres() {
+		pgDump, err := findPgDump()
+		if err != nil {
+			return err
+		}
+		cmd := exec.CommandContext(context.Background(), pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, m.DB.DSN())
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("pg_dump 失败: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return nil
+	}
 	if _, err := m.DB.Exec(`VACUUM INTO ?`, target); err != nil {
 		return fmt.Errorf("创建数据库快照失败: %w", err)
 	}
@@ -506,18 +541,22 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 	var (
 		dbPath     string
 		configPath string
+		driver     = "sqlite"
 	)
 	reader, err := os.Open(uploadPath)
 	if err != nil {
 		return err
 	}
 	buffered := bufio.NewReader(reader)
-	magic, _ := buffered.Peek(4)
-	isZip := bytes.Equal(magic, []byte("PK\x03\x04"))
+	magic, _ := buffered.Peek(5)
+	isZip := len(magic) >= 4 && bytes.Equal(magic[:4], []byte("PK\x03\x04"))
 	_ = reader.Close()
 
 	if isZip {
 		meta, payload, err := readArchiveManifest(uploadPath)
+		if meta != nil && meta.Driver != "" {
+			driver = meta.Driver
+		}
 		if err != nil {
 			return err
 		}
@@ -550,6 +589,9 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 		}
 	} else {
 		dbPath = uploadPath
+		if bytes.HasPrefix(magic, []byte("PGDMP")) {
+			driver = "postgres"
+		}
 	}
 	if err != nil {
 		return err
@@ -557,15 +599,17 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 	if dbPath == "" {
 		return ErrInvalidArchive
 	}
-	if err := validateDatabase(dbPath); err != nil {
+	if err := validateDatabase(driver, dbPath); err != nil {
 		return err
 	}
 	if configPath != "" {
 		if err := validateConfig(configPath); err != nil {
 			return err
 		}
-		if err := verifyBackupKeyPair(dbPath, configPath); err != nil {
-			return err
+		if driver == "sqlite" {
+			if err := verifyBackupKeyPair(dbPath, configPath); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -575,7 +619,15 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 	if err := os.MkdirAll(next, 0o700); err != nil {
 		return fmt.Errorf("创建待恢复目录失败: %w", err)
 	}
-	if err := copyFile(dbPath, filepath.Join(next, DatabaseName)); err != nil {
+	databaseName := DatabaseName
+	if driver == "postgres" {
+		databaseName = PostgresDatabaseName
+	}
+	if err := copyFile(dbPath, filepath.Join(next, databaseName)); err != nil {
+		_ = os.RemoveAll(next)
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(next, driverName), []byte(driver), 0o600); err != nil {
 		_ = os.RemoveAll(next)
 		return err
 	}
@@ -693,6 +745,15 @@ func extractArchive(archivePath, workDir string) (string, string, error) {
 				return "", "", err
 			}
 			dbPath = target
+		case dbPath == "" && (lower == PostgresDatabaseName || strings.HasSuffix(lower, ".dump")):
+			if entry.UncompressedSize64 > uint64(MaxUploadSize) {
+				return "", "", ErrTooLarge
+			}
+			target := filepath.Join(workDir, PostgresDatabaseName)
+			if err := extractEntry(entry, target, MaxUploadSize); err != nil {
+				return "", "", err
+			}
+			dbPath = target
 		case configPath == "" && (lower == ConfigName || strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")):
 			if entry.UncompressedSize64 > maxConfigSize {
 				return "", "", fmt.Errorf("%w: 配置文件过大", ErrInvalidArchive)
@@ -719,8 +780,11 @@ func extractEntry(entry *zip.File, target string, limit int64) error {
 	return writeLimitedFile(target, file, limit)
 }
 
-// validateDatabase 检查 SQLite 文件头和基础表结构，降低恢复错误文件的风险。
-func validateDatabase(filePath string) error {
+// validateDatabase 检查备份文件头和基础表结构，降低恢复错误文件的风险。
+func validateDatabase(driver, filePath string) error {
+	if driver == "postgres" {
+		return validatePostgresDump(filePath)
+	}
 	file, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -751,6 +815,46 @@ func validateDatabase(filePath string) error {
 		}
 	}
 	return nil
+}
+
+func validatePostgresDump(filePath string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	header := make([]byte, 5)
+	n, err := io.ReadFull(file, header)
+	_ = file.Close()
+	if err != nil || n != 5 || string(header) != "PGDMP" {
+		return ErrInvalidDatabase
+	}
+	pgRestore, err := findPgRestore()
+	if err != nil {
+		return err
+	}
+	output, err := exec.Command(pgRestore, "--list", filePath).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: pg_restore --list 失败: %v", ErrInvalidDatabase, err)
+	}
+	text := string(output)
+	for _, table := range requiredTables {
+		if !strings.Contains(text, " "+table+" ") && !strings.HasSuffix(text, " "+table) {
+			return fmt.Errorf("%w: 缺少数据表 %s", ErrInvalidDatabase, table)
+		}
+	}
+	return nil
+}
+
+func findPgRestore() (string, error) {
+	if path, err := exec.LookPath("pg_restore"); err == nil {
+		return path, nil
+	}
+	for _, candidate := range []string{"/usr/pgsql-18/bin/pg_restore", "/usr/bin/pg_restore", "/usr/local/bin/pg_restore"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", errors.New("未找到 pg_restore；请安装 PostgreSQL 18 客户端")
 }
 
 // verifyBackupKeyPair 用配置文件中的 security.salt 试解数据库里的密文字段，
@@ -847,6 +951,7 @@ func (m *Manager) CancelPending() error {
 // Pending 描述一组等待服务重启后应用的恢复文件。
 type Pending struct {
 	Root         string
+	Driver       string
 	DatabasePath string
 	ConfigPath   string
 }
@@ -854,9 +959,18 @@ type Pending struct {
 // LoadPending 读取待恢复目录；没有待恢复内容时返回 nil。
 func LoadPending(dataDir string) (*Pending, error) {
 	root := PendingDir(dataDir)
-	pending := &Pending{Root: root}
+	pending := &Pending{Root: root, Driver: "sqlite"}
+	if data, err := os.ReadFile(filepath.Join(root, driverName)); err == nil {
+		if strings.TrimSpace(string(data)) == "postgres" {
+			pending.Driver = "postgres"
+		}
+	}
 	if stat, err := os.Stat(filepath.Join(root, DatabaseName)); err == nil && stat.Mode().IsRegular() {
 		pending.DatabasePath = filepath.Join(root, DatabaseName)
+	}
+	if stat, err := os.Stat(filepath.Join(root, PostgresDatabaseName)); err == nil && stat.Mode().IsRegular() {
+		pending.DatabasePath = filepath.Join(root, PostgresDatabaseName)
+		pending.Driver = "postgres"
 	}
 	if stat, err := os.Stat(filepath.Join(root, ConfigName)); err == nil && stat.Mode().IsRegular() {
 		pending.ConfigPath = filepath.Join(root, ConfigName)
@@ -967,6 +1081,37 @@ func ApplyDatabase(target, source string) error {
 	return nil
 }
 
+// ApplyPostgresDatabase 用 pg_restore 恢复 PostgreSQL 备份。
+// 调用方必须在数据库连接打开前调用（服务重启的启动阶段）。
+func ApplyPostgresDatabase(dsn, source string) error {
+	if strings.TrimSpace(dsn) == "" || strings.TrimSpace(source) == "" {
+		return errors.New("PostgreSQL DSN 或备份文件未配置")
+	}
+	pgDump, err := findPgDump()
+	if err != nil {
+		return err
+	}
+	pgRestore, err := findPgRestore()
+	if err != nil {
+		return err
+	}
+	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	rollback := source + ".before-restore-" + suffix
+	dumpCmd := exec.Command(pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", rollback, dsn)
+	if output, err := dumpCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("恢复前备份当前 PostgreSQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	defer os.Remove(rollback)
+	restoreCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", dsn, source)
+	if output, err := restoreCmd.CombinedOutput(); err != nil {
+		// 尝试把恢复前的备份写回，降低半恢复状态的影响。
+		rollbackCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", dsn, rollback)
+		_, _ = rollbackCmd.CombinedOutput()
+		return fmt.Errorf("pg_restore 失败: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 // ApplyConfig 用恢复文件替换配置文件，权限保持 0600。
 func ApplyConfig(target, source string) error {
 	if target == "" || source == "" {
@@ -1021,4 +1166,16 @@ func copyFile(source, target string) error {
 	}
 	defer file.Close()
 	return writeLimitedFile(target, file, MaxUploadSize)
+}
+
+func findPgDump() (string, error) {
+	if path, err := exec.LookPath("pg_dump"); err == nil {
+		return path, nil
+	}
+	for _, candidate := range []string{"/usr/pgsql-18/bin/pg_dump", "/usr/bin/pg_dump", "/usr/local/bin/pg_dump"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", errors.New("未找到 pg_dump；请安装 PostgreSQL 18 客户端")
 }

@@ -9,11 +9,11 @@ package upgrade
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"lactssl/internal/config"
+	"lactssl/internal/db"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
 )
@@ -44,7 +45,7 @@ const (
 
 // Options 构造升级管理器所需的依赖。
 type Options struct {
-	DB               *sql.DB
+	DB               *db.Handle
 	Store            *store.Store
 	Manager          *service.Manager
 	ConfigPath       string
@@ -60,7 +61,7 @@ type Options struct {
 
 // Manager 是升级工具的运行入口。同一进程内串行执行，避免并发迁移。
 type Manager struct {
-	db               *sql.DB
+	db               *db.Handle
 	store            *store.Store
 	service          *service.Manager
 	configPath       string
@@ -489,15 +490,28 @@ func (m *Manager) createBackup(ctx context.Context) (string, error) {
 		return dir, fmt.Errorf("创建备份目录失败: %w", err)
 	}
 	_ = os.Chmod(targetDir, 0o700)
-	target := filepath.Join(targetDir, "lactssl.db")
-	if _, err := m.db.ExecContext(ctx, "VACUUM INTO ?", target); err != nil {
-		// 部分 SQLite 构建不接受参数化 VACUUM INTO，退化为转义字面量。
-		quoted := strings.ReplaceAll(target, "'", "''")
-		if _, retryErr := m.db.ExecContext(ctx, "VACUUM INTO '"+quoted+"'"); retryErr != nil {
-			return targetDir, fmt.Errorf("备份数据库失败: %w", err)
+	if m.db.Dialect().IsPostgres() {
+		target := filepath.Join(targetDir, "lactssl.dump")
+		pgDump := findPgDumpBinary()
+		if pgDump == "" {
+			return targetDir, fmt.Errorf("备份 PostgreSQL 失败: 未找到 pg_dump")
 		}
+		cmd := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, m.db.DSN())
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return targetDir, fmt.Errorf("备份 PostgreSQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		_ = os.Chmod(target, 0o600)
+	} else {
+		target := filepath.Join(targetDir, "lactssl.db")
+		if _, err := m.db.ExecContext(ctx, "VACUUM INTO ?", target); err != nil {
+			// 部分 SQLite 构建不接受参数化 VACUUM INTO，退化为转义字面量。
+			quoted := strings.ReplaceAll(target, "'", "''")
+			if _, retryErr := m.db.ExecContext(ctx, "VACUUM INTO '"+quoted+"'"); retryErr != nil {
+				return targetDir, fmt.Errorf("备份数据库失败: %w", err)
+			}
+		}
+		_ = os.Chmod(target, 0o600)
 	}
-	_ = os.Chmod(target, 0o600)
 	if m.configPath != "" {
 		if data, err := os.ReadFile(m.configPath); err == nil {
 			configTarget := filepath.Join(targetDir, "config.yaml")
@@ -508,6 +522,18 @@ func (m *Manager) createBackup(ctx context.Context) (string, error) {
 	}
 	m.pruneBackups(dir, 5)
 	return targetDir, nil
+}
+
+func findPgDumpBinary() string {
+	if path, err := exec.LookPath("pg_dump"); err == nil {
+		return path
+	}
+	for _, candidate := range []string{"/usr/pgsql-18/bin/pg_dump", "/usr/bin/pg_dump", "/usr/local/bin/pg_dump"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func (m *Manager) pruneBackups(parent string, keep int) {

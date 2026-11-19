@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"lactssl/internal/db"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
 	"lactssl/internal/util"
@@ -17,7 +18,7 @@ import (
 
 // Store 是数据访问入口。
 type Store struct {
-	DB     *sql.DB
+	DB     *db.Handle
 	Cipher *util.Cipher
 	// SystemLogRetentionDays 与 SystemLogMaxRows 控制 logs 表中
 	// category='runtime' 记录的清理策略。由 main 根据 log.system 配置注入；为 0 时不限制。
@@ -64,9 +65,9 @@ const (
 )
 
 // New 创建数据访问对象。
-func New(db *sql.DB, cipher *util.Cipher) *Store {
+func New(conn *db.Handle, cipher *util.Cipher) *Store {
 	return &Store{
-		DB:                     db,
+		DB:                     conn,
 		Cipher:                 cipher,
 		SystemLogRetentionDays: DefaultSystemLogRetentionDays,
 		SystemLogMaxRows:       DefaultSystemLogMaxRows,
@@ -112,24 +113,38 @@ func (s *Store) GetUserByEmail(email string) (*model.User, error) {
 // CreateUser 创建账户。
 func (s *Store) CreateUser(email, hash string) (*model.User, error) {
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO users(email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at) VALUES(?,?,'',0,1,?,?)`, email, hash, now, now)
+	id, err := s.DB.InsertID(`INSERT INTO users(email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at) VALUES(?,?,'',0,1,?,?)`, email, hash, now, now)
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	return s.GetUserByID(id)
 }
 
 // CreateFirstUser 原子地创建首个管理员账户，避免初始化接口并发请求创建多个管理员。
 func (s *Store) CreateFirstUser(email, hash string) (*model.User, error) {
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO users(email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at)
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if s.DB.Dialect().IsPostgres() {
+		// SQLite 由单连接串行化；PG 需要数据库级互斥，避免两个不同邮箱的
+		// 首次初始化请求同时通过 NOT EXISTS。
+		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(?)`, int64(0x4c414354)); err != nil {
+			return nil, err
+		}
+	}
+	res, err := tx.Exec(`INSERT INTO users(email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at)
 		SELECT ?,?,'',0,1,?,? WHERE NOT EXISTS (SELECT 1 FROM users)`, email, hash, now, now)
 	if err != nil {
 		return nil, err
 	}
 	if affected, _ := res.RowsAffected(); affected != 1 {
 		return nil, i18n.E("api.error.already_initialized")
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return s.GetUserByEmail(email)
 }
@@ -514,11 +529,11 @@ func (s *Store) CreateDNSAccount(a *model.DNSAccount) error {
 		return err
 	}
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO dns_accounts(name,provider,config,remark,created_at,updated_at) VALUES(?,?,?,?,?,?)`, a.Name, a.Provider, cfg, a.Remark, now, now)
+	id, err := s.DB.InsertID(`INSERT INTO dns_accounts(name,provider,config,remark,created_at,updated_at) VALUES(?,?,?,?,?,?)`, a.Name, a.Provider, cfg, a.Remark, now, now)
 	if err != nil {
 		return err
 	}
-	a.ID, _ = res.LastInsertId()
+	a.ID = id
 	a.CreatedAt, a.UpdatedAt = now, now
 	return nil
 }
@@ -594,11 +609,11 @@ func (s *Store) CreateDeployAccount(a *model.DeployAccount) error {
 		return err
 	}
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO deploy_accounts(name,type,config,remark,created_at,updated_at) VALUES(?,?,?,?,?,?)`, a.Name, a.Type, cfg, a.Remark, now, now)
+	id, err := s.DB.InsertID(`INSERT INTO deploy_accounts(name,type,config,remark,created_at,updated_at) VALUES(?,?,?,?,?,?)`, a.Name, a.Type, cfg, a.Remark, now, now)
 	if err != nil {
 		return err
 	}
-	a.ID, _ = res.LastInsertId()
+	a.ID = id
 	a.CreatedAt, a.UpdatedAt = now, now
 	return nil
 }
@@ -647,13 +662,13 @@ func (s *Store) CreatePrivateCA(c *model.PrivateCA) error {
 		return err
 	}
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO private_cas(name,common_name,organization,country,key_type,source,serial,parent_id,ca_type,path_len,cert_pem,key_pem,not_before,not_after,created_at,updated_at)
+	id, err := s.DB.InsertID(`INSERT INTO private_cas(name,common_name,organization,country,key_type,source,serial,parent_id,ca_type,path_len,cert_pem,key_pem,not_before,not_after,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.Name, c.CommonName, c.Organization, c.Country, c.KeyType, c.Source, c.Serial, c.ParentID, c.CAType, c.PathLen, c.CertPEM, encryptedKey, c.NotBefore, c.NotAfter, now, now)
 	if err != nil {
 		return err
 	}
-	c.ID, _ = res.LastInsertId()
+	c.ID = id
 	c.CreatedAt, c.UpdatedAt = now, now
 	return nil
 }
@@ -753,13 +768,13 @@ func (s *Store) CreateTask(t *model.Task) error {
 	deployIDs, _ := json.Marshal(t.DeployIDs)
 	pipeline, _ := json.Marshal(t.Pipeline)
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO tasks(name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at)
+	id, err := s.DB.InsertID(`INSERT INTO tasks(name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,0,?,?)`,
 		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.CAPoolID, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), boolInt(t.Enabled), t.Status, t.Message, now, now, now)
 	if err != nil {
 		return err
 	}
-	t.ID, _ = res.LastInsertId()
+	t.ID = id
 	t.CreatedAt, t.UpdatedAt = now, now
 	return nil
 }
@@ -878,9 +893,10 @@ func (s *Store) CreateCertificate(c *model.Certificate) error {
 	return s.insertCertificate(s.DB, c)
 }
 
-// certificateExecer 同时兼容 *sql.DB 与 *sql.Tx。
+// certificateExecer 同时兼容 *db.Handle 与 *db.Tx。
 type certificateExecer interface {
 	Exec(query string, args ...any) (sql.Result, error)
+	InsertID(query string, args ...any) (int64, error)
 }
 
 // insertCertificate 在指定执行器上插入证书记录。
@@ -895,13 +911,13 @@ func (s *Store) insertCertificate(exec certificateExecer, c *model.Certificate) 
 	if err != nil {
 		return err
 	}
-	res, err := exec.Exec(`INSERT INTO certificates(task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,created_at)
+	id, err := exec.InsertID(`INSERT INTO certificates(task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,created_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.TaskID, string(domains), c.PrimaryDomain, c.Issuer, c.CA, source, c.PrivateCAID, c.ACMEOrderID, c.ACMEAccountID, c.CSRRequestID, c.CertPEM, encryptedKey, c.FullchainPEM, c.Serial, c.NotBefore, c.NotAfter, c.Status, now)
 	if err != nil {
 		return err
 	}
-	c.ID, _ = res.LastInsertId()
+	c.ID = id
 	c.CreatedAt = now
 	return nil
 }
@@ -968,13 +984,13 @@ func (s *Store) MigrateCertificateKeys() error {
 
 // GetCertificate 查询证书。
 func (s *Store) GetCertificate(id int64) (*model.Certificate, error) {
-	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates WHERE id=?`, id)
+	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,CASE WHEN key_pem<>'' THEN 1 ELSE 0 END FROM certificates WHERE id=?`, id)
 	return s.scanCertificate(row)
 }
 
 // LatestTaskCertificate 返回任务最近一张证书（含私钥），没有时返回 nil。
 func (s *Store) LatestTaskCertificate(taskID int64) (*model.Certificate, error) {
-	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates WHERE task_id=? ORDER BY id DESC LIMIT 1`, taskID)
+	row := s.DB.QueryRow(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,CASE WHEN key_pem<>'' THEN 1 ELSE 0 END FROM certificates WHERE task_id=? ORDER BY id DESC LIMIT 1`, taskID)
 	cert, err := s.scanCertificate(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -985,7 +1001,7 @@ func (s *Store) LatestTaskCertificate(taskID int64) (*model.Certificate, error) 
 // ListReusableCertificates 返回指定 CA 下仍有效、未撤销且保存了私钥的证书。
 // 用于任务执行前复用同一组域名的证书，避免重复向上游 CA 下单。
 func (s *Store) ListReusableCertificates(ca string) ([]model.Certificate, error) {
-	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates WHERE ca=? AND status='valid' AND revoked_at IS NULL AND not_after>? AND key_pem<>'' ORDER BY id DESC`, ca, nowUTC())
+	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,CASE WHEN key_pem<>'' THEN 1 ELSE 0 END FROM certificates WHERE ca=? AND status='valid' AND revoked_at IS NULL AND not_after>? AND key_pem<>'' ORDER BY id DESC`, ca, nowUTC())
 	if err != nil {
 		return nil, err
 	}
@@ -1013,7 +1029,7 @@ func (s *Store) ListReusableCertificatesForCAs(cas []string) ([]model.Certificat
 		args = append(args, ca)
 	}
 	args = append(args, nowUTC())
-	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates WHERE ca IN (`+placeholders+`) AND status='valid' AND revoked_at IS NULL AND not_after>? AND key_pem<>'' ORDER BY id DESC`, args...)
+	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,CASE WHEN key_pem<>'' THEN 1 ELSE 0 END FROM certificates WHERE ca IN (`+placeholders+`) AND status='valid' AND revoked_at IS NULL AND not_after>? AND key_pem<>'' ORDER BY id DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1031,7 +1047,7 @@ func (s *Store) ListReusableCertificatesForCAs(cas []string) ([]model.Certificat
 
 // ListCertificates 返回全部证书（不包含 PEM 大字段）。
 func (s *Store) ListCertificates() ([]model.Certificate, error) {
-	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,'','','',serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,(key_pem<>'') FROM certificates ORDER BY id DESC`)
+	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,'','','',serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,CASE WHEN key_pem<>'' THEN 1 ELSE 0 END FROM certificates ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1217,12 +1233,12 @@ func (s *Store) scanCertificate(row interface{ Scan(...any) error }) (*model.Cer
 // CreateDeployRecord 写入部署记录。
 func (s *Store) CreateDeployRecord(r *model.DeployRecord) error {
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO deploy_records(cert_id,deploy_account_id,account_name,task_id,status,message,created_at) VALUES(?,?,?,?,?,?,?)`,
+	id, err := s.DB.InsertID(`INSERT INTO deploy_records(cert_id,deploy_account_id,account_name,task_id,status,message,created_at) VALUES(?,?,?,?,?,?,?)`,
 		r.CertID, r.DeployAccountID, r.AccountName, r.TaskID, r.Status, r.Message, now)
 	if err != nil {
 		return err
 	}
-	r.ID, _ = res.LastInsertId()
+	r.ID = id
 	r.CreatedAt = now
 	return nil
 }
@@ -1286,12 +1302,12 @@ func (s *Store) GetMonitor(id int64) (*model.Monitor, error) {
 // CreateMonitor 新建监控项。
 func (s *Store) CreateMonitor(m *model.Monitor) error {
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO monitors(name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at) VALUES(?,?,?,?,?,?,NULL,'',NULL,?,?)`,
+	id, err := s.DB.InsertID(`INSERT INTO monitors(name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at) VALUES(?,?,?,?,?,?,NULL,'',NULL,?,?)`,
 		m.Name, m.Target, m.IntervalHour, boolInt(m.Enabled), "pending", "", now, now)
 	if err != nil {
 		return err
 	}
-	m.ID, _ = res.LastInsertId()
+	m.ID = id
 	m.Status = "pending"
 	m.CreatedAt = now
 	m.NextCheckAt = &now
@@ -1454,10 +1470,21 @@ type LogFilter struct {
 	To       *time.Time
 }
 
+func (s *Store) likeOperator() string {
+	if s.DB != nil && s.DB.Dialect().IsPostgres() {
+		// SQLite 的 LIKE 默认对 ASCII 大小写不敏感，PG 用 ILIKE 保持搜索体验一致。
+		return "ILIKE"
+	}
+	return "LIKE"
+}
+
 // logFilterWhere 构造过滤条件，供列表与导出复用。
 // Category 为空时按操作日志处理，保持旧接口只返回业务日志的行为；
 // 系统日志的调用方会显式传入 runtime。
-func logFilterWhere(filter LogFilter) (string, []any) {
+func logFilterWhere(filter LogFilter, likeOp string) (string, []any) {
+	if likeOp == "" {
+		likeOp = "LIKE"
+	}
 	category := filter.Category
 	if category == "" {
 		category = model.LogCategoryOperation
@@ -1486,7 +1513,7 @@ func logFilterWhere(filter LogFilter) (string, []any) {
 		// 两类日志都同时匹配正文与附加字段：操作日志的 message 是 i18n 信封，
 		// 参数值（任务名、域名等）也存放在其中，可以直接被搜索到。
 		pattern := "%" + escapeLike(filter.Query) + "%"
-		clauses = append(clauses, `(message LIKE ? ESCAPE '\' OR fields LIKE ? ESCAPE '\')`)
+		clauses = append(clauses, `(message `+likeOp+` ? ESCAPE '\' OR fields `+likeOp+` ? ESCAPE '\')`)
 		args = append(args, pattern, pattern)
 	}
 	if filter.From != nil {
@@ -1505,7 +1532,7 @@ func (s *Store) ListLogsFiltered(filter LogFilter, limit, offset int) ([]model.L
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	where, whereArgs := logFilterWhere(filter)
+	where, whereArgs := logFilterWhere(filter, s.likeOperator())
 	var total int64
 	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM logs`+where, whereArgs...).Scan(&total); err != nil {
 		return nil, 0, err
@@ -1660,7 +1687,7 @@ func (s *Store) ExportLogs(filter LogFilter, maxID, beforeID int64, limit int) (
 	if limit <= 0 || limit > 2000 {
 		limit = 1000
 	}
-	where, whereArgs := logFilterWhere(filter)
+	where, whereArgs := logFilterWhere(filter, s.likeOperator())
 	clauses := []string{"id<=?"}
 	args := []any{maxID}
 	if beforeID > 0 {

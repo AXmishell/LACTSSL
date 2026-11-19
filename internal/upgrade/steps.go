@@ -2,7 +2,6 @@ package upgrade
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"lactssl/internal/db"
 	"lactssl/internal/service"
 )
 
@@ -146,7 +146,7 @@ func stepLegacyCrypto(ctx context.Context, m *Manager) (StepResult, error) {
 	return result, nil
 }
 
-func countPlaintext(db *sql.DB, table, column string) (int64, error) {
+func countPlaintext(db *db.Handle, table, column string) (int64, error) {
 	// table/column 只来自本包内的固定常量，不接收用户输入。
 	query := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE %s<>'' AND %s NOT LIKE 'enc:v1:%%'`, table, column, column)
 	var count int64
@@ -486,7 +486,8 @@ func stepLogsUnified(ctx context.Context, m *Manager) (StepResult, error) {
 	}
 	copied, _ := result.RowsAffected()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)`,
+		`INSERT INTO settings(key,value) VALUES(?,?)
+		 ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
 		logsUnifiedSetting, "done"); err != nil {
 		return StepResult{}, fmt.Errorf("写入日志合并标记失败: %w", err)
 	}

@@ -1027,6 +1027,81 @@ export interface UpgradeRunRecord {
   error?: string
 }
 
+export interface DatabaseConvertTable {
+  name: string
+  rows: number
+  bytes: number
+  hash?: string
+  status: string
+  error?: string
+}
+
+export interface DatabaseConvertProgress {
+  phase: string
+  table?: string
+  table_index: number
+  table_total: number
+  rows: number
+  total_rows: number
+  bytes: number
+  started_at: string
+  updated_at: string
+  warnings?: string[]
+  tables?: DatabaseConvertTable[]
+}
+
+export interface DatabaseConvertState {
+  id: string
+  phase: string
+  from_driver: string
+  to_driver: string
+  from_path?: string
+  to_path?: string
+  to_dsn_summary?: string
+  backup_path?: string
+  config_backup?: string
+  started_at: string
+  finished_at?: string
+  error?: string
+}
+
+export interface DatabaseConvertReport {
+  from_driver: string
+  to_driver: string
+  phase: string
+  backup_path: string
+  started_at: string
+  finished_at: string
+  tables: DatabaseConvertTable[]
+  rows: number
+  bytes: number
+  warnings?: string[]
+  error?: string
+}
+
+export interface DatabaseConvertStatus {
+  running: boolean
+  state?: DatabaseConvertState
+  progress: DatabaseConvertProgress
+  report?: DatabaseConvertReport
+  source: {
+    driver: string
+    path?: string
+    dsn?: string
+  }
+}
+
+export interface DatabasePreflightReport {
+  source_driver: string
+  target_driver: string
+  source_tables: number
+  target_empty: boolean
+  source_rows: number
+  source_bytes: number
+  tables: DatabaseConvertTable[]
+  warnings?: string[]
+}
+
 export interface UpgradeStatus {
   app_version: string
   stored_version: number

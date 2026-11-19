@@ -31,7 +31,13 @@ const officialPluginRepoPublicKey = "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss
 type Config struct {
 	Addr          string // 监听地址，例如 :8080
 	DataDir       string // 数据目录
+	DBDriver      string // sqlite 或 postgres
 	DBPath        string // SQLite 数据库文件
+	DBDSN         string // PostgreSQL DSN
+	DBMaxOpen     int    // PostgreSQL 最大连接数
+	DBMaxIdle     int    // PostgreSQL 最大空闲连接数
+	DBConnMaxLife time.Duration
+	DBAllowMulti  bool   // 是否允许多实例共享同一个 PostgreSQL 数据库
 	JWTSecret     []byte // JWT 签名密钥
 	EncryptionKey []byte // 数据库敏感配置加密密钥（盐）
 	Entry         string // 初始门禁入口（来自配置文件）
@@ -158,7 +164,13 @@ type fileConfig struct {
 	} `yaml:"server"`
 	DataDir  string `yaml:"data_dir"`
 	Database struct {
-		Path string `yaml:"path"`
+		Driver             string `yaml:"driver"`
+		Path               string `yaml:"path"`
+		DSN                string `yaml:"dsn"`
+		MaxOpenConns       int    `yaml:"max_open_conns"`
+		MaxIdleConns       int    `yaml:"max_idle_conns"`
+		ConnMaxLifetime    int    `yaml:"conn_max_lifetime_minutes"`
+		AllowMultiInstance bool   `yaml:"allow_multi_instance"`
 	} `yaml:"database"`
 	Security struct {
 		Entry              string `yaml:"entry"`
@@ -258,6 +270,12 @@ func defaults() *fileConfig {
 	fc := &fileConfig{}
 	fc.Server.Port = 8080
 	fc.DataDir = "data"
+	// 默认仍使用 SQLite；PostgreSQL 需要显式配置 driver 与 dsn。
+	fc.Database.Driver = "sqlite"
+	fc.Database.MaxOpenConns = 10
+	fc.Database.MaxIdleConns = 5
+	fc.Database.ConnMaxLifetime = 30
+	fc.Database.AllowMultiInstance = false
 	// 内置 ACME 服务端默认开启；未创建端点时不会对外提供签发能力。
 	fc.ACME.Enabled = true
 	// 外部插件默认开启；目录为空时自动使用 <data_dir>/plugins/dns。
@@ -326,7 +344,8 @@ func Load() (*Config, error) {
 }
 
 // LoadFrom 读取指定路径的 config.yaml。
-// 配置只来自该文件与内置默认值，不读取任何环境变量。
+// 配置来自该文件与内置默认值；仅 database.dsn 允许通过
+// LACTSSL_DATABASE_DSN 环境变量覆盖，避免把数据库密码写入配置文件。
 func LoadFrom(path string) (*Config, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -396,9 +415,44 @@ func LoadFrom(path string) (*Config, error) {
 		return nil, err
 	}
 
+	dbDriver := strings.ToLower(strings.TrimSpace(fc.Database.Driver))
+	if dbDriver == "" {
+		dbDriver = "sqlite"
+	}
+	if dbDriver != "sqlite" && dbDriver != "postgres" {
+		return nil, fmt.Errorf("database.driver 必须是 sqlite 或 postgres")
+	}
 	dbPath := strings.TrimSpace(fc.Database.Path)
-	if dbPath == "" {
+	if dbDriver == "sqlite" && dbPath == "" {
 		dbPath = filepath.Join(dataDir, "lactssl.db")
+	}
+	dbDSN := strings.TrimSpace(fc.Database.DSN)
+	// 允许通过环境变量提供 DSN，避免密码写入配置文件；存在该变量时视为
+	// 使用 PostgreSQL，配置中的 sqlite 默认值不再生效。
+	if value := strings.TrimSpace(os.Getenv("LACTSSL_DATABASE_DSN")); value != "" {
+		dbDSN = value
+		dbDriver = "postgres"
+	}
+	if dbDriver == "postgres" && dbDSN == "" {
+		return nil, fmt.Errorf("database.driver=postgres 时必须配置 database.dsn 或环境变量 LACTSSL_DATABASE_DSN")
+	}
+	if dbDriver == "sqlite" && dbDSN != "" {
+		return nil, fmt.Errorf("database.driver=sqlite 时不能同时配置 database.dsn")
+	}
+	dbMaxOpen := fc.Database.MaxOpenConns
+	if dbMaxOpen <= 0 {
+		dbMaxOpen = 10
+	}
+	dbMaxIdle := fc.Database.MaxIdleConns
+	if dbMaxIdle <= 0 {
+		dbMaxIdle = 5
+	}
+	if dbMaxIdle > dbMaxOpen {
+		dbMaxIdle = dbMaxOpen
+	}
+	dbLifeMinutes := fc.Database.ConnMaxLifetime
+	if dbLifeMinutes <= 0 {
+		dbLifeMinutes = 30
 	}
 
 	entry := strings.TrimSpace(fc.Security.Entry)
@@ -573,7 +627,13 @@ func LoadFrom(path string) (*Config, error) {
 	return &Config{
 		Addr:               addr,
 		DataDir:            dataDir,
+		DBDriver:           dbDriver,
 		DBPath:             dbPath,
+		DBDSN:              dbDSN,
+		DBMaxOpen:          dbMaxOpen,
+		DBMaxIdle:          dbMaxIdle,
+		DBConnMaxLife:      time.Duration(dbLifeMinutes) * time.Minute,
+		DBAllowMulti:       fc.Database.AllowMultiInstance,
 		JWTSecret:          []byte(strings.TrimSpace(fc.Security.JWTSecret)),
 		EncryptionKey:      []byte(strings.TrimSpace(fc.Security.Salt)),
 		Entry:              entry,
@@ -718,6 +778,29 @@ func ValidateFile(path string) error {
 }
 
 func validateFileValues(fc *fileConfig) error {
+	driver := strings.ToLower(strings.TrimSpace(fc.Database.Driver))
+	if driver == "" {
+		driver = "sqlite"
+	}
+	if driver != "sqlite" && driver != "postgres" {
+		return fmt.Errorf("database.driver 必须是 sqlite 或 postgres")
+	}
+	if driver == "postgres" && strings.TrimSpace(fc.Database.DSN) == "" &&
+		strings.TrimSpace(os.Getenv("LACTSSL_DATABASE_DSN")) == "" {
+		return fmt.Errorf("database.driver=postgres 时必须配置 database.dsn")
+	}
+	if driver == "sqlite" && strings.TrimSpace(fc.Database.DSN) != "" {
+		return fmt.Errorf("database.driver=sqlite 时不能配置 database.dsn")
+	}
+	if fc.Database.MaxOpenConns < 0 || fc.Database.MaxOpenConns > 1000 {
+		return fmt.Errorf("database.max_open_conns 必须在 0-1000 之间")
+	}
+	if fc.Database.MaxIdleConns < 0 || fc.Database.MaxIdleConns > 1000 {
+		return fmt.Errorf("database.max_idle_conns 必须在 0-1000 之间")
+	}
+	if fc.Database.ConnMaxLifetime < 0 || fc.Database.ConnMaxLifetime > 1440 {
+		return fmt.Errorf("database.conn_max_lifetime_minutes 必须在 0-1440 之间")
+	}
 	const minSecretLength = 32
 	// 为空表示启动时自动生成；非空则必须达到最小长度，否则 Load 会直接拒绝启动。
 	if value := strings.TrimSpace(fc.Security.JWTSecret); value != "" && len(value) < minSecretLength {
@@ -951,12 +1034,22 @@ server:
   # 例如：["127.0.0.1", "10.0.0.0/8"]
   trusted_proxies: []
 
-# 数据目录：存放 SQLite 数据库
+# 数据目录：存放插件、日志与升级备份
 data_dir: %s
 
 database:
-  # 留空表示 <data_dir>/lactssl.db
+  # sqlite（默认）或 postgres
+  driver: %s
+  # SQLite 文件路径；留空表示 <data_dir>/lactssl.db
   path: %s
+  # PostgreSQL 连接串；driver=postgres 时必填
+  # 生产环境建议使用 sslmode=verify-full，也可用 LACTSSL_DATABASE_DSN 覆盖
+  dsn: %s
+  max_open_conns: %d
+  max_idle_conns: %d
+  conn_max_lifetime_minutes: %d
+  # 是否允许多个实例共享同一个 PostgreSQL 数据库；默认 false
+  allow_multi_instance: %t
 
 log:
   # 进程日志级别：debug、info、warn、error
@@ -1113,7 +1206,13 @@ notify_plugins:
 		quote(fc.Server.Host),
 		fc.Server.Port,
 		quote(fc.DataDir),
+		quote(fc.Database.Driver),
 		quote(fc.Database.Path),
+		quote(fc.Database.DSN),
+		fc.Database.MaxOpenConns,
+		fc.Database.MaxIdleConns,
+		fc.Database.ConnMaxLifetime,
+		fc.Database.AllowMultiInstance,
 		quote(fc.Log.Level),
 		quote(fc.Log.Format),
 		quote(fc.Log.File),

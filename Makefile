@@ -12,7 +12,7 @@ BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_ARCH := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
 LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)'
 TAGS := embed
-.PHONY: all build web backend server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test typecheck tidy clean ci release i18n-check docs-build docs-serve
+.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test typecheck tidy clean ci release i18n-check docs-build docs-serve
 
 all: build
 
@@ -26,6 +26,10 @@ backend:
 	$(BUILD_ENV) $(GO) build -trimpath -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o bin/$(APP) ./cmd/server
 
 # 开发模式二进制：不嵌入前端，运行时读取 web/dist，供 Vite 热更新使用。
+dbconvert:
+	mkdir -p bin
+	$(BUILD_ENV) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(APP)-dbconvert ./cmd/dbconvert
+
 server-dev:
 	mkdir -p bin
 	$(BUILD_ENV) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(APP)-dev ./cmd/server

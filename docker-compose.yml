@@ -1,4 +1,25 @@
 services:
+  # 可选 PostgreSQL 18：docker compose --profile postgres up -d
+  # 然后在 /upgrade 的“数据库转换”中把 DSN 指向 postgres:5432/lactssl。
+  postgres:
+    image: postgres:18-alpine
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lactssl
+      POSTGRES_USER: lactssl
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-production}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lactssl -d lactssl"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - 1panel-network
+
   lactssl:
     # 默认使用 GHCR 上发布的镜像。固定版本时直接修改这里的标签，
     # 例如 ghcr.io/axmishell/lactssl:1.2.3。

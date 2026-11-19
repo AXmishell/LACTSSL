@@ -49,14 +49,14 @@ func (s *Store) CreateAPIKey(key *model.APIKey) error {
 		return err
 	}
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO api_keys(user_id,name,prefix,token_hash,scopes,enabled,expires_at,last_used_at,created_at,updated_at)
+	id, err := s.DB.InsertID(`INSERT INTO api_keys(user_id,name,prefix,token_hash,scopes,enabled,expires_at,last_used_at,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?)`,
 		key.UserID, key.Name, key.Prefix, key.TokenHash, string(scopes), boolInt(key.Enabled),
 		key.ExpiresAt, key.LastUsedAt, now, now)
 	if err != nil {
 		return err
 	}
-	key.ID, _ = res.LastInsertId()
+	key.ID = id
 	key.CreatedAt, key.UpdatedAt = now, now
 	return nil
 }

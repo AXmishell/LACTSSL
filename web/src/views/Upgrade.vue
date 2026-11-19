@@ -120,6 +120,131 @@
       </div>
     </div>
 
+    <div class="k-card" style="margin-bottom: 16px">
+      <div class="card-head">
+        <div>
+          <h3>{{ t('upgrade.database.title') }}</h3>
+          <div class="sub">
+            {{ t('upgrade.database.current', {
+              driver: dbStatus?.source.driver || 'sqlite',
+              target: dbStatus?.source.path || dbStatus?.source.dsn || t('common.none')
+            }) }}
+          </div>
+        </div>
+        <el-tag v-if="dbStatus?.running" type="warning" effect="plain" round size="small">
+          {{ t('upgrade.database.running') }}
+        </el-tag>
+      </div>
+
+      <div class="database-grid">
+        <div>
+          <div class="stat-label">{{ t('upgrade.database.targetDriver') }}</div>
+          <el-select v-model="dbTargetDriver" style="width: 100%" :disabled="dbStatus?.running">
+            <el-option value="postgres" label="PostgreSQL 18" />
+            <el-option value="sqlite" label="SQLite" />
+          </el-select>
+        </div>
+        <div v-if="dbTargetDriver === 'postgres'">
+          <div class="stat-label">{{ t('upgrade.database.dsn') }}</div>
+          <el-input v-model="dbTargetDSN" class="mono" placeholder="postgres://user:pass@host:5432/db?sslmode=verify-full" :disabled="dbStatus?.running" />
+        </div>
+        <div v-else>
+          <div class="stat-label">{{ t('upgrade.database.path') }}</div>
+          <el-input v-model="dbTargetPath" class="mono" placeholder="data/lactssl-converted.db" :disabled="dbStatus?.running" />
+        </div>
+        <div class="database-force">
+          <el-checkbox v-model="dbForce" :disabled="dbStatus?.running">
+            {{ t('upgrade.database.force') }}
+          </el-checkbox>
+        </div>
+      </div>
+
+      <div class="flex gap-10 wrap" style="margin-top: 14px">
+        <el-button :loading="dbTesting" :disabled="dbStatus?.running" @click="testDatabaseTarget">
+          {{ t('upgrade.database.test') }}
+        </el-button>
+        <el-button :loading="dbPreflighting" :disabled="dbStatus?.running" @click="preflightDatabaseConvert">
+          {{ t('upgrade.database.preflight') }}
+        </el-button>
+      </div>
+
+      <el-alert
+        v-if="dbTargetMessage"
+        :type="dbTargetError ? 'error' : 'success'"
+        :closable="false"
+        show-icon
+        :title="dbTargetMessage"
+        style="margin-top: 12px"
+      />
+      <div v-if="dbPreflight" class="muted" style="margin-top: 10px">
+        {{ t('upgrade.database.preflightSummary', {
+          tables: dbPreflight.source_tables,
+          rows: dbPreflight.source_rows,
+          size: formatBytes(dbPreflight.source_bytes),
+          empty: dbPreflight.target_empty ? t('common.yes') : t('common.no')
+        }) }}
+      </div>
+
+      <el-collapse v-if="dbStatus?.state || dbStatus?.progress" style="margin-top: 12px">
+        <el-collapse-item :title="t('upgrade.database.progress')" name="progress">
+          <div class="muted">
+            {{ t('upgrade.database.phaseLabel', { phase: dbProgressLabel }) }}
+            <span v-if="dbStatus?.progress.table"> · {{ dbStatus.progress.table }}</span>
+            <span v-if="dbStatus?.progress.table_total">
+              ({{ dbStatus.progress.table_index }}/{{ dbStatus.progress.table_total }})
+            </span>
+          </div>
+          <el-progress
+            :percentage="dbPercent"
+            :status="dbStatus?.state?.phase === 'failed' ? 'exception' : undefined"
+            style="margin-top: 8px"
+          />
+          <div class="muted" style="margin-top: 6px">
+            {{ t('upgrade.database.rows', {
+              rows: dbStatus?.progress.rows || 0,
+              total: dbStatus?.progress.total_rows || 0
+            }) }}
+          </div>
+          <el-alert
+            v-if="dbStatus?.state?.error"
+            type="error"
+            :closable="false"
+            show-icon
+            :title="dbStatus.state.error"
+            style="margin-top: 8px"
+          />
+          <div v-if="dbStatus?.report?.backup_path" class="muted mono break-all" style="margin-top: 8px">
+            {{ t('upgrade.database.backup') }}: {{ dbStatus.report.backup_path }}
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+
+      <div style="margin-top: 14px">
+        <el-input v-model="dbPassword" type="password" show-password :placeholder="t('upgrade.database.password')" style="max-width: 280px" />
+        <el-input v-model="dbTOTP" :placeholder="t('upgrade.database.totp')" style="max-width: 180px; margin-left: 8px" />
+        <el-input v-model="dbConfirm" :placeholder="t('upgrade.database.confirmPlaceholder')" style="max-width: 180px; margin-left: 8px" />
+        <el-button type="primary" :loading="dbStarting" :disabled="dbStatus?.running" style="margin-left: 8px" @click="startDatabaseConvert">
+          {{ t('upgrade.database.start') }}
+        </el-button>
+        <el-button v-if="dbStatus?.running" @click="cancelDatabaseConvert">
+          {{ t('common.cancel') }}
+        </el-button>
+      </div>
+      <div v-if="dbStatus?.state?.phase === 'completed'" style="margin-top: 10px">
+        <el-input v-model="dbRollbackConfirm" :placeholder="t('upgrade.database.rollbackPlaceholder')" style="max-width: 180px" />
+        <el-button type="danger" plain :loading="dbRollingBack" style="margin-left: 8px" @click="rollbackDatabaseConvert">
+          {{ t('upgrade.database.rollback') }}
+        </el-button>
+      </div>
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="t('upgrade.database.warning')"
+        style="margin-top: 12px"
+      />
+    </div>
+
     <el-alert
       v-if="status && status.needs_upgrade"
       type="warning"
@@ -273,13 +398,20 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, MagicStick, Refresh, RefreshRight, SwitchButton } from '@element-plus/icons-vue'
 import { api, apiBase, errorText } from '../api'
 import { t } from '../i18n'
 import { formatDate } from '../utils'
-import type { ProgramRunReport, ProgramStatus, UpgradeRunReport, UpgradeStatus } from '../types'
+import type {
+  DatabaseConvertStatus,
+  DatabasePreflightReport,
+  ProgramRunReport,
+  ProgramStatus,
+  UpgradeRunReport,
+  UpgradeStatus
+} from '../types'
 
 const status = ref<UpgradeStatus | null>(null)
 const report = ref<UpgradeRunReport | null>(null)
@@ -291,6 +423,170 @@ const program = ref<ProgramStatus | null>(null)
 const programChecking = ref(false)
 const programApplying = ref(false)
 const programRestarting = ref(false)
+const dbStatus = ref<DatabaseConvertStatus | null>(null)
+const dbTargetDriver = ref('postgres')
+const dbTargetPath = ref('')
+const dbTargetDSN = ref('')
+const dbForce = ref(false)
+const dbTesting = ref(false)
+const dbPreflighting = ref(false)
+const dbStarting = ref(false)
+const dbPreflight = ref<DatabasePreflightReport | null>(null)
+const dbTargetMessage = ref('')
+const dbTargetError = ref(false)
+const dbPassword = ref('')
+const dbTOTP = ref('')
+const dbConfirm = ref('')
+const dbRollbackConfirm = ref('')
+const dbRollingBack = ref(false)
+let dbPollTimer: number | undefined
+
+const dbProgressLabel = computed(() => t(`upgrade.database.phase.${dbStatus.value?.state?.phase || dbStatus.value?.progress.phase || 'idle'}`))
+const dbPercent = computed(() => {
+  const progress = dbStatus.value?.progress
+  if (!progress) return 0
+  if (progress.total_rows > 0) return Math.min(100, Math.round((progress.rows / progress.total_rows) * 100))
+  if (progress.table_total > 0) return Math.min(100, Math.round((progress.table_index / progress.table_total) * 100))
+  return 0
+})
+
+async function loadDatabaseStatus(): Promise<void> {
+  try {
+    dbStatus.value = await api.get<DatabaseConvertStatus>('/upgrade/database')
+    if (dbStatus.value.source.driver === 'postgres') {
+      dbTargetDriver.value = 'sqlite'
+    }
+    if (dbStatus.value.running) {
+      startDatabasePolling()
+    }
+  } catch (_) {
+    dbStatus.value = null
+  }
+}
+
+function startDatabasePolling(): void {
+  if (dbPollTimer) return
+  dbPollTimer = window.setInterval(async () => {
+    try {
+      const next = await api.get<DatabaseConvertStatus>('/upgrade/database')
+      dbStatus.value = next
+      if (next.state?.phase === 'switching' || next.state?.phase === 'completed') {
+        stopDatabasePolling()
+        await waitForRestart()
+        return
+      }
+      if (!next.running && next.state?.phase === 'failed') {
+        stopDatabasePolling()
+      }
+    } catch (_) {
+      // 切换重启期间请求会失败，继续等待。
+    }
+  }, 1000)
+}
+
+function stopDatabasePolling(): void {
+  if (dbPollTimer) {
+    window.clearInterval(dbPollTimer)
+    dbPollTimer = undefined
+  }
+}
+
+function databaseTargetBody(): Record<string, unknown> {
+  return {
+    target_driver: dbTargetDriver.value,
+    target_path: dbTargetPath.value,
+    target_dsn: dbTargetDSN.value,
+    force: dbForce.value
+  }
+}
+
+async function testDatabaseTarget(): Promise<void> {
+  dbTesting.value = true
+  dbTargetMessage.value = ''
+  dbTargetError.value = false
+  try {
+    const result = await api.post<Record<string, unknown>>('/upgrade/database/test', databaseTargetBody())
+    dbTargetMessage.value = t('upgrade.database.testOk', {
+      version: result?.server_version || result?.driver || '',
+      empty: result?.empty ? t('common.yes') : t('common.no')
+    })
+  } catch (error) {
+    dbTargetError.value = true
+    dbTargetMessage.value = errorText(error)
+  } finally {
+    dbTesting.value = false
+  }
+}
+
+async function preflightDatabaseConvert(): Promise<void> {
+  dbPreflighting.value = true
+  dbTargetMessage.value = ''
+  dbTargetError.value = false
+  try {
+    dbPreflight.value = await api.post<DatabasePreflightReport>('/upgrade/database/preflight', databaseTargetBody())
+  } catch (error) {
+    dbTargetError.value = true
+    dbTargetMessage.value = errorText(error)
+  } finally {
+    dbPreflighting.value = false
+  }
+}
+
+async function startDatabaseConvert(): Promise<void> {
+  dbStarting.value = true
+  dbTargetMessage.value = ''
+  dbTargetError.value = false
+  try {
+    await api.post('/upgrade/database/convert', {
+      ...databaseTargetBody(),
+      account_password: dbPassword.value,
+      totp: dbTOTP.value,
+      confirm: dbConfirm.value
+    })
+    dbPassword.value = ''
+    dbTOTP.value = ''
+    dbConfirm.value = ''
+    ElMessage.success(t('upgrade.database.started'))
+    await loadDatabaseStatus()
+    startDatabasePolling()
+  } catch (error) {
+    dbTargetError.value = true
+    dbTargetMessage.value = errorText(error)
+  } finally {
+    dbStarting.value = false
+  }
+}
+
+async function rollbackDatabaseConvert(): Promise<void> {
+  dbRollingBack.value = true
+  try {
+    await api.post('/upgrade/database/rollback', {
+      account_password: dbPassword.value,
+      totp: dbTOTP.value,
+      confirm: dbRollbackConfirm.value
+    })
+    dbPassword.value = ''
+    dbTOTP.value = ''
+    dbRollbackConfirm.value = ''
+    ElMessage.success(t('upgrade.database.rollbackStarted'))
+    await loadDatabaseStatus()
+    startDatabasePolling()
+  } catch (error) {
+    ElMessage.error(errorText(error))
+  } finally {
+    dbRollingBack.value = false
+  }
+}
+
+async function cancelDatabaseConvert(): Promise<void> {
+  try {
+    await api.post('/upgrade/database/convert/cancel', {})
+    ElMessage.success(t('upgrade.database.cancelled'))
+    await loadDatabaseStatus()
+  } catch (error) {
+    ElMessage.error(errorText(error))
+  }
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -304,7 +600,7 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false
   }
-  await loadProgram()
+  await Promise.all([loadProgram(), loadDatabaseStatus()])
 }
 
 // 程序升级依赖 GitHub，网络失败不应影响数据迁移预检的展示。
@@ -472,6 +768,7 @@ function formatBytes(bytes?: number): string {
 }
 
 onMounted(load)
+onUnmounted(stopDatabasePolling)
 </script>
 
 <style scoped>
@@ -479,6 +776,23 @@ onMounted(load)
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
+}
+
+.database-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.6fr) minmax(280px, 1.4fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.database-force {
+  padding-bottom: 6px;
+}
+
+@media (max-width: 860px) {
+  .database-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .program-grid {

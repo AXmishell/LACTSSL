@@ -40,13 +40,13 @@ func (s *Store) CreateACMECA(ca *model.ACMECA) error {
 		return err
 	}
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO acme_cas(public_id,name,directory_url,protocol,eab_required,eab_kid,eab_hmac,created_at,updated_at)
+	id, err := s.DB.InsertID(`INSERT INTO acme_cas(public_id,name,directory_url,protocol,eab_required,eab_kid,eab_hmac,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?)`,
 		ca.PublicID, ca.Name, ca.DirectoryURL, ca.Protocol, boolInt(ca.EABRequired), ca.EABKid, encrypted, now, now)
 	if err != nil {
 		return err
 	}
-	ca.ID, _ = res.LastInsertId()
+	ca.ID = id
 	ca.CreatedAt, ca.UpdatedAt = now, now
 	ca.EABHMACSet = ca.EABHMAC != ""
 	return nil
@@ -187,7 +187,7 @@ func (s *Store) CreateACMEEndpoint(e *model.ACMEEndpoint) error {
 	tlsALPNCIDRs, _ := json.Marshal(e.TLSALPN01AllowedCIDRs)
 	allowedIPCIDRs, _ := json.Marshal(e.AllowedIPCIDRs)
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO acme_endpoints(public_id,name,slug,ca_id,enabled,eab_required,allowed_domains,allow_wildcard,allow_ip,allowed_ip_cidrs,http01_enabled,dns01_enabled,tls_alpn_01_enabled,allow_private_http01,allow_private_tls_alpn_01,http01_allowed_cidrs,tls_alpn_01_allowed_cidrs,validity_days,max_orders_per_hour,created_at,updated_at)
+	id, err := s.DB.InsertID(`INSERT INTO acme_endpoints(public_id,name,slug,ca_id,enabled,eab_required,allowed_domains,allow_wildcard,allow_ip,allowed_ip_cidrs,http01_enabled,dns01_enabled,tls_alpn_01_enabled,allow_private_http01,allow_private_tls_alpn_01,http01_allowed_cidrs,tls_alpn_01_allowed_cidrs,validity_days,max_orders_per_hour,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		e.PublicID, e.Name, e.Slug, e.CAID, boolInt(e.Enabled), boolInt(e.EABRequired),
 		string(allowedDomains), boolInt(e.AllowWildcard), boolInt(e.AllowIP), string(allowedIPCIDRs),
@@ -197,7 +197,7 @@ func (s *Store) CreateACMEEndpoint(e *model.ACMEEndpoint) error {
 	if err != nil {
 		return err
 	}
-	e.ID, _ = res.LastInsertId()
+	e.ID = id
 	e.CreatedAt, e.UpdatedAt = now, now
 	return nil
 }
@@ -307,7 +307,7 @@ func (s *Store) CreateACMEAccount(a *model.ACMEAccount, eabID int64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	res, err := tx.Exec(`INSERT INTO acme_accounts(public_id,endpoint_id,kid,public_jwk,thumbprint,contact,status,eab_id,last_used_at,created_at,updated_at)
+	id, err := tx.InsertID(`INSERT INTO acme_accounts(public_id,endpoint_id,kid,public_jwk,thumbprint,contact,status,eab_id,last_used_at,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,NULL,?,?)`,
 		a.PublicID, a.EndpointID, a.Kid, a.PublicJWK, a.Thumbprint, string(contact), a.Status, eabID, now, now)
 	if err != nil {
@@ -326,7 +326,7 @@ func (s *Store) CreateACMEAccount(a *model.ACMEAccount, eabID int64) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	a.ID, _ = res.LastInsertId()
+	a.ID = id
 	a.CreatedAt, a.UpdatedAt = now, now
 	return nil
 }
@@ -402,13 +402,13 @@ func (s *Store) CreateACMEEABCredential(e *model.ACMEEABCredential) error {
 		return err
 	}
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO acme_eab_credentials(public_id,endpoint_id,kid,label,hmac_key,used_at,expires_at,created_at)
+	id, err := s.DB.InsertID(`INSERT INTO acme_eab_credentials(public_id,endpoint_id,kid,label,hmac_key,used_at,expires_at,created_at)
 		VALUES(?,?,?,?,?,NULL,?,?)`,
 		e.PublicID, e.EndpointID, e.Kid, e.Label, encrypted, e.ExpiresAt, now)
 	if err != nil {
 		return err
 	}
-	e.ID, _ = res.LastInsertId()
+	e.ID = id
 	e.CreatedAt = now
 	e.HMACSet = true
 	return nil
@@ -497,33 +497,33 @@ func (s *Store) CreateACMEOrder(o *model.ACMEOrder, authzs []*model.ACMEAuthoriz
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.Exec(`INSERT INTO acme_orders(public_id,endpoint_id,account_id,status,identifiers,replaces,expires_at,certificate_id,error,created_at,updated_at)
+	orderID, err := tx.InsertID(`INSERT INTO acme_orders(public_id,endpoint_id,account_id,status,identifiers,replaces,expires_at,certificate_id,error,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,0,'',?,?)`,
 		o.PublicID, o.EndpointID, o.AccountID, o.Status, string(identifiers), o.Replaces, o.ExpiresAt, now, now)
 	if err != nil {
 		return err
 	}
-	o.ID, _ = res.LastInsertId()
+	o.ID = orderID
 	o.CreatedAt, o.UpdatedAt = now, now
 	for _, authz := range authzs {
-		res, err := tx.Exec(`INSERT INTO acme_authorizations(public_id,order_id,identifier,identifier_type,wildcard,status,expires_at,created_at,updated_at)
+		authzID, err := tx.InsertID(`INSERT INTO acme_authorizations(public_id,order_id,identifier,identifier_type,wildcard,status,expires_at,created_at,updated_at)
 			VALUES(?,?,?,?,?,?,?,?,?)`,
 			authz.PublicID, o.ID, authz.Identifier, authz.IdentifierType, boolInt(authz.Wildcard), authz.Status, authz.ExpiresAt, now, now)
 		if err != nil {
 			return err
 		}
-		authz.ID, _ = res.LastInsertId()
+		authz.ID = authzID
 		authz.OrderID = o.ID
 		authz.CreatedAt, authz.UpdatedAt = now, now
 		for index := range authz.Challenges {
 			challenge := &authz.Challenges[index]
-			res, err := tx.Exec(`INSERT INTO acme_challenges(public_id,authz_id,type,token,status,validated_at,error,attempts,next_check_at,created_at,updated_at)
+			challengeID, err := tx.InsertID(`INSERT INTO acme_challenges(public_id,authz_id,type,token,status,validated_at,error,attempts,next_check_at,created_at,updated_at)
 				VALUES(?,?,?,?,?,NULL,'',0,NULL,?,?)`,
 				challenge.PublicID, authz.ID, challenge.Type, challenge.Token, challenge.Status, now, now)
 			if err != nil {
 				return err
 			}
-			challenge.ID, _ = res.LastInsertId()
+			challenge.ID = challengeID
 			challenge.AuthzID = authz.ID
 			challenge.CreatedAt, challenge.UpdatedAt = now, now
 		}

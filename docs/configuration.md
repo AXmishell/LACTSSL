@@ -69,10 +69,16 @@ server:
   port: 8080            # 监听端口
   trusted_proxies: []   # 可信反向代理 CIDR
 
-data_dir: "data"        # 数据目录，存放 SQLite 数据库
+data_dir: "data"        # 数据目录，存放插件、日志与升级备份
 
 database:
-  path: ""              # 留空表示 <data_dir>/lactssl.db
+  driver: "sqlite"      # sqlite（默认）或 postgres
+  path: ""              # SQLite 路径；留空表示 <data_dir>/lactssl.db
+  dsn: ""               # PostgreSQL DSN；driver=postgres 时必填
+  max_open_conns: 10    # PostgreSQL 连接池
+  max_idle_conns: 5
+  conn_max_lifetime_minutes: 30
+  allow_multi_instance: false  # 是否允许多实例共享同一个 PostgreSQL 数据库
 
 log:
   level: info           # 进程日志级别：debug、info、warn、error
@@ -172,7 +178,20 @@ upgrade:
 - `trusted_proxies` 只包含实际代理地址，不要配置 `0.0.0.0/0`。
 - 如果代理和 LACTSSL 不在同一主机，使用内网 CIDR。
 
-## 4. `data_dir` 与 `database.path`
+## 4. `data_dir` 与数据库后端
+
+`data_dir` 用于插件、日志和升级备份。数据库默认是 SQLite，文件位于 `<data_dir>/lactssl.db`；也可以显式使用 PostgreSQL 18：
+
+```yaml
+database:
+  driver: "postgres"
+  dsn: "postgres://user:password@127.0.0.1:5432/lactssl?sslmode=verify-full"
+```
+
+- `driver=postgres` 时 `path` 被忽略，`dsn` 必填；也可以用环境变量 `LACTSSL_DATABASE_DSN` 覆盖，避免密码写入配置文件。
+- 默认 `allow_multi_instance: false`，应用会持有 PostgreSQL advisory lock；第二个实例连接同一个数据库会启动失败。
+- SQLite 仍固定单连接，适合单机小规模部署；需要外部备份、集中运维时再选 PostgreSQL。
+- 切换后端不需要手工改库：登录后到 `/upgrade` 的“数据库转换”卡片执行，详见 [upgrade.md](upgrade.md#7-数据库在线转换sqlitepostgresql)。
 
 数据目录用于存放数据库、插件、日志和升级备份。目录会以 `0700` 权限创建。`database.path` 留空时使用 `<data_dir>/lactssl.db`。
 

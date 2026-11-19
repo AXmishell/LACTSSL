@@ -17,13 +17,9 @@ func (s *Store) CreateCAPool(pool *model.CAPool) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	res, err := tx.Exec(`INSERT INTO ca_pools(public_id,name,strategy,cursor,enabled,created_at,updated_at)
+	pool.ID, err = tx.InsertID(`INSERT INTO ca_pools(public_id,name,strategy,cursor,enabled,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?)`,
 		pool.PublicID, pool.Name, pool.Strategy, pool.Cursor, boolInt(pool.Enabled), now, now)
-	if err != nil {
-		return err
-	}
-	pool.ID, err = res.LastInsertId()
 	if err != nil {
 		return err
 	}
@@ -33,13 +29,9 @@ func (s *Store) CreateCAPool(pool *model.CAPool) error {
 		if item.Weight <= 0 {
 			item.Weight = 1
 		}
-		itemRes, err := tx.Exec(`INSERT INTO ca_pool_items(pool_id,ca_value,priority,weight,enabled,created_at,updated_at)
+		item.ID, err = tx.InsertID(`INSERT INTO ca_pool_items(pool_id,ca_value,priority,weight,enabled,created_at,updated_at)
 			VALUES(?,?,?,?,?,?,?)`,
 			item.PoolID, item.CAValue, item.Priority, item.Weight, boolInt(item.Enabled), now, now)
-		if err != nil {
-			return err
-		}
-		item.ID, err = itemRes.LastInsertId()
 		if err != nil {
 			return err
 		}
@@ -83,13 +75,9 @@ func (s *Store) UpdateCAPool(pool *model.CAPool) error {
 		if item.Weight <= 0 {
 			item.Weight = 1
 		}
-		itemRes, err := tx.Exec(`INSERT INTO ca_pool_items(pool_id,ca_value,priority,weight,enabled,created_at,updated_at)
+		item.ID, err = tx.InsertID(`INSERT INTO ca_pool_items(pool_id,ca_value,priority,weight,enabled,created_at,updated_at)
 			VALUES(?,?,?,?,?,?,?)`,
 			item.PoolID, item.CAValue, item.Priority, item.Weight, boolInt(item.Enabled), now, now)
-		if err != nil {
-			return err
-		}
-		item.ID, err = itemRes.LastInsertId()
 		if err != nil {
 			return err
 		}
@@ -203,19 +191,10 @@ func (s *Store) DeleteCAPool(id int64) error {
 
 // NextCAPoolCursor 原子地返回当前游标并递增，供轮询策略分配起始位置。
 func (s *Store) NextCAPoolCursor(id int64) (int64, error) {
-	tx, err := s.DB.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
+	// 单语句原子递增：UPDATE 的行锁保证并发调用拿到不同游标。
 	var cursor int64
-	if err := tx.QueryRow(`SELECT cursor FROM ca_pools WHERE id=?`, id).Scan(&cursor); err != nil {
-		return 0, err
-	}
-	if _, err := tx.Exec(`UPDATE ca_pools SET cursor=cursor+1 WHERE id=?`, id); err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
+	err := s.DB.QueryRow(`UPDATE ca_pools SET cursor=cursor+1 WHERE id=? RETURNING cursor-1`, id).Scan(&cursor)
+	if err != nil {
 		return 0, err
 	}
 	return cursor, nil

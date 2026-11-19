@@ -60,7 +60,11 @@ var hotIndexes = []struct {
 // EnsureIndexes 补充历史数据库缺少的热路径索引。
 func (m *Manager) EnsureIndexes(ctx context.Context) ([]string, error) {
 	existing := map[string]bool{}
-	rows, err := m.db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type='index'`)
+	indexQuery := `SELECT name FROM sqlite_master WHERE type='index'`
+	if m.db.Dialect().IsPostgres() {
+		indexQuery = `SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()`
+	}
+	rows, err := m.db.QueryContext(ctx, indexQuery)
 	if err != nil {
 		return nil, fmt.Errorf("读取索引列表失败: %w", err)
 	}
@@ -108,7 +112,9 @@ func (m *Manager) Optimize(ctx context.Context, opts OptimizeOptions) (OptimizeR
 		result.Actions = append(result.Actions, "补充索引: "+strings.Join(created, ", "))
 	}
 
-	if _, err := m.db.ExecContext(ctx, `PRAGMA optimize`); err != nil {
+	if m.db.Dialect().IsPostgres() {
+		// PostgreSQL 由 autovacuum 维护统计信息，这里只执行显式 ANALYZE。
+	} else if _, err := m.db.ExecContext(ctx, `PRAGMA optimize`); err != nil {
 		result.Warnings = append(result.Warnings, "PRAGMA optimize 失败: "+err.Error())
 	} else {
 		result.Actions = append(result.Actions, "更新查询规划器统计（PRAGMA optimize）")
@@ -122,7 +128,7 @@ func (m *Manager) Optimize(ctx context.Context, opts OptimizeOptions) (OptimizeR
 		}
 	}
 
-	if opts.Checkpoint {
+	if opts.Checkpoint && !m.db.Dialect().IsPostgres() {
 		var busy, logFrames, checkpointed int
 		row := m.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 		if err := row.Scan(&busy, &logFrames, &checkpointed); err != nil {
@@ -142,13 +148,19 @@ func (m *Manager) Optimize(ctx context.Context, opts OptimizeOptions) (OptimizeR
 	if opts.Vacuum {
 		vacuumCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
-		if _, err := m.db.ExecContext(vacuumCtx, `VACUUM`); err != nil {
+		vacuumSQL := `VACUUM`
+		if m.db.Dialect().IsPostgres() {
+			vacuumSQL = `VACUUM (ANALYZE)`
+		}
+		if _, err := m.db.ExecContext(vacuumCtx, vacuumSQL); err != nil {
 			result.Warnings = append(result.Warnings, "VACUUM 失败: "+err.Error())
 		} else {
 			result.Actions = append(result.Actions, "VACUUM 回收空闲页面")
 		}
 		// VACUUM 会重写统计信息，再执行一次轻量优化。
-		_, _ = m.db.ExecContext(vacuumCtx, `PRAGMA optimize`)
+		if !m.db.Dialect().IsPostgres() {
+			_, _ = m.db.ExecContext(vacuumCtx, `PRAGMA optimize`)
+		}
 	}
 
 	after, err := m.databaseStats(ctx, opts.CheckIntegrity)
@@ -170,6 +182,9 @@ func (m *Manager) Optimize(ctx context.Context, opts OptimizeOptions) (OptimizeR
 
 // databaseStats 读取 SQLite 页面统计并执行快速完整性检查。
 func (m *Manager) databaseStats(ctx context.Context, checkIntegrity bool) (DatabaseStats, error) {
+	if m.db.Dialect().IsPostgres() {
+		return m.postgresStats(ctx, checkIntegrity)
+	}
 	stats := DatabaseStats{Integrity: "ok"}
 	if m.dbPath != "" {
 		if info, err := os.Stat(m.dbPath); err == nil {
@@ -211,6 +226,32 @@ func (m *Manager) databaseStats(ctx context.Context, checkIntegrity bool) (Datab
 	}
 	_ = m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&stats.Tables)
 	_ = m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'`).Scan(&stats.Indexes)
+	return stats, nil
+}
+
+func (m *Manager) postgresStats(ctx context.Context, checkIntegrity bool) (DatabaseStats, error) {
+	stats := DatabaseStats{Integrity: "ok", JournalMode: "wal"}
+	if err := m.db.QueryRowContext(ctx, `SELECT pg_database_size(current_database())`).Scan(&stats.FileSize); err != nil {
+		return stats, fmt.Errorf("读取数据库大小失败: %w", err)
+	}
+	var blockSize int64
+	if err := m.db.QueryRowContext(ctx, `SELECT current_setting('block_size')::bigint`).Scan(&blockSize); err == nil {
+		stats.PageSize = blockSize
+		stats.PageCount = stats.FileSize / blockSize
+	}
+	stats.UsedBytes = stats.FileSize
+	if checkIntegrity {
+		if err := m.db.QueryRowContext(ctx, `SELECT 1`).Scan(new(int)); err != nil {
+			stats.Integrity = "unavailable"
+		} else {
+			stats.Integrity = "ok"
+		}
+	} else {
+		stats.Integrity = "skipped"
+	}
+	_ = m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema=current_schema() AND table_type='BASE TABLE'`).Scan(&stats.Tables)
+	_ = m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pg_indexes WHERE schemaname=current_schema()`).Scan(&stats.Indexes)
 	return stats, nil
 }
 

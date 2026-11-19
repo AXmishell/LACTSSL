@@ -27,6 +27,7 @@ import (
 	"golang.org/x/sync/singleflight"
 	"lactssl/internal/auth"
 	"lactssl/internal/backup"
+	"lactssl/internal/dbconvert"
 	"lactssl/internal/i18n"
 	"lactssl/internal/logarchive"
 	"lactssl/internal/model"
@@ -52,6 +53,10 @@ type Server struct {
 	LogArchives *logarchive.Service
 	// Program 是程序二进制自升级工具，由 main 注入。
 	Program *upgrade.ProgramUpdater
+	// DBConvert 是数据库在线转换任务管理器，由 main 注入。
+	DBConvert *dbconvert.Manager
+	// maintenance 表示数据库转换正在复制/切换，API 读写暂时拒绝。
+	maintenance atomic.Bool
 	// RestartProgram 由 main 注入，用于在程序升级后优雅退出并重新执行新二进制。
 	RestartProgram func()
 	// ConfigFile 是当前 config.yaml 路径，供初始化页面读写白名单配置项。
@@ -200,7 +205,7 @@ func (s *Server) Router() *gin.Engine {
 		_ = r.SetTrustedProxies(nil)
 	}
 	// 访问日志必须包在 recovery 外层，panic 被恢复并写入 500 后才能记录到正确状态码。
-	r.Use(s.requestID(), s.accessLog(), s.recovery(), s.bodyLimit(), s.localeMiddleware(), s.securityHeaders(), s.cors())
+	r.Use(s.requestID(), s.accessLog(), s.recovery(), s.bodyLimit(), s.localeMiddleware(), s.securityHeaders(), s.cors(), s.maintenanceGate())
 
 	// 接口固定挂在裸 /api 下；旧版 /<entry>/api 保留为兼容别名。
 	// 安全链按“来源校验 → 匿名限流 → CSRF → 默认认证”执行：
@@ -365,6 +370,13 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.GET("/upgrade", s.getUpgradeStatus)
 	g.POST("/upgrade/run", s.runUpgrade)
 	g.POST("/upgrade/optimize", s.optimizeUpgrade)
+	g.GET("/upgrade/database", s.getDatabaseConvertStatus)
+	g.POST("/upgrade/database/test", s.testDatabaseTarget)
+	g.POST("/upgrade/database/preflight", s.preflightDatabaseConvert)
+	g.POST("/upgrade/database/convert", s.startDatabaseConvert)
+	g.GET("/upgrade/database/convert", s.getDatabaseConvertStatus)
+	g.POST("/upgrade/database/convert/cancel", s.cancelDatabaseConvert)
+	g.POST("/upgrade/database/rollback", s.rollbackDatabaseConvert)
 	g.GET("/upgrade/program", s.getProgramStatus)
 	g.POST("/upgrade/program/check", s.checkProgram)
 	g.POST("/upgrade/program/apply", s.applyProgram)

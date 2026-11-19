@@ -9,12 +9,12 @@ import (
 // CreatePasskey 保存新的通行密钥凭据。
 func (s *Store) CreatePasskey(item *model.Passkey) error {
 	now := nowUTC()
-	res, err := s.DB.Exec(`INSERT INTO passkeys(user_id,name,credential_id,credential,created_at,last_used_at)
+	id, err := s.DB.InsertID(`INSERT INTO passkeys(user_id,name,credential_id,credential,created_at,last_used_at)
 		VALUES(?,?,?,?,?,?)`, item.UserID, item.Name, item.CredentialID, item.Credential, now, item.LastUsedAt)
 	if err != nil {
 		return err
 	}
-	item.ID, _ = res.LastInsertId()
+	item.ID = id
 	item.CreatedAt = now
 	return nil
 }
