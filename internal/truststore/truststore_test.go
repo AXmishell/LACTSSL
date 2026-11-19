@@ -121,6 +121,69 @@ func TestParseCAPEMAndTrustChain(t *testing.T) {
 	}
 }
 
+func TestSetEnvUsesAbsolutePath(t *testing.T) {
+	for _, key := range []string{"SSL_CERT_FILE", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE"} {
+		t.Setenv(key, "")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, BundleFileName)
+	if err := os.WriteFile(path, []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	if err := SetEnv(filepath.Base(path)); err != nil {
+		t.Fatalf("设置环境变量失败: %v", err)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"SSL_CERT_FILE", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE"} {
+		if got := os.Getenv(key); got != abs {
+			t.Fatalf("%s = %q, want %q", key, got, abs)
+		}
+	}
+	if BundlePath() != abs {
+		t.Fatalf("BundlePath() = %q, want %q", BundlePath(), abs)
+	}
+}
+
+func TestSyncBundleReturnsAbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	path, err := SyncBundle("data", nil)
+	if err != nil {
+		t.Fatalf("同步信任链失败: %v", err)
+	}
+	if !filepath.IsAbs(path) {
+		t.Fatalf("信任链路径应为绝对路径: %q", path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("信任链文件不存在: %v", err)
+	}
+}
+
+func TestReadCertDirOnlyLoadsCertificates(t *testing.T) {
+	dir := t.TempDir()
+	certPEM := []byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n")
+	if err := os.WriteFile(filepath.Join(dir, "ca.pem"), certPEM, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "private.key"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data := readCertDir(dir)
+	if !strings.Contains(string(data), "BEGIN CERTIFICATE") {
+		t.Fatal("应读取目录中的证书")
+	}
+	if strings.Contains(string(data), "secret") {
+		t.Fatal("不应读取私钥文件")
+	}
+	if readCertDir(filepath.Join(dir, "missing")) != nil {
+		t.Fatal("不存在的目录应返回空")
+	}
+}
+
 func TestParseCAPEMRejectsLeafAndExpired(t *testing.T) {
 	key := testKey(t)
 	leafKey := testKey(t)

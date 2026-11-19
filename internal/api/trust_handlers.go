@@ -112,13 +112,20 @@ func (s *Server) downloadTrustBundle(c *gin.Context) {
 	c.Data(http.StatusOK, "application/x-pem-file; charset=utf-8", data)
 }
 
-// syncTrustBundle 在数据目录可用时重建信任链文件。
+// syncTrustBundle 在数据目录可用时重建信任链文件，并立即刷新进程环境。
+// 导入/删除 CA 后无需重启，插件子进程下次启动即可读取新的信任链。
 func (s *Server) syncTrustBundle() error {
 	if strings.TrimSpace(s.DataDir) == "" {
 		return nil
 	}
-	_, err := s.Manager.SyncTrustBundle(s.DataDir)
-	return err
+	path, err := s.Manager.SyncTrustBundle(s.DataDir)
+	if err != nil || path == "" {
+		return err
+	}
+	if truststore.HasSystemBundle() {
+		return truststore.SetEnv(path)
+	}
+	return nil
 }
 
 // trustedCAName 让一次导入多张证书时仍能在列表中区分根 CA 与下级 CA。

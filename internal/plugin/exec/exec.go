@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"lactssl/internal/truststore"
 )
 
 // ErrTimeout 表示 helper 超过调用方设置的单次执行时间。
@@ -185,6 +187,13 @@ func helperEnv(opts Options) []string {
 	for _, key := range allow {
 		if value, ok := os.LookupEnv(key); ok {
 			env = append(env, key+"="+value)
+		}
+	}
+	// 即使进程环境被外部清理，也把当前信任链传给 helper，
+	// 避免导入的内部 CA 在插件侧失效。
+	if _, ok := os.LookupEnv("SSL_CERT_FILE"); !ok {
+		if path := truststore.BundlePath(); path != "" {
+			env = append(env, "SSL_CERT_FILE="+path)
 		}
 	}
 	for _, item := range os.Environ() {

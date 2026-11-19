@@ -55,32 +55,62 @@ func newVerifyResult(mode string, loc i18n.Locale) *VerifyResult {
 // tlsVerifyErrorMarkers 是 Go 标准库在证书校验失败时输出的稳定片段。
 // 插件返回的消息已经过本地化包装，但底层 x509/tls 错误仍是英文原文，
 // 因此宿主无法还原结构化错误，只能在展示边界按文本归一化。
-var tlsVerifyErrorMarkers = []string{
-	"tls: failed to verify certificate",
-	"x509: certificate signed by unknown authority",
-	"x509: certificate has expired",
-	"x509: certificate is not yet valid",
-	"x509: certificate is not valid for any names",
-	"x509: certificate is valid for",
-	"x509: cannot validate certificate",
-}
-
-// isTLSVerifyError 判断消息中是否包含证书校验失败。
-func isTLSVerifyError(message string) bool {
-	text := strings.ToLower(message)
-	for _, marker := range tlsVerifyErrorMarkers {
-		if strings.Contains(text, marker) {
-			return true
-		}
+//
+// 具体原因必须分开提示：导入内部 CA 只能解决“证书不受信任”，
+// 无法解决证书过期、尚未生效或主机名/IP 不匹配。
+var (
+	tlsExpiredMarkers = []string{
+		"certificate has expired",
+		"certificate is not yet valid",
 	}
-	return false
+	tlsHostnameMarkers = []string{
+		"certificate is not valid for any names",
+		"certificate is valid for",
+		"doesn't contain any ip sans",
+		"cannot validate certificate for",
+	}
+	tlsUntrustedMarkers = []string{
+		"certificate signed by unknown authority",
+		"unknown authority",
+		"certificate issuer has been marked as not permitted",
+		"certificate is not authorized to sign other certificates",
+	}
+	tlsGenericMarkers = []string{
+		"tls: failed to verify certificate",
+		"x509: cannot validate certificate",
+	}
+)
+
+// tlsVerifyMessageKey 返回匹配到的证书校验失败原因；未匹配时返回空字符串。
+func tlsVerifyMessageKey(message string) string {
+	text := strings.ToLower(message)
+	matches := func(markers []string) bool {
+		for _, marker := range markers {
+			if strings.Contains(text, marker) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case matches(tlsExpiredMarkers):
+		return "service.verify.tls_expired"
+	case matches(tlsHostnameMarkers):
+		return "service.verify.tls_hostname_mismatch"
+	case matches(tlsUntrustedMarkers):
+		return "service.verify.tls_untrusted"
+	case matches(tlsGenericMarkers):
+		return "service.verify.tls_failed"
+	default:
+		return ""
+	}
 }
 
-// normalizeVerifyMessage 把冗长的 TLS 证书校验错误收敛为简短提示，
-// 避免把面板地址、x509 细节和过期时间直接展示给用户。
+// normalizeVerifyMessage 把冗长的 TLS 证书校验错误收敛为可操作的简短提示，
+// 避免把面板地址与 x509 细节直接展示给用户。
 func normalizeVerifyMessage(loc i18n.Locale, message string) string {
-	if isTLSVerifyError(message) {
-		return i18n.T(loc, "service.verify.tls_failed", nil)
+	if key := tlsVerifyMessageKey(message); key != "" {
+		return i18n.T(loc, key, nil)
 	}
 	return message
 }

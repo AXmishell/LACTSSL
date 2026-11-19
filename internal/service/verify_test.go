@@ -228,8 +228,10 @@ func TestNormalizeVerifyMessage(t *testing.T) {
 		message string
 		want    string
 	}{
-		{name: "expired", loc: i18n.ZhCN, message: tlsVerifyFailureMessage, want: "TLS 校验失败"},
-		{name: "unknown authority", loc: i18n.EnUS, message: "x509: certificate signed by unknown authority", want: "TLS verification failed"},
+		{name: "expired", loc: i18n.ZhCN, message: tlsVerifyFailureMessage, want: "TLS 证书已过期或尚未生效，请先更新目标证书"},
+		{name: "unknown authority", loc: i18n.EnUS, message: "x509: certificate signed by unknown authority", want: "The TLS certificate is not trusted; make sure the issuing CA has been imported"},
+		{name: "hostname mismatch", loc: i18n.ZhCN, message: "tls: failed to verify certificate: x509: certificate is valid for panel.example.com, not 192.168.1.10", want: "TLS 证书与访问地址不匹配，请改用证书中的域名或关闭 TLS 校验"},
+		{name: "ip sans mismatch", loc: i18n.ZhCN, message: "x509: cannot validate certificate for 192.168.1.10 because it doesn't contain any IP SANs", want: "TLS 证书与访问地址不匹配，请改用证书中的域名或关闭 TLS 校验"},
 		{name: "case insensitive", loc: i18n.ZhCN, message: "TLS: FAILED TO VERIFY CERTIFICATE", want: "TLS 校验失败"},
 		{name: "plain error", loc: i18n.ZhCN, message: "部署目标验证失败: 认证失败", want: "部署目标验证失败: 认证失败"},
 		{name: "empty", loc: i18n.ZhCN, message: "", want: ""},
@@ -272,10 +274,11 @@ func TestVerifyDNSAccountNormalizesTLSFailure(t *testing.T) {
 	if result.OK {
 		t.Fatalf("TLS 校验失败时不能返回通过: %+v", result)
 	}
-	if result.Message != "TLS 校验失败" {
+	const expired = "TLS 证书已过期或尚未生效，请先更新目标证书"
+	if result.Message != expired {
 		t.Fatalf("result.Message = %q", result.Message)
 	}
-	if got := verifyCheckMessage(result, "verify"); got != "TLS 校验失败" {
+	if got := verifyCheckMessage(result, "verify"); got != expired {
 		t.Fatalf("verify check message = %q", got)
 	}
 }
@@ -314,10 +317,11 @@ func TestVerifyDeployAccountNormalizesTLSFailure(t *testing.T) {
 	if result.OK {
 		t.Fatalf("TLS 校验失败时不能返回通过: %+v", result)
 	}
-	if result.Message != "TLS 校验失败" {
+	const expired = "TLS 证书已过期或尚未生效，请先更新目标证书"
+	if result.Message != expired {
 		t.Fatalf("result.Message = %q", result.Message)
 	}
-	if got := verifyCheckMessage(result, "verify"); got != "TLS 校验失败" {
+	if got := verifyCheckMessage(result, "verify"); got != expired {
 		t.Fatalf("verify check message = %q", got)
 	}
 
@@ -325,7 +329,7 @@ func TestVerifyDeployAccountNormalizesTLSFailure(t *testing.T) {
 	deployer.response = pluginproto.VerifyResponse{}
 	deployer.err = errors.New(tlsVerifyFailureMessage)
 	result = m.VerifyDeployAccount(context.Background(), i18n.ZhCN, deployer.id, nil, nil, "auto", nil)
-	if result.OK || result.Message != "TLS 校验失败" {
+	if result.OK || result.Message != expired {
 		t.Fatalf("执行错误未归一化: %+v", result)
 	}
 

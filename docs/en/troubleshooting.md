@@ -247,6 +247,17 @@ data/plugins/notify
 
 Permission requirements: directories `0700`, helpers `0755`, owned by the service runtime user.
 
+### 6.1 Plugins still report TLS verification failure after importing a trust chain
+
+Use the specific message to identify the cause:
+
+- **Certificate expired or not yet valid**: renew or update the target certificate; importing a CA does not extend its validity.
+- **Certificate does not match the target address**: use a domain listed in the certificate SAN. If you access the target by IP, the certificate must contain that IP SAN.
+- **Certificate is not trusted**: make sure you imported the CA that issued the certificate (root or intermediate), not the site leaf certificate. One PEM file may contain multiple CA certificates. No restart is required after import.
+- Otherwise, inspect the actual chain returned by the target with `openssl s_client -connect host:port -servername host -showcerts`.
+
+Plugin subprocesses read `<data_dir>/trusted-ca-bundle.pem` through `SSL_CERT_FILE`. The bundle merges system roots, imported CAs, and private CAs; import only internal CAs that you actually control.
+
 ## 7. Backup and restore
 
 ### 7.1 Backup download fails

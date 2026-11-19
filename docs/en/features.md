@@ -151,7 +151,7 @@ Under "Settings → TLS trust chain" you can import internal CA public keys (PEM
 - Deployments, reload commands, and plugin subprocesses read the merged trust bundle through `SSL_CERT_FILE`, with `CURL_CA_BUNDLE` and `REQUESTS_CA_BUNDLE` also supported.
 - The bundle is stored as `trusted-ca-bundle.pem` in the data directory and can be downloaded from the settings page.
 
-Only import internal CAs you actually control; a wrong CA weakens TLS validation. Removing a CA makes targets that rely on its certificates untrusted again.
+Only import internal CAs you actually control; a wrong CA weakens TLS validation. Removing a CA makes targets that rely on its certificates untrusted again. Importing a CA only fixes trust; an expired or not-yet-valid certificate, or one that does not match the target domain/IP, still needs a certificate or address change.
 
 ### 4.4 Deployment records
 
