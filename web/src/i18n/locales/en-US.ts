@@ -674,7 +674,7 @@ export default {
     verifyDomain: 'Test domain',
     verifyDomainPlaceholder: 'e.g. example.com',
     verifyDomainHelp: 'Enter a domain this credential can manage. Verification creates and removes a temporary _acme-challenge TXT record. If empty, a domain from a task using this account is used.',
-    verifySavedHint: 'When editing a saved credential, verification uses the configuration stored on the server, not unsaved form changes.',
+    verifySavedHint: 'Verification uses the configuration stored on the server. To change a credential, save it via Configure first.',
     verifyCheck: {
       init: 'Credential initialization',
       domain: 'Test domain',

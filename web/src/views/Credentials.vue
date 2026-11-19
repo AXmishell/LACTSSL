@@ -68,6 +68,15 @@
         <div class="cred-cell cred-remark cred-meta">{{ item.remark || t('credentials.noRemark') }}</div>
         <div class="cred-cell cred-time cred-meta">{{ t('credentials.updatedAt', { value: fromNow(item.updated_at) }) }}</div>
         <div class="cred-cell cred-actions">
+          <el-button
+            text
+            type="primary"
+            size="small"
+            :loading="verifying && verifyTarget?.id === item.id"
+            @click="openVerify(item)"
+          >
+            {{ t('credentials.verify') }}
+          </el-button>
           <el-button text type="primary" size="small" @click="openEdit(item)">{{ t('credentials.configure') }}</el-button>
           <el-dropdown trigger="click" @command="(cmd: string) => handleCommand(cmd, item)">
             <el-button text circle><el-icon><MoreFilled /></el-icon></el-button>
@@ -128,7 +137,7 @@
       </el-table>
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="`${editingId ? t('credentials.edit') : t('credentials.add')} · ${isDNS ? t('credentials.dnsTitle') : t('credentials.deployTitle')}`" width="600px" destroy-on-close @closed="resetVerify">
+    <el-dialog v-model="dialogVisible" :title="`${editingId ? t('credentials.edit') : t('credentials.add')} · ${isDNS ? t('credentials.dnsTitle') : t('credentials.deployTitle')}`" width="600px" destroy-on-close>
       <el-form :model="form" label-position="top">
         <el-form-item :label="isDNS ? t('credentials.accountName') : t('credentials.deployName')" required>
           <el-input v-model="form.name" :placeholder="isDNS ? t('credentials.namePlaceholderDns') : t('credentials.namePlaceholderDeploy')" maxlength="60" />
@@ -210,13 +219,33 @@
           </el-form-item>
         </template>
 
-        <el-form-item v-if="isDNS" :label="t('credentials.verifyDomain')">
-          <el-input v-model="verifyDomain" :placeholder="t('credentials.verifyDomainPlaceholder')" />
-          <div class="form-help">{{ t('credentials.verifyDomainHelp') }}</div>
-        </el-form-item>
-
         <el-form-item :label="t('credentials.remark')">
           <el-input v-model="form.remark" :placeholder="t('credentials.remarkPlaceholder')" maxlength="100" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">{{ t('credentials.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="save">{{ t('credentials.save') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="verifyVisible"
+      :title="`${t('credentials.verify')} · ${verifyTarget?.name || ''}`"
+      width="520px"
+      destroy-on-close
+      @closed="resetVerify"
+    >
+      <el-form label-position="top">
+        <div class="config-tip" style="margin-bottom: 18px">{{ t('credentials.verifySavedHint') }}</div>
+        <el-form-item v-if="isDNS" :label="t('credentials.verifyDomain')">
+          <el-input
+            v-model="verifyDomain"
+            :placeholder="t('credentials.verifyDomainPlaceholder')"
+            :disabled="verifying"
+            @keyup.enter="verifyCurrent"
+          />
+          <div class="form-help">{{ t('credentials.verifyDomainHelp') }}</div>
         </el-form-item>
 
         <ReauthFields
@@ -225,10 +254,6 @@
           :totp-enabled="!!user?.totp_enabled"
         />
 
-        <div v-if="editingId" class="form-help" style="margin-bottom: 12px">
-          {{ t('credentials.verifySavedHint') }}
-        </div>
-
         <el-alert
           v-if="verifyResult"
           :type="verifyResult.ok ? 'success' : 'warning'"
@@ -236,7 +261,7 @@
           style="margin-bottom: 12px"
           :title="verifyResult.ok ? t('credentials.verifyPassed') : t('credentials.verifyFailed')"
         >
-          <div v-for="check in verifyResult.checks" :key="check.key" class="verify-check">
+          <div v-for="check in visibleVerifyChecks" :key="check.key" class="verify-check">
             <el-tag :type="verifyTagType(check.status === 'ok' ? 'ok' : check.status === 'unsupported' ? 'unsupported' : 'failed')" size="small" effect="light">
               {{ verifyStatusLabel(check.status === 'ok' ? 'ok' : check.status === 'unsupported' ? 'unsupported' : check.status === 'skipped' ? 'skipped' : 'failed') }}
             </el-tag>
@@ -246,9 +271,8 @@
         </el-alert>
       </el-form>
       <template #footer>
-        <el-button :loading="verifying" :disabled="saving" @click="verifyCurrent">{{ t('credentials.verify') }}</el-button>
-        <el-button @click="dialogVisible = false">{{ t('credentials.cancel') }}</el-button>
-        <el-button type="primary" :loading="saving" :disabled="verifying" @click="save">{{ t('credentials.save') }}</el-button>
+        <el-button :disabled="verifying" @click="verifyVisible = false">{{ t('credentials.cancel') }}</el-button>
+        <el-button type="primary" :loading="verifying" @click="verifyCurrent">{{ t('credentials.verify') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -302,11 +326,18 @@ const records = ref<DeployRecord[]>([])
 const certificates = ref<Certificate[]>([])
 const dialogVisible = ref(false)
 const editingId = ref(0)
+const verifyVisible = ref(false)
+const verifyTarget = ref<CredentialItem | null>(null)
 const selectedIds = ref<number[]>([])
 const showBatchBar = useDelayedBatchBar(() => selectedIds.value.length > 0)
 const batchDeleting = ref(false)
 const verifying = ref(false)
 const verifyResult = ref<VerifyResult | null>(null)
+// 凭据级验证不包含部署目标参数，后端会返回 scope=skipped 说明“未校验目标”。
+// 该分项不是失败项，展示出来容易被误读为缺少配置，因此只在凭据验证结果中隐藏。
+const visibleVerifyChecks = computed(() =>
+  (verifyResult.value?.checks || []).filter((check) => !(check.key === 'scope' && check.status === 'skipped'))
+)
 const verifyDomain = ref('')
 const reauth = reactive({ password: '', totp: '' })
 const user = computed(() => state.user)
@@ -355,11 +386,19 @@ function clearReauth(): void {
   reauth.totp = ''
 }
 
-// 切换凭据或关闭弹窗后清空上次验证结果，避免结果与当前表单错配。
+// 每次打开或关闭验证弹窗后清空上次结果，避免结果与当前凭据错配。
 function resetVerify(): void {
   verifyResult.value = null
   verifyDomain.value = ''
+  verifyTarget.value = null
   clearReauth()
+}
+
+// 验证只针对已保存的凭据，避免使用表单中尚未保存的配置。
+function openVerify(item: CredentialItem): void {
+  resetVerify()
+  verifyTarget.value = item
+  verifyVisible.value = true
 }
 
 function verifyTagType(status: string): 'success' | 'danger' | 'warning' | 'info' {
@@ -399,10 +438,8 @@ function verifyCheckLabel(key: string): string {
 }
 
 async function verifyCurrent(): Promise<void> {
-  if (!form.type) {
-    ElMessage.warning(t('credentials.typeRequired'))
-    return
-  }
+  const target = verifyTarget.value
+  if (!target) return
   if (!validReauth()) return
   verifying.value = true
   verifyResult.value = null
@@ -415,28 +452,16 @@ async function verifyCurrent(): Promise<void> {
     let path = ''
     if (isDNS.value) {
       payload.domain = verifyDomain.value.trim()
-      if (editingId.value) {
-        // 已保存账户只使用数据库中的配置，避免“旧密钥 + 新地址”外带凭据。
-        path = `/dns-accounts/${editingId.value}/verify`
-      } else {
-        path = '/dns-accounts/verify'
-        payload.provider = form.type
-        payload.config = form.config
-      }
+      // 已保存账户只使用数据库中的配置，避免“旧密钥 + 新地址”外带凭据。
+      path = `/dns-accounts/${target.id}/verify`
     } else {
-      if (editingId.value) {
-        path = `/deploy-accounts/${editingId.value}/verify`
-      } else {
-        path = '/deploy-accounts/verify'
-        payload.type = form.type
-        payload.config = form.config
-      }
+      path = `/deploy-accounts/${target.id}/verify`
     }
     const data = await api.post<VerifyResult>(path, payload)
     if (data === null) return
     verifyResult.value = data
     clearReauth()
-    if (editingId.value) await load()
+    await load()
     if (data.ok) ElMessage.success(t('credentials.verifyPassed'))
     else ElMessage.warning(data.message || t('credentials.verifyFailed'))
   } catch (error: any) {
@@ -524,7 +549,6 @@ function defaultConfig(def?: ProviderDef): Record<string, string> {
 }
 
 function openCreate(): void {
-  resetVerify()
   editingId.value = 0
   const def = typeOptions.value[0]
   form.name = ''
@@ -535,7 +559,6 @@ function openCreate(): void {
 }
 
 function openEdit(item: CredentialItem): void {
-  resetVerify()
   editingId.value = item.id
   form.name = item.name
   form.type = (isDNS.value ? item.provider : item.type) || ''
@@ -729,7 +752,7 @@ onMounted(() => {
 .cred-list-head,
 .cred-row {
   display: grid;
-  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.5fr) 170px 150px;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.5fr) 170px 200px;
   align-items: center;
   gap: 16px;
 }

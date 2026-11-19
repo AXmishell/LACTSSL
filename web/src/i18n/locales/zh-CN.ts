@@ -674,7 +674,7 @@ export default {
     verifyDomain: '测试域名',
     verifyDomainPlaceholder: '例如 example.com',
     verifyDomainHelp: '填写一个该凭据可管理的域名。验证会创建并删除一条 _acme-challenge 临时 TXT 记录；不填时尝试使用引用该账户的任务域名。',
-    verifySavedHint: '编辑已保存的凭据时，验证会使用服务端已保存的配置，不会使用表单中尚未保存的修改。',
+    verifySavedHint: '验证会使用服务端已保存的配置；如需调整凭据，请先在「配置」中保存后再验证。',
     verifyCheck: {
       init: '凭据初始化',
       domain: '测试域名',
