@@ -97,6 +97,12 @@ func (s *Server) handleDashboard(c *gin.Context) {
 	}
 	data.RecentTasks = localizeTasks(c, data.RecentTasks)
 	data.RecentLogs = localizeLogs(c, data.RecentLogs)
+	// 仪表盘同时显示 LACTSSL 进程的本地时间，便于与证书生效/到期时间对照。
+	now := time.Now()
+	_, offset := now.Zone()
+	data.ServerTime = now
+	data.ServerTimezone = now.Format("MST")
+	data.ServerOffsetSeconds = offset
 	ok(c, data)
 }
 
