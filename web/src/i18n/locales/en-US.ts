@@ -21,6 +21,7 @@ export default {
     loading: 'Loading',
     loadingSub: 'Preparing the page, please wait',
     copied: 'Copied',
+    copy: 'Copy',
     copyFailed: 'Copy failed',
     saved: 'Saved',
     deleted: 'Deleted',

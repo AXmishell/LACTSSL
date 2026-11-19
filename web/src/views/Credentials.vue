@@ -113,13 +113,19 @@
         <el-table-column width="160" :label="t('credentials.time')">
           <template #default="{ row }"><span class="muted">{{ formatDate(row.created_at) }}</span></template>
         </el-table-column>
-        <el-table-column min-width="170" :label="t('credentials.certificate')" show-overflow-tooltip>
+        <el-table-column min-width="170" :label="t('credentials.certificate')">
           <template #default="{ row }">
-            <span class="mono" style="font-size: 12px">{{ certDomain(row.cert_id) }}</span>
+            <OverflowTooltip :content="certDomain(row.cert_id)" :label="t('credentials.certificate')">
+              <span class="mono" style="font-size: 12px">{{ certDomain(row.cert_id) }}</span>
+            </OverflowTooltip>
           </template>
         </el-table-column>
-        <el-table-column width="150" :label="t('credentials.deployTarget')" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.account_name || t('credentials.unknownTarget') }}</template>
+        <el-table-column width="150" :label="t('credentials.deployTarget')">
+          <template #default="{ row }">
+            <OverflowTooltip :content="row.account_name || t('credentials.unknownTarget')" :label="t('credentials.deployTarget')">
+              <span>{{ row.account_name || t('credentials.unknownTarget') }}</span>
+            </OverflowTooltip>
+          </template>
         </el-table-column>
         <el-table-column width="100" :label="t('credentials.status')">
           <template #default="{ row }">
@@ -128,12 +134,17 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column
-          min-width="260"
-          :label="t('credentials.result')"
-          :show-overflow-tooltip="{ popperClass: 'deploy-result-tooltip' }"
-        >
-          <template #default="{ row }"><span class="muted" style="font-size: 12px">{{ row.message }}</span></template>
+        <el-table-column min-width="260" :label="t('credentials.result')">
+          <template #default="{ row }">
+            <OverflowTooltip
+              :content="row.message"
+              :label="t('credentials.result')"
+              :tone="row.status === 'success' ? 'success' : 'danger'"
+              always
+            >
+              <span class="muted" style="font-size: 12px">{{ row.message }}</span>
+            </OverflowTooltip>
+          </template>
         </el-table-column>
         <template #empty>
           <div style="padding: 26px 0; color: #94a3b8">{{ t('credentials.noRecords') }}</div>
@@ -279,6 +290,7 @@
         <el-button type="primary" :loading="verifying" @click="verifyCurrent">{{ t('credentials.verify') }}</el-button>
       </template>
     </el-dialog>
+    <OverflowTooltipLayer />
   </div>
 </template>
 
@@ -294,6 +306,8 @@ import { loadMeta, state } from '../store'
 import { fieldVisible, formatDate, fromNow } from '../utils'
 import { loadPluginIcons, pluginIcon } from '../pluginIcons'
 import DnsAccountIcon from '../components/DnsAccountIcon.vue'
+import OverflowTooltip from '../components/OverflowTooltip.vue'
+import OverflowTooltipLayer from '../components/OverflowTooltipLayer.vue'
 import ReauthFields from '../components/ReauthFields.vue'
 import type { Certificate, DeployRecord, FieldDef, Meta, ProviderDef, VerifyResult } from '../types'
 
@@ -869,12 +883,6 @@ onMounted(() => {
 </style>
 
 <style>
-.deploy-result-tooltip {
-  max-width: min(720px, calc(100vw - 48px));
-  line-height: 1.6;
-  word-break: break-word;
-}
-
 .provider-select-popper {
   --provider-select-width: min(480px, calc(100vw - 32px));
 }

@@ -21,6 +21,7 @@ export default {
     loading: '加载中',
     loadingSub: '正在准备页面，请稍候',
     copied: '已复制',
+    copy: '复制',
     copyFailed: '复制失败',
     saved: '已保存',
     deleted: '已删除',
