@@ -51,8 +51,8 @@
       </el-form>
     </div>
 
-    <div class="k-card" style="padding: 8px 16px 16px">
-      <el-table :data="items" v-loading="loading" style="width: 100%">
+    <div class="k-card" style="padding: 0; overflow: hidden">
+      <el-table :data="items" v-loading="loading" class="ca-table" style="width: 100%">
         <el-table-column min-width="260" :label="t('ca.ca')">
           <template #default="{ row }">
             <div class="ca-title-wrap">
@@ -494,8 +494,11 @@ onMounted(load)
   line-height: 1.6;
 }
 
+:deep(.ca-table .cell) {
+  padding: 0 22px;
+}
+
 :deep(.ca-actions-cell .cell) {
-  padding: 12px;
   text-align: left;
 }
 
