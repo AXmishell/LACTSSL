@@ -42,6 +42,12 @@ log:
     access: false
     retention_days: 30
     max_rows: 200000
+  archive:
+    enabled: true
+    compress: true
+    retention_days: 0
+    max_total_mb: 0
+    quota_policy: fail
 ```
 
 ### 1.2 Configuration precedence
@@ -84,6 +90,13 @@ log:
     access: false       # Whether to also write HTTP access logs to the database
     retention_days: 7   # Retention in days
     max_rows: 20000     # Maximum rows
+  archive:
+    enabled: true       # Archive logs before deletion; archive failure blocks deletion
+    dir: ""             # Empty means <data_dir>/archives/logs
+    compress: true      # gzip compression
+    retention_days: 0   # Archive retention in days; 0 keeps them forever
+    max_total_mb: 0     # Archive directory quota in MB; 0 means unlimited
+    quota_policy: fail  # fail or prune_oldest
 
 security:
   entry: ""             # Secure entry; randomly generated on first startup when empty
@@ -185,6 +198,14 @@ Process-level logging and operation logs serve different purposes: operation log
 - `system.access`: whether to also write HTTP access logs to the database. Defaults to `false` to avoid writing to SQLite on every request.
 - `system.retention_days`: retention in days, range `1–365`.
 - `system.max_rows`: maximum rows, range `100–1000000`; the oldest records are deleted when the limit is exceeded.
+- `archive.enabled`: archive database logs before deleting or clearing them. Enabled by default; an archive failure blocks deletion so logs are never silently dropped.
+- `archive.dir`: archive root; empty means `<data_dir>/archives/logs`. Created with `0700` permissions; files are `0600`.
+- `archive.compress`: gzip compression; when disabled, archives are stored as `.ndjson`.
+- `archive.retention_days`: archive file retention in days, range `0–3650`; `0` (default) keeps archives forever.
+- `archive.max_total_mb`: archive directory quota in MB; `0` means unlimited. `quota_policy` controls what happens when it is exceeded.
+- `archive.quota_policy`: `fail` (default, reject archiving and block deletion) or `prune_oldest` (delete the oldest archives). `prune_oldest` destroys audit material and must be configured explicitly.
+
+Each archive consists of a `*.ndjson.gz` (or `.ndjson`) data file and a `*.manifest.json` containing row count, ID range, time range, trigger reason, operator, SHA-256, and file size. The archive directory is not included in the default ZIP backup and must be backed up separately.
 
 Writes use a bounded asynchronous queue, so a busy database does not block business requests; when the queue is full, new logs are dropped. System logs may contain client IPs, domains, and error details; manage them as operational data.
 

@@ -707,6 +707,42 @@ export interface SystemLogPage {
   enabled: boolean
 }
 
+export interface LogArchiveFile {
+  name: string
+  format: string
+  bytes: number
+  sha256: string
+}
+
+export interface LogArchiveEntry {
+  archive_id: string
+  category: 'operation' | 'runtime' | string
+  reason: 'manual_clear' | 'retention' | 'max_rows' | string
+  created_at: string
+  app_version?: string
+  operator?: {
+    user_id: number
+    email?: string
+  }
+  row_count: number
+  first_log_id: number
+  last_log_id: number
+  first_created_at?: string
+  last_created_at?: string
+  filters?: Record<string, unknown>
+  file: LogArchiveFile
+  missing?: boolean
+}
+
+export interface LogArchivePage {
+  items: LogArchiveEntry[]
+  total: number
+  page: number
+  size: number
+  enabled: boolean
+  dir: string
+}
+
 export interface DeployResult {
   success: boolean
   name: string

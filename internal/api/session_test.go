@@ -14,6 +14,7 @@ import (
 	"github.com/pquerna/otp/totp"
 	"lactssl/internal/auth"
 	"lactssl/internal/db"
+	"lactssl/internal/logarchive"
 	"lactssl/internal/model"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
@@ -39,7 +40,9 @@ func newSessionTestStore(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatalf("初始化加密组件失败: %v", err)
 	}
-	return store.New(conn, cipher)
+	st := store.New(conn, cipher)
+	st.Archiver = logarchive.New(st, logarchive.Options{RootDir: t.TempDir(), Compress: true})
+	return st
 }
 
 func newSessionTestServerWithAuth(t *testing.T, st *store.Store, authManager *auth.Manager) *gin.Engine {
@@ -54,6 +57,9 @@ func newSessionTestServerWithAuth(t *testing.T, st *store.Store, authManager *au
 		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
 		nil,
 	)
+	if archiver, ok := st.Archiver.(*logarchive.Service); ok {
+		s.LogArchives = archiver
+	}
 	return s.Router()
 }
 

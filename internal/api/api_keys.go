@@ -276,12 +276,16 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"DELETE /api/monitors/:id":     {apiScopeMonitorsWrite},
 	"POST /api/monitors/:id/check": {apiScopeMonitorsWrite},
 
-	"GET /api/logs":               {apiScopeLogsRead},
-	"GET /api/logs/export":        {apiScopeLogsRead},
-	"DELETE /api/logs":            {apiScopeLogsWrite},
-	"GET /api/system-logs":        {apiScopeSystemLogsRead},
-	"GET /api/system-logs/export": {apiScopeSystemLogsRead},
-	"DELETE /api/system-logs":     {apiScopeSystemLogsWrite},
+	"GET /api/logs":                      {apiScopeLogsRead},
+	"GET /api/logs/export":               {apiScopeLogsRead},
+	"DELETE /api/logs":                   {apiScopeLogsWrite},
+	"GET /api/system-logs":               {apiScopeSystemLogsRead},
+	"GET /api/system-logs/export":        {apiScopeSystemLogsRead},
+	"DELETE /api/system-logs":            {apiScopeSystemLogsWrite},
+	"GET /api/log-archives":              {},
+	"GET /api/log-archives/:id":          {},
+	"GET /api/log-archives/:id/download": {},
+	"DELETE /api/log-archives/:id":       {},
 
 	"GET /api/settings":                  {apiScopeSettingsRead},
 	"PUT /api/settings":                  {apiScopeSettingsWrite},
@@ -305,6 +309,15 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"PUT /api/api-keys/:id":         {apiScopeAPIKeysWrite},
 	"DELETE /api/api-keys/:id":      {apiScopeAPIKeysWrite},
 	"POST /api/api-keys/:id/rotate": {apiScopeAPIKeysWrite},
+}
+
+// apiKeyAnyScopeRoutes 表示一个路由允许任意一个列出的 scope。
+// 用于日志归档这类同时服务于操作日志与系统日志的分类资源。
+var apiKeyAnyScopeRoutes = map[string][]string{
+	"GET /api/log-archives":              {apiScopeLogsRead, apiScopeSystemLogsRead},
+	"GET /api/log-archives/:id":          {apiScopeLogsRead, apiScopeSystemLogsRead},
+	"GET /api/log-archives/:id/download": {apiScopeLogsRead, apiScopeSystemLogsRead},
+	"DELETE /api/log-archives/:id":       {apiScopeLogsWrite, apiScopeSystemLogsWrite},
 }
 
 // apiKeyFromContext 返回当前请求使用的 API 密钥；使用登录会话时返回 nil。
@@ -363,7 +376,17 @@ func (s *Server) authorizeAPIKey(c *gin.Context) bool {
 	if key == nil {
 		return true
 	}
-	policy, found := apiKeyRoutePolicies[apiRouteKey(c)]
+	route := apiRouteKey(c)
+	if scopes, ok := apiKeyAnyScopeRoutes[route]; ok {
+		for _, scope := range scopes {
+			if key.HasScope(scope) {
+				return true
+			}
+		}
+		failKey(c, http.StatusForbidden, "api.error.api_key_scope_denied", "scope", strings.Join(scopes, "|"))
+		return false
+	}
+	policy, found := apiKeyRoutePolicies[route]
 	if !found || policy.Scope == "" {
 		failKey(c, http.StatusForbidden, "api.error.api_key_route_forbidden")
 		return false

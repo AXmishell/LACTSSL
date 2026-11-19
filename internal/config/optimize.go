@@ -167,6 +167,14 @@ func defaultSpec() map[string]any {
 				"retention_days": fc.Log.System.RetentionDays,
 				"max_rows":       fc.Log.System.MaxRows,
 			},
+			"archive": map[string]any{
+				"enabled":        fc.Log.Archive.Enabled,
+				"dir":            fc.Log.Archive.Dir,
+				"compress":       fc.Log.Archive.Compress,
+				"retention_days": fc.Log.Archive.RetentionDays,
+				"max_total_mb":   fc.Log.Archive.MaxTotalMB,
+				"quota_policy":   fc.Log.Archive.QuotaPolicy,
+			},
 		},
 		"upgrade": map[string]any{
 			"auto":          fc.Upgrade.Auto,
@@ -245,6 +253,7 @@ func normalizeConfigNode(root *yaml.Node, prefix string, report *OptimizeReport)
 	normalizeScalarValue(root, []string{"log"}, "level", prefix, lowerValue, report)
 	normalizeScalarValue(root, []string{"log"}, "format", prefix, lowerValue, report)
 	normalizeScalarValue(root, []string{"log", "system"}, "level", prefix, lowerValue, report)
+	normalizeScalarValue(root, []string{"log", "archive"}, "quota_policy", prefix, lowerValue, report)
 	normalizeScalarValue(root, []string{"plugins", "repo"}, "channel", prefix, lowerValue, report)
 	normalizeScalarValue(root, []string{"upgrade", "program"}, "channel", prefix, lowerValue, report)
 	normalizeScalarValue(root, []string{"upgrade", "program"}, "repo", prefix, trimValue, report)

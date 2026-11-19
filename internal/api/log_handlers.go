@@ -175,14 +175,19 @@ func (s *Server) clearLogs(c *gin.Context) {
 		rateLimited(c, wait)
 		return
 	}
-	count, err := s.Store.ClearOperationLogs()
+	count, archived, err := s.Store.ClearOperationLogsWithArchive("manual_clear", user.ID, user.Email)
 	if err != nil {
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}
 	// 先清空再写审计日志，保证清空动作本身不会被一起删除。
-	s.Store.AddLogKey("settings", 0, "warning", "log.settings.logs_cleared", map[string]any{"count": count})
-	ok(c, gin.H{"deleted": count})
+	params := map[string]any{"count": count}
+	if archived != nil {
+		params["archive_id"] = archived.ID
+		params["archive_file"] = archived.File
+	}
+	s.Store.AddLogKey("settings", 0, "warning", "log.settings.logs_cleared", params)
+	ok(c, gin.H{"deleted": count, "archived": archived})
 }
 
 // parseLogTime 支持 RFC3339 与日期（按 UTC 零点解释）。

@@ -26,7 +26,9 @@ Back up both of the following:
 1. `config.yaml` (or the path specified by `-config`)
 2. The entire `data/` directory
 
-`data/` contains at least `lactssl.db`; at runtime it may also contain `lactssl.db-wal` and `lactssl.db-shm`. The database, plugins, logs, and upgrade backups all reside under `data/`.
+`data/` contains at least `lactssl.db`; at runtime it may also contain `lactssl.db-wal` and `lactssl.db-shm`. The database, plugins, logs, log archives, and upgrade backups all reside under `data/`.
+
+Note: the ZIP produced by **Download backup** in the UI **does not include** `data/archives/logs/`. Log archives are as sensitive as the database and must be copied or downloaded to offline media separately; a command-line backup of the whole `data/` directory includes them.
 
 Backing up only the database loses the `salt`, leaving encrypted credentials undecryptable; backing up only the configuration loses business data. The two must be kept together.
 
@@ -168,6 +170,7 @@ Notification channel availability depends on external services. Configure at lea
 | Item | Growth source | Handling |
 | --- | --- | --- |
 | SQLite | Certificates, task logs, operation logs, system logs, ACME orders | Purge historical data, optimize the database, archive logs |
+| Log archives | NDJSON.gz files and manifests under `data/archives/logs/` | Copy to external storage regularly; delete from Logs → Archive when appropriate |
 | WAL | Long uptime, frequent writes | `wal_checkpoint(TRUNCATE)` performed by the upgrade/optimization tool |
 | Plugins | Old files accumulate from installs/updates | Uninstall unused plugins and remove old helpers |
 | Upgrade backups | Migration snapshots, old binaries | Purge per retention policy |
@@ -177,7 +180,8 @@ Notification channel availability depends on external services. Configure at lea
 
 - **Certificate Management → One-click cleanup**: filter by status, expiry/revocation age, issuance time, domain, issuer, and source; optionally retain the latest certificate for each task. Certificate references in affected tasks are cleared after cleanup.
 - **ACME Diagnostics → Cleanup**: remove invalid orders and accounts by endpoint, status, and unused age; deleting an account deletes historical orders but does not affect issued certificates.
-- **Logs → System → Clear**: clearing is recorded in the operation log; export logs first.
+- **Logs → Operation/System → Clear**: when archiving is enabled, logs are written to `data/archives/logs/` before being deleted; an archive failure blocks deletion. The clear action is recorded in the operation log.
+- **Logs → Archive**: browse, download, or delete archive files. Archives are kept forever by default; when `archive.retention_days` or `archive.max_total_mb` is configured, maintenance cleanup applies the policy.
 - **Upgrade/optimization**: run database optimization during off-peak hours; `VACUUM` briefly monopolizes the database and rewrites the file, so reserve disk space.
 
 ### 5.3 Database Maintenance

@@ -269,7 +269,7 @@ The UI supports Simplified Chinese and English and can be switched in settings. 
 - Supports filtering by source, level, keyword, and time range, with optional auto refresh.
 - Keywords match the raw stored content and parameter values (such as task names and domains), not the localized template text shown in the UI.
 - Can export CSV or JSON; CSV includes a UTF-8 BOM and opens directly in Excel/WPS. Export uses the same filters as the list.
-- Can be cleared; the clear action itself is written to the audit log. This requires the separate sensitive scope `logs:write` and a confirmation in the UI.
+- Can be cleared; when archiving is enabled, logs are written to `data/archives/logs/` before deletion. The clear action itself is written to the audit log. This requires the separate sensitive scope `logs:write` and a confirmation in the UI.
 - Export is limited to the most recent 90 days.
 - Export times follow the browser time zone by default; if unavailable, the server `TZ` is used.
 
@@ -278,9 +278,19 @@ The UI supports Simplified Chinese and English and can be switched in settings. 
 - Shares the Misc → Logs page with operation logs, switched via tabs.
 - Filtered from process logs and written asynchronously to the database.
 - Can be filtered by level, component, keyword, and time range.
-- Can be exported as CSV/JSON and cleared; clearing writes an entry to the operation log.
+- Can be exported as CSV/JSON and cleared; when archiving is enabled, logs are archived before clearing, and clearing writes an entry to the operation log.
 - Records `info` and above by default, retaining 7 days or 20,000 rows.
 - HTTP access logs are not written to the database by default and can be adjusted in `log.system`.
+
+### 9.4 Logs: Archive
+
+- Shares the Misc → Logs page as a third tab.
+- Manual clears, the 90-day operation-log cleanup, and system-log retention/max-row cleanup create an archive before deletion.
+- An archive consists of `*.ndjson.gz` and `*.manifest.json`, preserving raw log fields, row count, ID/time ranges, trigger reason, operator, SHA-256, and file size.
+- Filter by category, reason, keyword, and time range; download or delete archives.
+- Archives are kept forever by default; `log.archive.retention_days`, `max_total_mb`, and `quota_policy` control cleanup.
+- Archive failure blocks deletion: manual clears return an error and automatic cleanup retries on the next maintenance run.
+- The archive directory is not included in the default ZIP backup and must be copied separately. Administrators with data-directory access can delete archives, so this is not tamper-proof auditing.
 
 ## 10. Capability boundaries
 

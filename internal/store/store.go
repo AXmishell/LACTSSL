@@ -28,6 +28,33 @@ type Store struct {
 	// 避免用户刚清空后队列中的旧日志又被写回。
 	systemLogMu        sync.RWMutex
 	systemLogClearedAt time.Time
+
+	// Archiver 在删除日志前执行归档。由 main 在启用归档时注入；
+	// 为 nil 表示未启用归档，保留旧版直接删除行为。
+	Archiver LogArchiver
+}
+
+// LogArchiveResult 描述一次成功写入的日志归档。
+// 文件路径相对于归档根目录，避免把服务器绝对路径暴露给前端。
+type LogArchiveResult struct {
+	ID        string `json:"id"`
+	Category  string `json:"category"`
+	Reason    string `json:"reason"`
+	File      string `json:"file"`
+	Rows      int64  `json:"rows"`
+	Bytes     int64  `json:"bytes"`
+	SHA256    string `json:"sha256"`
+	CreatedAt string `json:"created_at"`
+}
+
+// LogArchiver 是日志归档服务在 Store 侧的抽象。
+// internal/logarchive 实现该接口，Store 不反向依赖具体包。
+type LogArchiver interface {
+	ClearOperationLogs(reason string, operatorID int64, operatorEmail string) (*LogArchiveResult, int64, error)
+	ClearSystemLogs(reason string, operatorID int64, operatorEmail string) (*LogArchiveResult, int64, error)
+	PruneOperationLogs(cutoff time.Time) (*LogArchiveResult, error)
+	PruneSystemLogs(cutoff time.Time, maxRows int) ([]*LogArchiveResult, error)
+	PruneArchives(now time.Time) error
 }
 
 // 系统日志默认保留策略，避免测试或未注入配置时无限增长。
@@ -217,16 +244,49 @@ func (s *Store) Maintenance() error {
 			firstErr = err
 		}
 	}
+	setErr := func(err error) {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
 	exec(`DELETE FROM sessions WHERE expires_at < ?`, nowUTC())
 	exec(`DELETE FROM sessions WHERE revoked_at IS NOT NULL AND revoked_at < ?`, nowUTC().AddDate(0, 0, -7))
 	exec(`DELETE FROM password_resets WHERE expires_at < ?`, nowUTC())
-	exec(`DELETE FROM logs WHERE category=? AND created_at < ?`, model.LogCategoryOperation, nowUTC().AddDate(0, 0, -90))
+	if s.Archiver != nil {
+		result, err := s.Archiver.PruneOperationLogs(nowUTC().AddDate(0, 0, -90))
+		if err != nil {
+			setErr(err)
+		} else {
+			s.recordLogArchive(result)
+		}
+	} else {
+		exec(`DELETE FROM logs WHERE category=? AND created_at < ?`, model.LogCategoryOperation, nowUTC().AddDate(0, 0, -90))
+	}
 	exec(`DELETE FROM deploy_records WHERE created_at < ?`, nowUTC().AddDate(0, 0, -180))
 	exec(`DELETE FROM certificate_requests WHERE status IN ('issued','failed','cancelled','expired') AND updated_at < ?`, nowUTC().AddDate(0, 0, -90))
-	if err := s.CleanupSystemLogs(); err != nil && firstErr == nil {
-		firstErr = err
+	if err := s.CleanupSystemLogs(); err != nil {
+		setErr(err)
+	}
+	if s.Archiver != nil {
+		if err := s.Archiver.PruneArchives(nowUTC()); err != nil {
+			setErr(err)
+		}
 	}
 	return firstErr
+}
+
+// recordLogArchive 为自动清理产生的归档补一条操作日志，便于事后追溯。
+// 手动清空由接口层记录，避免同一动作重复写两条审计。
+func (s *Store) recordLogArchive(result *LogArchiveResult) {
+	if result == nil || result.Rows == 0 {
+		return
+	}
+	s.AddLogKey("settings", 0, "info", "log.settings.logs_archived", map[string]any{
+		"category": result.Category,
+		"reason":   result.Reason,
+		"count":    result.Rows,
+		"file":     result.File,
+	})
 }
 
 func (s *Store) scanUser(row interface{ Scan(...any) error }) (*model.User, error) {
@@ -1476,10 +1536,109 @@ func (s *Store) ListLogs(source string, limit, offset int) ([]model.LogEntry, in
 	return s.ListLogsFiltered(LogFilter{Category: model.LogCategoryOperation, Source: source}, limit, offset)
 }
 
-// ClearOperationLogs 删除全部操作日志，返回删除行数。
-// 调用方负责在清空后写入审计日志，避免审计记录被一并删除。
+// ClearOperationLogs 清空全部操作日志，返回删除行数。
+// 启用归档时先归档再删除；调用方负责在清空后写入审计日志。
 func (s *Store) ClearOperationLogs() (int64, error) {
+	deleted, _, err := s.ClearOperationLogsWithArchive("manual_clear", 0, "")
+	return deleted, err
+}
+
+// ClearOperationLogsWithArchive 归档并清空操作日志。
+// 归档未启用时退回直接删除，并返回 nil 归档结果。
+func (s *Store) ClearOperationLogsWithArchive(reason string, operatorID int64, operatorEmail string) (int64, *LogArchiveResult, error) {
+	if s.Archiver == nil {
+		deleted, err := s.clearOperationLogsDirect()
+		return deleted, nil, err
+	}
+	result, deleted, err := s.Archiver.ClearOperationLogs(reason, operatorID, operatorEmail)
+	return deleted, result, err
+}
+
+func (s *Store) clearOperationLogsDirect() (int64, error) {
 	result, err := s.DB.Exec(`DELETE FROM logs WHERE category=?`, model.LogCategoryOperation)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// ---------- 归档使用的底层原语 ----------
+
+// MaxLogIDByCategory 返回指定分类当前最大日志 ID。
+func (s *Store) MaxLogIDByCategory(category string) (int64, error) {
+	var id int64
+	if err := s.DB.QueryRow(`SELECT COALESCE(MAX(id),0) FROM logs WHERE category=?`, category).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// LogBoundaryID 返回“保留最新 keep 条”时最旧保留记录的 ID。
+// 调用方应以该 ID 作为排他上界删除更旧的记录；返回 0 表示当前记录数不超过 keep。
+func (s *Store) LogBoundaryID(category string, keep int) (int64, error) {
+	if keep <= 0 {
+		return 0, nil
+	}
+	var id int64
+	err := s.DB.QueryRow(`SELECT id FROM logs WHERE category=? ORDER BY id DESC LIMIT 1 OFFSET ?`, category, keep-1).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// LogsForArchive 按 ID 升序分批读取待归档日志。
+// beforeID 是排他上界（不包含该 ID）；cutoff 非空时只读取 created_at < cutoff 的记录。
+func (s *Store) LogsForArchive(category string, beforeID int64, cutoff *time.Time, afterID int64, limit int) ([]model.LogEntry, error) {
+	if beforeID <= 0 {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 2000 {
+		limit = 1000
+	}
+	clauses := []string{"category=?", "id<?", "id>?"}
+	args := []any{category, beforeID, afterID}
+	if cutoff != nil && !cutoff.IsZero() {
+		clauses = append(clauses, "created_at<?")
+		args = append(args, cutoff.UTC())
+	}
+	args = append(args, limit)
+	rows, err := s.DB.Query(
+		`SELECT id,category,source,ref_type,ref_id,level,message,fields,request_id,created_at
+		 FROM logs WHERE `+strings.Join(clauses, " AND ")+` ORDER BY id ASC LIMIT ?`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]model.LogEntry, 0, limit)
+	for rows.Next() {
+		entry, err := scanLogEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, entry)
+	}
+	return list, rows.Err()
+}
+
+// DeleteLogsForArchive 删除与归档快照完全一致的日志范围。
+// beforeID 是排他上界（不包含该 ID），因此可以安全处理删除后产生的 ID 空洞。
+func (s *Store) DeleteLogsForArchive(category string, beforeID int64, cutoff *time.Time) (int64, error) {
+	if beforeID <= 0 {
+		return 0, nil
+	}
+	sqlText := `DELETE FROM logs WHERE category=? AND id<?`
+	args := []any{category, beforeID}
+	if cutoff != nil && !cutoff.IsZero() {
+		sqlText += ` AND created_at<?`
+		args = append(args, cutoff.UTC())
+	}
+	result, err := s.DB.Exec(sqlText, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -1701,8 +1860,24 @@ func (s *Store) SystemLogComponents() ([]string, error) {
 	return list, rows.Err()
 }
 
-// ClearSystemLogs 删除全部系统日志，返回删除行数。
+// ClearSystemLogs 清空全部系统日志，返回删除行数。
 func (s *Store) ClearSystemLogs() (int64, error) {
+	deleted, _, err := s.ClearSystemLogsWithArchive("manual_clear", 0, "")
+	return deleted, err
+}
+
+// ClearSystemLogsWithArchive 归档并清空系统日志。
+// 归档未启用时退回直接删除，并返回 nil 归档结果。
+func (s *Store) ClearSystemLogsWithArchive(reason string, operatorID int64, operatorEmail string) (int64, *LogArchiveResult, error) {
+	if s.Archiver == nil {
+		deleted, err := s.clearSystemLogsDirect()
+		return deleted, nil, err
+	}
+	result, deleted, err := s.Archiver.ClearSystemLogs(reason, operatorID, operatorEmail)
+	return deleted, result, err
+}
+
+func (s *Store) clearSystemLogsDirect() (int64, error) {
 	s.systemLogMu.Lock()
 	defer s.systemLogMu.Unlock()
 	s.systemLogClearedAt = nowUTC()
@@ -1713,8 +1888,37 @@ func (s *Store) ClearSystemLogs() (int64, error) {
 	return result.RowsAffected()
 }
 
+// ClearSystemLogsThrough 删除快照上界内的系统日志，并更新清空标记。
+// 归档必须先完成再调用该方法；maxID 为 0 时仍会更新标记，保持“清空空日志”
+// 也能丢弃队列中旧日志的原有语义。
+func (s *Store) ClearSystemLogsThrough(maxID int64) (int64, error) {
+	s.systemLogMu.Lock()
+	defer s.systemLogMu.Unlock()
+	s.systemLogClearedAt = nowUTC()
+	if maxID <= 0 {
+		return 0, nil
+	}
+	result, err := s.DB.Exec(`DELETE FROM logs WHERE category=? AND id<=?`, model.LogCategoryRuntime, maxID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // CleanupSystemLogs 按保留天数与最大行数清理系统日志。
+// 启用归档时先归档再删除；自动清理产生的归档会记录操作日志。
 func (s *Store) CleanupSystemLogs() error {
+	if s.Archiver != nil {
+		cutoff := time.Time{}
+		if s.SystemLogRetentionDays > 0 {
+			cutoff = nowUTC().AddDate(0, 0, -s.SystemLogRetentionDays)
+		}
+		results, err := s.Archiver.PruneSystemLogs(cutoff, s.SystemLogMaxRows)
+		for _, result := range results {
+			s.recordLogArchive(result)
+		}
+		return err
+	}
 	var firstErr error
 	if s.SystemLogRetentionDays > 0 {
 		if _, err := s.DB.Exec(`DELETE FROM logs WHERE category=? AND created_at < ?`,

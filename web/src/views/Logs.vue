@@ -13,6 +13,7 @@
       >
         <el-tab-pane :label="t('logs.tabOperation')" name="operation" />
         <el-tab-pane :label="t('logs.tabSystem')" name="system" />
+        <el-tab-pane :label="t('logs.tabArchive')" name="archive" />
       </el-tabs>
     </div>
 
@@ -25,12 +26,25 @@
           <el-option v-for="item in levels" :key="item.value" :label="t(item.label)" :value="item.value" />
         </el-select>
       </template>
-      <template v-else>
+      <template v-else-if="tab === 'system'">
         <el-select v-model="systemLevel" :placeholder="t('systemLogs.allLevels')" style="width: 140px" @change="reload">
           <el-option v-for="item in systemLevels" :key="item.value" :label="t(item.label)" :value="item.value" />
         </el-select>
         <el-select v-model="component" clearable :placeholder="t('systemLogs.allComponents')" style="width: 140px" @change="reload">
           <el-option v-for="item in components" :key="item" :label="componentLabel(item)" :value="item" />
+        </el-select>
+      </template>
+      <template v-else>
+        <el-select v-model="archiveCategory" :placeholder="t('logs.archiveAllCategories')" style="width: 130px" @change="reload">
+          <el-option value="" :label="t('logs.archiveAllCategories')" />
+          <el-option value="operation" :label="t('logs.archiveCategoryOperation')" />
+          <el-option value="runtime" :label="t('logs.archiveCategoryRuntime')" />
+        </el-select>
+        <el-select v-model="archiveReason" :placeholder="t('logs.archiveAllReasons')" style="width: 150px" @change="reload">
+          <el-option value="" :label="t('logs.archiveAllReasons')" />
+          <el-option value="manual_clear" :label="t('logs.archiveReasonManual')" />
+          <el-option value="retention" :label="t('logs.archiveReasonRetention')" />
+          <el-option value="max_rows" :label="t('logs.archiveReasonMaxRows')" />
         </el-select>
       </template>
       <el-input
@@ -55,7 +69,7 @@
         style="width: 240px"
         @change="reload"
       />
-      <el-dropdown trigger="click" @command="exportLogs">
+      <el-dropdown v-if="tab !== 'archive'" trigger="click" @command="exportLogs">
         <el-button :icon="Download" :loading="exporting" :title="t('logs.exportHint')">
           {{ exporting ? t('logs.exporting') : t('logs.export') }}
           <el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -69,6 +83,7 @@
       </el-dropdown>
       <el-button :icon="Refresh" circle @click="load()" />
       <el-button
+        v-if="tab !== 'archive'"
         type="danger"
         plain
         :icon="Delete"
@@ -87,10 +102,21 @@
       show-icon
       style="margin-bottom: 12px"
     />
+    <el-alert
+      v-if="tab === 'archive' && !archiveEnabled"
+      :title="t('logs.archiveDisabled')"
+      type="warning"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <div v-if="tab === 'archive' && archiveEnabled && archiveDir" class="muted archive-dir">
+      {{ t('logs.archiveDir') }}: <span class="mono">{{ archiveDir }}</span>
+    </div>
 
     <div class="k-card" style="padding: 0; overflow: hidden">
       <div class="table-scroll" :class="{ 'is-switching': switching }">
-        <el-table :data="items" v-loading="loading" row-key="id" style="width: 100%">
+        <el-table v-if="tab !== 'archive'" :data="items" v-loading="loading" row-key="id" style="width: 100%">
           <el-table-column v-if="tab === 'system'" type="expand" width="48">
             <template #default="{ row }">
               <div class="system-log-fields">
@@ -140,10 +166,78 @@
             </div>
           </template>
         </el-table>
+        <el-table v-else :data="archiveItems" v-loading="loading" row-key="archive_id" style="width: 100%">
+          <el-table-column width="170" align="right" :label="t('logs.archiveCreatedAt')">
+            <template #default="{ row }">
+              <div class="muted">{{ formatDate(row.created_at) }}</div>
+              <div class="archive-file mono" :title="row.file?.name">
+                {{ archiveFileName(row) }}
+                <el-tag v-if="row.missing" size="small" type="warning">{{ t('logs.archiveMissing') }}</el-tag>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="110" :label="t('logs.archiveCategory')">
+            <template #default="{ row }">
+              <span class="tag-soft tag-blue">{{ archiveCategoryLabel(row.category) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="140" :label="t('logs.archiveReason')">
+            <template #default="{ row }">
+              <span class="muted">{{ archiveReasonLabel(row.reason) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="90" align="right" :label="t('logs.archiveRows')">
+            <template #default="{ row }">
+              <span class="mono">{{ row.row_count }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column min-width="230" :label="t('logs.archiveRange')">
+            <template #default="{ row }">
+              <span class="muted">{{ archiveRangeText(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="100" align="right" :label="t('logs.archiveFileSize')">
+            <template #default="{ row }">
+              <span class="muted">{{ formatBytes(row.file?.bytes || 0) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column min-width="150" show-overflow-tooltip :label="t('logs.archiveOperator')">
+            <template #default="{ row }">
+              <span class="muted">{{ archiveOperator(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="150" align="right" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" :disabled="row.missing" @click="downloadArchive(row)">
+                {{ t('logs.archiveDownload') }}
+              </el-button>
+              <el-button link type="danger" @click="deleteArchive(row)">
+                {{ t('logs.archiveDelete') }}
+              </el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 40px 0; color: #94a3b8">
+              {{ t('logs.archiveEmpty') }}
+            </div>
+          </template>
+        </el-table>
       </div>
       <div class="flex-between logs-foot">
-        <span class="muted">{{ t('logs.total', { total }) }}</span>
+        <span class="muted">
+          {{ tab === 'archive' ? t('logs.archiveTotal', { total: archiveTotal }) : t('logs.total', { total }) }}
+        </span>
         <el-pagination
+          v-if="tab === 'archive'"
+          v-model:current-page="archivePage"
+          :page-size="archiveSize"
+          :total="archiveTotal"
+          layout="prev, pager, next"
+          background
+          @current-change="load()"
+        />
+        <el-pagination
+          v-else
           v-model:current-page="page"
           :page-size="size"
           :total="total"
@@ -164,7 +258,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Delete, Download, Refresh, Search } from '@element-plus/icons-vue'
 import { api, downloadFile } from '../api'
 import { formatDate } from '../utils'
-import type { LogPage, SystemLogPage } from '../types'
+import type { LogArchiveEntry, LogArchivePage, LogPage, SystemLogPage } from '../types'
 
 interface LogRow {
   id: number
@@ -203,6 +297,19 @@ const components = ref<string[]>([])
 const retentionDays = ref(7)
 const enabled = ref(true)
 const autoRefresh = ref(true)
+
+// 归档筛选与分页独立，避免和操作/系统日志的状态互相影响。
+const archiveItems = ref<LogArchiveEntry[]>([])
+const archiveTotal = ref(0)
+const archivePage = ref(1)
+const archiveSize = 20
+const archiveCategory = ref('')
+const archiveReason = ref('')
+const archiveQuery = ref('')
+const archiveRange = ref<[Date, Date] | null>(null)
+const archiveEnabled = ref(true)
+const archiveDir = ref('')
+
 let timer: ReturnType<typeof setInterval> | null = null
 let loadSeq = 0
 
@@ -247,16 +354,22 @@ const componentKeys: Record<string, string> = {
   acme: 'systemLogs.componentACME'
 }
 
-const subtitle = computed(() =>
-  tab.value === 'operation'
+const subtitle = computed(() => {
+  if (tab.value === 'archive') return t('logs.archiveSubtitle')
+  return tab.value === 'operation'
     ? t('logs.subtitle')
     : t('systemLogs.subtitle', { days: retentionDays.value })
-)
+})
 
 const activeRange = computed({
-  get: () => (tab.value === 'operation' ? operationRange.value : systemRange.value),
+  get: () => {
+    if (tab.value === 'archive') return archiveRange.value
+    return tab.value === 'operation' ? operationRange.value : systemRange.value
+  },
   set: (value: [Date, Date] | null) => {
-    if (tab.value === 'operation') {
+    if (tab.value === 'archive') {
+      archiveRange.value = value
+    } else if (tab.value === 'operation') {
       operationRange.value = value
     } else {
       systemRange.value = value
@@ -264,11 +377,16 @@ const activeRange = computed({
   }
 })
 
-// 关键字搜索两个页签共用控件，但各自保留筛选状态。
+// 关键字搜索三个页签共用控件，但各自保留筛选状态。
 const activeQuery = computed({
-  get: () => (tab.value === 'operation' ? operationQuery.value : systemQuery.value),
+  get: () => {
+    if (tab.value === 'archive') return archiveQuery.value
+    return tab.value === 'operation' ? operationQuery.value : systemQuery.value
+  },
   set: (value: string) => {
-    if (tab.value === 'operation') {
+    if (tab.value === 'archive') {
+      archiveQuery.value = value
+    } else if (tab.value === 'operation') {
       operationQuery.value = value
     } else {
       systemQuery.value = value
@@ -276,9 +394,10 @@ const activeQuery = computed({
   }
 })
 
-const searchPlaceholder = computed(() =>
-  tab.value === 'operation' ? t('logs.searchPlaceholder') : t('systemLogs.searchPlaceholder')
-)
+const searchPlaceholder = computed(() => {
+  if (tab.value === 'archive') return t('logs.archiveSearchPlaceholder')
+  return tab.value === 'operation' ? t('logs.searchPlaceholder') : t('systemLogs.searchPlaceholder')
+})
 
 function sourceLabel(value?: string): string {
   if (!value) return ''
@@ -327,7 +446,10 @@ function filterParams(): Record<string, string> {
     const next = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1)
     params.to = next.toISOString()
   }
-  if (tab.value === 'operation') {
+  if (tab.value === 'archive') {
+    if (archiveCategory.value) params.category = archiveCategory.value
+    if (archiveReason.value) params.reason = archiveReason.value
+  } else if (tab.value === 'operation') {
     if (source.value) params.source = source.value
     if (level.value) params.level = level.value
   } else {
@@ -347,7 +469,7 @@ async function load(silent = false): Promise<void> {
       if (seq !== loadSeq) return
       items.value = data.items || []
       total.value = data.total || 0
-    } else {
+    } else if (tab.value === 'system') {
       const data = await api.get<SystemLogPage>('/system-logs', {
         page: page.value,
         size,
@@ -359,6 +481,17 @@ async function load(silent = false): Promise<void> {
       components.value = data.components || []
       retentionDays.value = data.retention_days || 7
       enabled.value = data.enabled !== false
+    } else {
+      const data = await api.get<LogArchivePage>('/log-archives', {
+        page: archivePage.value,
+        size: archiveSize,
+        ...filterParams()
+      })
+      if (seq !== loadSeq) return
+      archiveItems.value = data.items || []
+      archiveTotal.value = data.total || 0
+      archiveEnabled.value = data.enabled !== false
+      archiveDir.value = data.dir || ''
     }
   } catch (error: any) {
     if (seq === loadSeq && !silent) ElMessage.error(error.message)
@@ -368,7 +501,11 @@ async function load(silent = false): Promise<void> {
 }
 
 function reload(): void {
-  page.value = 1
+  if (tab.value === 'archive') {
+    archivePage.value = 1
+  } else {
+    page.value = 1
+  }
   load()
 }
 
@@ -390,6 +527,7 @@ let switchSeq = 0
 async function switchTab(): Promise<void> {
   const seq = ++switchSeq
   page.value = 1
+  archivePage.value = 1
   switching.value = true
   await load()
   if (seq !== switchSeq) return
@@ -438,11 +576,100 @@ function formatValue(value: unknown): string {
   return String(value)
 }
 
+function archiveCategoryLabel(value?: string): string {
+  if (value === 'runtime') return t('logs.archiveCategoryRuntime')
+  return t('logs.archiveCategoryOperation')
+}
+
+function archiveReasonLabel(value?: string): string {
+  const map: Record<string, string> = {
+    manual_clear: 'logs.archiveReasonManual',
+    retention: 'logs.archiveReasonRetention',
+    max_rows: 'logs.archiveReasonMaxRows'
+  }
+  return map[value || ''] ? t(map[value || '']) : value || '-'
+}
+
+function archiveOperator(row: LogArchiveEntry): string {
+  if (row.operator?.email) return row.operator.email
+  if (row.operator?.user_id) return `#${row.operator.user_id}`
+  return t('logs.archiveSystem')
+}
+
+function archiveRangeText(row: LogArchiveEntry): string {
+  if (!row.first_created_at && !row.last_created_at) return '-'
+  const first = row.first_created_at ? formatDate(row.first_created_at) : '-'
+  const last = row.last_created_at ? formatDate(row.last_created_at) : '-'
+  return `${first} ~ ${last}`
+}
+
+function archiveFileName(row: LogArchiveEntry): string {
+  return row.file?.name?.split('/').pop() || ''
+}
+
+function formatBytes(bytes: number): string {
+  if (!bytes) return '-'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit++
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+async function downloadArchive(row: LogArchiveEntry): Promise<void> {
+  if (!row.archive_id || row.missing) return
+  try {
+    await downloadFile(`/log-archives/${encodeURIComponent(row.archive_id)}/download`, archiveFileName(row))
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  }
+}
+
+async function deleteArchive(row: LogArchiveEntry): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      t('logs.archiveDeleteConfirm', { file: archiveFileName(row) }),
+      t('logs.archiveDeleteTitle'),
+      {
+        confirmButtonText: t('logs.archiveDelete'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
+  } catch (_) {
+    return
+  }
+  try {
+    await api.delete(`/log-archives/${encodeURIComponent(row.archive_id)}`)
+    ElMessage.success(t('logs.archiveDeleted'))
+    if (archiveItems.value.length === 1 && archivePage.value > 1) {
+      archivePage.value--
+    }
+    await load()
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  }
+}
+
+async function loadArchiveStatus(): Promise<void> {
+  try {
+    const data = await api.get<LogArchivePage>('/log-archives', { page: 1, size: 1 })
+    archiveEnabled.value = data.enabled !== false
+    archiveDir.value = data.dir || ''
+  } catch (_) {
+    // 状态仅用于清空提示；失败时保持默认，不影响日志页面。
+  }
+}
+
 async function clearAll(): Promise<void> {
   const isOperation = tab.value === 'operation'
   try {
+    const hint = t(archiveEnabled.value ? 'logs.clearArchiveHint' : 'logs.clearNoArchiveHint')
     await ElMessageBox.confirm(
-      t(isOperation ? 'logs.clearConfirm' : 'systemLogs.clearConfirm'),
+      `${t(isOperation ? 'logs.clearConfirm' : 'systemLogs.clearConfirm')}\n\n${hint}`,
       t(isOperation ? 'logs.clearTitle' : 'systemLogs.clearTitle'),
       {
         confirmButtonText: t(isOperation ? 'logs.clear' : 'systemLogs.clear'),
@@ -482,6 +709,7 @@ watch([autoRefresh, tab], setupTimer)
 
 onMounted(() => {
   load()
+  loadArchiveStatus()
   setupTimer()
 })
 
@@ -531,6 +759,21 @@ onUnmounted(() => {
 .log-message {
   line-height: 1.7;
   word-break: break-word;
+}
+
+.archive-dir {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.archive-file {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .system-log-fields {

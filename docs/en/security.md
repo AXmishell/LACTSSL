@@ -176,18 +176,20 @@ security:
 
 | Log | Content | Retention/export |
 | --- | --- | --- |
-| Operation logs | Tasks, certificates, deployments, notifications, monitors, settings changes | Filter by source/level/time; export the most recent 90 days as CSV/JSON |
-| System logs | Startup, HTTP, scheduling, plugins, ACME | 7 days/20,000 rows by default; adjustable and clearable |
+| Operation logs | Tasks, certificates, deployments, notifications, monitors, settings changes | Filter by source/level/time; export the most recent 90 days as CSV/JSON; archived before deletion |
+| System logs | Startup, HTTP, scheduling, plugins, ACME | 7 days/20,000 rows by default; adjustable and clearable; archived before deletion |
+| Log archives | Raw NDJSON and manifests for operation/system logs | `data/archives/logs/`; kept forever by default; download or delete from Logs → Archive |
 | Process logs | stdout or `log.file` | Rotated by size/days; can output JSON |
 | Reverse proxy logs | Access, source IP, status code | Managed by the enterprise log platform |
 
 Recommendations:
 
-- Export operation logs and system logs to a SIEM or log platform regularly to avoid audit gaps caused by administrators clearing logs or data corruption.
+- Export operation logs, system logs, and archives to a SIEM or log platform regularly to avoid audit gaps caused by administrators clearing logs, deleting archives, or data corruption.
 - Operation logs and system logs share the `logs` table but are isolated by `category`; clearing system logs never deletes operation logs.
 - Every response carries an `X-Request-ID` that can be used to correlate access logs, panics, and errors.
 - Access logs do not record query parameters, request bodies, or authentication headers; the secure entry is consistently replaced with `:entry` in paths.
-- Logs may contain client IPs, domains, and error details; manage them as operational data and avoid sharing them publicly.
+- Logs and archives may contain client IPs, domains, error details, and operator identities; manage them as operational data and avoid sharing them publicly. Archive directories use `0700` and files use `0600`.
+- Archives are not tamper-proof: an administrator with data-directory access can delete or modify them. High-compliance environments still need external WORM storage or a SIEM.
 - Link critical operations (private key export, backup restore, CA generation, plugin installation, secure entry changes) to change requests.
 
 ## 8. Plugin and supply chain security
@@ -248,13 +250,13 @@ The following table helps security and audit teams align on "what the product pr
 | Asset inventory | Certificates, tasks, CAs, credentials, deployment records | CMDB linkage, business ownership, accountable owners |
 | Access control | Single administrator, TOTP/passkeys, API key scopes | SSO, RBAC, bastion hosts, approval workflows |
 | Cryptography | AES-256-GCM field encryption, TLS provided by the proxy, private CA | HSM/KMS, key custody, cryptographic module compliance |
-| Log auditing | Operation logs, system logs, request IDs, export | SIEM, long-term retention, tamper protection, alert rules |
+| Log auditing | Operation logs, system logs, local archives, request IDs, export | SIEM, long-term retention, tamper protection, alert rules |
 | Supply chain | Plugin signatures, SHA-256, installation record verification | Internal mirrors, admission review, vulnerability scanning |
 | Backup and recovery | Encrypted ZIP backups, restore validation, migration snapshots | Offline copies, offsite storage, restore drills |
 | Change management | Operation logs, upgrade backups, rollback documentation | Change requests, two-person review, maintenance windows |
 | Vulnerability management | CI, release verification, dependency updates | Image scanning, penetration testing, patch SLAs |
 | Network security | Secure entry, rate limiting, SSRF protection, trusted proxies | Firewalls, WAF, zero trust, egress allowlists |
-| Data retention | Log retention configuration, certificate/log cleanup | Compliance retention periods, archiving and destruction procedures |
+| Data retention | Log retention configuration, certificate/log cleanup, local archives | Compliance retention periods, external archival, tamper resistance, and destruction procedures |
 
 ## 12. Known limitations
 
@@ -262,7 +264,7 @@ The following table helps security and audit teams align on "what the product pr
 - No SSO, LDAP, OIDC, SAML, or SCIM support.
 - No HSM/KMS support; private keys are stored encrypted in the local database.
 - No active-active clustering; SQLite uses a single writer, and multiple instances cannot share a data directory.
-- No tamper-proof audit; administrators can clear system logs, so external archiving is required.
+- No tamper-proof audit; administrators can clear logs or delete local archives, so high-compliance environments must archive externally with WORM/retention locks.
 - No Prometheus metrics endpoint; monitoring relies on logs, the authenticated API, and external probes.
 - No automatic rollback on deployment targets; the target system must retain previous versions or use atomic releases.
 - No MLPS/ISO certification is included; compliance conclusions must be issued by the enterprise's assessment body.

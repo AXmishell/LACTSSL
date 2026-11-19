@@ -112,10 +112,10 @@ Permissions are divided by resource:action. `*` represents all system API capabi
 | `private_cas:key` | Download private CA private keys | Yes |
 | `plugins:read` | View plugins, the plugin repository, and enabled status | No |
 | `plugins:write` | Upload, install, update, uninstall, and enable plugins | Yes |
-| `logs:read` | View and export operation logs | No |
+| `logs:read` | View and export operation logs; view/download log archives | No |
 | `logs:write` | Delete all operation logs (the clear action itself is audited) | Yes |
-| `system_logs:read` | View and export process logs | No |
-| `system_logs:write` | Delete all system logs | Yes |
+| `system_logs:read` | View and export process logs; view/download log archives | No |
+| `system_logs:write` | Delete all system logs and log archives | Yes |
 | `settings:read` | View system settings and the internal CA trust chain | No |
 | `settings:write` | Modify system settings, send test notifications, import or remove internal CAs | Yes |
 | `backup:read` | View backup status and size | No |
@@ -202,6 +202,26 @@ curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
 ```
 
 `size` has a maximum of 200; `q` matches the raw stored content and parameter values. Use `DELETE /api/logs` to clear operation logs; it requires `logs:write`.
+
+When `log.archive.enabled` is enabled, clearing writes an archive before deleting logs and the response includes an `archived` object. An archive failure returns 500 and leaves the logs intact.
+
+Log archive endpoints:
+
+```bash
+# List: supports page, size, category, reason, from, to, q
+curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  "https://ssl.example.com/api/log-archives?page=1&size=20&category=operation"
+
+# Download an archive file
+curl -fsS -OJ -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  "https://ssl.example.com/api/log-archives/<archive_id>/download"
+
+# Delete an archive
+curl -fsS -X DELETE -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  "https://ssl.example.com/api/log-archives/<archive_id>"
+```
+
+Archive endpoints accept either `logs:*` or `system_logs:*` scopes: view/download need either read scope, delete needs either write scope. `category` is `operation` or `runtime`; `reason` is `manual_clear`, `retention`, or `max_rows`.
 
 ### 6.2 Running a Task
 

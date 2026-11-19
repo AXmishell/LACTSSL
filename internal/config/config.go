@@ -101,6 +101,18 @@ type LogConfig struct {
 	SystemAccess        bool
 	SystemRetentionDays int
 	SystemMaxRows       int
+	// Archive 控制删除/清空日志前的归档行为。
+	Archive LogArchiveConfig
+}
+
+// LogArchiveConfig 控制数据库日志归档。
+type LogArchiveConfig struct {
+	Enabled       bool   // 是否在删除前归档
+	Dir           string // 归档根目录；为空表示 <data_dir>/archives/logs
+	Compress      bool   // 是否 gzip 压缩
+	RetentionDays int    // 归档文件保留天数，0 表示永久保留
+	MaxTotalMB    int    // 归档目录容量上限（MB），0 表示不限制
+	QuotaPolicy   string // 容量超限策略：fail / prune_oldest
 }
 
 // PluginRepoConfig 是插件仓库客户端配置。
@@ -216,6 +228,14 @@ type fileConfig struct {
 			RetentionDays int    `yaml:"retention_days"`
 			MaxRows       int    `yaml:"max_rows"`
 		} `yaml:"system"`
+		Archive struct {
+			Enabled       bool   `yaml:"enabled"`
+			Dir           string `yaml:"dir"`
+			Compress      bool   `yaml:"compress"`
+			RetentionDays int    `yaml:"retention_days"`
+			MaxTotalMB    int    `yaml:"max_total_mb"`
+			QuotaPolicy   string `yaml:"quota_policy"`
+		} `yaml:"archive"`
 	} `yaml:"log"`
 	Upgrade struct {
 		Auto         bool `yaml:"auto"`
@@ -280,6 +300,13 @@ func defaults() *fileConfig {
 	fc.Log.System.Access = false
 	fc.Log.System.RetentionDays = 7
 	fc.Log.System.MaxRows = 20000
+	// 日志归档默认开启：删除/清空数据库日志前先写入数据目录。
+	// 归档失败会阻止删除；默认永久保留，避免审计材料被静默清理。
+	fc.Log.Archive.Enabled = true
+	fc.Log.Archive.Compress = true
+	fc.Log.Archive.RetentionDays = 0
+	fc.Log.Archive.MaxTotalMB = 0
+	fc.Log.Archive.QuotaPolicy = "fail"
 	// 升级迁移默认在启动时自动执行；低成本优化随启动执行，VACUUM 只在手动优化时进行。
 	fc.Upgrade.Auto = true
 	fc.Upgrade.AutoOptimize = true
@@ -498,6 +525,21 @@ func LoadFrom(path string) (*Config, error) {
 		SystemAccess:        fc.Log.System.Access,
 		SystemRetentionDays: fc.Log.System.RetentionDays,
 		SystemMaxRows:       fc.Log.System.MaxRows,
+
+		Archive: LogArchiveConfig{
+			Enabled:       fc.Log.Archive.Enabled,
+			Dir:           strings.TrimSpace(fc.Log.Archive.Dir),
+			Compress:      fc.Log.Archive.Compress,
+			RetentionDays: fc.Log.Archive.RetentionDays,
+			MaxTotalMB:    fc.Log.Archive.MaxTotalMB,
+			QuotaPolicy:   strings.ToLower(strings.TrimSpace(fc.Log.Archive.QuotaPolicy)),
+		},
+	}
+	if logCfg.Archive.Dir == "" {
+		logCfg.Archive.Dir = filepath.Join(dataDir, "archives", "logs")
+	}
+	if logCfg.Archive.QuotaPolicy == "" {
+		logCfg.Archive.QuotaPolicy = "fail"
 	}
 	if err := validateLogConfig(logCfg); err != nil {
 		return nil, err
@@ -630,6 +672,17 @@ func validateLogConfig(cfg LogConfig) error {
 	if cfg.SystemMaxRows < 100 || cfg.SystemMaxRows > 1000000 {
 		return fmt.Errorf("log.system.max_rows 必须在 100-1000000 之间")
 	}
+	if cfg.Archive.RetentionDays < 0 || cfg.Archive.RetentionDays > 3650 {
+		return fmt.Errorf("log.archive.retention_days 必须在 0-3650 之间")
+	}
+	if cfg.Archive.MaxTotalMB < 0 || cfg.Archive.MaxTotalMB > 1048576 {
+		return fmt.Errorf("log.archive.max_total_mb 必须在 0-1048576 之间")
+	}
+	switch cfg.Archive.QuotaPolicy {
+	case "", "fail", "prune_oldest":
+	default:
+		return fmt.Errorf("log.archive.quota_policy 必须是 fail 或 prune_oldest")
+	}
 	return nil
 }
 
@@ -740,6 +793,11 @@ func validateFileValues(fc *fileConfig) error {
 		SystemLevel:         strings.ToLower(strings.TrimSpace(fc.Log.System.Level)),
 		SystemRetentionDays: fc.Log.System.RetentionDays,
 		SystemMaxRows:       fc.Log.System.MaxRows,
+		Archive: LogArchiveConfig{
+			RetentionDays: fc.Log.Archive.RetentionDays,
+			MaxTotalMB:    fc.Log.Archive.MaxTotalMB,
+			QuotaPolicy:   strings.ToLower(strings.TrimSpace(fc.Log.Archive.QuotaPolicy)),
+		},
 	}); err != nil {
 		return err
 	}
@@ -930,6 +988,19 @@ log:
     retention_days: %d
     # 系统日志最大行数，超出后删除最旧记录
     max_rows: %d
+  archive:
+    # 删除/清空日志前是否先归档；归档失败会阻止删除
+    enabled: %t
+    # 归档目录；留空表示 <data_dir>/archives/logs
+    dir: %s
+    # 是否 gzip 压缩
+    compress: %t
+    # 归档文件保留天数，0 表示永久保留
+    retention_days: %d
+    # 归档目录容量上限（MB），0 表示不限制
+    max_total_mb: %d
+    # 容量超限策略：fail（拒绝归档并阻止删除）或 prune_oldest（删除最旧归档）
+    quota_policy: %s
 
 upgrade:
   # 启动时自动执行数据库/配置的历史遗留迁移；关闭后可在 /upgrade 页面手动执行。
@@ -1057,6 +1128,12 @@ notify_plugins:
 		fc.Log.System.Access,
 		fc.Log.System.RetentionDays,
 		fc.Log.System.MaxRows,
+		fc.Log.Archive.Enabled,
+		quote(fc.Log.Archive.Dir),
+		fc.Log.Archive.Compress,
+		fc.Log.Archive.RetentionDays,
+		fc.Log.Archive.MaxTotalMB,
+		quote(fc.Log.Archive.QuotaPolicy),
 		fc.Upgrade.Auto,
 		fc.Upgrade.AutoOptimize,
 		fc.Upgrade.Vacuum,

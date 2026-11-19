@@ -52,6 +52,19 @@ log:
     retention_days: 7
     # 系统日志最大行数，超出后删除最旧记录
     max_rows: 20000
+  archive:
+    # 删除/清空日志前是否先归档；归档失败会阻止删除
+    enabled: true
+    # 归档目录；留空表示 <data_dir>/archives/logs
+    dir: ""
+    # 是否 gzip 压缩
+    compress: true
+    # 归档文件保留天数，0 表示永久保留
+    retention_days: 0
+    # 归档目录容量上限（MB），0 表示不限制
+    max_total_mb: 0
+    # 容量超限策略：fail（拒绝归档并阻止删除）或 prune_oldest（删除最旧归档）
+    quota_policy: fail
 
 upgrade:
   # 启动时自动执行数据库/配置的历史遗留迁移；关闭后可在 /upgrade 页面手动执行。

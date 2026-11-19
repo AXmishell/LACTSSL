@@ -112,10 +112,10 @@ curl -X POST \
 | `private_cas:key` | 下载私有 CA 私钥 | 是 |
 | `plugins:read` | 查看插件、插件仓库与启用状态 | 否 |
 | `plugins:write` | 上传、安装、更新、卸载和启用插件 | 是 |
-| `logs:read` | 查看和导出操作日志 | 否 |
-| `logs:write` | 清空全部操作日志（清空动作本身会留下审计记录） | 是 |
-| `system_logs:read` | 查看和导出进程日志 | 否 |
-| `system_logs:write` | 删除全部系统日志 | 是 |
+| `logs:read` | 查看和导出操作日志，查看/下载日志归档 | 否 |
+| `logs:write` | 清空全部操作日志、删除日志归档（清空动作本身会留下审计记录） | 是 |
+| `system_logs:read` | 查看和导出进程日志，查看/下载日志归档 | 否 |
+| `system_logs:write` | 删除全部系统日志、删除日志归档 | 是 |
 | `settings:read` | 查看系统设置与内部 CA 信任链 | 否 |
 | `settings:write` | 修改系统设置、发送测试通知、导入或移除内部 CA | 是 |
 | `backup:read` | 查看备份状态与大小 | 否 |
@@ -202,6 +202,26 @@ curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
 ```
 
 `size` 最大 200；`q` 按原始存储内容和参数值匹配。清空操作日志使用 `DELETE /api/logs`，需要 `logs:write`。
+
+清空日志时，如果启用了 `log.archive.enabled`，服务会先写入归档再删除，响应额外返回 `archived` 对象；归档失败会返回 500 且不删除日志。
+
+日志归档接口：
+
+```bash
+# 列表：支持 page、size、category、reason、from、to、q
+curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  "https://ssl.example.com/api/log-archives?page=1&size=20&category=operation"
+
+# 下载归档文件
+curl -fsS -OJ -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  "https://ssl.example.com/api/log-archives/<archive_id>/download"
+
+# 删除归档
+curl -fsS -X DELETE -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  "https://ssl.example.com/api/log-archives/<archive_id>"
+```
+
+归档接口接受 `logs:*` 或 `system_logs:*` 对应权限：查看/下载需要任一读权限，删除需要任一写权限。`category` 取值为 `operation` 或 `runtime`；`reason` 取值为 `manual_clear`、`retention` 或 `max_rows`。
 
 ### 6.2 运行任务
 

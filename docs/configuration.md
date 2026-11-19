@@ -42,6 +42,12 @@ log:
     access: false
     retention_days: 30
     max_rows: 200000
+  archive:
+    enabled: true
+    compress: true
+    retention_days: 0
+    max_total_mb: 0
+    quota_policy: fail
 ```
 
 ### 1.2 配置优先级
@@ -84,6 +90,13 @@ log:
     access: false       # 是否把 HTTP 访问日志也写入数据库
     retention_days: 7   # 保留天数
     max_rows: 20000     # 最大行数
+  archive:
+    enabled: true       # 删除/清空日志前先归档；归档失败会阻止删除
+    dir: ""             # 留空表示 <data_dir>/archives/logs
+    compress: true      # 是否 gzip 压缩
+    retention_days: 0   # 归档文件保留天数，0 表示永久保留
+    max_total_mb: 0     # 归档目录容量上限（MB），0 表示不限制
+    quota_policy: fail  # fail 或 prune_oldest
 
 security:
   entry: ""             # 门禁入口，留空则首次启动随机生成
@@ -185,6 +198,14 @@ upgrade:
 - `system.access`：是否把 HTTP 访问日志也写入数据库。默认 `false`，避免每个请求都写 SQLite。
 - `system.retention_days`：保留天数，范围 `1–365`。
 - `system.max_rows`：最大行数，范围 `100–1000000`；超出后删除最旧记录。
+- `archive.enabled`：是否在删除/清空数据库日志前先写入归档。默认开启；归档失败会阻止删除，不会静默丢弃日志。
+- `archive.dir`：归档根目录，留空表示 `<data_dir>/archives/logs`。目录以 `0700` 创建，文件权限为 `0600`。
+- `archive.compress`：是否 gzip 压缩；关闭后保存为 `.ndjson`。
+- `archive.retention_days`：归档文件保留天数，范围 `0–3650`；默认 `0` 表示永久保留。
+- `archive.max_total_mb`：归档目录容量上限（MB），`0` 表示不限制。超限策略由 `quota_policy` 决定。
+- `archive.quota_policy`：`fail`（默认，拒绝继续归档并阻止删除）或 `prune_oldest`（删除最旧归档）。`prune_oldest` 会销毁审计材料，必须显式配置。
+
+归档文件由 `*.ndjson.gz`（或 `.ndjson`）与 `*.manifest.json` 组成，清单包含行数、ID 范围、时间范围、触发原因、操作者、SHA-256 和文件大小。归档目录不进入默认 ZIP 备份，需单独备份。
 
 写入采用有界异步队列，数据库繁忙时不会阻塞业务请求；队列满时会丢弃新日志。系统日志可能包含客户端 IP、域名和错误详情，请按运维数据管理。
 

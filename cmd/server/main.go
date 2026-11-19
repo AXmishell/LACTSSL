@@ -24,6 +24,7 @@ import (
 	"lactssl/internal/config"
 	"lactssl/internal/db"
 	"lactssl/internal/i18n"
+	"lactssl/internal/logarchive"
 	"lactssl/internal/logging"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
@@ -102,6 +103,25 @@ func main() {
 	// 日志表在 db.Open 的迁移中已经创建，此时可以安全挂载接收器。
 	st.SystemLogRetentionDays = cfg.Log.SystemRetentionDays
 	st.SystemLogMaxRows = cfg.Log.SystemMaxRows
+	var logArchiveService *logarchive.Service
+	if cfg.Log.Archive.Enabled {
+		archiver := logarchive.New(st, logarchive.Options{
+			RootDir:       cfg.Log.Archive.Dir,
+			Compress:      cfg.Log.Archive.Compress,
+			RetentionDays: cfg.Log.Archive.RetentionDays,
+			MaxTotalMB:    cfg.Log.Archive.MaxTotalMB,
+			QuotaPolicy:   cfg.Log.Archive.QuotaPolicy,
+			AppVersion:    api.Version,
+		})
+		st.Archiver = archiver
+		logArchiveService = archiver
+		if err := archiver.Load(); err != nil {
+			logger.Warn("扫描日志归档目录失败", "dir", archiver.Root(), "error", err)
+		}
+		logger.Info("日志归档已启用", "dir", archiver.Root())
+	} else {
+		logger.Warn("日志归档已关闭：清空日志将直接删除且不可恢复")
+	}
 	if cfg.Log.SystemEnabled {
 		systemSink := logging.NewDBSink(st, logging.DBSinkOptions{
 			MinLevel:      logging.Level(cfg.Log.SystemLevel),
@@ -205,6 +225,7 @@ func main() {
 
 	server := api.New(st, authManager, manager, entry, webui.Assets(), cfg.TrustedProxies)
 	server.Upgrade = upgrader
+	server.LogArchives = logArchiveService
 	server.Program = programUpdater
 	server.ConfigFile = cfg.File
 	server.DataDir = cfg.DataDir

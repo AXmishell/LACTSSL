@@ -4,12 +4,15 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
+	"lactssl/internal/logarchive"
 	"lactssl/internal/model"
 	"lactssl/internal/store"
 )
@@ -276,5 +279,69 @@ func TestClearLogsRequiresWriteScope(t *testing.T) {
 	resp = apiKeyRequest(t, router, writeToken, http.MethodDelete, "/api/logs", "", apiKeyHeader)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("logs:write 密钥清空操作日志失败: %d %s", resp.Code, resp.Body)
+	}
+}
+
+func TestClearLogsArchivesBeforeDelete(t *testing.T) {
+	router, st, session := setupLogTestServer(t)
+	root := t.TempDir()
+	st.Archiver = logarchive.New(st, logarchive.Options{RootDir: root, Compress: true})
+
+	st.AddLogKey("task", 1, "info", "log.task.created", map[string]any{"name": "one"})
+	st.AddLogKey("deploy", 2, "error", "log.deploy.failed", map[string]any{"name": "two"})
+
+	w := sessionRequest(t, router, http.MethodDelete, "/api/logs", "", []*http.Cookie{session}, map[string]string{
+		csrfHeaderName: "test-csrf",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("清空操作日志失败: %d %s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Deleted  int64 `json:"deleted"`
+			Archived *struct {
+				ID    string `json:"id"`
+				File  string `json:"file"`
+				Rows  int64  `json:"rows"`
+				Bytes int64  `json:"bytes"`
+			} `json:"archived"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.Deleted < 2 || envelope.Data.Archived == nil {
+		t.Fatalf("清空接口未返回归档结果: %+v", envelope.Data)
+	}
+	if envelope.Data.Archived.Rows != envelope.Data.Deleted {
+		t.Fatalf("归档行数与删除行数不一致: %+v deleted=%d", envelope.Data.Archived, envelope.Data.Deleted)
+	}
+	dataPath := filepath.Join(root, filepath.FromSlash(envelope.Data.Archived.File))
+	if _, err := os.Stat(dataPath); err != nil {
+		t.Fatalf("归档文件不存在: %v", err)
+	}
+}
+
+func TestClearLogsArchiveFailureKeepsLogs(t *testing.T) {
+	router, st, session := setupLogTestServer(t)
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st.Archiver = logarchive.New(st, logarchive.Options{RootDir: blocker, Compress: true})
+	st.AddLogKey("task", 1, "info", "log.task.created", map[string]any{"name": "keep"})
+
+	w := sessionRequest(t, router, http.MethodDelete, "/api/logs", "", []*http.Cookie{session}, map[string]string{
+		csrfHeaderName: "test-csrf",
+	})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("归档失败应阻止清空，实际 %d %s", w.Code, w.Body.String())
+	}
+	_, total, err := st.ListLogs("", 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total == 0 {
+		t.Fatal("归档失败后日志被误删")
 	}
 }

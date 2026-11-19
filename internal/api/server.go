@@ -28,6 +28,7 @@ import (
 	"lactssl/internal/auth"
 	"lactssl/internal/backup"
 	"lactssl/internal/i18n"
+	"lactssl/internal/logarchive"
 	"lactssl/internal/model"
 	"lactssl/internal/plugin/deploy"
 	"lactssl/internal/plugin/dns"
@@ -47,6 +48,8 @@ type Server struct {
 	WebFS   fs.FS
 	// Upgrade 是版本迁移与数据库/配置优化工具，由 main 注入。
 	Upgrade *upgrade.Manager
+	// LogArchives 是日志归档服务，由 main 在启用归档时注入。
+	LogArchives *logarchive.Service
 	// Program 是程序二进制自升级工具，由 main 注入。
 	Program *upgrade.ProgramUpdater
 	// RestartProgram 由 main 注入，用于在程序升级后优雅退出并重新执行新二进制。
@@ -353,6 +356,10 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.GET("/system-logs", s.listSystemLogs)
 	g.GET("/system-logs/export", s.exportSystemLogs)
 	g.DELETE("/system-logs", s.clearSystemLogs)
+	g.GET("/log-archives", s.listLogArchives)
+	g.GET("/log-archives/:id", s.getLogArchive)
+	g.GET("/log-archives/:id/download", s.downloadLogArchive)
+	g.DELETE("/log-archives/:id", s.deleteLogArchive)
 	g.GET("/settings", s.getSettings)
 	g.PUT("/settings", s.updateSettings)
 	g.GET("/upgrade", s.getUpgradeStatus)
