@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
@@ -91,6 +92,10 @@ func (m *Manager) RunTaskQueued(taskID int64, trigger string) error {
 
 // executeTask 按任务流程顺序执行申请、部署与通知模块。
 func (m *Manager) executeTask(task *model.Task, pipeline []model.PipelineNode, opts RunOptions) error {
+	if task.FlowMode == model.FlowTargetBeta {
+		return m.executeTargetFlow(task, pipeline, opts)
+	}
+
 	applyNode, found := findPipelineNode(pipeline, model.PipelineApply)
 	if !found {
 		return i18n.E("task.error.apply_node_missing")
@@ -143,8 +148,17 @@ func findPipelineNode(nodes []model.PipelineNode, nodeType string) (model.Pipeli
 
 // runApplyNode 执行申请证书模块。返回的 bool 表示本次是否真的签发了新证书。
 func (m *Manager) runApplyNode(task *model.Task, node model.PipelineNode, opts RunOptions) (*model.Certificate, bool, error) {
+	return m.runApplyForDomains(task, node, opts, nil)
+}
+
+// runApplyForDomains 与 runApplyNode 相同，但允许目标流程 Beta 为每个证书组
+// 传入独立的域名集合。nil 表示沿用节点或任务上的域名配置。
+func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, opts RunOptions, override []string) (*model.Certificate, bool, error) {
 	cfg := node.Config
-	domains := util.NormalizeDomains(cfg.Domains)
+	domains := util.NormalizeDomains(override)
+	if len(domains) == 0 {
+		domains = util.NormalizeDomains(cfg.Domains)
+	}
 	if len(domains) == 0 {
 		domains = util.NormalizeDomains(task.Domains)
 	}
@@ -556,27 +570,335 @@ func (m *Manager) runDeployNodes(task *model.Task, cert *model.Certificate, pipe
 			m.Store.AddLogKey("deploy", task.ID, "error", "log.deploy.config_missing", map[string]any{"node": nodeName(node, m.Locale())})
 			continue
 		}
-		record := &model.DeployRecord{
-			CertID:          cert.ID,
-			DeployAccountID: account.ID,
-			AccountName:     account.Name,
-			TaskID:          task.ID,
-			Status:          "success",
-		}
-		if err := m.Deploy(cert, account, node.Config.DeployConfig); err != nil {
-			record.Status = "failed"
-			record.Message = truncate(i18n.EncodeError(err), 800)
-			deployErrors = append(deployErrors, account.Name+": "+truncate(i18n.ErrorText(m.Locale(), err), 200))
-			m.Store.AddLogKey("deploy", task.ID, "error", "log.deploy.failed", map[string]any{"node": nodeName(node, m.Locale()), "account": account.Name, "message": i18n.ErrorText(m.Locale(), err)})
-			logger().Warn("部署失败", "task_id", task.ID, "cert_id", cert.ID, "account", account.Name, "node", nodeName(node, m.Locale()), "error", SafeError(err))
-		} else {
+		ok, deployErr := m.deployOne(task, cert, account, node.Config.DeployConfig, nodeName(node, m.Locale()))
+		if ok {
 			deployed++
-			record.Message = i18n.Encode("deploy.success", nil)
-			m.Store.AddLogKey("deploy", task.ID, "success", "log.deploy.success", map[string]any{"node": nodeName(node, m.Locale()), "account": account.Name, "type": account.Type})
+		} else {
+			deployErrors = append(deployErrors, account.Name+": "+truncate(i18n.ErrorText(m.Locale(), deployErr), 200))
 		}
-		_ = m.Store.CreateDeployRecord(record)
 	}
 	return deployErrors, deployed
+}
+
+// deployOne 执行一次部署并写入部署记录。普通流程与目标流程 Beta 共用，
+// 保证部署记录、日志和失败处理口径一致。
+func (m *Manager) deployOne(task *model.Task, cert *model.Certificate, account *model.DeployAccount, deployCfg map[string]string, displayName string) (bool, error) {
+	record := &model.DeployRecord{
+		CertID:          cert.ID,
+		DeployAccountID: account.ID,
+		AccountName:     account.Name,
+		TaskID:          task.ID,
+		Status:          "success",
+	}
+	err := m.Deploy(cert, account, deployCfg)
+	if err != nil {
+		record.Status = "failed"
+		record.Message = truncate(i18n.EncodeError(err), 800)
+		m.Store.AddLogKey("deploy", task.ID, "error", "log.deploy.failed", map[string]any{"node": displayName, "account": account.Name, "message": i18n.ErrorText(m.Locale(), err)})
+		logger().Warn("部署失败", "task_id", task.ID, "cert_id", cert.ID, "account", account.Name, "node", displayName, "error", SafeError(err))
+	} else {
+		record.Message = i18n.Encode("deploy.success", nil)
+		m.Store.AddLogKey("deploy", task.ID, "success", "log.deploy.success", map[string]any{"node": displayName, "account": account.Name, "type": account.Type})
+	}
+	_ = m.Store.CreateDeployRecord(record)
+	return err == nil, err
+}
+
+// executeTargetFlow 执行目标流程 Beta：
+// 读取站点 → 按策略分组 → 逐组申请/复用证书 → 逐站点部署 → 汇总结果。
+func (m *Manager) executeTargetFlow(task *model.Task, pipeline []model.PipelineNode, opts RunOptions) error {
+	applyNode, found := findPipelineNode(pipeline, model.PipelineApply)
+	if !found {
+		return i18n.E("task.error.apply_node_missing")
+	}
+	cfg := task.TargetFlow
+	if len(cfg.Sources) == 0 {
+		return i18n.E("task.error.target_flow_source_required")
+	}
+	locale := m.Locale()
+	ctx := context.Background()
+	discovery, err := m.DiscoverTargetSites(ctx, cfg.Sources, string(locale))
+	if err != nil {
+		return err
+	}
+	publicCA := applyNodeUsesPublicCA(task, applyNode)
+	applyTargetSelection(discovery.Sites, cfg.Selection, publicCA, locale)
+	applyDomainFilters(discovery.Sites, cfg.Selection, locale, &discovery.Warnings)
+	recommendation := RecommendCertStrategy(discovery.Sites, cfg.Policy.MaxDomainsPerCert, publicCA, locale)
+	policy := cfg.Policy
+	if policy.Strategy == "" || policy.Strategy == model.StrategySmart {
+		policy.Strategy = recommendation.Strategy
+	}
+	groups, buildWarnings, err := BuildCertGroups(discovery.Sites, policy, cfg.Overrides, publicCA, locale)
+	if err != nil {
+		return err
+	}
+	discovery.Warnings = append(discovery.Warnings, buildWarnings...)
+	m.assignReusableCertificates(groups, task.RenewDays, m.targetFlowAllowedCAs(task, applyNode))
+
+	m.Store.AddLogKey("task", task.ID, "info", "log.task.target_flow_discovered", map[string]any{
+		"sites":  countSelectedSites(discovery.Sites),
+		"groups": len(groups),
+	})
+	for _, warning := range discovery.Warnings {
+		m.Store.AddLogKey("task", task.ID, "warning", "log.task.target_flow_warning", map[string]any{"message": warning})
+	}
+
+	certs := make([]*model.Certificate, 0, len(groups))
+	uniqueCerts := make(map[int64]bool, len(groups))
+	deployErrors := make([]string, 0)
+	deployed, failedSites, failedGroups, issuedCount := 0, 0, 0, 0
+	for _, group := range groups {
+		m.Store.AddLogKey("task", task.ID, "info", "log.task.target_flow_group", map[string]any{
+			"group":   group.Label,
+			"domains": strings.Join(group.Domains, ", "),
+			"sites":   len(group.Sites),
+		})
+		var cert *model.Certificate
+		var issued bool
+		if group.ReuseCertID > 0 {
+			reused, getErr := m.Store.GetCertificate(group.ReuseCertID)
+			if getErr == nil && reused != nil && certificateCoversDomains(reused.Domains, group.Domains) && !renewalDue(reused.NotBefore, reused.NotAfter, task.RenewDays) {
+				cert = reused
+				m.Store.AddLogKey("task", task.ID, "info", "log.task.target_flow_reused_cert", map[string]any{"group": group.Label, "cert": reused.ID})
+			}
+		}
+		if cert == nil {
+			cert, issued, err = m.runApplyForDomains(task, applyNode, opts, group.Domains)
+			if err != nil {
+				var limited *RateLimitError
+				if errors.As(err, &limited) {
+					return err
+				}
+				failedGroups++
+				deployErrors = append(deployErrors, group.Label+": "+truncate(i18n.ErrorText(locale, err), 200))
+				m.Store.AddLogKey("task", task.ID, "error", "log.task.target_flow_group_failed", map[string]any{"group": group.Label, "message": i18n.ErrorText(locale, err)})
+				continue
+			}
+			if issued {
+				issuedCount++
+			}
+		}
+		certs = append(certs, cert)
+		uniqueCerts[cert.ID] = true
+		groupDeployed, groupFailed, groupErrors := m.deployTargetGroup(task, cert, group, cfg.Sources, locale)
+		deployed += groupDeployed
+		failedSites += groupFailed
+		deployErrors = append(deployErrors, groupErrors...)
+	}
+
+	now := time.Now().UTC()
+	status := "success"
+	messageKey := "task.message.target_flow_success"
+	if issuedCount == 0 && len(certs) > 0 {
+		messageKey = "task.message.target_flow_reused"
+	}
+	message := i18n.Encode(messageKey, map[string]any{"certs": len(uniqueCerts), "issued": issuedCount, "sites": deployed})
+	if failedGroups > 0 || failedSites > 0 || len(certs) == 0 {
+		status = "partial"
+		if len(certs) == 0 {
+			status = "failed"
+		}
+		detail := strings.Join(deployErrors, "; ")
+		if detail == "" {
+			detail = i18n.T(locale, "task.target_flow.no_error_detail", nil)
+		}
+		message = i18n.Encode("task.message.target_flow_partial", map[string]any{
+			"certs": len(certs), "sites": deployed, "failed": failedGroups + failedSites, "message": truncate(detail, 600),
+		})
+	}
+	certIDs := make([]int64, 0, len(uniqueCerts))
+	for certID := range uniqueCerts {
+		certIDs = append(certIDs, certID)
+	}
+	if err := m.Store.ReplaceTaskCertificateLinks(task.ID, certIDs); err != nil {
+		logger().Warn("保存目标流程证书关联失败", "task_id", task.ID, "error", err)
+	}
+	next := m.targetFlowNextRun(task, certs, status != "success")
+	primaryCertID := int64(0)
+	if len(certs) > 0 {
+		primaryCertID = certs[0].ID
+	}
+	if err := m.Store.UpdateTaskResult(task.ID, status, message, &now, next, primaryCertID); err != nil {
+		return i18n.E("task.error.update_status_failed", "error", err.Error())
+	}
+	result := &model.TargetFlowResult{
+		DiscoveredAt:  now,
+		SiteCount:     countSelectedSites(discovery.Sites),
+		GroupCount:    len(groups),
+		CertCount:     len(uniqueCerts),
+		DeployedCount: deployed,
+		FailedCount:   failedGroups + failedSites,
+		Warnings:      discovery.Warnings,
+	}
+	task.TargetFlow = cfg
+	task.TargetFlow.LastResult = result
+	if err := m.Store.UpdateTaskTargetFlow(task.ID, task.TargetFlow); err != nil {
+		logger().Warn("保存目标流程执行摘要失败", "task_id", task.ID, "error", err)
+	}
+	logger().Info("目标流程任务完成", "task_id", task.ID, "status", status, "groups", len(groups), "certs", len(certs), "deployed", deployed)
+	var primaryCert *model.Certificate
+	if len(certs) > 0 {
+		primaryCert = certs[0]
+	}
+	m.notifyTaskResult(task, pipeline, primaryCert, status, message)
+	return nil
+}
+
+// deployTargetGroup 将一个证书组部署到组内所有站点。
+// 多值字段可以一次提交整组站点；单值字段则逐个站点部署，避免互相覆盖。
+func (m *Manager) deployTargetGroup(task *model.Task, cert *model.Certificate, group model.CertGroup, sources []model.TargetSource, locale i18n.Locale) (int, int, []string) {
+	byAccount := make(map[int64]map[string]string, len(sources))
+	for _, source := range sources {
+		byAccount[source.DeployAccountID] = source.DeployConfig
+	}
+	order := make([]int64, 0)
+	bySiteAccount := make(map[int64][]model.TargetSite)
+	for _, site := range group.Sites {
+		if _, exists := bySiteAccount[site.AccountID]; !exists {
+			order = append(order, site.AccountID)
+		}
+		bySiteAccount[site.AccountID] = append(bySiteAccount[site.AccountID], site)
+	}
+	deployed, failed := 0, 0
+	deployErrors := make([]string, 0)
+	for _, accountID := range order {
+		sites := bySiteAccount[accountID]
+		account, err := m.Store.GetDeployAccount(accountID)
+		if err != nil {
+			failed += len(sites)
+			deployErrors = append(deployErrors, i18n.Tf(locale, "deploy.error.config_missing_id", "id", accountID))
+			continue
+		}
+		def, found := DeployTypeInfo(account.Type)
+		if !found {
+			failed += len(sites)
+			deployErrors = append(deployErrors, account.Name+": "+i18n.T(locale, "api.error.deploy_type_unsupported", nil))
+			continue
+		}
+		baseCfg := MergeDeployConfig(def, account.Config, byAccount[accountID])
+		deployCfg := FilterDeployConfig(def, baseCfg)
+		fieldKey, multiple, _, ok := DeployObjectFieldInfo(def, deployCfg)
+		if !ok {
+			failed += len(sites)
+			deployErrors = append(deployErrors, account.Name+": "+i18n.T(locale, "task.error.target_flow_plan_unsupported", map[string]any{"name": account.Name}))
+			continue
+		}
+		// plan 返回的 multiple 比 manifest 静态字段更准确。
+		for _, site := range sites {
+			if site.MultipleValues {
+				multiple = true
+				break
+			}
+		}
+		if multiple && len(sites) > 1 {
+			values := make([]string, 0, len(sites))
+			for _, site := range sites {
+				if strings.TrimSpace(site.Value) != "" {
+					values = append(values, site.Value)
+				}
+			}
+			unitCfg := cloneStringMap(deployCfg)
+			unitCfg[fieldKey] = strings.Join(values, ",")
+			okDeploy, deployErr := m.deployOne(task, cert, account, unitCfg, i18n.T(locale, "task.target_flow.deploy_node", map[string]any{"site": strings.Join(values, ", ")}))
+			if okDeploy {
+				deployed += len(sites)
+			} else {
+				failed += len(sites)
+				deployErrors = append(deployErrors, account.Name+": "+truncate(i18n.ErrorText(locale, deployErr), 200))
+			}
+			continue
+		}
+		for _, site := range sites {
+			unitCfg := cloneStringMap(deployCfg)
+			unitCfg[fieldKey] = site.Value
+			okDeploy, deployErr := m.deployOne(task, cert, account, unitCfg, i18n.T(locale, "task.target_flow.deploy_node", map[string]any{"site": siteLabel(site)}))
+			if okDeploy {
+				deployed++
+			} else {
+				failed++
+				deployErrors = append(deployErrors, account.Name+"/"+siteLabel(site)+": "+truncate(i18n.ErrorText(locale, deployErr), 200))
+			}
+		}
+	}
+	return deployed, failed, deployErrors
+}
+
+// targetFlowAllowedCAs 返回目标流程可复用的 CA 集合，避免任务切换 CA 后
+// 仍然复用旧 CA 的证书。
+func (m *Manager) targetFlowAllowedCAs(task *model.Task, node model.PipelineNode) map[string]bool {
+	caValue := strings.TrimSpace(node.Config.CA)
+	if caValue == "" {
+		caValue = strings.TrimSpace(task.CA)
+	}
+	if caValue == "" {
+		caValue, _ = m.Store.GetSetting("acme.ca")
+	}
+	if caValue == "" {
+		caValue = "letsencrypt"
+	}
+	allowed := map[string]bool{caValue: true}
+	if _, isPrivate := ParsePrivateCAValue(caValue); isPrivate {
+		return allowed
+	}
+	poolID := m.CAPoolIDForTask(task, node.Config)
+	if poolID <= 0 {
+		return allowed
+	}
+	candidates, err := m.SelectCACandidates(poolID, false)
+	if err != nil || len(candidates) == 0 {
+		return allowed
+	}
+	for _, candidate := range candidates {
+		allowed[candidate.Value] = true
+	}
+	return allowed
+}
+
+func applyNodeUsesPublicCA(task *model.Task, node model.PipelineNode) bool {
+	caValue := strings.TrimSpace(node.Config.CA)
+	if caValue == "" {
+		caValue = strings.TrimSpace(task.CA)
+	}
+	if caValue == "" {
+		return true
+	}
+	_, isPrivate := ParsePrivateCAValue(caValue)
+	return !isPrivate
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	out := make(map[string]string, len(src)+1)
+	for key, value := range src {
+		out[key] = value
+	}
+	return out
+}
+
+func (m *Manager) targetFlowNextRun(task *model.Task, certs []*model.Certificate, failed bool) *time.Time {
+	if !task.AutoRenew || !task.Enabled {
+		return nil
+	}
+	var earliest *time.Time
+	for _, cert := range certs {
+		if cert == nil {
+			continue
+		}
+		next := NextRenewTimeFor(cert.NotBefore, cert.NotAfter, task.RenewDays, true)
+		if next == nil {
+			continue
+		}
+		if earliest == nil || next.Before(*earliest) {
+			earliest = next
+		}
+	}
+	if failed || earliest == nil {
+		retry := time.Now().UTC().Add(6 * time.Hour)
+		if earliest == nil || retry.Before(*earliest) {
+			earliest = &retry
+		}
+	}
+	return earliest
 }
 
 func nodeName(node model.PipelineNode, current i18n.Locale) string {

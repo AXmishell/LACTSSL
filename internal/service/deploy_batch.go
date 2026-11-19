@@ -29,6 +29,11 @@ type DeployObjectPlan struct {
 // fallback 表示字段留空时插件会回退到证书域名。
 func DeployObjectFieldInfo(def ProviderDef, cfg map[string]string) (key string, multiple, fallback, ok bool) {
 	key, fallback, ok = deployObjectField(def)
+	if !ok {
+		// 新部署插件可能使用自定义的站点字段名。只在字段名明确表达
+		// “站点/网站”语义时才识别，避免把 CDN 的 domains 字段当成站点。
+		key, ok = detectDeployObjectField(def, cfg)
+	}
 	if !ok || cfg == nil {
 		return "", false, false, false
 	}
@@ -203,6 +208,19 @@ func deployObjectField(def ProviderDef) (key string, fallback bool, ok bool) {
 		return "websites", true, true
 	}
 	return "", false, false
+}
+
+func detectDeployObjectField(def ProviderDef, cfg map[string]string) (string, bool) {
+	for _, field := range def.DeployFields {
+		key := strings.ToLower(strings.TrimSpace(field.Key))
+		switch key {
+		case "site", "sites", "website", "websites", "site_name", "website_name", "site_id", "website_id":
+			if field.VisibleIn(def.DeployFields, cfg) {
+				return field.Key, true
+			}
+		}
+	}
+	return "", false
 }
 
 func deployObjectFieldDef(def ProviderDef, key string) (FieldDef, bool) {

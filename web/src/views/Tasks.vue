@@ -12,10 +12,18 @@
     </div>
 
     <div class="k-card task-list" style="padding: 0; overflow: hidden">
+      <div class="filter-row">
+        <el-radio-group v-model="flowFilter" size="default">
+          <el-radio-button value="all">{{ t('tasks.flowAll', { count: tasks.length }) }}</el-radio-button>
+          <el-radio-button value="standard">{{ t('tasks.flowStandardCount', { count: flowCounts.standard }) }}</el-radio-button>
+          <el-radio-button value="target_beta">{{ t('tasks.flowBetaCount', { count: flowCounts.beta }) }}</el-radio-button>
+        </el-radio-group>
+        <span class="muted">{{ t('tasks.flowFiltered', { count: filteredTasks.length }) }}</span>
+      </div>
       <div class="table-scroll">
         <el-table
           ref="tableRef"
-          :data="tasks"
+          :data="filteredTasks"
           row-key="id"
           v-loading="loading"
           style="width: 100%"
@@ -26,7 +34,10 @@
             <template #default="{ row }">
               <div class="domain-cell">
                 <span class="domain-main">{{ row.name }}</span>
-                <span class="domain-sub">{{ shortDomains(row.domains, 3) }}</span>
+                <span class="domain-sub">
+                  <el-tag v-if="row.flow_mode === 'target_beta'" size="small" type="primary" effect="plain">{{ t('tasks.flowTargetBeta') }}</el-tag>
+                  <span v-else class="muted">{{ shortDomains(row.domains, 3) }}</span>
+                </span>
               </div>
             </template>
           </el-table-column>
@@ -117,7 +128,7 @@
       <div class="dialog-head">
         <div class="dialog-head-main">
           <el-input v-model="form.name" :placeholder="t('tasks.namePlaceholder')" maxlength="60" clearable />
-          <span class="dialog-hint">{{ t('tasks.pipelineHint') }}</span>
+          <span class="dialog-hint">{{ form.flow_mode === 'target_beta' ? t('tasks.betaHint') : t('tasks.pipelineHint') }}</span>
         </div>
         <div class="dialog-enable">
           <span class="muted">{{ form.enabled ? t('tasks.enabled') : t('tasks.paused') }}</span>
@@ -125,7 +136,15 @@
         </div>
       </div>
 
-      <div class="pipeline-editor">
+      <div class="flow-mode-bar">
+        <el-radio-group v-model="form.flow_mode" @change="onFlowModeChange">
+          <el-radio-button value="standard">{{ t('tasks.flowStandard') }}</el-radio-button>
+          <el-radio-button value="target_beta">{{ t('tasks.flowTargetBeta') }}</el-radio-button>
+        </el-radio-group>
+        <span class="muted">{{ form.flow_mode === 'target_beta' ? t('tasks.betaModeHint') : t('tasks.standardModeHint') }}</span>
+      </div>
+
+      <div v-if="form.flow_mode === 'standard'" class="pipeline-editor">
         <aside class="pipeline-flow">
           <div class="pipeline-flow-head">
             <div>
@@ -407,6 +426,112 @@
         </section>
       </div>
 
+      <div v-else class="beta-editor">
+        <TargetFlowEditor
+          v-model="form.target_flow"
+          :deploy-accounts="deployAccounts"
+          :public-ca="!isPrivateCA"
+        />
+
+        <section class="beta-settings">
+          <div class="beta-settings-title">{{ t('tasks.betaApplySettings') }}</div>
+          <el-form label-position="top" class="config-form">
+            <el-form-item v-if="!isPrivateCA" :label="t('tasks.dnsAccount')" required>
+              <el-select v-model="form.dns_account_id" :placeholder="t('tasks.dnsPlaceholder')" style="width: 100%">
+                <el-option v-for="item in dnsAccounts" :key="item.id" :label="`${item.name} · ${dnsLabel(item.provider)}`" :value="item.id" />
+              </el-select>
+              <div v-if="!dnsAccounts.length" class="form-help warn">{{ t('tasks.noDns') }}</div>
+            </el-form-item>
+            <div v-else class="config-tip" style="margin-bottom: 12px">{{ t('tasks.privateCADnsTip') }}</div>
+            <el-form-item :label="t('tasks.caMode')">
+              <el-radio-group v-model="form.ca_mode" @change="onCAModeChange">
+                <el-radio-button value="single">{{ t('tasks.caModeSingle') }}</el-radio-button>
+                <el-radio-button value="pool" :disabled="isPrivateCA">{{ t('tasks.caModePool') }}</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <div class="grid grid-2" style="gap: 0 16px">
+              <el-form-item v-if="form.ca_mode === 'pool'" :label="t('tasks.caPool')">
+                <el-select v-model="form.ca_pool_id" style="width: 100%">
+                  <el-option
+                    v-for="pool in meta?.ca_pools || []"
+                    :key="pool.id"
+                    :label="`${pool.name} · ${caPoolStrategyLabel(pool)}`"
+                    :value="pool.id"
+                    :disabled="!pool.enabled"
+                  />
+                </el-select>
+                <div v-if="selectedCAPool" class="form-help">
+                  {{ t('tasks.caPoolHelp', { count: selectedCAPool.count }) }}
+                </div>
+              </el-form-item>
+              <el-form-item v-else :label="t('tasks.caLabel')">
+                <el-select v-model="form.ca" style="width: 100%" @change="onCAValueChange">
+                  <el-option-group :label="t('tasks.publicCA')">
+                    <el-option v-for="ca in meta?.cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
+                  </el-option-group>
+                  <el-option-group v-if="meta?.private_cas?.length" :label="t('tasks.privateCA')">
+                    <el-option v-for="ca in meta?.private_cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
+                  </el-option-group>
+                </el-select>
+              </el-form-item>
+              <el-form-item :label="t('tasks.keyType')">
+                <el-select v-model="form.key_type" style="width: 100%">
+                  <el-option v-for="item in meta?.key_types || []" :key="item.value" :label="item.label" :value="item.value" />
+                </el-select>
+              </el-form-item>
+            </div>
+            <div class="grid grid-2" style="gap: 0 16px">
+              <el-form-item :label="t('tasks.autoRenew')">
+                <div class="flex gap-10">
+                  <el-switch v-model="form.auto_renew" />
+                  <span class="muted">{{ t('tasks.renewHint', { days: form.renew_days }) }}</span>
+                </div>
+              </el-form-item>
+              <el-form-item :label="t('tasks.renewDays')">
+                <el-input-number v-model="form.renew_days" :min="1" :max="60" style="width: 100%" />
+              </el-form-item>
+            </div>
+            <div class="config-tip">{{ isPrivateCA ? t('tasks.privateConfigTip') : t('tasks.betaConfigTip') }}</div>
+          </el-form>
+        </section>
+
+        <section class="beta-settings">
+          <div class="beta-settings-title">{{ t('tasks.betaNotifySettings') }}</div>
+          <el-form v-if="betaNotifyNode" label-position="top" class="config-form">
+            <el-form-item :label="t('tasks.notifyChannel')">
+              <el-select
+                v-model="betaNotifyNode.config.notify_channels"
+                multiple
+                collapse-tags
+                collapse-tags-tooltip
+                clearable
+                style="width: 100%"
+                :placeholder="t('tasks.notifyChannelPlaceholder')"
+              >
+                <el-option
+                  v-for="item in availableNotifyChannels"
+                  :key="item.value"
+                  :label="item.labelKey ? t(item.labelKey) : item.label || item.value"
+                  :value="item.value"
+                />
+              </el-select>
+              <div class="form-help">{{ availableNotifyChannels.length ? t('tasks.notifyChannelHelp') : t('tasks.notifyChannelEmpty') }}</div>
+            </el-form-item>
+            <el-form-item :label="t('tasks.trigger')">
+              <el-radio-group v-model="betaNotifyNode.config.notify_on">
+                <el-radio-button value="always">{{ t('tasks.always') }}</el-radio-button>
+                <el-radio-button value="success">{{ t('tasks.successOnly') }}</el-radio-button>
+                <el-radio-button value="failure">{{ t('tasks.failureOnly') }}</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+          </el-form>
+          <div v-else class="tf-empty">
+            {{ t('tasks.betaNotifyEmpty') }}
+            <el-button link type="primary" size="small" @click="addBetaNotify">{{ t('tasks.betaAddNotify') }}</el-button>
+          </div>
+        </section>
+      </div>
+
       <template #footer>
         <el-button @click="dialogVisible = false">{{ t('tasks.cancel') }}</el-button>
         <el-button type="primary" :loading="saving" @click="save">{{ editingId ? t('tasks.saveChanges') : t('tasks.createAndRun') }}</el-button>
@@ -434,7 +559,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Close, Delete, Plus, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
@@ -444,6 +569,7 @@ import { loadMeta, loadSettings, state } from '../store'
 import { enabledNotifyChannels } from '../notifyChannels'
 import DeployConfigFields from '../components/DeployConfigFields.vue'
 import ReauthFields from '../components/ReauthFields.vue'
+import TargetFlowEditor from '../components/TargetFlowEditor.vue'
 import {
   fieldVisible,
   formatDate,
@@ -464,8 +590,11 @@ import type {
   Settings,
   Task,
   TaskBatchResult,
-  VerifyResult
+  VerifyResult,
+  TargetFlowConfig,
+  FlowMode
 } from '../types'
+import { deployLabel as deployLabelOf, deployTypeDef as deployTypeDefOf, normalizeDeployConfig as normalizeDeployConfigOf } from '../deployConfig'
 
 interface TaskForm {
   name: string
@@ -479,6 +608,8 @@ interface TaskForm {
   renew_days: number
   enabled: boolean
   pipeline: PipelineNode[]
+  flow_mode: FlowMode
+  target_flow: TargetFlowConfig
 }
 
 const { t } = useI18n()
@@ -497,6 +628,7 @@ const notifySettings = ref<Settings | null>(null)
 const availableNotifyChannels = computed(() => enabledNotifyChannels(notifySettings.value))
 const dialogVisible = ref(false)
 const editingId = ref(0)
+const flowFilter = ref<'all' | FlowMode>('all')
 const selectedNodeId = ref('apply')
 const pipelineListRef = ref<HTMLElement | null>(null)
 const draggingId = ref('')
@@ -534,8 +666,44 @@ const form = reactive<TaskForm>({
   auto_renew: true,
   renew_days: 30,
   enabled: true,
-  pipeline: []
+  pipeline: [],
+  flow_mode: 'standard',
+  target_flow: defaultTargetFlow()
 })
+
+function defaultTargetFlow(): TargetFlowConfig {
+  return {
+    sources: [],
+    selection: { mode: 'all', keys: [] },
+    policy: { strategy: 'smart', max_domains_per_cert: 100, extra_domains: {} },
+    group_overrides: []
+  }
+}
+
+function normalizeTargetFlowConfig(input?: TargetFlowConfig | null): TargetFlowConfig {
+  const base = defaultTargetFlow()
+  if (!input) return base
+  return {
+    sources: (input.sources || []).map((source) => ({
+      deploy_account_id: source.deploy_account_id,
+      deploy_config: { ...(source.deploy_config || {}) }
+    })),
+    selection: {
+      ...base.selection,
+      ...(input.selection || {}),
+      keys: [...(input.selection?.keys || [])],
+      include_domains: [...(input.selection?.include_domains || [])],
+      exclude_domains: [...(input.selection?.exclude_domains || [])]
+    },
+    policy: {
+      ...base.policy,
+      ...(input.policy || {}),
+      extra_domains: { ...(input.policy?.extra_domains || {}) }
+    },
+    group_overrides: [...(input.group_overrides || [])],
+    last_result: input.last_result || null
+  }
+}
 
 const selectedNode = computed(() => form.pipeline.find((node) => node.id === selectedNodeId.value) || null)
 const selectedDeployAccount = computed(() =>
@@ -543,6 +711,25 @@ const selectedDeployAccount = computed(() =>
 )
 const isPrivateCA = computed(() => form.ca_mode === 'single' && form.ca.startsWith('private-ca:'))
 const selectedCAPool = computed(() => (meta.value?.ca_pools || []).find((pool) => pool.id === form.ca_pool_id) || null)
+const filteredTasks = computed(() => {
+  if (flowFilter.value === 'all') return tasks.value
+  return tasks.value.filter((task) => (task.flow_mode || 'standard') === flowFilter.value)
+})
+const flowCounts = computed(() => {
+  let standard = 0
+  let beta = 0
+  for (const task of tasks.value) {
+    if (task.flow_mode === 'target_beta') beta += 1
+    else standard += 1
+  }
+  return { standard, beta }
+})
+const betaNotifyNode = computed(() => form.pipeline.find((node) => node.type === 'notify') || null)
+
+watch(flowFilter, () => {
+  tableRef.value?.clearSelection()
+  selectedTasks.value = []
+})
 
 function onCAModeChange(mode: 'single' | 'pool'): void {
   if (mode === 'pool') {
@@ -556,6 +743,24 @@ function onCAModeChange(mode: 'single' | 'pool'): void {
   if (!form.ca) {
     form.ca = notifySettings.value?.acme_ca || 'letsencrypt'
   }
+}
+
+function onFlowModeChange(mode: FlowMode): void {
+  if (mode === 'target_beta') {
+    if (!form.pipeline.some((node) => node.type === 'apply')) {
+      form.pipeline.unshift({ id: 'apply', type: 'apply', name: '', enabled: true, config: {} })
+    }
+    if (!form.pipeline.some((node) => node.type === 'notify')) {
+      form.pipeline.push(newNode('notify'))
+    }
+  }
+  selectedNodeId.value = 'apply'
+  resetNodeVerify()
+}
+
+function addBetaNotify(): void {
+  if (betaNotifyNode.value) return
+  form.pipeline.push(newNode('notify'))
 }
 
 function onCAValueChange(value: string): void {
@@ -595,34 +800,13 @@ function dnsLabel(value?: string): string {
   return (meta.value?.dns_providers || []).find((item) => item.value === value)?.label || value || ''
 }
 function deployLabel(value?: string): string {
-  return (meta.value?.deploy_types || []).find((item) => item.value === value)?.label || value || ''
+  return deployLabelOf(value)
 }
 function deployTypeDef(type?: string) {
-  return (meta.value?.deploy_types || []).find((item) => item.value === type)
-}
-function defaultDeployConfig(type?: string): Record<string, string> {
-  const config: Record<string, string> = {}
-  for (const field of deployTypeDef(type)?.deploy_fields || []) {
-    if (field.default) config[field.key] = field.default
-    else if (field.type === 'select' && field.options?.length) config[field.key] = field.options[0].value
-    else config[field.key] = ''
-  }
-  return config
+  return deployTypeDefOf(type)
 }
 function normalizeDeployConfig(type: string | undefined, current: Record<string, string> | undefined): Record<string, string> {
-  const def = deployTypeDef(type)
-  // 插件未安装时元数据不在列表中，保留原参数，避免编辑任务时误清空。
-  if (!def) return { ...(current || {}) }
-  const fields = def.deploy_fields || []
-  const allowed = new Set(fields.map((field) => field.key))
-  const out: Record<string, string> = {}
-  for (const [key, value] of Object.entries(current || {})) {
-    if (allowed.has(key)) out[key] = value
-  }
-  for (const [key, value] of Object.entries(defaultDeployConfig(type))) {
-    if (out[key] === undefined) out[key] = value
-  }
-  return out
+  return normalizeDeployConfigOf(type, current)
 }
 function onDeployAccountChange(): void {
   if (!selectedNode.value) return
@@ -777,6 +961,13 @@ function taskPipeline(row: Task): PipelineNode[] {
 }
 
 function pipelineSummary(row: Task): string {
+  if (row.flow_mode === 'target_beta') {
+    const summary = row.target_flow_summary
+    if (summary && summary.site_count > 0) {
+      return t('tasks.betaSummary', { sites: summary.site_count, groups: summary.group_count, certs: summary.cert_count })
+    }
+    return t('tasks.betaSummaryEmpty')
+  }
   const nodes = taskPipeline(row)
   const deployCount = nodes.filter((node) => node.type === 'deploy' && node.enabled).length
   const notifyCount = nodes.filter((node) => node.type === 'notify' && node.enabled).length
@@ -885,7 +1076,9 @@ async function openCreate(): Promise<void> {
     auto_renew: true,
     renew_days: settings?.acme_renew_days || 30,
     enabled: true,
-    pipeline: defaultPipeline()
+    pipeline: defaultPipeline(),
+    flow_mode: 'standard',
+    target_flow: defaultTargetFlow()
   })
   selectedNodeId.value = 'apply'
   resetNodeVerify()
@@ -922,7 +1115,9 @@ async function openEdit(row: Task): Promise<void> {
     auto_renew: row.auto_renew,
     renew_days: row.renew_days,
     enabled: row.enabled,
-    pipeline
+    pipeline,
+    flow_mode: row.flow_mode === 'target_beta' ? 'target_beta' : 'standard',
+    target_flow: normalizeTargetFlowConfig(row.target_flow)
   })
   selectedNodeId.value = 'apply'
   resetNodeVerify()
@@ -1251,24 +1446,26 @@ function removeSelectedNode(): void {
 }
 
 function buildPayload(): Record<string, unknown> {
-  const domains = splitLines(form.domainsText)
-  const pipeline = form.pipeline.map((node) => {
-    if (node.type === 'apply') {
-      return {
-        ...node,
-        config: {
-          domains,
-          dns_account_id: form.dns_account_id || 0,
-          ca: form.ca_mode === 'pool' ? '' : form.ca,
-          ca_pool_id: form.ca_mode === 'pool' ? form.ca_pool_id || 0 : 0,
-          key_type: form.key_type,
-          auto_renew: form.auto_renew,
-          renew_days: form.renew_days
+  const domains = form.flow_mode === 'target_beta' ? [] : splitLines(form.domainsText)
+  const pipeline = form.pipeline
+    .filter((node) => form.flow_mode !== 'target_beta' || node.type !== 'deploy')
+    .map((node) => {
+      if (node.type === 'apply') {
+        return {
+          ...node,
+          config: {
+            domains,
+            dns_account_id: form.dns_account_id || 0,
+            ca: form.ca_mode === 'pool' ? '' : form.ca,
+            ca_pool_id: form.ca_mode === 'pool' ? form.ca_pool_id || 0 : 0,
+            key_type: form.key_type,
+            auto_renew: form.auto_renew,
+            renew_days: form.renew_days
+          }
         }
       }
-    }
-    return { ...node, config: { ...node.config } }
-  })
+      return { ...node, config: { ...node.config } }
+    })
   return {
     name: form.name.trim(),
     domains,
@@ -1284,13 +1481,24 @@ function buildPayload(): Record<string, unknown> {
       .map((node) => node.config.deploy_account_id || 0)
       .filter(Boolean),
     pipeline,
+    flow_mode: form.flow_mode,
+    target_flow: form.flow_mode === 'target_beta' ? form.target_flow : undefined,
     enabled: form.enabled
   }
 }
 
 async function save(): Promise<void> {
   const domains = splitLines(form.domainsText)
-  if (!domains.length) {
+  if (form.flow_mode === 'target_beta') {
+    if (!form.target_flow.sources?.length) {
+      ElMessage.warning(t('tasks.betaTargetRequired'))
+      return
+    }
+    if (form.target_flow.sources.some((source) => !source.deploy_account_id)) {
+      ElMessage.warning(t('tasks.betaTargetRequired'))
+      return
+    }
+  } else if (!domains.length) {
     ElMessage.warning(t('tasks.domainsRequired'))
     selectedNodeId.value = 'apply'
     return
@@ -1311,6 +1519,7 @@ async function save(): Promise<void> {
     return
   }
   for (const node of form.pipeline) {
+    if (form.flow_mode === 'target_beta') continue
     if (node.type !== 'deploy' || !node.enabled) continue
     const account = deployAccounts.value.find((item) => item.id === node.config.deploy_account_id)
     if (!account) {
@@ -1976,4 +2185,43 @@ onUnmounted(() => {
   color: #94a3b8;
   margin-top: 4px;
 }
+.filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--kp-border);
+}
+.filter-row .muted {
+  margin-right: 12px;
+}
+.flow-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--kp-border);
+}
+.beta-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.beta-settings {
+  border: 1px solid var(--kp-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fff;
+}
+.beta-settings-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 12px;
+}
+
 </style>

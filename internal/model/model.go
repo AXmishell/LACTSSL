@@ -167,14 +167,19 @@ type Task struct {
 	RenewDays    int            `json:"renew_days"`
 	DeployIDs    []int64        `json:"deploy_ids"`
 	Pipeline     []PipelineNode `json:"pipeline"`
-	Enabled      bool           `json:"enabled"`
-	Status       string         `json:"status"`
-	Message      string         `json:"message"`
-	LastRunAt    *time.Time     `json:"last_run_at"`
-	NextRunAt    *time.Time     `json:"next_run_at"`
-	CertID       int64          `json:"cert_id"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+	// FlowMode 为空时按普通流程处理，兼容旧任务与旧客户端。
+	FlowMode   string           `json:"flow_mode,omitempty"`
+	TargetFlow TargetFlowConfig `json:"target_flow,omitempty"`
+	// TargetFlowSummary 是接口层按最近一次执行结果填充的展示字段，不落库。
+	TargetFlowSummary *TargetFlowSummary `json:"target_flow_summary,omitempty"`
+	Enabled           bool               `json:"enabled"`
+	Status            string             `json:"status"`
+	Message           string             `json:"message"`
+	LastRunAt         *time.Time         `json:"last_run_at"`
+	NextRunAt         *time.Time         `json:"next_run_at"`
+	CertID            int64              `json:"cert_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
 }
 
 // Certificate 保存签发得到的证书内容。

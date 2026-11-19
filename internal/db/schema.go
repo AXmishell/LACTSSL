@@ -196,6 +196,8 @@ func sqliteStatements() []string {
 			renew_days INTEGER NOT NULL DEFAULT 30,
 			deploy_ids TEXT NOT NULL DEFAULT '[]',
 			pipeline TEXT NOT NULL DEFAULT '[]',
+			flow_mode TEXT NOT NULL DEFAULT 'standard',
+			target_flow TEXT NOT NULL DEFAULT '{}',
 			enabled INTEGER NOT NULL DEFAULT 1,
 			status TEXT NOT NULL DEFAULT 'pending',
 			message TEXT NOT NULL DEFAULT '',
@@ -204,6 +206,12 @@ func sqliteStatements() []string {
 			cert_id INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS task_certificate_links (
+			task_id INTEGER NOT NULL,
+			cert_id INTEGER NOT NULL,
+			created_at DATETIME NOT NULL,
+			PRIMARY KEY (task_id, cert_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS deploy_records (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -410,6 +418,7 @@ func sqliteStatements() []string {
 		`CREATE INDEX IF NOT EXISTS idx_cert_not_after ON certificates(not_after)`,
 		`CREATE INDEX IF NOT EXISTS idx_revocations_ca ON revocations(ca_id, revoked_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_task ON certificates(task_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_cert_link_cert ON task_certificate_links(cert_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_next_run ON tasks(next_run_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_monitor_next_run ON monitors(next_check_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at)`,

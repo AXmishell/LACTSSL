@@ -18,7 +18,9 @@ import (
 //   - 8：导入的内部 CA 信任链（trusted_cas）；
 //   - 9：DNS 账户与目标凭据的可用性验证结果；
 //   - 10：CA 调度组（ca_pools / ca_pool_items）与任务 CA 池引用。
-const schemaVersion = 10
+//   - 11：目标流程 Beta（tasks.flow_mode / tasks.target_flow）。
+//   - 12：目标流程多证书关联（task_certificate_links）。
+const schemaVersion = 12
 
 func migrate(conn *Handle) error {
 	version, err := conn.SchemaVersion()
@@ -104,6 +106,13 @@ func migrate(conn *Handle) error {
 	}
 	// 兼容旧任务表：补充 CA 调度组引用。
 	if err := ensureColumn(conn, "tasks", "ca_pool_id", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	// 兼容旧任务表：补充目标流程 Beta 的模式与配置。
+	if err := ensureColumn(conn, "tasks", "flow_mode", `TEXT NOT NULL DEFAULT 'standard'`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	if err := ensureColumn(conn, "tasks", "target_flow", `TEXT NOT NULL DEFAULT '{}'`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
 	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_ca_pool ON tasks(ca_pool_id)`); err != nil {

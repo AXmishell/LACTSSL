@@ -513,6 +513,99 @@ export interface PipelineNode {
   config: PipelineConfig
 }
 
+export type FlowMode = 'standard' | 'target_beta'
+export type CertStrategy = 'smart' | 'per_site' | 'per_base_domain' | 'single' | 'per_source' | 'custom'
+export type SiteSelectionMode = 'all' | 'selected' | 'smart'
+export type TargetSiteStatus = 'ready' | 'covered' | 'duplicate' | 'invalid' | 'skipped'
+
+export interface TargetSource {
+  deploy_account_id: number
+  deploy_config: Record<string, string>
+}
+
+export interface SiteSelection {
+  mode: SiteSelectionMode
+  keys?: string[]
+  include_domains?: string[]
+  exclude_domains?: string[]
+}
+
+export interface CertPolicy {
+  strategy: CertStrategy
+  max_domains_per_cert?: number
+  extra_domains?: Record<string, string[]>
+}
+
+export interface CertGroupOverride {
+  key: string
+  label?: string
+  domains?: string[]
+  sites?: string[]
+}
+
+export interface TargetFlowResult {
+  discovered_at: string
+  site_count: number
+  group_count: number
+  cert_count: number
+  deployed_count: number
+  failed_count: number
+  warnings?: string[]
+}
+
+export interface TargetFlowConfig {
+  sources: TargetSource[]
+  selection: SiteSelection
+  policy: CertPolicy
+  group_overrides?: CertGroupOverride[]
+  last_result?: TargetFlowResult | null
+}
+
+export interface TargetFlowSummary {
+  site_count: number
+  group_count: number
+  cert_count: number
+}
+
+export interface TargetSite {
+  key: string
+  account_id: number
+  account_name?: string
+  account_type?: string
+  value: string
+  name?: string
+  domains: string[]
+  selected: boolean
+  status: TargetSiteStatus
+  warnings?: string[]
+  site_field?: string
+  multiple_values?: boolean
+}
+
+export interface CertGroup {
+  key: string
+  label: string
+  domains: string[]
+  sites: TargetSite[]
+  warnings?: string[]
+  reuse_cert_id?: number
+}
+
+export interface StrategyRecommendation {
+  strategy: CertStrategy
+  reasons?: string[]
+  warnings?: string[]
+}
+
+export interface TargetFlowPreview {
+  discovered_at: string
+  sites: TargetSite[]
+  groups: CertGroup[]
+  recommendation: StrategyRecommendation
+  warnings?: string[]
+  summary: TargetFlowSummary
+}
+
 export interface Task {
   id: number
   name: string
@@ -526,6 +619,9 @@ export interface Task {
   renew_days: number
   deploy_ids: number[]
   pipeline: PipelineNode[]
+  flow_mode?: FlowMode
+  target_flow?: TargetFlowConfig
+  target_flow_summary?: TargetFlowSummary
   enabled: boolean
   status: string
   message: string

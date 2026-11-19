@@ -15,18 +15,20 @@ import (
 )
 
 type taskBody struct {
-	Name         string               `json:"name"`
-	Domains      []string             `json:"domains"`
-	Challenge    string               `json:"challenge"`
-	DNSAccountID int64                `json:"dns_account_id"`
-	CA           string               `json:"ca"`
-	CAPoolID     int64                `json:"ca_pool_id"`
-	KeyType      string               `json:"key_type"`
-	AutoRenew    bool                 `json:"auto_renew"`
-	RenewDays    int                  `json:"renew_days"`
-	DeployIDs    []int64              `json:"deploy_ids"`
-	Pipeline     []model.PipelineNode `json:"pipeline"`
-	Enabled      bool                 `json:"enabled"`
+	Name         string                 `json:"name"`
+	Domains      []string               `json:"domains"`
+	Challenge    string                 `json:"challenge"`
+	DNSAccountID int64                  `json:"dns_account_id"`
+	CA           string                 `json:"ca"`
+	CAPoolID     int64                  `json:"ca_pool_id"`
+	KeyType      string                 `json:"key_type"`
+	AutoRenew    bool                   `json:"auto_renew"`
+	RenewDays    int                    `json:"renew_days"`
+	DeployIDs    []int64                `json:"deploy_ids"`
+	Pipeline     []model.PipelineNode   `json:"pipeline"`
+	FlowMode     string                 `json:"flow_mode"`
+	TargetFlow   model.TargetFlowConfig `json:"target_flow"`
+	Enabled      bool                   `json:"enabled"`
 }
 
 // applyNodeConfig 返回任务流程中申请证书节点的配置。
@@ -45,6 +47,33 @@ func requiresDeployExecution(nodes []model.PipelineNode) bool {
 	for _, node := range nodes {
 		if node.Type == model.PipelineDeploy && node.Enabled {
 			return true
+		}
+	}
+	return false
+}
+
+func requiresDeployExecutionFor(flowMode string, nodes []model.PipelineNode, targetFlow model.TargetFlowConfig) bool {
+	if flowMode == model.FlowTargetBeta {
+		return true
+	}
+	return requiresDeployExecution(nodes)
+}
+
+func (s *Server) taskUsesDeployCommand(flowMode string, nodes []model.PipelineNode, targetFlow model.TargetFlowConfig) bool {
+	if pipelineUsesDeployCommand(nodes) {
+		return true
+	}
+	if flowMode != model.FlowTargetBeta {
+		return false
+	}
+	for _, source := range targetFlow.Sources {
+		if strings.TrimSpace(source.DeployConfig["reload_command"]) != "" {
+			return true
+		}
+		if account, err := s.Store.GetDeployAccount(source.DeployAccountID); err == nil && account != nil {
+			if strings.TrimSpace(account.Config["reload_command"]) != "" {
+				return true
+			}
 		}
 	}
 	return false
@@ -77,13 +106,24 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		}
 	}
 	body.Domains = util.NormalizeDomains(body.Domains)
-	if len(body.Domains) == 0 {
-		return i18n.E("task.error.domains_required")
+	body.FlowMode = normalizeFlowMode(body.FlowMode)
+	if body.FlowMode != model.FlowStandard && body.FlowMode != model.FlowTargetBeta {
+		return i18n.E("task.error.flow_mode_unsupported", "mode", body.FlowMode)
 	}
-	for _, d := range body.Domains {
-		if !util.ValidDomain(d) {
-			return i18n.E("task.error.domain_invalid", "domain", d)
+	if body.FlowMode == model.FlowTargetBeta {
+		if err := s.normalizeTargetFlow(body); err != nil {
+			return err
 		}
+	} else {
+		if len(body.Domains) == 0 {
+			return i18n.E("task.error.domains_required")
+		}
+		for _, d := range body.Domains {
+			if !util.ValidDomain(d) {
+				return i18n.E("task.error.domain_invalid", "domain", d)
+			}
+		}
+		body.TargetFlow = model.TargetFlowConfig{}
 	}
 	body.Challenge = strings.TrimSpace(body.Challenge)
 	if body.Challenge != "" && body.Challenge != "dns01" {
@@ -155,7 +195,11 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		return i18n.E("task.error.renew_days_range")
 	}
 	if body.Name = strings.TrimSpace(body.Name); body.Name == "" {
-		body.Name = body.Domains[0]
+		if body.FlowMode == model.FlowTargetBeta {
+			body.Name = i18n.T(i18n.Normalize(s.setting("language", string(i18n.Default))), "task.target_flow.default_name", nil)
+		} else {
+			body.Name = body.Domains[0]
+		}
 	}
 	for _, id := range body.DeployIDs {
 		if _, err := s.Store.GetDeployAccount(id); err != nil {
@@ -174,6 +218,172 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		}
 	}
 	return nil
+}
+
+func normalizeFlowMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", model.FlowStandard:
+		return model.FlowStandard
+	case model.FlowTargetBeta:
+		return model.FlowTargetBeta
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+// normalizeTargetFlow 校验目标流程 Beta 的来源、站点选取和证书分配策略。
+func (s *Server) normalizeTargetFlow(body *taskBody) error {
+	current := i18n.Normalize(s.setting("language", string(i18n.Default)))
+	cfg := &body.TargetFlow
+	if body.FlowMode != model.FlowTargetBeta {
+		return nil
+	}
+	if len(cfg.Sources) == 0 {
+		return i18n.E("task.error.target_flow_source_required")
+	}
+	if len(cfg.Sources) > 10 {
+		return i18n.E("task.error.target_flow_source_too_many", "max", 10)
+	}
+	seen := make(map[int64]bool, len(cfg.Sources))
+	for index := range cfg.Sources {
+		source := &cfg.Sources[index]
+		if source.DeployAccountID <= 0 {
+			return i18n.E("task.error.target_flow_source_required")
+		}
+		if seen[source.DeployAccountID] {
+			return i18n.E("task.error.target_flow_source_duplicate")
+		}
+		seen[source.DeployAccountID] = true
+		account, err := s.Store.GetDeployAccount(source.DeployAccountID)
+		if err != nil {
+			return i18n.E("api.error.deploy_account_not_found")
+		}
+		def, found := service.DeployTypeInfo(account.Type)
+		if !found {
+			return i18n.E("api.error.deploy_type_unsupported")
+		}
+		merged := service.MergeDeployConfig(def, account.Config, source.DeployConfig)
+		deployCfg := service.FilterDeployConfig(def, merged)
+		// 部署参数落库前剔除声明为密钥的字段，认证信息只保留在目标凭据中。
+		for _, field := range def.DeployFields {
+			if field.Secret {
+				delete(deployCfg, field.Key)
+			}
+		}
+		if service.DeployObjectIsSingleton(def, deployCfg) {
+			return i18n.E("task.error.target_flow_singleton_target", "name", account.Name)
+		}
+		fieldKey, _, _, ok := service.DeployObjectFieldInfo(def, deployCfg)
+		if !ok {
+			return i18n.E("task.error.target_flow_plan_unsupported", "name", account.Name)
+		}
+		if err := validateFieldsExcept(def.DeployFields, deployCfg, map[string]bool{fieldKey: true}, current); err != nil {
+			return err
+		}
+		// 站点字段由运行时按读取结果填充，任务配置中不能固定某一个站点。
+		delete(deployCfg, fieldKey)
+		source.DeployConfig = deployCfg
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(cfg.Selection.Mode))
+	if mode == "" {
+		mode = model.SelectionAll
+	}
+	switch mode {
+	case model.SelectionAll, model.SelectionSelected, model.SelectionSmart:
+	default:
+		return i18n.E("task.error.target_flow_selection_invalid")
+	}
+	cfg.Selection.Mode = mode
+	cfg.Selection.IncludeDomains = util.NormalizeDomains(cfg.Selection.IncludeDomains)
+	cfg.Selection.ExcludeDomains = util.NormalizeDomains(cfg.Selection.ExcludeDomains)
+	keys := make([]string, 0, len(cfg.Selection.Keys))
+	seenKeys := make(map[string]bool, len(cfg.Selection.Keys))
+	for _, key := range cfg.Selection.Keys {
+		key = strings.TrimSpace(key)
+		if key == "" || seenKeys[key] {
+			continue
+		}
+		seenKeys[key] = true
+		keys = append(keys, key)
+	}
+	if len(keys) > 1000 {
+		return i18n.E("task.error.target_flow_too_many_sites", "max", 1000)
+	}
+	cfg.Selection.Keys = keys
+
+	strategy := strings.ToLower(strings.TrimSpace(cfg.Policy.Strategy))
+	if strategy == "" {
+		strategy = model.StrategySmart
+	}
+	switch strategy {
+	case model.StrategySmart, model.StrategyPerSite, model.StrategyPerBaseDomain, model.StrategySingle, model.StrategyPerSource, model.StrategyCustom:
+	default:
+		return i18n.E("task.error.target_flow_strategy_invalid", "strategy", strategy)
+	}
+	cfg.Policy.Strategy = strategy
+	if cfg.Policy.MaxDomainsPerCert <= 0 {
+		cfg.Policy.MaxDomainsPerCert = 100
+	}
+	if cfg.Policy.MaxDomainsPerCert < 1 || cfg.Policy.MaxDomainsPerCert > 500 {
+		return i18n.E("task.error.target_flow_max_domains_invalid")
+	}
+	if len(cfg.Policy.ExtraDomains) > 200 {
+		return i18n.E("task.error.target_flow_too_many_groups", "max", 200)
+	}
+	for key, domains := range cfg.Policy.ExtraDomains {
+		normalized := util.NormalizeDomains(domains)
+		for _, domain := range normalized {
+			if !util.ValidDomain(domain) {
+				return i18n.E("task.error.target_flow_domain_invalid", "domain", domain)
+			}
+		}
+		cfg.Policy.ExtraDomains[key] = normalized
+	}
+	if len(cfg.Overrides) > 100 {
+		return i18n.E("task.error.target_flow_too_many_groups", "max", 100)
+	}
+	for index := range cfg.Overrides {
+		override := &cfg.Overrides[index]
+		override.Key = strings.TrimSpace(override.Key)
+		override.Label = strings.TrimSpace(override.Label)
+		override.Sites = normalizeStringList(override.Sites)
+		override.Domains = util.NormalizeDomains(override.Domains)
+		for _, domain := range override.Domains {
+			if !util.ValidDomain(domain) {
+				return i18n.E("task.error.target_flow_domain_invalid", "domain", domain)
+			}
+		}
+	}
+	cfg.LastResult = nil
+	body.TargetFlow = *cfg
+	return nil
+}
+
+func validateFieldsExcept(fields []service.FieldDef, config map[string]string, skip map[string]bool, current i18n.Locale) error {
+	for _, field := range fields {
+		if skip[field.Key] || !field.VisibleIn(fields, config) {
+			continue
+		}
+		if field.Required && strings.TrimSpace(config[field.Key]) == "" {
+			return i18n.E("api.error.field_required", "field", field.Localized(current).Label)
+		}
+	}
+	return nil
+}
+
+func normalizeStringList(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // normalizePipeline 校验任务流程节点并生成兼容旧字段的默认任务流程。
@@ -348,7 +558,7 @@ func (s *Server) createTask(c *gin.Context) {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
-	if requiresDeployExecution(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+	if requiresDeployExecutionFor(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
 		return
 	}
 	if body.Enabled && !s.requireAPIKeyScope(c, apiScopeTasksRun) {
@@ -357,7 +567,7 @@ func (s *Server) createTask(c *gin.Context) {
 	if body.Enabled && pipelineUsesPrivateCA(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
 		return
 	}
-	if body.Enabled && pipelineUsesDeployCommand(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+	if body.Enabled && s.taskUsesDeployCommand(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
 	task := &model.Task{
@@ -372,6 +582,8 @@ func (s *Server) createTask(c *gin.Context) {
 		RenewDays:    body.RenewDays,
 		DeployIDs:    body.DeployIDs,
 		Pipeline:     body.Pipeline,
+		FlowMode:     body.FlowMode,
+		TargetFlow:   body.TargetFlow,
 		Enabled:      body.Enabled,
 		Status:       "pending",
 		Message:      i18n.Encode("task.status.pending", nil),
@@ -386,6 +598,46 @@ func (s *Server) createTask(c *gin.Context) {
 		s.goSafe("task-created", func() { _ = s.Manager.RunTask(task.ID, "task.trigger.created") })
 	}
 	ok(c, localizeTasks(c, []model.Task{*task})[0])
+}
+
+// nextRunForTask 按任务模式计算下次执行时间。目标流程可能关联多张证书，
+// 取最早进入续期窗口的一张；没有证书时立即交给调度器发现站点。
+func (s *Server) nextRunForTask(task *model.Task) *time.Time {
+	if task == nil || !task.Enabled {
+		return nil
+	}
+	if task.FlowMode == model.FlowTargetBeta {
+		if !task.AutoRenew {
+			return nil
+		}
+		certs, err := s.Store.ListTaskCertificates(task.ID)
+		if err == nil {
+			var earliest *time.Time
+			for index := range certs {
+				cert := &certs[index]
+				if cert.Status != "" && cert.Status != "valid" {
+					continue
+				}
+				next := service.NextRenewTimeFor(cert.NotBefore, cert.NotAfter, task.RenewDays, true)
+				if next != nil && (earliest == nil || next.Before(*earliest)) {
+					earliest = next
+				}
+			}
+			if earliest != nil {
+				return earliest
+			}
+		}
+		now := time.Now().UTC()
+		return &now
+	}
+	if task.CertID > 0 {
+		if cert, err := s.Store.GetCertificate(task.CertID); err == nil && task.AutoRenew {
+			return service.NextRenewTimeFor(cert.NotBefore, cert.NotAfter, task.RenewDays, true)
+		}
+		return nil
+	}
+	now := time.Now().UTC()
+	return &now
 }
 
 func (s *Server) updateTask(c *gin.Context) {
@@ -409,7 +661,7 @@ func (s *Server) updateTask(c *gin.Context) {
 	}
 	// 修改任务本身不会立即执行；只有把含部署节点的任务设为启用时，
 	// 调度器才可能在之后执行部署命令，因此这时才要求 deploy:execute。
-	if body.Enabled && requiresDeployExecution(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+	if body.Enabled && requiresDeployExecutionFor(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
 		return
 	}
 	if body.Enabled && !s.requireAPIKeyScope(c, apiScopeTasksRun) {
@@ -418,7 +670,7 @@ func (s *Server) updateTask(c *gin.Context) {
 	if body.Enabled && pipelineUsesPrivateCA(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
 		return
 	}
-	if body.Enabled && pipelineUsesDeployCommand(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+	if body.Enabled && s.taskUsesDeployCommand(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
 	task.Name = body.Name
@@ -432,6 +684,8 @@ func (s *Server) updateTask(c *gin.Context) {
 	task.RenewDays = body.RenewDays
 	task.DeployIDs = body.DeployIDs
 	task.Pipeline = body.Pipeline
+	task.FlowMode = body.FlowMode
+	task.TargetFlow = body.TargetFlow
 	task.Enabled = body.Enabled
 	if err := s.Store.UpdateTask(task); err != nil {
 		failErr(c, http.StatusInternalServerError, err)
@@ -439,19 +693,7 @@ func (s *Server) updateTask(c *gin.Context) {
 	}
 
 	// 根据启用状态和现有证书重新安排下次执行时间。
-	var next *time.Time
-	if task.Enabled {
-		if task.CertID > 0 {
-			if cert, err := s.Store.GetCertificate(task.CertID); err == nil && task.AutoRenew {
-				next = service.NextRenewTimeFor(cert.NotBefore, cert.NotAfter, task.RenewDays, true)
-			} else if !task.AutoRenew {
-				next = nil
-			}
-		} else {
-			now := time.Now().UTC()
-			next = &now
-		}
-	}
+	next := s.nextRunForTask(task)
 	_ = s.Store.SetTaskNextRun(task.ID, next)
 
 	if task.Enabled && task.CertID == 0 {
@@ -491,10 +733,10 @@ func (s *Server) runTask(c *gin.Context) {
 	if pipelineUsesPrivateCA(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
 		return
 	}
-	if requiresDeployExecution(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+	if requiresDeployExecutionFor(task.FlowMode, task.EffectivePipeline(), task.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
 		return
 	}
-	if pipelineUsesDeployCommand(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+	if s.taskUsesDeployCommand(task.FlowMode, task.EffectivePipeline(), task.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
 	force := c.Query("force") == "1" || strings.EqualFold(c.Query("force"), "true")
@@ -567,10 +809,10 @@ func (s *Server) batchRunTasks(c *gin.Context) {
 				continue
 			}
 			pipeline := task.EffectivePipeline()
-			if requiresDeployExecution(pipeline) {
+			if requiresDeployExecutionFor(task.FlowMode, pipeline, task.TargetFlow) {
 				needsExecute = true
 			}
-			if pipelineUsesDeployCommand(pipeline) {
+			if s.taskUsesDeployCommand(task.FlowMode, pipeline, task.TargetFlow) {
 				needsCommand = true
 			}
 			if pipelineUsesPrivateCA(pipeline) {
@@ -638,10 +880,10 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 				continue
 			}
 			pipeline := task.EffectivePipeline()
-			if requiresDeployExecution(pipeline) {
+			if requiresDeployExecutionFor(task.FlowMode, pipeline, task.TargetFlow) {
 				needsExecute = true
 			}
-			if pipelineUsesDeployCommand(pipeline) {
+			if s.taskUsesDeployCommand(task.FlowMode, pipeline, task.TargetFlow) {
 				needsCommand = true
 			}
 			if pipelineUsesPrivateCA(pipeline) {
@@ -658,7 +900,6 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 			return
 		}
 	}
-	now := time.Now().UTC()
 	validIDs := make([]int64, 0, len(ids))
 	skippedIDs := make([]int64, 0)
 	nextRuns := make(map[int64]*time.Time, len(ids))
@@ -673,18 +914,9 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 			nextRuns[id] = nil
 			continue
 		}
-		if task.CertID > 0 {
-			// 已有证书时按到期时间重排续期；未开启自动续期则保持未安排。
-			if cert, certErr := s.Store.GetCertificate(task.CertID); certErr == nil && task.AutoRenew {
-				nextRuns[id] = service.NextRenewTimeFor(cert.NotBefore, cert.NotAfter, task.RenewDays, true)
-				continue
-			}
-			nextRuns[id] = nil
-			continue
-		}
-		// 尚无证书的任务交给调度器拾取，避免批量恢复时瞬间发起大量签发。
-		next := now
-		nextRuns[id] = &next
+		copyTask := *task
+		copyTask.Enabled = true
+		nextRuns[id] = s.nextRunForTask(&copyTask)
 	}
 	updated, err := s.Store.SetTasksEnabled(validIDs, body.Enabled, nextRuns)
 	if err != nil {

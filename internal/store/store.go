@@ -740,7 +740,7 @@ func (s *Store) DeletePrivateCA(id int64) error {
 
 // ListTasks 返回全部任务。
 func (s *Store) ListTasks() ([]model.Task, error) {
-	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks ORDER BY id DESC`)
+	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -758,7 +758,7 @@ func (s *Store) ListTasks() ([]model.Task, error) {
 
 // GetTask 查询单个任务。
 func (s *Store) GetTask(id int64) (*model.Task, error) {
-	row := s.DB.QueryRow(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks WHERE id=?`, id)
+	row := s.DB.QueryRow(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks WHERE id=?`, id)
 	return scanTask(row)
 }
 
@@ -767,10 +767,11 @@ func (s *Store) CreateTask(t *model.Task) error {
 	domains, _ := json.Marshal(t.Domains)
 	deployIDs, _ := json.Marshal(t.DeployIDs)
 	pipeline, _ := json.Marshal(t.Pipeline)
+	targetFlow, _ := json.Marshal(t.TargetFlow)
 	now := nowUTC()
-	id, err := s.DB.InsertID(`INSERT INTO tasks(name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,0,?,?)`,
-		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.CAPoolID, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), boolInt(t.Enabled), t.Status, t.Message, now, now, now)
+	id, err := s.DB.InsertID(`INSERT INTO tasks(name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,0,?,?)`,
+		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.CAPoolID, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), normalizeFlowMode(t.FlowMode), string(targetFlow), boolInt(t.Enabled), t.Status, t.Message, now, now, now)
 	if err != nil {
 		return err
 	}
@@ -784,15 +785,33 @@ func (s *Store) UpdateTask(t *model.Task) error {
 	domains, _ := json.Marshal(t.Domains)
 	deployIDs, _ := json.Marshal(t.DeployIDs)
 	pipeline, _ := json.Marshal(t.Pipeline)
-	_, err := s.DB.Exec(`UPDATE tasks SET name=?,domains=?,challenge=?,dns_account_id=?,ca=?,ca_pool_id=?,key_type=?,auto_renew=?,renew_days=?,deploy_ids=?,pipeline=?,enabled=?,updated_at=? WHERE id=?`,
-		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.CAPoolID, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), boolInt(t.Enabled), nowUTC(), t.ID)
+	targetFlow, _ := json.Marshal(t.TargetFlow)
+	_, err := s.DB.Exec(`UPDATE tasks SET name=?,domains=?,challenge=?,dns_account_id=?,ca=?,ca_pool_id=?,key_type=?,auto_renew=?,renew_days=?,deploy_ids=?,pipeline=?,flow_mode=?,target_flow=?,enabled=?,updated_at=? WHERE id=?`,
+		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.CAPoolID, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), normalizeFlowMode(t.FlowMode), string(targetFlow), boolInt(t.Enabled), nowUTC(), t.ID)
+	return err
+}
+
+// UpdateTaskTargetFlow 只更新目标流程配置，避免执行器回写摘要时覆盖任务其他字段。
+func (s *Store) UpdateTaskTargetFlow(id int64, cfg model.TargetFlowConfig) error {
+	data, _ := json.Marshal(cfg)
+	_, err := s.DB.Exec(`UPDATE tasks SET target_flow=?,updated_at=? WHERE id=?`, string(data), nowUTC(), id)
 	return err
 }
 
 // DeleteTask 删除任务。
 func (s *Store) DeleteTask(id int64) error {
-	_, err := s.DB.Exec(`DELETE FROM tasks WHERE id=?`, id)
-	return err
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DELETE FROM task_certificate_links WHERE task_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM tasks WHERE id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // UpdateTaskResult 更新任务执行结果。
@@ -837,7 +856,7 @@ func (s *Store) SetTasksEnabled(ids []int64, enabled bool, nextRuns map[int64]*t
 
 // DueTasks 返回到达执行时间的任务。
 func (s *Store) DueTasks(now time.Time) ([]model.Task, error) {
-	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at
+	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at
 		FROM tasks WHERE enabled=1 AND status<>'running' AND next_run_at IS NOT NULL AND next_run_at<=? ORDER BY next_run_at LIMIT 10`, now)
 	if err != nil {
 		return nil, err
@@ -854,18 +873,26 @@ func (s *Store) DueTasks(now time.Time) ([]model.Task, error) {
 	return list, rows.Err()
 }
 
+func normalizeFlowMode(value string) string {
+	if value == model.FlowTargetBeta {
+		return model.FlowTargetBeta
+	}
+	return model.FlowStandard
+}
+
 func scanTask(row interface{ Scan(...any) error }) (*model.Task, error) {
 	var t model.Task
-	var domainsJSON, deployJSON, pipelineJSON string
+	var domainsJSON, deployJSON, pipelineJSON, targetFlowJSON string
 	var autoRenew, enabled int
 	var lastRun, nextRun sql.NullTime
-	err := row.Scan(&t.ID, &t.Name, &domainsJSON, &t.Challenge, &t.DNSAccountID, &t.CA, &t.CAPoolID, &t.KeyType, &autoRenew, &t.RenewDays, &deployJSON, &pipelineJSON, &enabled, &t.Status, &t.Message, &lastRun, &nextRun, &t.CertID, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.Name, &domainsJSON, &t.Challenge, &t.DNSAccountID, &t.CA, &t.CAPoolID, &t.KeyType, &autoRenew, &t.RenewDays, &deployJSON, &pipelineJSON, &t.FlowMode, &targetFlowJSON, &enabled, &t.Status, &t.Message, &lastRun, &nextRun, &t.CertID, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(domainsJSON), &t.Domains)
 	_ = json.Unmarshal([]byte(deployJSON), &t.DeployIDs)
 	_ = json.Unmarshal([]byte(pipelineJSON), &t.Pipeline)
+	_ = json.Unmarshal([]byte(targetFlowJSON), &t.TargetFlow)
 	if t.Domains == nil {
 		t.Domains = []string{}
 	}
@@ -875,6 +902,7 @@ func scanTask(row interface{ Scan(...any) error }) (*model.Task, error) {
 	if t.Pipeline == nil {
 		t.Pipeline = []model.PipelineNode{}
 	}
+	t.FlowMode = normalizeFlowMode(t.FlowMode)
 	t.AutoRenew = autoRenew == 1
 	t.Enabled = enabled == 1
 	if lastRun.Valid {
@@ -996,6 +1024,57 @@ func (s *Store) LatestTaskCertificate(taskID int64) (*model.Certificate, error) 
 		return nil, nil
 	}
 	return cert, err
+}
+
+// ReplaceTaskCertificateLinks 用本次执行实际使用的证书替换任务关联。
+// 目标流程可能复用属于其他任务的证书，因此需要独立关联表；普通任务仍然
+// 通过 certificates.task_id 关联。
+func (s *Store) ReplaceTaskCertificateLinks(taskID int64, certIDs []int64) error {
+	if taskID <= 0 {
+		return nil
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DELETE FROM task_certificate_links WHERE task_id=?`, taskID); err != nil {
+		return err
+	}
+	now := nowUTC()
+	seen := make(map[int64]bool, len(certIDs))
+	for _, certID := range certIDs {
+		if certID <= 0 || seen[certID] {
+			continue
+		}
+		seen[certID] = true
+		if _, err := tx.Exec(`INSERT INTO task_certificate_links(task_id,cert_id,created_at) VALUES(?,?,?)`, taskID, certID, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ListTaskCertificates 返回任务关联的全部证书（含私钥），用于目标流程 Beta
+// 计算最早续期时间与证书复用。
+func (s *Store) ListTaskCertificates(taskID int64) ([]model.Certificate, error) {
+	rows, err := s.DB.Query(`SELECT id,task_id,domains,primary_domain,issuer,ca,source,private_ca_id,acme_order_id,acme_account_id,csr_request_id,cert_pem,key_pem,fullchain_pem,serial,not_before,not_after,status,revoked_at,revoke_reason,created_at,CASE WHEN key_pem<>'' THEN 1 ELSE 0 END
+		FROM certificates
+		WHERE task_id=? OR id IN (SELECT cert_id FROM task_certificate_links WHERE task_id=?)
+		ORDER BY id DESC`, taskID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]model.Certificate, 0)
+	for rows.Next() {
+		cert, err := s.scanCertificate(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, *cert)
+	}
+	return list, rows.Err()
 }
 
 // ListReusableCertificates 返回指定 CA 下仍有效、未撤销且保存了私钥的证书。
@@ -1126,6 +1205,9 @@ func (f CertCleanupFilter) where(now time.Time) (string, []any) {
 	}
 	if f.KeepLatestPerTask {
 		conditions = append(conditions, `id NOT IN (SELECT MAX(id) FROM certificates WHERE task_id > 0 GROUP BY task_id)`)
+		// 目标流程 Beta 一个任务可能有多张当前有效证书，不能按“每个任务一张”
+		// 清理，否则会误删其他证书组。开启保留策略时对 Beta 证书整体跳过清理。
+		conditions = append(conditions, `task_id NOT IN (SELECT id FROM tasks WHERE flow_mode='target_beta')`)
 	}
 	if len(conditions) == 0 {
 		return `1=1`, nil
@@ -1187,6 +1269,9 @@ func (s *Store) deleteCertificatesWhere(where string, args ...any) (int64, error
 		return 0, err
 	}
 	if _, err := tx.Exec(`UPDATE certificate_requests SET certificate_id=0 WHERE certificate_id IN (SELECT id FROM certificates WHERE `+where+`)`, args...); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM task_certificate_links WHERE cert_id IN (SELECT id FROM certificates WHERE `+where+`)`, args...); err != nil {
 		return 0, err
 	}
 	res, err := tx.Exec(`DELETE FROM certificates WHERE `+where, args...)

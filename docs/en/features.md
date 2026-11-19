@@ -7,7 +7,7 @@ This document describes LACTSSL capabilities by business domain, including key p
 | Capability domain | Highlights | Typical users |
 | --- | --- | --- |
 | Certificate assets | Public CA requests, automatic renewal, certificate details, and cleanup | Platform/Operations |
-| Task orchestration | Request → Deploy (one or more) → Notify | Platform/Operations |
+| Task orchestration | Standard: request → deploy (one or more) → notify; Target Flow Beta: read sites → group certificates → request → deploy | Platform/Operations |
 | Certificate delivery | Local directory, SSH/SFTP, FTP, webhooks, cloud CDN, control panels | Platform/Operations, business systems |
 | Internal PKI | Private CA generation/import, hierarchy, CRL/OCSP URLs | Security, infrastructure |
 | ACME server | Standards-compliant ACME v2 endpoints for internal clients | Internal platforms, devices, test environments |
@@ -60,7 +60,19 @@ This document describes LACTSSL capabilities by business domain, including key p
 - Default renewal days.
 - EAB credentials for each CA.
 
-### 1.5 Client CSR requests
+### 1.5 Target Flow Beta
+
+Target Flow Beta is for scenarios where certificates follow panel websites. It reads real websites and bound domains from deployment targets through the plugin `plan` capability, groups them by certificate policy, issues certificates, and deploys them back to the matching websites.
+
+- The task page separates flows with "All / Standard / Target Flow Beta" tabs; the create/edit dialog uses the same segmented switch.
+- Multiple target sources are supported; the website list comes from the target instead of manual site names.
+- Certificate allocation strategies: smart recommendation, one certificate per site, merge by base domain, merge all selected sites into one certificate, one certificate per target source, and custom groups.
+- Supports site selection, include/exclude domain rules, and extra domains per certificate group.
+- Renewals re-read target sites: "All sites" includes newly added sites, while "Selected sites only" keeps the saved stable site keys.
+- A Beta task may own multiple certificates. All of them are linked through `task_certificate_links`; the task list shows site/group summaries.
+- Bulk cleanup with "keep the latest certificate for each task" skips Beta task certificates to avoid deleting other certificate groups.
+
+### 1.6 Client CSR requests
 
 - The API accepts a client CSR and acts as an intermediary to complete DNS-01 validation and issuance with an authoritative CA.
 - The server never generates or stores the private key; the certificate binds the public key from the client CSR, and the client keeps the private key.

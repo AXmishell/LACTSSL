@@ -27,6 +27,7 @@ func DataTables() []TableSpec {
 		{Name: "certificates", PrimaryKey: []string{"id"}, HasID: true},
 		{Name: "revocations", PrimaryKey: []string{"id"}, HasID: true},
 		{Name: "tasks", PrimaryKey: []string{"id"}, HasID: true},
+		{Name: "task_certificate_links", PrimaryKey: []string{"task_id", "cert_id"}},
 		{Name: "deploy_records", PrimaryKey: []string{"id"}, HasID: true},
 		{Name: "monitors", PrimaryKey: []string{"id"}, HasID: true},
 		{Name: "logs", PrimaryKey: []string{"id"}, HasID: true},

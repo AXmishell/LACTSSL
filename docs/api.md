@@ -223,7 +223,26 @@ curl -fsS -X DELETE -H "Authorization: Bearer $LACTSSL_TOKEN" \
 
 归档接口接受 `logs:*` 或 `system_logs:*` 对应权限：查看/下载需要任一读权限，删除需要任一写权限。`category` 取值为 `operation` 或 `runtime`；`reason` 取值为 `manual_clear`、`retention` 或 `max_rows`。
 
-### 6.2 运行任务
+### 6.2 目标流程预览
+
+目标流程 Beta 在保存任务前可以读取目标网站并预览证书分组。该接口只读，需要 `deploy:execute`：
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  -H "Content-Type: application/json" \
+  https://ssl.example.com/api/tasks/target-flow/preview \
+  -d '{
+    "sources": [{"deploy_account_id": 3, "deploy_config": {"target": "site"}}],
+    "selection": {"mode": "all"},
+    "policy": {"strategy": "smart", "max_domains_per_cert": 100},
+    "public_ca": true
+  }'
+```
+
+创建任务时传 `flow_mode: "target_beta"` 与 `target_flow`；`target_flow.policy.strategy` 支持 `smart`、`per_site`、`per_base_domain`、`single`、`per_source`、`custom`。一个 Beta 任务可能关联多张证书，证书关联记录在 `task_certificate_links` 中。
+
+### 6.3 运行任务
 
 ```bash
 curl -fsS -X POST \
@@ -235,7 +254,7 @@ curl -fsS -X POST \
 
 默认会复用仍在有效期内且未进入续期窗口的证书，只重新执行部署节点，不重复向上游 CA 下单。确需强制重新签发时使用 `?force=1` 或发送 `{"force":true}`；强制签发会消耗 CA 的证书配额。
 
-### 6.3 下载证书
+### 6.4 下载证书
 
 ```bash
 # 完整链（需要 certificates:read）
@@ -251,7 +270,7 @@ curl -fL -H "Authorization: Bearer $LACTSSL_TOKEN" \
 
 `type` 支持 `fullchain`（默认）、`cert`、`key`。下载接口返回 PEM 原文，不包在 JSON 中；请按文件权限保存，不要写入日志。
 
-### 6.4 站点监控
+### 6.5 站点监控
 
 ```bash
 curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
@@ -262,7 +281,7 @@ curl -fsS -X POST \
   https://ssl.example.com/api/monitors/7/check
 ```
 
-### 6.5 API 密钥管理
+### 6.6 API 密钥管理
 
 | 接口 | 方法 | 权限 | 说明 |
 | --- | --- | --- | --- |
@@ -273,7 +292,7 @@ curl -fsS -X POST \
 | `/api-keys/:id/rotate` | POST | `api_keys:write` | 轮换密钥，旧令牌立即失效 |
 | `/api-keys/:id` | DELETE | `api_keys:write` | 删除密钥 |
 
-### 6.6 使用客户端 CSR 申请权威 CA 证书
+### 6.7 使用客户端 CSR 申请权威 CA 证书
 
 服务端作为中间环节接收客户端 CSR，使用已配置的权威 CA 和 DNS 账户完成 DNS-01 验证并签发证书。服务端不会生成或保存私钥，证书签发后私钥仍由客户端保管。
 
@@ -339,7 +358,7 @@ python3 scripts/csr_client.py --interactive
 
 脚本只上传 CSR，私钥始终保存在客户端；输出包括 `.key`、`.csr`、`.crt`、`.fullchain.crt` 和 `.request.json`。如果申请已创建但下载中断，可使用 `--request-id csr_xxxxxxxx` 续传。
 
-### 6.7 验证凭据可用性
+### 6.8 验证凭据可用性
 
 在新增或修改 DNS 账户、目标凭据后，可主动验证凭据是否真实可用。验证接口使用 `dns_accounts:write` / `deploy_accounts:write` 权限；浏览器会话还必须通过当前密码或 TOTP 再认证。验证结果仅作提示，不会阻止保存或运行。
 

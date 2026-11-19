@@ -89,6 +89,8 @@ const props = defineProps<{
   accountType: string
   accountId?: number
   modelValue: Record<string, string>
+  // 目标流程 Beta 的站点字段由读取结果自动填充，基础配置中隐藏。
+  excludeKeys?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -103,7 +105,10 @@ const fields = computed<FieldDef[]>(() => {
 })
 
 const visibleFields = computed(() => {
-  return fields.value.filter((field) => fieldVisible(field, fields.value, props.modelValue))
+  const excluded = new Set(props.excludeKeys || [])
+  return fields.value.filter(
+    (field) => !excluded.has(field.key) && fieldVisible(field, fields.value, props.modelValue)
+  )
 })
 
 const optionStates = reactive<Record<string, OptionState>>({})

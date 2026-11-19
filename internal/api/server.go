@@ -329,6 +329,7 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.DELETE("/deploy-accounts/:id", s.deleteDeployAccount)
 	g.GET("/tasks", s.listTasks)
 	g.POST("/tasks", s.createTask)
+	g.POST("/tasks/target-flow/preview", s.previewTargetFlow)
 	g.PUT("/tasks/:id", s.updateTask)
 	g.DELETE("/tasks/:id", s.deleteTask)
 	g.POST("/tasks/:id/run", s.runTask)
@@ -733,6 +734,15 @@ func localizeLogs(c *gin.Context, list []model.LogEntry) []model.LogEntry {
 func localizeTasks(c *gin.Context, list []model.Task) []model.Task {
 	for index := range list {
 		list[index].Message = localize(c, list[index].Message)
+		if list[index].FlowMode == model.FlowTargetBeta {
+			if result := list[index].TargetFlow.LastResult; result != nil {
+				list[index].TargetFlowSummary = &model.TargetFlowSummary{
+					SiteCount:  result.SiteCount,
+					GroupCount: result.GroupCount,
+					CertCount:  result.CertCount,
+				}
+			}
+		}
 	}
 	return list
 }
