@@ -20,77 +20,79 @@
     />
 
     <div class="k-card" style="padding: 0; overflow: hidden">
-      <el-table
-        ref="tableRef"
-        :data="items"
-        row-key="id"
-        v-loading="loading"
-        style="width: 100%"
-        @selection-change="onSelectionChange"
-      >
-        <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
-        <el-table-column width="150" :label="t('apiKeys.name')">
-          <template #default="{ row }">
-            <div class="key-name">{{ row.name }}</div>
-            <div class="key-prefix mono">{{ row.prefix }}…</div>
-          </template>
-        </el-table-column>
-        <el-table-column min-width="240" :label="t('apiKeys.permissions')">
-          <template #default="{ row }">
-            <div class="scope-tags">
-              <el-tooltip
-                v-for="scope in row.scopes.slice(0, 3)"
-                :key="scope"
-                :content="scopeDescription(scope)"
-                placement="top"
-              >
-                <el-tag size="small" :type="scope === '*' ? 'danger' : 'info'" effect="plain">
-                  {{ scopeLabel(scope) }}
+      <div class="table-scroll">
+        <el-table
+          ref="tableRef"
+          :data="items"
+          row-key="id"
+          v-loading="loading"
+          style="width: 100%"
+          @selection-change="onSelectionChange"
+        >
+          <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
+          <el-table-column width="150" :label="t('apiKeys.name')">
+            <template #default="{ row }">
+              <div class="key-name">{{ row.name }}</div>
+              <div class="key-prefix mono">{{ row.prefix }}…</div>
+            </template>
+          </el-table-column>
+          <el-table-column min-width="240" :label="t('apiKeys.permissions')">
+            <template #default="{ row }">
+              <div class="scope-tags">
+                <el-tooltip
+                  v-for="scope in row.scopes.slice(0, 3)"
+                  :key="scope"
+                  :content="scopeDescription(scope)"
+                  placement="top"
+                >
+                  <el-tag size="small" :type="scope === '*' ? 'danger' : 'info'" effect="plain">
+                    {{ scopeLabel(scope) }}
+                  </el-tag>
+                </el-tooltip>
+                <el-tag v-if="row.scopes.length > 3" size="small" type="info" effect="plain">
+                  +{{ row.scopes.length - 3 }}
                 </el-tag>
-              </el-tooltip>
-              <el-tag v-if="row.scopes.length > 3" size="small" type="info" effect="plain">
-                +{{ row.scopes.length - 3 }}
-              </el-tag>
-              <el-tooltip v-if="sensitiveOf(row).length" :content="sensitiveOf(row).join('、')" placement="top">
-                <el-tag size="small" type="warning" effect="plain">
-                  {{ t('apiKeys.highRiskTag', { count: sensitiveOf(row).length }) }}
-                </el-tag>
-              </el-tooltip>
-            </div>
+                <el-tooltip v-if="sensitiveOf(row).length" :content="sensitiveOf(row).join('、')" placement="top">
+                  <el-tag size="small" type="warning" effect="plain">
+                    {{ t('apiKeys.highRiskTag', { count: sensitiveOf(row).length }) }}
+                  </el-tag>
+                </el-tooltip>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="80" :label="t('common.status')">
+            <template #default="{ row }">
+              <span class="tag-soft" :class="statusOf(row).className">{{ statusOf(row).label }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="80" :label="t('apiKeys.lastUsed')">
+            <template #default="{ row }">
+              <span v-if="row.last_used_at">{{ fromNow(row.last_used_at) }}</span>
+              <span v-else class="muted">{{ t('apiKeys.neverUsed') }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="80" :label="t('apiKeys.expiresAt')">
+            <template #default="{ row }">
+              <span :class="{ muted: !row.expires_at }">{{ row.expires_at ? formatDate(row.expires_at) : t('apiKeys.neverExpires') }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="120" :label="t('apiKeys.createdAt')">
+            <template #default="{ row }">
+              <span class="muted">{{ formatDate(row.created_at) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="220" align="right" :label="t('common.actions')">
+            <template #default="{ row }">
+              <el-button text type="primary" size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+              <el-button text size="small" @click="rotate(row)">{{ t('apiKeys.rotate') }}</el-button>
+              <el-button text type="danger" size="small" @click="remove(row)">{{ t('common.delete') }}</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 40px 0; color: #94a3b8">{{ t('apiKeys.empty') }}</div>
           </template>
-        </el-table-column>
-        <el-table-column width="80" :label="t('common.status')">
-          <template #default="{ row }">
-            <span class="tag-soft" :class="statusOf(row).className">{{ statusOf(row).label }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="80" :label="t('apiKeys.lastUsed')">
-          <template #default="{ row }">
-            <span v-if="row.last_used_at">{{ fromNow(row.last_used_at) }}</span>
-            <span v-else class="muted">{{ t('apiKeys.neverUsed') }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="80" :label="t('apiKeys.expiresAt')">
-          <template #default="{ row }">
-            <span :class="{ muted: !row.expires_at }">{{ row.expires_at ? formatDate(row.expires_at) : t('apiKeys.neverExpires') }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="120" :label="t('apiKeys.createdAt')">
-          <template #default="{ row }">
-            <span class="muted">{{ formatDate(row.created_at) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="220" align="right" :label="t('common.actions')">
-          <template #default="{ row }">
-            <el-button text type="primary" size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-            <el-button text size="small" @click="rotate(row)">{{ t('apiKeys.rotate') }}</el-button>
-            <el-button text type="danger" size="small" @click="remove(row)">{{ t('common.delete') }}</el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div style="padding: 40px 0; color: #94a3b8">{{ t('apiKeys.empty') }}</div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
       <div class="flex-between key-foot">
         <span class="muted">{{ t('apiKeys.total', { count: items.length }) }}</span>
       </div>

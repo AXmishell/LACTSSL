@@ -85,54 +85,56 @@
     />
 
     <div class="k-card" style="padding: 0; overflow: hidden">
-      <el-table :data="items" v-loading="loading" row-key="id" style="width: 100%">
-        <el-table-column v-if="tab === 'system'" type="expand">
-          <template #default="{ row }">
-            <div class="system-log-fields">
-              <template v-if="fieldEntries(row).length">
-                <div v-for="[key, value] in fieldEntries(row)" :key="key" class="system-log-field">
-                  <span class="system-log-key mono">{{ key }}</span>
-                  <pre class="system-log-value">{{ formatValue(value) }}</pre>
-                </div>
-              </template>
-              <span v-else class="muted">{{ t('systemLogs.noDetails') }}</span>
+      <div class="table-scroll">
+        <el-table :data="items" v-loading="loading" row-key="id" style="width: 100%">
+          <el-table-column v-if="tab === 'system'" type="expand">
+            <template #default="{ row }">
+              <div class="system-log-fields">
+                <template v-if="fieldEntries(row).length">
+                  <div v-for="[key, value] in fieldEntries(row)" :key="key" class="system-log-field">
+                    <span class="system-log-key mono">{{ key }}</span>
+                    <pre class="system-log-value">{{ formatValue(value) }}</pre>
+                  </div>
+                </template>
+                <span v-else class="muted">{{ t('systemLogs.noDetails') }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="110" :label="t('logs.level')">
+            <template #default="{ row }">
+              <span class="tag-soft" :class="levelClass(row.level)">{{ t(levelKey(row.level)) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="tab === 'operation'" width="130" :label="t('logs.source')">
+            <template #default="{ row }">
+              <span class="muted">{{ sourceLabel(row.source) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column v-else width="130" :label="t('systemLogs.component')">
+            <template #default="{ row }">
+              <span class="muted">{{ componentLabel(row.component) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            min-width="380"
+            :label="tab === 'operation' ? t('logs.content') : t('systemLogs.message')"
+          >
+            <template #default="{ row }">
+              <span class="log-message">{{ row.message }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="170" :label="t('logs.time')">
+            <template #default="{ row }">
+              <span class="muted">{{ formatDate(row.created_at) }}</span>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 40px 0; color: #94a3b8">
+              {{ tab === 'operation' ? t('logs.empty') : t('systemLogs.empty') }}
             </div>
           </template>
-        </el-table-column>
-        <el-table-column width="110" :label="t('logs.level')">
-          <template #default="{ row }">
-            <span class="tag-soft" :class="levelClass(row.level)">{{ t(levelKey(row.level)) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="tab === 'operation'" width="130" :label="t('logs.source')">
-          <template #default="{ row }">
-            <span class="muted">{{ sourceLabel(row.source) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column v-else width="130" :label="t('systemLogs.component')">
-          <template #default="{ row }">
-            <span class="muted">{{ componentLabel(row.component) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          min-width="380"
-          :label="tab === 'operation' ? t('logs.content') : t('systemLogs.message')"
-        >
-          <template #default="{ row }">
-            <span class="log-message">{{ row.message }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="170" :label="t('logs.time')">
-          <template #default="{ row }">
-            <span class="muted">{{ formatDate(row.created_at) }}</span>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div style="padding: 40px 0; color: #94a3b8">
-            {{ tab === 'operation' ? t('logs.empty') : t('systemLogs.empty') }}
-          </div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
       <div class="flex-between logs-foot">
         <span class="muted">{{ t('logs.total', { total }) }}</span>
         <el-pagination

@@ -14,53 +14,55 @@
     </div>
 
     <div class="k-card" style="padding: 0; overflow: hidden">
-      <el-table :data="items" v-loading="loading" style="width: 100%">
-        <el-table-column min-width="260" :label="t('sessions.device')">
-          <template #default="{ row }">
-            <div class="flex gap-10" style="align-items: center">
-              <el-icon size="18" color="#64748b"><Monitor /></el-icon>
-              <div style="min-width: 0">
-                <div style="display: flex; align-items: center; gap: 8px; font-weight: 600">
-                  <span>{{ deviceLabel(row.user_agent) }}</span>
-                  <span v-if="row.current" class="tag-soft tag-green">{{ t('sessions.current') }}</span>
-                </div>
-                <div class="muted" style="margin-top: 2px; font-size: 12px; word-break: break-all">
-                  {{ row.user_agent || t('sessions.unknownDevice') }}
+      <div class="table-scroll">
+        <el-table :data="items" v-loading="loading" style="width: 100%">
+          <el-table-column min-width="260" :label="t('sessions.device')">
+            <template #default="{ row }">
+              <div class="flex gap-10" style="align-items: center">
+                <el-icon size="18" color="#64748b"><Monitor /></el-icon>
+                <div style="min-width: 0">
+                  <div style="display: flex; align-items: center; gap: 8px; font-weight: 600">
+                    <span>{{ deviceLabel(row.user_agent) }}</span>
+                    <span v-if="row.current" class="tag-soft tag-green">{{ t('sessions.current') }}</span>
+                  </div>
+                  <div class="muted" style="margin-top: 2px; font-size: 12px; word-break: break-all">
+                    {{ row.user_agent || t('sessions.unknownDevice') }}
+                  </div>
                 </div>
               </div>
-            </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="150" :label="t('sessions.ip')">
+            <template #default="{ row }">
+              <span class="mono">{{ row.ip || t('common.none') }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="170" :label="t('sessions.loginAt')">
+            <template #default="{ row }">
+              <span class="muted">{{ formatDate(row.created_at) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="150" :label="t('sessions.lastSeen')">
+            <template #default="{ row }">{{ fromNow(row.last_seen_at) }}</template>
+          </el-table-column>
+          <el-table-column width="170" :label="t('sessions.expiresAt')">
+            <template #default="{ row }">
+              <span class="muted">{{ formatDate(row.expires_at) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="90" align="right" :label="t('common.actions')">
+            <template #default="{ row }">
+              <el-button v-if="!row.current" text type="danger" size="small" @click="revoke(row)">
+                {{ t('sessions.revoke') }}
+              </el-button>
+              <span v-else class="muted">{{ t('common.none') }}</span>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 40px 0; color: #94a3b8">{{ t('sessions.empty') }}</div>
           </template>
-        </el-table-column>
-        <el-table-column width="150" :label="t('sessions.ip')">
-          <template #default="{ row }">
-            <span class="mono">{{ row.ip || t('common.none') }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="170" :label="t('sessions.loginAt')">
-          <template #default="{ row }">
-            <span class="muted">{{ formatDate(row.created_at) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="150" :label="t('sessions.lastSeen')">
-          <template #default="{ row }">{{ fromNow(row.last_seen_at) }}</template>
-        </el-table-column>
-        <el-table-column width="170" :label="t('sessions.expiresAt')">
-          <template #default="{ row }">
-            <span class="muted">{{ formatDate(row.expires_at) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="90" align="right" :label="t('common.actions')">
-          <template #default="{ row }">
-            <el-button v-if="!row.current" text type="danger" size="small" @click="revoke(row)">
-              {{ t('sessions.revoke') }}
-            </el-button>
-            <span v-else class="muted">{{ t('common.none') }}</span>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div style="padding: 40px 0; color: #94a3b8">{{ t('sessions.empty') }}</div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
       <div class="flex-between session-foot">
         <span class="muted">{{ t('sessions.total', { count: items.length }) }}</span>
       </div>

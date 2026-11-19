@@ -26,70 +26,72 @@
           <span class="muted">{{ t('certs.count', { count: filtered.length }) }}</span>
         </div>
 
-        <el-table
-          ref="tableRef"
-          :data="filtered"
-          row-key="id"
-          v-loading="loading"
-          style="width: 100%"
-          @selection-change="onSelectionChange"
-        >
-          <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
-          <el-table-column min-width="230" :label="t('certs.primaryDomain')">
-            <template #default="{ row }">
-              <div class="domain-cell">
-                <span class="domain-main">{{ row.primary_domain }}</span>
-                <span class="domain-sub">{{ t('certs.domainsCount', { count: row.domains?.length || 1, issuer: row.issuer || t('certs.unknownIssuer') }) }}</span>
+        <div class="table-scroll">
+          <el-table
+            ref="tableRef"
+            :data="filtered"
+            row-key="id"
+            v-loading="loading"
+            style="width: 100%"
+            @selection-change="onSelectionChange"
+          >
+            <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
+            <el-table-column min-width="230" :label="t('certs.primaryDomain')">
+              <template #default="{ row }">
+                <div class="domain-cell">
+                  <span class="domain-main">{{ row.primary_domain }}</span>
+                  <span class="domain-sub">{{ t('certs.domainsCount', { count: row.domains?.length || 1, issuer: row.issuer || t('certs.unknownIssuer') }) }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column width="140" :label="t('certs.issuer')">
+              <template #default="{ row }">
+                <span class="tag-soft tag-gray">{{ caLabel(row.ca) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column width="190" :label="t('certs.expiresAt')">
+              <template #default="{ row }">
+                <div class="domain-cell">
+                  <span>{{ formatDate(row.not_after) }}</span>
+                  <span class="days-left">{{ t('certs.remainingDays', { days: daysLeft(row.not_after) }) }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column width="120" :label="t('certs.status')">
+              <template #default="{ row }">
+                <el-tag :type="certState(row).type" effect="light" round size="small">{{ certState(row).label }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column width="150" :label="t('certs.issuedAt')">
+              <template #default="{ row }">
+                <span class="muted">{{ formatDate(row.created_at) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column width="255" :label="t('certs.actions')" fixed="right">
+              <template #default="{ row }">
+                <el-button text type="primary" size="small" @click="openDetail(row)">{{ t('certs.details') }}</el-button>
+                <el-dropdown trigger="click" @command="(kind: string) => download(row, kind)">
+                  <el-button text size="small">{{ t('certs.download') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="fullchain">{{ t('certs.fullchain') }}</el-dropdown-item>
+                      <el-dropdown-item command="cert">{{ t('certs.cert') }}</el-dropdown-item>
+                      <el-dropdown-item v-if="hasPrivateKey(row)" command="key">{{ t('certs.key') }}</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+                <el-button v-if="canDeploy(row)" text size="small" @click="openDeploy(row)">{{ t('certs.deploy') }}</el-button>
+                <el-button text type="danger" size="small" @click="remove(row)">{{ t('common.delete') }}</el-button>
+              </template>
+            </el-table-column>
+            <template #empty>
+              <div style="padding: 40px 0; color: #94a3b8">
+                <el-icon size="30"><Document /></el-icon>
+                <p>{{ t('certs.empty') }}</p>
               </div>
             </template>
-          </el-table-column>
-          <el-table-column width="140" :label="t('certs.issuer')">
-            <template #default="{ row }">
-              <span class="tag-soft tag-gray">{{ caLabel(row.ca) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column width="190" :label="t('certs.expiresAt')">
-            <template #default="{ row }">
-              <div class="domain-cell">
-                <span>{{ formatDate(row.not_after) }}</span>
-                <span class="days-left">{{ t('certs.remainingDays', { days: daysLeft(row.not_after) }) }}</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column width="120" :label="t('certs.status')">
-            <template #default="{ row }">
-              <el-tag :type="certState(row).type" effect="light" round size="small">{{ certState(row).label }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column width="150" :label="t('certs.issuedAt')">
-            <template #default="{ row }">
-              <span class="muted">{{ formatDate(row.created_at) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column width="255" :label="t('certs.actions')" fixed="right">
-            <template #default="{ row }">
-              <el-button text type="primary" size="small" @click="openDetail(row)">{{ t('certs.details') }}</el-button>
-              <el-dropdown trigger="click" @command="(kind: string) => download(row, kind)">
-                <el-button text size="small">{{ t('certs.download') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="fullchain">{{ t('certs.fullchain') }}</el-dropdown-item>
-                    <el-dropdown-item command="cert">{{ t('certs.cert') }}</el-dropdown-item>
-                    <el-dropdown-item v-if="hasPrivateKey(row)" command="key">{{ t('certs.key') }}</el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-              <el-button v-if="canDeploy(row)" text size="small" @click="openDeploy(row)">{{ t('certs.deploy') }}</el-button>
-              <el-button text type="danger" size="small" @click="remove(row)">{{ t('common.delete') }}</el-button>
-            </template>
-          </el-table-column>
-          <template #empty>
-            <div style="padding: 40px 0; color: #94a3b8">
-              <el-icon size="30"><Document /></el-icon>
-              <p>{{ t('certs.empty') }}</p>
-            </div>
-          </template>
-        </el-table>
+          </el-table>
+        </div>
       </div>
     </div>
 

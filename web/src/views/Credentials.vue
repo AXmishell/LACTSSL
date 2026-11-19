@@ -101,7 +101,7 @@
       <span class="batch-count">{{ t('credentials.selectedCount', { count: selectedIds.length }) }}</span>
     </div>
 
-    <div v-if="!isDNS" class="k-card" style="margin-top: 20px">
+    <div v-if="!isDNS" class="k-card recent-deploy-card" style="margin-top: 20px">
       <div class="card-head">
         <div>
           <h3>{{ t('credentials.recentDeployments') }}</h3>
@@ -109,47 +109,49 @@
         </div>
         <el-button text type="primary" @click="loadRecords">{{ t('credentials.refresh') }}</el-button>
       </div>
-      <el-table :data="records" size="small" class="recent-deploy-table" style="width: 100%">
-        <el-table-column width="160" :label="t('credentials.time')">
-          <template #default="{ row }"><span class="muted">{{ formatDate(row.created_at) }}</span></template>
-        </el-table-column>
-        <el-table-column min-width="170" :label="t('credentials.certificate')">
-          <template #default="{ row }">
-            <OverflowTooltip :content="certDomain(row.cert_id)" :label="t('credentials.certificate')">
-              <span class="mono" style="font-size: 12px">{{ certDomain(row.cert_id) }}</span>
-            </OverflowTooltip>
+      <div class="table-scroll">
+        <el-table :data="records" size="small" class="recent-deploy-table" style="width: 100%">
+          <el-table-column width="160" :label="t('credentials.time')">
+            <template #default="{ row }"><span class="muted">{{ formatDate(row.created_at) }}</span></template>
+          </el-table-column>
+          <el-table-column min-width="170" :label="t('credentials.certificate')">
+            <template #default="{ row }">
+              <OverflowTooltip :content="certDomain(row.cert_id)" :label="t('credentials.certificate')">
+                <span class="mono" style="font-size: 12px">{{ certDomain(row.cert_id) }}</span>
+              </OverflowTooltip>
+            </template>
+          </el-table-column>
+          <el-table-column width="150" :label="t('credentials.deployTarget')">
+            <template #default="{ row }">
+              <OverflowTooltip :content="row.account_name || t('credentials.unknownTarget')" :label="t('credentials.deployTarget')">
+                <span>{{ row.account_name || t('credentials.unknownTarget') }}</span>
+              </OverflowTooltip>
+            </template>
+          </el-table-column>
+          <el-table-column width="100" :label="t('credentials.status')">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'success' ? 'success' : 'danger'" size="small" effect="light" round>
+                {{ row.status === 'success' ? t('credentials.success') : t('credentials.failed') }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column min-width="260" :label="t('credentials.result')">
+            <template #default="{ row }">
+              <OverflowTooltip
+                :content="row.message"
+                :label="t('credentials.result')"
+                :tone="row.status === 'success' ? 'success' : 'danger'"
+                always
+              >
+                <span class="muted" style="font-size: 12px">{{ row.message }}</span>
+              </OverflowTooltip>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 26px 22px; color: #94a3b8">{{ t('credentials.noRecords') }}</div>
           </template>
-        </el-table-column>
-        <el-table-column width="150" :label="t('credentials.deployTarget')">
-          <template #default="{ row }">
-            <OverflowTooltip :content="row.account_name || t('credentials.unknownTarget')" :label="t('credentials.deployTarget')">
-              <span>{{ row.account_name || t('credentials.unknownTarget') }}</span>
-            </OverflowTooltip>
-          </template>
-        </el-table-column>
-        <el-table-column width="100" :label="t('credentials.status')">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'success' ? 'success' : 'danger'" size="small" effect="light" round>
-              {{ row.status === 'success' ? t('credentials.success') : t('credentials.failed') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column min-width="260" :label="t('credentials.result')">
-          <template #default="{ row }">
-            <OverflowTooltip
-              :content="row.message"
-              :label="t('credentials.result')"
-              :tone="row.status === 'success' ? 'success' : 'danger'"
-              always
-            >
-              <span class="muted" style="font-size: 12px">{{ row.message }}</span>
-            </OverflowTooltip>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div style="padding: 26px 0; color: #94a3b8">{{ t('credentials.noRecords') }}</div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
     </div>
 
     <el-dialog v-model="dialogVisible" :title="`${editingId ? t('credentials.edit') : t('credentials.add')} · ${isDNS ? t('credentials.dnsTitle') : t('credentials.deployTitle')}`" width="600px" destroy-on-close>
@@ -767,11 +769,41 @@ onMounted(() => {
   color: #1d4ed8;
 }
 
+/* 最近部署记录：卡片不留内边距，表格贴边，标题区仅保留左右 20px 间距 */
+.recent-deploy-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.recent-deploy-card .card-head {
+  padding: 12px 20px 0;
+}
+
 /* 最近部署记录：单行固定高度，超长内容省略并悬浮显示完整内容 */
 .recent-deploy-table :deep(.cell) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 首列左、末列右各留 20px，与标题栏左右间距对齐 */
+.recent-deploy-table :deep(.el-table__header th:first-child .cell),
+.recent-deploy-table :deep(.el-table__body td:first-child .cell) {
+  padding-left: 20px;
+}
+
+.recent-deploy-table :deep(.el-table__header th:last-child .cell),
+.recent-deploy-table :deep(.el-table__body td:last-child .cell) {
+  padding-right: 20px;
+}
+
+/* 表格自带底边会与卡片底边重复，这里清除 */
+.recent-deploy-table :deep(.el-table__inner-wrapper::before) {
+  display: none;
+}
+
+.recent-deploy-table :deep(.el-table__body tr:last-child > td.el-table__cell) {
+  border-bottom: 0;
 }
 
 .cred-list-head,

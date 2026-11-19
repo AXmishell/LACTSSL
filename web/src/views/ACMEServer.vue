@@ -21,69 +21,71 @@
     />
 
     <div class="k-card" style="padding: 0; overflow: hidden">
-      <el-table
-        ref="tableRef"
-        :data="endpoints"
-        row-key="id"
-        v-loading="loading"
-        style="width: 100%"
-        @selection-change="onSelectionChange"
-      >
-        <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
-        <el-table-column min-width="220" :label="t('acmeServer.endpoint')">
-          <template #default="{ row }">
-            <div class="acme-name">{{ row.name }}</div>
-            <div class="acme-sub mono">/acme/{{ row.slug }}/directory</div>
-            <div class="acme-tags">
-              <el-tag :type="row.enabled ? 'success' : 'info'" effect="light" round size="small">
-                {{ row.enabled ? t('common.enabled') : t('common.disabled') }}
-              </el-tag>
-              <el-tag :type="row.eab_required ? 'warning' : 'danger'" effect="light" round size="small">
-                {{ row.eab_required ? t('acmeServer.eabRequiredTag') : t('acmeServer.eabOptionalTag') }}
-              </el-tag>
+      <div class="table-scroll">
+        <el-table
+          ref="tableRef"
+          :data="endpoints"
+          row-key="id"
+          v-loading="loading"
+          style="width: 100%"
+          @selection-change="onSelectionChange"
+        >
+          <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
+          <el-table-column min-width="220" :label="t('acmeServer.endpoint')">
+            <template #default="{ row }">
+              <div class="acme-name">{{ row.name }}</div>
+              <div class="acme-sub mono">/acme/{{ row.slug }}/directory</div>
+              <div class="acme-tags">
+                <el-tag :type="row.enabled ? 'success' : 'info'" effect="light" round size="small">
+                  {{ row.enabled ? t('common.enabled') : t('common.disabled') }}
+                </el-tag>
+                <el-tag :type="row.eab_required ? 'warning' : 'danger'" effect="light" round size="small">
+                  {{ row.eab_required ? t('acmeServer.eabRequiredTag') : t('acmeServer.eabOptionalTag') }}
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="150" :label="t('acmeServer.ca')">
+            <template #default="{ row }">
+              <div>{{ row.ca_name || `#${row.ca_id}` }}</div>
+              <div class="acme-sub">{{ t('acmeServer.validityDaysShort', { days: row.validity_days }) }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column min-width="300" :label="t('acmeServer.directoryURL')">
+            <template #default="{ row }">
+              <div class="acme-url">
+                <code class="mono break-all">{{ displayDirectoryURL(row.slug) }}</code>
+                <el-button text type="primary" size="small" :icon="CopyDocument" @click="copy(displayDirectoryURL(row.slug))" />
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="190" :label="t('acmeServer.challenges')">
+            <template #default="{ row }">
+              <div class="acme-tags">
+                <el-tag v-if="row.http01_enabled" effect="light" round size="small">HTTP-01</el-tag>
+                <el-tag v-if="row.dns01_enabled" effect="light" round size="small">DNS-01</el-tag>
+                <el-tag v-if="row.tls_alpn_01_enabled" effect="light" round size="small">TLS-ALPN-01</el-tag>
+                <el-tag v-if="row.allow_wildcard" type="warning" effect="light" round size="small">*</el-tag>
+                <el-tag v-if="row.allow_ip" type="info" effect="light" round size="small">IP</el-tag>
+              </div>
+              <div class="acme-sub">{{ t('acmeServer.domainsCount', { count: row.allowed_domains?.length || 0 }) }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column width="250" :label="t('common.actions')" fixed="right">
+            <template #default="{ row }">
+              <el-button text type="primary" size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+              <el-button text size="small" :icon="Key" @click="openEAB(row)">{{ t('acmeServer.eab') }}</el-button>
+              <el-button text type="danger" size="small" @click="removeEndpoint(row)">{{ t('common.delete') }}</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 40px 0; color: #94a3b8">
+              <el-icon size="30"><Connection /></el-icon>
+              <p>{{ t('acmeServer.empty') }}</p>
             </div>
           </template>
-        </el-table-column>
-        <el-table-column width="150" :label="t('acmeServer.ca')">
-          <template #default="{ row }">
-            <div>{{ row.ca_name || `#${row.ca_id}` }}</div>
-            <div class="acme-sub">{{ t('acmeServer.validityDaysShort', { days: row.validity_days }) }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column min-width="300" :label="t('acmeServer.directoryURL')">
-          <template #default="{ row }">
-            <div class="acme-url">
-              <code class="mono break-all">{{ displayDirectoryURL(row.slug) }}</code>
-              <el-button text type="primary" size="small" :icon="CopyDocument" @click="copy(displayDirectoryURL(row.slug))" />
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column width="190" :label="t('acmeServer.challenges')">
-          <template #default="{ row }">
-            <div class="acme-tags">
-              <el-tag v-if="row.http01_enabled" effect="light" round size="small">HTTP-01</el-tag>
-              <el-tag v-if="row.dns01_enabled" effect="light" round size="small">DNS-01</el-tag>
-              <el-tag v-if="row.tls_alpn_01_enabled" effect="light" round size="small">TLS-ALPN-01</el-tag>
-              <el-tag v-if="row.allow_wildcard" type="warning" effect="light" round size="small">*</el-tag>
-              <el-tag v-if="row.allow_ip" type="info" effect="light" round size="small">IP</el-tag>
-            </div>
-            <div class="acme-sub">{{ t('acmeServer.domainsCount', { count: row.allowed_domains?.length || 0 }) }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column width="250" :label="t('common.actions')" fixed="right">
-          <template #default="{ row }">
-            <el-button text type="primary" size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-            <el-button text size="small" :icon="Key" @click="openEAB(row)">{{ t('acmeServer.eab') }}</el-button>
-            <el-button text type="danger" size="small" @click="removeEndpoint(row)">{{ t('common.delete') }}</el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div style="padding: 40px 0; color: #94a3b8">
-            <el-icon size="30"><Connection /></el-icon>
-            <p>{{ t('acmeServer.empty') }}</p>
-          </div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
     </div>
 
     <div v-if="showBatchBar && selectedEndpoints.length" class="batch-bar">
@@ -237,34 +239,36 @@
         </div>
       </el-form>
 
-      <el-table :data="eabItems" v-loading="eabLoading" style="width: 100%">
-        <el-table-column min-width="190" :label="t('acmeServer.eabKid')">
-          <template #default="{ row }">
-            <code class="mono break-all">{{ row.kid }}</code>
+      <div class="table-scroll">
+        <el-table :data="eabItems" v-loading="eabLoading" style="width: 100%">
+          <el-table-column min-width="190" :label="t('acmeServer.eabKid')">
+            <template #default="{ row }">
+              <code class="mono break-all">{{ row.kid }}</code>
+            </template>
+          </el-table-column>
+          <el-table-column width="120" :label="t('acmeServer.eabLabel')">
+            <template #default="{ row }">{{ row.label || t('common.none') }}</template>
+          </el-table-column>
+          <el-table-column width="110" :label="t('common.status')">
+            <template #default="{ row }">
+              <el-tag :type="row.used_at ? 'info' : 'success'" effect="light" round size="small">
+                {{ row.used_at ? t('acmeServer.eabUsed') : t('acmeServer.eabUnused') }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column width="170" :label="t('acmeServer.eabExpiresAt')">
+            <template #default="{ row }">{{ row.expires_at ? formatDate(row.expires_at) : t('acmeServer.never') }}</template>
+          </el-table-column>
+          <el-table-column width="80" :label="t('common.actions')" fixed="right">
+            <template #default="{ row }">
+              <el-button text type="danger" size="small" @click="removeEAB(row)">{{ t('common.delete') }}</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 28px 0; color: #94a3b8">{{ t('acmeServer.eabEmpty') }}</div>
           </template>
-        </el-table-column>
-        <el-table-column width="120" :label="t('acmeServer.eabLabel')">
-          <template #default="{ row }">{{ row.label || t('common.none') }}</template>
-        </el-table-column>
-        <el-table-column width="110" :label="t('common.status')">
-          <template #default="{ row }">
-            <el-tag :type="row.used_at ? 'info' : 'success'" effect="light" round size="small">
-              {{ row.used_at ? t('acmeServer.eabUsed') : t('acmeServer.eabUnused') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column width="170" :label="t('acmeServer.eabExpiresAt')">
-          <template #default="{ row }">{{ row.expires_at ? formatDate(row.expires_at) : t('acmeServer.never') }}</template>
-        </el-table-column>
-        <el-table-column width="80" :label="t('common.actions')" fixed="right">
-          <template #default="{ row }">
-            <el-button text type="danger" size="small" @click="removeEAB(row)">{{ t('common.delete') }}</el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div style="padding: 28px 0; color: #94a3b8">{{ t('acmeServer.eabEmpty') }}</div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
       <template #footer>
         <el-button @click="eabVisible = false">{{ t('common.close') }}</el-button>
       </template>

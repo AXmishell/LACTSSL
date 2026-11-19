@@ -599,6 +599,36 @@ a {
   color: #475569;
 }
 
+/* 横向滚动条外置到表格下方，避免浮层遮挡最后一行 */
+.table-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* 表格按列宽撑开，溢出交给外层容器滚动 */
+.table-scroll > .el-table {
+  min-width: max-content;
+}
+
+.table-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 .el-dialog {
   border-radius: 18px;
 }

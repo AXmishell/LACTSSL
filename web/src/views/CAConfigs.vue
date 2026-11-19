@@ -66,41 +66,43 @@
         </div>
         <el-button type="primary" :icon="Plus" @click="openPoolCreate">{{ t('ca.poolAdd') }}</el-button>
       </div>
-      <el-table :data="pools" v-loading="poolLoading" style="width: 100%">
-        <el-table-column min-width="200" :label="t('ca.poolName')">
-          <template #default="{ row }">
-            <div class="ca-title">
-              {{ row.name }}
-              <span v-if="acme.acme_ca_pool_id === row.id" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
-              <span v-if="!row.enabled" class="tag-soft tag-gray">{{ t('common.disabled') }}</span>
-            </div>
+      <div class="table-scroll">
+        <el-table :data="pools" v-loading="poolLoading" style="width: 100%">
+          <el-table-column min-width="200" :label="t('ca.poolName')">
+            <template #default="{ row }">
+              <div class="ca-title">
+                {{ row.name }}
+                <span v-if="acme.acme_ca_pool_id === row.id" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
+                <span v-if="!row.enabled" class="tag-soft tag-gray">{{ t('common.disabled') }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="150" :label="t('ca.poolStrategy')">
+            <template #default="{ row }">
+              <span class="tag-soft tag-gray">{{ strategyLabel(row.strategy) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="120" :label="t('ca.poolCandidates')">
+            <template #default="{ row }">
+              <span class="muted">{{ row.items?.filter((item: any) => item.enabled).length || 0 }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="150" :label="t('ca.poolOrder')">
+            <template #default="{ row }">
+              <span class="ca-url">{{ poolOrder(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="150" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
+            <template #default="{ row }">
+              <el-button text type="primary" size="small" @click="openPoolEdit(row)">{{ t('common.edit') }}</el-button>
+              <el-button text type="danger" size="small" @click="deletePool(row)">{{ t('common.delete') }}</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div class="muted" style="padding: 24px 0">{{ t('ca.poolEmpty') }}</div>
           </template>
-        </el-table-column>
-        <el-table-column width="150" :label="t('ca.poolStrategy')">
-          <template #default="{ row }">
-            <span class="tag-soft tag-gray">{{ strategyLabel(row.strategy) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="120" :label="t('ca.poolCandidates')">
-          <template #default="{ row }">
-            <span class="muted">{{ row.items?.filter((item: any) => item.enabled).length || 0 }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="150" :label="t('ca.poolOrder')">
-          <template #default="{ row }">
-            <span class="ca-url">{{ poolOrder(row) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="150" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
-          <template #default="{ row }">
-            <el-button text type="primary" size="small" @click="openPoolEdit(row)">{{ t('common.edit') }}</el-button>
-            <el-button text type="danger" size="small" @click="deletePool(row)">{{ t('common.delete') }}</el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div class="muted" style="padding: 24px 0">{{ t('ca.poolEmpty') }}</div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
     </div>
 
     <el-dialog
@@ -148,27 +150,29 @@
     </el-dialog>
 
     <div class="k-card" style="padding: 0; overflow: hidden">
-      <el-table :data="items" v-loading="loading" class="ca-table" style="width: 100%">
-        <el-table-column min-width="260" :label="t('ca.ca')">
-          <template #default="{ row }">
-            <div class="ca-title-wrap">
-              <div>
-                <div class="ca-title">
-                  {{ row.label }}
-                  <span v-if="row.is_default" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
+      <div class="table-scroll">
+        <el-table :data="items" v-loading="loading" class="ca-table" style="width: 100%">
+          <el-table-column min-width="260" :label="t('ca.ca')">
+            <template #default="{ row }">
+              <div class="ca-title-wrap">
+                <div>
+                  <div class="ca-title">
+                    {{ row.label }}
+                    <span v-if="row.is_default" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
+                  </div>
+                  <div class="ca-desc">{{ row.desc }}</div>
                 </div>
-                <div class="ca-desc">{{ row.desc }}</div>
               </div>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column width="120" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
-          <template #default="{ row }">
-            <el-button v-if="row.eab" text type="primary" size="small" @click="openConfig(row)">{{ t('ca.configureEAB') }}</el-button>
-            <span v-else class="muted">{{ t('ca.noConfigNeeded') }}</span>
-          </template>
-        </el-table-column>
-      </el-table>
+            </template>
+          </el-table-column>
+          <el-table-column width="120" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
+            <template #default="{ row }">
+              <el-button v-if="row.eab" text type="primary" size="small" @click="openConfig(row)">{{ t('ca.configureEAB') }}</el-button>
+              <span v-else class="muted">{{ t('ca.noConfigNeeded') }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </div>
 
     <div class="k-card">
@@ -179,36 +183,38 @@
         </div>
         <el-button type="primary" :icon="Plus" @click="openGenericCreate">{{ t('ca.genericAdd') }}</el-button>
       </div>
-      <el-table :data="genericItems" v-loading="genericLoading" style="width: 100%">
-        <el-table-column min-width="180" :label="t('ca.genericName')">
-          <template #default="{ row }">
-            <div class="ca-title">
-              {{ row.name }}
-              <span v-if="acme.acme_ca === `acme-ca:${row.id}`" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
-              <span v-if="row.eab_required" class="tag-soft tag-blue">EAB</span>
-            </div>
+      <div class="table-scroll">
+        <el-table :data="genericItems" v-loading="genericLoading" style="width: 100%">
+          <el-table-column min-width="180" :label="t('ca.genericName')">
+            <template #default="{ row }">
+              <div class="ca-title">
+                {{ row.name }}
+                <span v-if="acme.acme_ca === `acme-ca:${row.id}`" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
+                <span v-if="row.eab_required" class="tag-soft tag-blue">EAB</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column min-width="280" :label="t('ca.genericURL')">
+            <template #default="{ row }">
+              <span class="ca-url">{{ row.directory_url }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="110" :label="t('ca.genericProtocol')">
+            <template #default="{ row }">
+              <span class="tag-soft tag-gray">{{ String(row.protocol || 'v2').toUpperCase() }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="150" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
+            <template #default="{ row }">
+              <el-button text type="primary" size="small" @click="openGenericEdit(row)">{{ t('ca.genericEdit') }}</el-button>
+              <el-button text type="danger" size="small" @click="deleteGeneric(row)">{{ t('ca.genericDelete') }}</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div class="muted" style="padding: 24px 0">{{ t('ca.genericEmpty') }}</div>
           </template>
-        </el-table-column>
-        <el-table-column min-width="280" :label="t('ca.genericURL')">
-          <template #default="{ row }">
-            <span class="ca-url">{{ row.directory_url }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="110" :label="t('ca.genericProtocol')">
-          <template #default="{ row }">
-            <span class="tag-soft tag-gray">{{ String(row.protocol || 'v2').toUpperCase() }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="150" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
-          <template #default="{ row }">
-            <el-button text type="primary" size="small" @click="openGenericEdit(row)">{{ t('ca.genericEdit') }}</el-button>
-            <el-button text type="danger" size="small" @click="deleteGeneric(row)">{{ t('ca.genericDelete') }}</el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div class="muted" style="padding: 24px 0">{{ t('ca.genericEmpty') }}</div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
     </div>
 
     <el-dialog

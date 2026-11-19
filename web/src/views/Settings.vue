@@ -187,40 +187,42 @@
             style="margin-bottom: 16px"
           />
 
-          <el-table :data="trustedCAs" v-loading="trustLoading" size="small" style="width: 100%">
-            <el-table-column min-width="220" :label="t('settings.trustCA')">
-              <template #default="{ row }">
-                <div style="font-weight: 600">{{ row.name }}</div>
-                <div class="muted mono" style="font-size: 12px; margin-top: 2px; word-break: break-all">{{ row.subject }}</div>
+          <div class="table-scroll">
+            <el-table :data="trustedCAs" v-loading="trustLoading" size="small" style="width: 100%">
+              <el-table-column min-width="220" :label="t('settings.trustCA')">
+                <template #default="{ row }">
+                  <div style="font-weight: 600">{{ row.name }}</div>
+                  <div class="muted mono" style="font-size: 12px; margin-top: 2px; word-break: break-all">{{ row.subject }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column min-width="180" :label="t('settings.trustIssuer')">
+                <template #default="{ row }">
+                  <span class="mono" style="font-size: 12px; word-break: break-all">{{ row.issuer }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column width="170" :label="t('settings.trustExpires')">
+                <template #default="{ row }">
+                  <span>{{ formatDate(row.not_after) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column min-width="190" :label="t('settings.trustFingerprint')">
+                <template #default="{ row }">
+                  <span class="mono" style="font-size: 11px; word-break: break-all">{{ row.fingerprint }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column width="80" align="right" :label="t('common.actions')">
+                <template #default="{ row }">
+                  <el-button text type="danger" size="small" @click="removeTrustedCA(row)">{{ t('common.delete') }}</el-button>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div style="padding: 34px 0; color: #94a3b8">
+                  <el-icon size="28"><Lock /></el-icon>
+                  <p style="margin: 10px 0 0">{{ t('settings.trustEmpty') }}</p>
+                </div>
               </template>
-            </el-table-column>
-            <el-table-column min-width="180" :label="t('settings.trustIssuer')">
-              <template #default="{ row }">
-                <span class="mono" style="font-size: 12px; word-break: break-all">{{ row.issuer }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column width="170" :label="t('settings.trustExpires')">
-              <template #default="{ row }">
-                <span>{{ formatDate(row.not_after) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column min-width="190" :label="t('settings.trustFingerprint')">
-              <template #default="{ row }">
-                <span class="mono" style="font-size: 11px; word-break: break-all">{{ row.fingerprint }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column width="80" align="right" :label="t('common.actions')">
-              <template #default="{ row }">
-                <el-button text type="danger" size="small" @click="removeTrustedCA(row)">{{ t('common.delete') }}</el-button>
-              </template>
-            </el-table-column>
-            <template #empty>
-              <div style="padding: 34px 0; color: #94a3b8">
-                <el-icon size="28"><Lock /></el-icon>
-                <p style="margin: 10px 0 0">{{ t('settings.trustEmpty') }}</p>
-              </div>
-            </template>
-          </el-table>
+            </el-table>
+          </div>
           <div class="form-help" style="margin-top: 12px">{{ t('settings.trustBuiltinNote') }}</div>
         </div>
       </el-tab-pane>

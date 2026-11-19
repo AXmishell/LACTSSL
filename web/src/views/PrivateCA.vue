@@ -21,79 +21,81 @@
     />
 
     <div class="k-card" style="padding: 0; overflow: hidden">
-      <el-table
-        ref="tableRef"
-        :data="treeItems"
-        v-loading="loading"
-        row-key="id"
-        default-expand-all
-        :tree-props="{ children: 'children' }"
-        style="width: 100%"
-        @selection-change="onSelectionChange"
-      >
-        <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
-        <el-table-column width="150" :label="t('privateCA.ca')">
-          <template #default="{ row }">
-            <div class="ca-title">
-              {{ row.name }}
-              <el-tag :type="row.ca_type === 'intermediate' ? 'warning' : 'success'" effect="light" round size="small">
-                {{ caTypeLabel(row) }}
+      <div class="table-scroll">
+        <el-table
+          ref="tableRef"
+          :data="treeItems"
+          v-loading="loading"
+          row-key="id"
+          default-expand-all
+          :tree-props="{ children: 'children' }"
+          style="width: 100%"
+          @selection-change="onSelectionChange"
+        >
+          <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
+          <el-table-column width="150" :label="t('privateCA.ca')">
+            <template #default="{ row }">
+              <div class="ca-title">
+                {{ row.name }}
+                <el-tag :type="row.ca_type === 'intermediate' ? 'warning' : 'success'" effect="light" round size="small">
+                  {{ caTypeLabel(row) }}
+                </el-tag>
+              </div>
+              <div class="ca-desc">{{ row.common_name }}</div>
+              <div v-if="row.organization || row.country" class="ca-desc">
+                {{ [row.organization, row.country].filter(Boolean).join(' · ') }}
+              </div>
+              <div class="ca-desc">
+                {{ t('privateCA.pathLenLabel', { value: row.path_len < 0 ? t('privateCA.unlimited') : row.path_len }) }}
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="140" :label="t('privateCA.keyType')">
+            <template #default="{ row }">{{ keyTypeLabel(row.key_type) }}</template>
+          </el-table-column>
+          <el-table-column width="110" :label="t('privateCA.source')">
+            <template #default="{ row }">
+              <el-tag :type="row.source === 'imported' ? 'info' : 'success'" effect="light" round size="small">
+                {{ row.source === 'imported' ? t('privateCA.sourceImported') : t('privateCA.sourceGenerated') }}
               </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column width="190" :label="t('privateCA.expiresAt')">
+            <template #default="{ row }">
+              <div class="ca-title">{{ formatDate(row.not_after) }}</div>
+              <div class="ca-desc">{{ t('privateCA.daysLeft', { days: daysLeft(row.not_after) }) }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column min-width="180" :label="t('privateCA.serial')">
+            <template #default="{ row }">
+              <span class="mono break-all">{{ row.serial }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="100" align="center" header-align="center" class-name="ca-actions-cell" :label="t('privateCA.actions')" fixed="right">
+            <template #default="{ row }">
+              <el-dropdown trigger="click" @command="(kind: string) => downloadCA(row, kind)">
+                <el-button text type="primary" size="small">
+                  {{ t('privateCA.download') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="cert">{{ t('privateCA.downloadCert') }}</el-dropdown-item>
+                    <el-dropdown-item command="chain">{{ t('privateCA.downloadChain') }}</el-dropdown-item>
+                    <el-dropdown-item command="key">{{ t('privateCA.downloadKey') }}</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-button text type="danger" size="small" @click="remove(row)">{{ t('privateCA.delete') }}</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 40px 0; color: #94a3b8">
+              <el-icon size="30"><Lock /></el-icon>
+              <p>{{ t('privateCA.empty') }}</p>
             </div>
-            <div class="ca-desc">{{ row.common_name }}</div>
-            <div v-if="row.organization || row.country" class="ca-desc">
-              {{ [row.organization, row.country].filter(Boolean).join(' · ') }}
-            </div>
-            <div class="ca-desc">
-              {{ t('privateCA.pathLenLabel', { value: row.path_len < 0 ? t('privateCA.unlimited') : row.path_len }) }}
-            </div>
           </template>
-        </el-table-column>
-        <el-table-column width="140" :label="t('privateCA.keyType')">
-          <template #default="{ row }">{{ keyTypeLabel(row.key_type) }}</template>
-        </el-table-column>
-        <el-table-column width="110" :label="t('privateCA.source')">
-          <template #default="{ row }">
-            <el-tag :type="row.source === 'imported' ? 'info' : 'success'" effect="light" round size="small">
-              {{ row.source === 'imported' ? t('privateCA.sourceImported') : t('privateCA.sourceGenerated') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column width="190" :label="t('privateCA.expiresAt')">
-          <template #default="{ row }">
-            <div class="ca-title">{{ formatDate(row.not_after) }}</div>
-            <div class="ca-desc">{{ t('privateCA.daysLeft', { days: daysLeft(row.not_after) }) }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column min-width="180" :label="t('privateCA.serial')">
-          <template #default="{ row }">
-            <span class="mono break-all">{{ row.serial }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="100" align="center" header-align="center" class-name="ca-actions-cell" :label="t('privateCA.actions')" fixed="right">
-          <template #default="{ row }">
-            <el-dropdown trigger="click" @command="(kind: string) => downloadCA(row, kind)">
-              <el-button text type="primary" size="small">
-                {{ t('privateCA.download') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-              </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="cert">{{ t('privateCA.downloadCert') }}</el-dropdown-item>
-                  <el-dropdown-item command="chain">{{ t('privateCA.downloadChain') }}</el-dropdown-item>
-                  <el-dropdown-item command="key">{{ t('privateCA.downloadKey') }}</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            <el-button text type="danger" size="small" @click="remove(row)">{{ t('privateCA.delete') }}</el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div style="padding: 40px 0; color: #94a3b8">
-            <el-icon size="30"><Lock /></el-icon>
-            <p>{{ t('privateCA.empty') }}</p>
-          </div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
     </div>
 
     <div v-if="showBatchBar && selectedCAs.length" class="batch-bar">

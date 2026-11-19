@@ -1,114 +1,116 @@
 <template>
   <div>
-    <el-table
-      ref="tableRef"
-      :data="visibleGroups"
-      row-key="key"
-      size="small"
-      max-height="420"
-      class="plugin-table"
-      :empty-text="resolvedEmptyText"
-      @selection-change="onSelectionChange"
-    >
-      <el-table-column
-        type="selection"
-        width="26"
-        fixed="left"
-        :reserve-selection="true"
-        class-name="plugin-select-cell"
-      />
+    <div class="table-scroll">
+      <el-table
+        ref="tableRef"
+        :data="visibleGroups"
+        row-key="key"
+        size="small"
+        max-height="420"
+        class="plugin-table"
+        :empty-text="resolvedEmptyText"
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column
+          type="selection"
+          width="26"
+          fixed="left"
+          :reserve-selection="true"
+          class-name="plugin-select-cell"
+        />
 
-      <el-table-column :label="t('plugins.pluginColumn')" min-width="260">
-        <template #default="{ row }">
-          <div class="plugin-name">{{ groupTitle(row) }}</div>
-          <div class="plugin-meta">
-            <span v-if="row.items.length === 1" class="mono" style="margin-right: 6px">{{ row.items[0].id }}</span>
-            <el-tag
+        <el-table-column :label="t('plugins.pluginColumn')" min-width="260">
+          <template #default="{ row }">
+            <div class="plugin-name">{{ groupTitle(row) }}</div>
+            <div class="plugin-meta">
+              <span v-if="row.items.length === 1" class="mono" style="margin-right: 6px">{{ row.items[0].id }}</span>
+              <el-tag
+                v-if="row.file"
+                size="small"
+                :type="fileSourceType(row.file.source)"
+                style="margin-right: 6px"
+              >{{ fileSourceLabel(row.file.source) }}</el-tag>
+              <el-tag v-else size="small" type="warning" style="margin-right: 6px">
+                {{ t('plugins.fileUnmanaged') }}
+              </el-tag>
+              <el-tag
+                v-if="row.file && !row.file.enabled"
+                size="small"
+                type="info"
+                style="margin-right: 6px"
+              >{{ t('plugins.fileDisabledTag') }}</el-tag>
+              <span v-if="row.items.length > 1">{{ t('plugins.providedItems', { count: row.items.length }) }}</span>
+              <span v-else-if="row.items.length === 1" class="mono">{{ fileLabel(row) }}</span>
+              <span v-if="groupVersion(row)"> · {{ formatVersion(groupVersion(row)) }}</span>
+              <el-button
+                v-if="row.file || row.items.length > 1"
+                link
+                type="primary"
+                size="small"
+                class="plugin-manage-link"
+                @click="openManage(row)"
+              >{{ t('plugins.manageItems') }}</el-button>
+            </div>
+            <div v-if="!row.items.length" class="plugin-meta">{{ t('plugins.fileNoItems') }}</div>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="t('plugins.fileSize')" width="80" align="center" class-name="plugin-size-cell">
+          <template #default="{ row }">
+            <span class="mono">{{ row.file ? formatSize(row.file.size) : '-' }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="t('plugins.providerStatus')" width="58" align="center" class-name="plugin-status-cell">
+          <template #default="{ row }">
+            <div v-if="row.file" class="plugin-group-status" :title="fileToggleHint(row)">
+              <el-switch
+                :model-value="row.file.enabled"
+                :loading="!!fileToggling[row.file.file]"
+                :class="{ 'is-partial': row.file.enabled && enabledCount(row) < row.items.length }"
+                @change="(value: any) => emit('toggle-file', row.file!, !!value)"
+              />
+              <span class="plugin-group-count mono">{{ enabledCount(row) }}/{{ row.items.length }}</span>
+            </div>
+            <div v-else-if="row.items.length === 1" class="plugin-group-status">
+              <el-switch
+                :model-value="row.items[0].enabled"
+                :loading="!!toggling[row.items[0].id]"
+                @change="(value: any) => emit('toggle', row.items[0], !!value)"
+              />
+            </div>
+            <div
+              v-else-if="row.items.length > 1"
+              class="plugin-group-status"
+              :title="t('plugins.groupToggleHint')"
+            >
+              <el-switch
+                :model-value="allEnabled(row)"
+                :loading="!!aggregateLoading[row.key]"
+                :class="{ 'is-partial': isPartial(row) }"
+                @change="(value: any) => emit('toggle-group', row, !!value)"
+              />
+              <span class="plugin-group-count mono">{{ enabledCount(row) }}/{{ row.items.length }}</span>
+            </div>
+            <span v-else class="sub">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="t('plugins.repoAction')" width="50" align="center" class-name="plugin-action-cell">
+          <template #default="{ row }">
+            <el-button
               v-if="row.file"
               size="small"
-              :type="fileSourceType(row.file.source)"
-              style="margin-right: 6px"
-            >{{ fileSourceLabel(row.file.source) }}</el-tag>
-            <el-tag v-else size="small" type="warning" style="margin-right: 6px">
-              {{ t('plugins.fileUnmanaged') }}
-            </el-tag>
-            <el-tag
-              v-if="row.file && !row.file.enabled"
-              size="small"
-              type="info"
-              style="margin-right: 6px"
-            >{{ t('plugins.fileDisabledTag') }}</el-tag>
-            <span v-if="row.items.length > 1">{{ t('plugins.providedItems', { count: row.items.length }) }}</span>
-            <span v-else-if="row.items.length === 1" class="mono">{{ fileLabel(row) }}</span>
-            <span v-if="groupVersion(row)"> · {{ formatVersion(groupVersion(row)) }}</span>
-            <el-button
-              v-if="row.file || row.items.length > 1"
-              link
-              type="primary"
-              size="small"
-              class="plugin-manage-link"
-              @click="openManage(row)"
-            >{{ t('plugins.manageItems') }}</el-button>
-          </div>
-          <div v-if="!row.items.length" class="plugin-meta">{{ t('plugins.fileNoItems') }}</div>
-        </template>
-      </el-table-column>
-
-      <el-table-column :label="t('plugins.fileSize')" width="80" align="center" class-name="plugin-size-cell">
-        <template #default="{ row }">
-          <span class="mono">{{ row.file ? formatSize(row.file.size) : '-' }}</span>
-        </template>
-      </el-table-column>
-
-      <el-table-column :label="t('plugins.providerStatus')" width="58" align="center" class-name="plugin-status-cell">
-        <template #default="{ row }">
-          <div v-if="row.file" class="plugin-group-status" :title="fileToggleHint(row)">
-            <el-switch
-              :model-value="row.file.enabled"
-              :loading="!!fileToggling[row.file.file]"
-              :class="{ 'is-partial': row.file.enabled && enabledCount(row) < row.items.length }"
-              @change="(value: any) => emit('toggle-file', row.file!, !!value)"
-            />
-            <span class="plugin-group-count mono">{{ enabledCount(row) }}/{{ row.items.length }}</span>
-          </div>
-          <div v-else-if="row.items.length === 1" class="plugin-group-status">
-            <el-switch
-              :model-value="row.items[0].enabled"
-              :loading="!!toggling[row.items[0].id]"
-              @change="(value: any) => emit('toggle', row.items[0], !!value)"
-            />
-          </div>
-          <div
-            v-else-if="row.items.length > 1"
-            class="plugin-group-status"
-            :title="t('plugins.groupToggleHint')"
-          >
-            <el-switch
-              :model-value="allEnabled(row)"
-              :loading="!!aggregateLoading[row.key]"
-              :class="{ 'is-partial': isPartial(row) }"
-              @change="(value: any) => emit('toggle-group', row, !!value)"
-            />
-            <span class="plugin-group-count mono">{{ enabledCount(row) }}/{{ row.items.length }}</span>
-          </div>
-          <span v-else class="sub">-</span>
-        </template>
-      </el-table-column>
-
-      <el-table-column :label="t('plugins.repoAction')" width="50" align="center" class-name="plugin-action-cell">
-        <template #default="{ row }">
-          <el-button
-            v-if="row.file"
-            size="small"
-            type="danger"
-            plain
-            :loading="!!deleting[row.file.file]"
-            @click="emit('delete', row.file)"
-          >{{ t('plugins.fileDelete') }}</el-button>
-          <span v-else class="sub">-</span>
-        </template>
-      </el-table-column>
-    </el-table>
+              type="danger"
+              plain
+              :loading="!!deleting[row.file.file]"
+              @click="emit('delete', row.file)"
+            >{{ t('plugins.fileDelete') }}</el-button>
+            <span v-else class="sub">-</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
     <div v-if="showBatchBar && selectedGroups.length" class="plugin-batch-bar">
       <div class="plugin-batch-actions">
         <el-button
@@ -225,33 +227,35 @@
           {{ t('plugins.enabledItems', { enabled: enabledCount(managedGroup), total: managedGroup.items.length }) }}
         </div>
 
-        <el-table
-          ref="manageTableRef"
-          :data="managedItems"
-          row-key="id"
-          size="small"
-          max-height="420"
-          class="plugin-table plugin-manage-table"
-          @selection-change="onManageSelection"
-        >
-          <el-table-column type="selection" width="34" class-name="plugin-select-cell" />
-          <el-table-column :label="t('plugins.itemColumn')" min-width="260">
-            <template #default="{ row }">
-              <div class="plugin-name">{{ itemLabel(row) }}</div>
-              <div class="plugin-meta mono">{{ row.id }}</div>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('plugins.providerStatus')" width="70" align="center" class-name="plugin-status-cell">
-            <template #default="{ row }">
-              <el-switch
-                :model-value="row.enabled"
-                :disabled="fileDisabled(managedGroup)"
-                :loading="!!toggling[row.id]"
-                @change="(value: any) => emit('toggle', row, !!value)"
-              />
-            </template>
-          </el-table-column>
-        </el-table>
+        <div class="table-scroll">
+          <el-table
+            ref="manageTableRef"
+            :data="managedItems"
+            row-key="id"
+            size="small"
+            max-height="420"
+            class="plugin-table plugin-manage-table"
+            @selection-change="onManageSelection"
+          >
+            <el-table-column type="selection" width="34" class-name="plugin-select-cell" />
+            <el-table-column :label="t('plugins.itemColumn')" min-width="260">
+              <template #default="{ row }">
+                <div class="plugin-name">{{ itemLabel(row) }}</div>
+                <div class="plugin-meta mono">{{ row.id }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('plugins.providerStatus')" width="70" align="center" class-name="plugin-status-cell">
+              <template #default="{ row }">
+                <el-switch
+                  :model-value="row.enabled"
+                  :disabled="fileDisabled(managedGroup)"
+                  :loading="!!toggling[row.id]"
+                  @change="(value: any) => emit('toggle', row, !!value)"
+                />
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
         <div v-if="!managedItems.length" class="sub" style="padding: 12px 0">{{ t('plugins.noMatchedItems') }}</div>
 
         <div class="plugin-manage-footer">

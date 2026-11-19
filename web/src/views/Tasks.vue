@@ -12,79 +12,81 @@
     </div>
 
     <div class="k-card task-list" style="padding: 0; overflow: hidden">
-      <el-table
-        ref="tableRef"
-        :data="tasks"
-        row-key="id"
-        v-loading="loading"
-        style="width: 100%"
-        @selection-change="onSelectionChange"
-      >
-        <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
-        <el-table-column min-width="230" :label="t('tasks.task')">
-          <template #default="{ row }">
-            <div class="domain-cell">
-              <span class="domain-main">{{ row.name }}</span>
-              <span class="domain-sub">{{ shortDomains(row.domains, 3) }}</span>
+      <div class="table-scroll">
+        <el-table
+          ref="tableRef"
+          :data="tasks"
+          row-key="id"
+          v-loading="loading"
+          style="width: 100%"
+          @selection-change="onSelectionChange"
+        >
+          <el-table-column type="selection" width="48" fixed="left" :reserve-selection="true" />
+          <el-table-column min-width="230" :label="t('tasks.task')">
+            <template #default="{ row }">
+              <div class="domain-cell">
+                <span class="domain-main">{{ row.name }}</span>
+                <span class="domain-sub">{{ shortDomains(row.domains, 3) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="140" :label="t('tasks.challenge')">
+            <template #default>
+              <span class="tag-soft tag-blue">DNS-01</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="140" :label="t('tasks.ca')">
+            <template #default="{ row }">
+              <span class="tag-soft tag-gray">{{ taskCALabel(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column width="190" :label="t('tasks.pipeline')">
+            <template #default="{ row }">
+              <div class="pipeline-summary">
+                <span class="pipeline-summary-text">{{ pipelineSummary(row) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="120" :label="t('tasks.status')">
+            <template #default="{ row }">
+              <el-tooltip :content="row.message || t('tasks.noExecutionInfo')" placement="top" :disabled="!row.message">
+                <el-tag :type="taskState(row.status).type" effect="light" round size="small">{{ taskState(row.status).label }}</el-tag>
+              </el-tooltip>
+            </template>
+          </el-table-column>
+          <el-table-column width="190" :label="t('tasks.execTime')">
+            <template #default="{ row }">
+              <div class="domain-cell">
+                <span class="domain-sub">{{ t('tasks.lastRun', { value: row.last_run_at ? fromNow(row.last_run_at) : t('tasks.neverRun') }) }}</span>
+                <span class="domain-sub">{{ t('tasks.nextRun', { value: row.next_run_at ? formatDate(row.next_run_at) : t('tasks.notScheduled') }) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column width="240" :label="t('common.actions')" fixed="right">
+            <template #default="{ row }">
+              <el-button text type="primary" size="small" :loading="row.status === 'running'" @click="runTask(row)">{{ t('tasks.run') }}</el-button>
+              <el-button text size="small" @click="openLogs(row)">{{ t('tasks.logs') }}</el-button>
+              <el-dropdown trigger="click" @command="(cmd: string) => handleMore(cmd, row)">
+                <el-button text size="small">{{ t('tasks.more') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">{{ t('tasks.editTask') }}</el-dropdown-item>
+                    <el-dropdown-item command="forceRun">{{ t('tasks.forceRun') }}</el-dropdown-item>
+                    <el-dropdown-item command="toggle">{{ row.enabled ? t('tasks.pauseAutoRenew') : t('tasks.enableAutoRenew') }}</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>{{ t('tasks.deleteTask') }}</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 40px 0; color: #94a3b8">
+              <el-icon size="30"><Promotion /></el-icon>
+              <p>{{ t('tasks.empty') }}</p>
             </div>
           </template>
-        </el-table-column>
-        <el-table-column width="140" :label="t('tasks.challenge')">
-          <template #default>
-            <span class="tag-soft tag-blue">DNS-01</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="140" :label="t('tasks.ca')">
-          <template #default="{ row }">
-            <span class="tag-soft tag-gray">{{ taskCALabel(row) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column width="190" :label="t('tasks.pipeline')">
-          <template #default="{ row }">
-            <div class="pipeline-summary">
-              <span class="pipeline-summary-text">{{ pipelineSummary(row) }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column width="120" :label="t('tasks.status')">
-          <template #default="{ row }">
-            <el-tooltip :content="row.message || t('tasks.noExecutionInfo')" placement="top" :disabled="!row.message">
-              <el-tag :type="taskState(row.status).type" effect="light" round size="small">{{ taskState(row.status).label }}</el-tag>
-            </el-tooltip>
-          </template>
-        </el-table-column>
-        <el-table-column width="190" :label="t('tasks.execTime')">
-          <template #default="{ row }">
-            <div class="domain-cell">
-              <span class="domain-sub">{{ t('tasks.lastRun', { value: row.last_run_at ? fromNow(row.last_run_at) : t('tasks.neverRun') }) }}</span>
-              <span class="domain-sub">{{ t('tasks.nextRun', { value: row.next_run_at ? formatDate(row.next_run_at) : t('tasks.notScheduled') }) }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column width="240" :label="t('common.actions')" fixed="right">
-          <template #default="{ row }">
-            <el-button text type="primary" size="small" :loading="row.status === 'running'" @click="runTask(row)">{{ t('tasks.run') }}</el-button>
-            <el-button text size="small" @click="openLogs(row)">{{ t('tasks.logs') }}</el-button>
-            <el-dropdown trigger="click" @command="(cmd: string) => handleMore(cmd, row)">
-              <el-button text size="small">{{ t('tasks.more') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="edit">{{ t('tasks.editTask') }}</el-dropdown-item>
-                  <el-dropdown-item command="forceRun">{{ t('tasks.forceRun') }}</el-dropdown-item>
-                  <el-dropdown-item command="toggle">{{ row.enabled ? t('tasks.pauseAutoRenew') : t('tasks.enableAutoRenew') }}</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>{{ t('tasks.deleteTask') }}</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <div style="padding: 40px 0; color: #94a3b8">
-            <el-icon size="30"><Promotion /></el-icon>
-            <p>{{ t('tasks.empty') }}</p>
-          </div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
     </div>
 
     <div v-if="showBatchBar && selectedTasks.length" class="batch-bar">

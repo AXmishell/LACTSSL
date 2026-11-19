@@ -229,25 +229,27 @@
           <div class="sub">{{ t('upgrade.configSub', { path: status.config.path || t('common.none'), count: status.config.changes.length }) }}</div>
         </div>
       </div>
-      <el-table :data="status.config.changes" style="width: 100%">
-        <el-table-column min-width="220" prop="key" :label="t('upgrade.configKey')" />
-        <el-table-column width="110" :label="t('upgrade.actionLabel')">
-          <template #default="{ row }">
-            <el-tag :type="row.action === 'added' ? 'success' : 'info'" effect="light" round size="small">
-              {{ t(`upgrade.action.${row.action}`) }}
-            </el-tag>
+      <div class="table-scroll">
+        <el-table :data="status.config.changes" style="width: 100%">
+          <el-table-column min-width="220" prop="key" :label="t('upgrade.configKey')" />
+          <el-table-column width="110" :label="t('upgrade.actionLabel')">
+            <template #default="{ row }">
+              <el-tag :type="row.action === 'added' ? 'success' : 'info'" effect="light" round size="small">
+                {{ t(`upgrade.action.${row.action}`) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column min-width="160" :label="t('upgrade.before')">
+            <template #default="{ row }"><span class="mono break-all">{{ row.before || t('common.none') }}</span></template>
+          </el-table-column>
+          <el-table-column min-width="160" :label="t('upgrade.after')">
+            <template #default="{ row }"><span class="mono break-all">{{ row.after || t('common.none') }}</span></template>
+          </el-table-column>
+          <template #empty>
+            <div style="padding: 36px 0; color: #94a3b8">{{ t('upgrade.noConfigChanges') }}</div>
           </template>
-        </el-table-column>
-        <el-table-column min-width="160" :label="t('upgrade.before')">
-          <template #default="{ row }"><span class="mono break-all">{{ row.before || t('common.none') }}</span></template>
-        </el-table-column>
-        <el-table-column min-width="160" :label="t('upgrade.after')">
-          <template #default="{ row }"><span class="mono break-all">{{ row.after || t('common.none') }}</span></template>
-        </el-table-column>
-        <template #empty>
-          <div style="padding: 36px 0; color: #94a3b8">{{ t('upgrade.noConfigChanges') }}</div>
-        </template>
-      </el-table>
+        </el-table>
+      </div>
     </div>
 
     <div v-if="status?.last_run" class="k-card" style="margin-top: 16px">

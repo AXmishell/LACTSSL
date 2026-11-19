@@ -21,39 +21,41 @@
             </el-select>
             <span class="muted">{{ t('acmeDiagnostics.total', { count: accountTotal }) }}</span>
           </div>
-          <el-table :data="accounts" v-loading="accountLoading" style="width: 100%">
-            <el-table-column width="150" :label="t('acmeDiagnostics.endpoint')">
-              <template #default="{ row }">{{ row.endpoint_name || `#${row.endpoint_id}` }}</template>
-            </el-table-column>
-            <el-table-column min-width="300" :label="t('acmeDiagnostics.accountKid')">
-              <template #default="{ row }">
-                <div class="diag-kid">
-                  <code class="mono break-all">{{ row.kid }}</code>
-                  <el-button text type="primary" size="small" :icon="CopyDocument" @click="copy(row.kid)" />
-                </div>
+          <div class="table-scroll">
+            <el-table :data="accounts" v-loading="accountLoading" style="width: 100%">
+              <el-table-column width="150" :label="t('acmeDiagnostics.endpoint')">
+                <template #default="{ row }">{{ row.endpoint_name || `#${row.endpoint_id}` }}</template>
+              </el-table-column>
+              <el-table-column min-width="300" :label="t('acmeDiagnostics.accountKid')">
+                <template #default="{ row }">
+                  <div class="diag-kid">
+                    <code class="mono break-all">{{ row.kid }}</code>
+                    <el-button text type="primary" size="small" :icon="CopyDocument" @click="copy(row.kid)" />
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column min-width="180" :label="t('acmeDiagnostics.contact')">
+                <template #default="{ row }">
+                  <div v-for="item in row.contact || []" :key="item" class="muted">{{ item }}</div>
+                  <span v-if="!row.contact?.length" class="muted">{{ t('common.none') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column width="100" :label="t('common.status')">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'valid' ? 'success' : 'info'" effect="light" round size="small">{{ row.status }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column width="170" :label="t('acmeDiagnostics.lastUsed')">
+                <template #default="{ row }">{{ row.last_used_at ? formatDate(row.last_used_at) : t('common.none') }}</template>
+              </el-table-column>
+              <el-table-column width="170" :label="t('acmeDiagnostics.createdAt')">
+                <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+              </el-table-column>
+              <template #empty>
+                <div style="padding: 36px 0; color: #94a3b8">{{ t('acmeDiagnostics.noAccounts') }}</div>
               </template>
-            </el-table-column>
-            <el-table-column min-width="180" :label="t('acmeDiagnostics.contact')">
-              <template #default="{ row }">
-                <div v-for="item in row.contact || []" :key="item" class="muted">{{ item }}</div>
-                <span v-if="!row.contact?.length" class="muted">{{ t('common.none') }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column width="100" :label="t('common.status')">
-              <template #default="{ row }">
-                <el-tag :type="row.status === 'valid' ? 'success' : 'info'" effect="light" round size="small">{{ row.status }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column width="170" :label="t('acmeDiagnostics.lastUsed')">
-              <template #default="{ row }">{{ row.last_used_at ? formatDate(row.last_used_at) : t('common.none') }}</template>
-            </el-table-column>
-            <el-table-column width="170" :label="t('acmeDiagnostics.createdAt')">
-              <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
-            </el-table-column>
-            <template #empty>
-              <div style="padding: 36px 0; color: #94a3b8">{{ t('acmeDiagnostics.noAccounts') }}</div>
-            </template>
-          </el-table>
+            </el-table>
+          </div>
           <el-pagination
             v-if="accountTotal > pageSize"
             v-model:current-page="accountPage"
@@ -75,45 +77,47 @@
             </el-select>
             <span class="muted">{{ t('acmeDiagnostics.total', { count: orderTotal }) }}</span>
           </div>
-          <el-table :data="orders" v-loading="orderLoading" style="width: 100%">
-            <el-table-column width="140" :label="t('acmeDiagnostics.endpoint')">
-              <template #default="{ row }">{{ row.endpoint_name || `#${row.endpoint_id}` }}</template>
-            </el-table-column>
-            <el-table-column min-width="240" :label="t('acmeDiagnostics.identifiers')">
-              <template #default="{ row }">
-                <div class="flex wrap gap-6">
-                  <span v-for="identifier in row.identifiers || []" :key="identifier" class="tag-soft tag-gray">{{ identifier }}</span>
-                </div>
+          <div class="table-scroll">
+            <el-table :data="orders" v-loading="orderLoading" style="width: 100%">
+              <el-table-column width="140" :label="t('acmeDiagnostics.endpoint')">
+                <template #default="{ row }">{{ row.endpoint_name || `#${row.endpoint_id}` }}</template>
+              </el-table-column>
+              <el-table-column min-width="240" :label="t('acmeDiagnostics.identifiers')">
+                <template #default="{ row }">
+                  <div class="flex wrap gap-6">
+                    <span v-for="identifier in row.identifiers || []" :key="identifier" class="tag-soft tag-gray">{{ identifier }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column width="120" :label="t('common.status')">
+                <template #default="{ row }">
+                  <el-tag :type="orderTag(row.status)" effect="light" round size="small">{{ row.status }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column width="110" :label="t('acmeDiagnostics.certificate')">
+                <template #default="{ row }">
+                  <el-tag v-if="row.certificate_state" :type="row.certificate_state === 'revoked' ? 'danger' : 'success'" effect="light" round size="small">
+                    {{ row.certificate_state }}
+                  </el-tag>
+                  <span v-else class="muted">{{ t('common.none') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column width="170" :label="t('acmeDiagnostics.createdAt')">
+                <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+              </el-table-column>
+              <el-table-column width="170" :label="t('acmeDiagnostics.expiresAt')">
+                <template #default="{ row }">{{ row.expires_at ? formatDate(row.expires_at) : t('common.none') }}</template>
+              </el-table-column>
+              <el-table-column width="100" :label="t('common.actions')" fixed="right">
+                <template #default="{ row }">
+                  <el-button text type="primary" size="small" @click="openDetail(row)">{{ t('common.details') }}</el-button>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div style="padding: 36px 0; color: #94a3b8">{{ t('acmeDiagnostics.noOrders') }}</div>
               </template>
-            </el-table-column>
-            <el-table-column width="120" :label="t('common.status')">
-              <template #default="{ row }">
-                <el-tag :type="orderTag(row.status)" effect="light" round size="small">{{ row.status }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column width="110" :label="t('acmeDiagnostics.certificate')">
-              <template #default="{ row }">
-                <el-tag v-if="row.certificate_state" :type="row.certificate_state === 'revoked' ? 'danger' : 'success'" effect="light" round size="small">
-                  {{ row.certificate_state }}
-                </el-tag>
-                <span v-else class="muted">{{ t('common.none') }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column width="170" :label="t('acmeDiagnostics.createdAt')">
-              <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
-            </el-table-column>
-            <el-table-column width="170" :label="t('acmeDiagnostics.expiresAt')">
-              <template #default="{ row }">{{ row.expires_at ? formatDate(row.expires_at) : t('common.none') }}</template>
-            </el-table-column>
-            <el-table-column width="100" :label="t('common.actions')" fixed="right">
-              <template #default="{ row }">
-                <el-button text type="primary" size="small" @click="openDetail(row)">{{ t('common.details') }}</el-button>
-              </template>
-            </el-table-column>
-            <template #empty>
-              <div style="padding: 36px 0; color: #94a3b8">{{ t('acmeDiagnostics.noOrders') }}</div>
-            </template>
-          </el-table>
+            </el-table>
+          </div>
           <el-pagination
             v-if="orderTotal > pageSize"
             v-model:current-page="orderPage"
@@ -165,23 +169,25 @@
             <el-tag :type="authz.status === 'valid' ? 'success' : authz.status === 'invalid' ? 'danger' : 'info'" effect="light" round size="small">{{ authz.status }}</el-tag>
           </div>
           <div class="muted" style="font-size: 12px; margin-top: 4px">{{ t('acmeDiagnostics.authzExpires', { time: authz.expires_at ? formatDate(authz.expires_at) : t('common.none') }) }}</div>
-          <el-table :data="authz.challenges || []" size="small" style="width: 100%; margin-top: 10px">
-            <el-table-column width="110" :label="t('acmeDiagnostics.challengeType')" prop="type" />
-            <el-table-column width="110" :label="t('common.status')">
-              <template #default="{ row }">
-                <el-tag :type="row.status === 'valid' ? 'success' : row.status === 'invalid' ? 'danger' : 'info'" effect="light" round size="small">{{ row.status }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column min-width="220" :label="t('acmeDiagnostics.challengeError')">
-              <template #default="{ row }">
-                <span v-if="row.error" class="diag-error">{{ row.error }}</span>
-                <span v-else class="muted">{{ t('common.none') }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column width="170" :label="t('acmeDiagnostics.validatedAt')">
-              <template #default="{ row }">{{ row.validated_at ? formatDate(row.validated_at) : t('common.none') }}</template>
-            </el-table-column>
-          </el-table>
+          <div class="table-scroll">
+            <el-table :data="authz.challenges || []" size="small" style="width: 100%; margin-top: 10px">
+              <el-table-column width="110" :label="t('acmeDiagnostics.challengeType')" prop="type" />
+              <el-table-column width="110" :label="t('common.status')">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'valid' ? 'success' : row.status === 'invalid' ? 'danger' : 'info'" effect="light" round size="small">{{ row.status }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column min-width="220" :label="t('acmeDiagnostics.challengeError')">
+                <template #default="{ row }">
+                  <span v-if="row.error" class="diag-error">{{ row.error }}</span>
+                  <span v-else class="muted">{{ t('common.none') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column width="170" :label="t('acmeDiagnostics.validatedAt')">
+                <template #default="{ row }">{{ row.validated_at ? formatDate(row.validated_at) : t('common.none') }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
         </div>
 
         <template v-if="detail.certificate">

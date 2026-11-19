@@ -388,64 +388,66 @@
           <el-input v-model="marketQuery" :placeholder="t('plugins.repoSearch')" clearable style="width: 220px" @keyup.enter="loadMarket" />
         </div>
       </div>
-      <el-table v-loading="marketLoading" :data="marketPlugins" size="small" max-height="520" class="plugin-table">
-        <el-table-column :label="t('plugins.providerName')" min-width="240">
-          <template #default="{ row }">
-            <div class="plugin-name">
-              <img v-if="row.icon" class="market-icon" :src="row.icon" alt="" loading="lazy" />
-              {{ row.name || row.id }}
-              <el-tag v-if="row.bundle" size="small" type="success" style="margin-left: 6px">{{ t('plugins.repoBundleTag') }}</el-tag>
-            </div>
-            <div class="plugin-meta mono">
-              {{ row.kind }} / {{ row.id }}
-              <template v-if="row.bundle && row.provider_count"> · {{ t('plugins.repoBundleProviders', { count: row.provider_count }) }}</template>
-              <span v-if="row.size" :title="t('plugins.repoUncompressedSize')"> · {{ formatSize(row.size) }}</span>
-            </div>
-            <div v-if="row.description" class="plugin-meta">{{ row.description }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('plugins.repoVersion')" width="130">
-          <template #default="{ row }">
-            <span class="mono">{{ formatVersion(row.version) }}</span>
-            <div v-if="row.installed_version" class="plugin-meta">{{ t('plugins.repoInstalledVersion', { version: formatVersion(row.installed_version) }) }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('plugins.providerStatus')" width="150">
-          <template #default="{ row }">
-            <el-tag v-if="!row.compatible" type="info" size="small">{{ t('plugins.repoIncompatible') }}</el-tag>
-            <el-tag v-else-if="!row.platform_available" type="info" size="small">{{ t('plugins.repoPlatformUnsupported') }}</el-tag>
-            <el-tag v-else-if="marketBusy[row.kind + '/' + row.id]" type="warning" size="small">{{ t('plugins.repoProcessing') }}</el-tag>
-            <el-tag v-else-if="row.update_available" type="warning" size="small">{{ t('plugins.repoUpdatable') }}</el-tag>
-            <el-tag v-else-if="row.installed" type="success" size="small">{{ t('plugins.repoInstalled') }}</el-tag>
-            <el-tag v-else type="info" size="small">{{ t('plugins.repoNotInstalled') }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('plugins.repoAction')" width="190" align="right">
-          <template #default="{ row }">
-            <el-button
-              v-if="row.installed && row.update_available"
-              size="small"
-              type="primary"
-              :loading="marketBusy[row.kind + '/' + row.id]"
-              @click="installRepoPlugin(row, true)"
-            >{{ t('plugins.repoUpdate') }}</el-button>
-            <el-button
-              v-else-if="!row.installed"
-              size="small"
-              type="primary"
-              :disabled="!row.compatible || !row.platform_available"
-              :loading="marketBusy[row.kind + '/' + row.id]"
-              @click="installRepoPlugin(row, false)"
-            >{{ t('plugins.repoInstall') }}</el-button>
-            <el-button
-              v-if="row.installed && !row.update_available"
-              size="small"
-              :loading="marketBusy[row.kind + '/' + row.id]"
-              @click="uninstallRepoPlugin(row)"
-            >{{ t('plugins.repoUninstall') }}</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="table-scroll">
+        <el-table v-loading="marketLoading" :data="marketPlugins" size="small" max-height="520" class="plugin-table">
+          <el-table-column :label="t('plugins.providerName')" min-width="240">
+            <template #default="{ row }">
+              <div class="plugin-name">
+                <img v-if="row.icon" class="market-icon" :src="row.icon" alt="" loading="lazy" />
+                {{ row.name || row.id }}
+                <el-tag v-if="row.bundle" size="small" type="success" style="margin-left: 6px">{{ t('plugins.repoBundleTag') }}</el-tag>
+              </div>
+              <div class="plugin-meta mono">
+                {{ row.kind }} / {{ row.id }}
+                <template v-if="row.bundle && row.provider_count"> · {{ t('plugins.repoBundleProviders', { count: row.provider_count }) }}</template>
+                <span v-if="row.size" :title="t('plugins.repoUncompressedSize')"> · {{ formatSize(row.size) }}</span>
+              </div>
+              <div v-if="row.description" class="plugin-meta">{{ row.description }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('plugins.repoVersion')" width="130">
+            <template #default="{ row }">
+              <span class="mono">{{ formatVersion(row.version) }}</span>
+              <div v-if="row.installed_version" class="plugin-meta">{{ t('plugins.repoInstalledVersion', { version: formatVersion(row.installed_version) }) }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('plugins.providerStatus')" width="150">
+            <template #default="{ row }">
+              <el-tag v-if="!row.compatible" type="info" size="small">{{ t('plugins.repoIncompatible') }}</el-tag>
+              <el-tag v-else-if="!row.platform_available" type="info" size="small">{{ t('plugins.repoPlatformUnsupported') }}</el-tag>
+              <el-tag v-else-if="marketBusy[row.kind + '/' + row.id]" type="warning" size="small">{{ t('plugins.repoProcessing') }}</el-tag>
+              <el-tag v-else-if="row.update_available" type="warning" size="small">{{ t('plugins.repoUpdatable') }}</el-tag>
+              <el-tag v-else-if="row.installed" type="success" size="small">{{ t('plugins.repoInstalled') }}</el-tag>
+              <el-tag v-else type="info" size="small">{{ t('plugins.repoNotInstalled') }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('plugins.repoAction')" width="190" align="right">
+            <template #default="{ row }">
+              <el-button
+                v-if="row.installed && row.update_available"
+                size="small"
+                type="primary"
+                :loading="marketBusy[row.kind + '/' + row.id]"
+                @click="installRepoPlugin(row, true)"
+              >{{ t('plugins.repoUpdate') }}</el-button>
+              <el-button
+                v-else-if="!row.installed"
+                size="small"
+                type="primary"
+                :disabled="!row.compatible || !row.platform_available"
+                :loading="marketBusy[row.kind + '/' + row.id]"
+                @click="installRepoPlugin(row, false)"
+              >{{ t('plugins.repoInstall') }}</el-button>
+              <el-button
+                v-if="row.installed && !row.update_available"
+                size="small"
+                :loading="marketBusy[row.kind + '/' + row.id]"
+                @click="uninstallRepoPlugin(row)"
+              >{{ t('plugins.repoUninstall') }}</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
       <div v-if="!marketLoading && !marketPlugins.length" class="sub">{{ t('plugins.repoNoPlugins') }}</div>
     </el-dialog>
 
