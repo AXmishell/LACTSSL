@@ -201,7 +201,7 @@ database:
 - `driver=postgres` 时 `path` 被忽略，`dsn` 必填；也可以用环境变量 `LACTSSL_DATABASE_DSN` 覆盖，避免密码写入配置文件。
 - 默认 `allow_multi_instance: false`，应用会持有 PostgreSQL advisory lock；第二个实例连接同一个数据库会启动失败。
 - SQLite 仍固定单连接，适合单机小规模部署；需要外部备份、集中运维时再选 PostgreSQL。
-- 切换后端不需要手工改库：登录后到 `/upgrade` 的“数据库转换”卡片执行，详见 [upgrade.md](upgrade.md#7-数据库在线转换sqlitepostgresql)。
+- 切换后端不需要手工改库：登录后到 `/upgrade` 的“数据库转换”卡片执行，详见 [upgrade.md](upgrade.md#7-数据库在线转换sqlite--postgresql)。
 
 数据目录用于存放数据库、插件、日志和升级备份。目录会以 `0700` 权限创建。`database.path` 留空时使用 `<data_dir>/lactssl.db`。
 
