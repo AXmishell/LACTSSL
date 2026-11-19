@@ -109,16 +109,16 @@
         </div>
         <el-button text type="primary" @click="loadRecords">{{ t('credentials.refresh') }}</el-button>
       </div>
-      <el-table :data="records" size="small" style="width: 100%">
+      <el-table :data="records" size="small" class="recent-deploy-table" style="width: 100%">
         <el-table-column width="160" :label="t('credentials.time')">
           <template #default="{ row }"><span class="muted">{{ formatDate(row.created_at) }}</span></template>
         </el-table-column>
-        <el-table-column min-width="170" :label="t('credentials.certificate')">
+        <el-table-column min-width="170" :label="t('credentials.certificate')" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="mono" style="font-size: 12px">{{ certDomain(row.cert_id) }}</span>
           </template>
         </el-table-column>
-        <el-table-column width="150" :label="t('credentials.deployTarget')">
+        <el-table-column width="150" :label="t('credentials.deployTarget')" show-overflow-tooltip>
           <template #default="{ row }">{{ row.account_name || t('credentials.unknownTarget') }}</template>
         </el-table-column>
         <el-table-column width="100" :label="t('credentials.status')">
@@ -128,7 +128,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column min-width="260" :label="t('credentials.result')">
+        <el-table-column
+          min-width="260"
+          :label="t('credentials.result')"
+          :show-overflow-tooltip="{ popperClass: 'deploy-result-tooltip' }"
+        >
           <template #default="{ row }"><span class="muted" style="font-size: 12px">{{ row.message }}</span></template>
         </el-table-column>
         <template #empty>
@@ -749,6 +753,13 @@ onMounted(() => {
   color: #1d4ed8;
 }
 
+/* 最近部署记录：单行固定高度，超长内容省略并悬浮显示完整内容 */
+.recent-deploy-table :deep(.cell) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cred-list-head,
 .cred-row {
   display: grid;
@@ -858,6 +869,12 @@ onMounted(() => {
 </style>
 
 <style>
+.deploy-result-tooltip {
+  max-width: min(720px, calc(100vw - 48px));
+  line-height: 1.6;
+  word-break: break-word;
+}
+
 .provider-select-popper {
   --provider-select-width: min(480px, calc(100vw - 32px));
 }
