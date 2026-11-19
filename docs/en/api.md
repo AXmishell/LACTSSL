@@ -113,6 +113,7 @@ Permissions are divided by resource:action. `*` represents all system API capabi
 | `plugins:read` | View plugins, the plugin repository, and enabled status | No |
 | `plugins:write` | Upload, install, update, uninstall, and enable plugins | Yes |
 | `logs:read` | View and export operation logs | No |
+| `logs:write` | Delete all operation logs (the clear action itself is audited) | Yes |
 | `system_logs:read` | View and export process logs | No |
 | `system_logs:write` | Delete all system logs | Yes |
 | `settings:read` | View system settings and the internal CA trust chain | No |
@@ -197,10 +198,10 @@ List endpoints return arrays directly; log endpoints return a paginated object:
 
 ```bash
 curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
-  "https://ssl.example.com/api/logs?page=1&size=50&level=error&source=task"
+  "https://ssl.example.com/api/logs?page=1&size=50&level=error&source=task&q=demo"
 ```
 
-`size` has a maximum of 200.
+`size` has a maximum of 200; `q` matches the raw stored content and parameter values. Use `DELETE /api/logs` to clear operation logs; it requires `logs:write`.
 
 ### 6.2 Running a Task
 

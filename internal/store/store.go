@@ -1423,14 +1423,11 @@ func logFilterWhere(filter LogFilter) (string, []any) {
 		args = append(args, filter.Level)
 	}
 	if filter.Query != "" {
+		// 两类日志都同时匹配正文与附加字段：操作日志的 message 是 i18n 信封，
+		// 参数值（任务名、域名等）也存放在其中，可以直接被搜索到。
 		pattern := "%" + escapeLike(filter.Query) + "%"
-		if category == model.LogCategoryOperation {
-			clauses = append(clauses, `message LIKE ? ESCAPE '\'`)
-			args = append(args, pattern)
-		} else {
-			clauses = append(clauses, `(message LIKE ? ESCAPE '\' OR fields LIKE ? ESCAPE '\')`)
-			args = append(args, pattern, pattern)
-		}
+		clauses = append(clauses, `(message LIKE ? ESCAPE '\' OR fields LIKE ? ESCAPE '\')`)
+		args = append(args, pattern, pattern)
 	}
 	if filter.From != nil {
 		clauses = append(clauses, "created_at>=?")
@@ -1477,6 +1474,16 @@ func (s *Store) ListLogsFiltered(filter LogFilter, limit, offset int) ([]model.L
 // ListLogs 分页查询操作日志，保留原有调用方式。
 func (s *Store) ListLogs(source string, limit, offset int) ([]model.LogEntry, int64, error) {
 	return s.ListLogsFiltered(LogFilter{Category: model.LogCategoryOperation, Source: source}, limit, offset)
+}
+
+// ClearOperationLogs 删除全部操作日志，返回删除行数。
+// 调用方负责在清空后写入审计日志，避免审计记录被一并删除。
+func (s *Store) ClearOperationLogs() (int64, error) {
+	result, err := s.DB.Exec(`DELETE FROM logs WHERE category=?`, model.LogCategoryOperation)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 // MaxLogID 返回当前最大日志 ID，用于导出时固定快照上界。

@@ -113,6 +113,7 @@ curl -X POST \
 | `plugins:read` | 查看插件、插件仓库与启用状态 | 否 |
 | `plugins:write` | 上传、安装、更新、卸载和启用插件 | 是 |
 | `logs:read` | 查看和导出操作日志 | 否 |
+| `logs:write` | 清空全部操作日志（清空动作本身会留下审计记录） | 是 |
 | `system_logs:read` | 查看和导出进程日志 | 否 |
 | `system_logs:write` | 删除全部系统日志 | 是 |
 | `settings:read` | 查看系统设置与内部 CA 信任链 | 否 |
@@ -197,10 +198,10 @@ curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
 
 ```bash
 curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
-  "https://ssl.example.com/api/logs?page=1&size=50&level=error&source=task"
+  "https://ssl.example.com/api/logs?page=1&size=50&level=error&source=task&q=demo"
 ```
 
-`size` 最大 200。
+`size` 最大 200；`q` 按原始存储内容和参数值匹配。清空操作日志使用 `DELETE /api/logs`，需要 `logs:write`。
 
 ### 6.2 运行任务
 

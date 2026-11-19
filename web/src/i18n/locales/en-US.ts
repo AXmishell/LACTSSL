@@ -1205,6 +1205,9 @@ export default {
     sourceCSR: 'CSR requests',
     sourceAPIKeys: 'API keys',
     allLevels: 'All levels',
+    searchPlaceholder: 'Search content or parameters',
+    search: 'Search',
+    autoRefresh: 'Auto refresh',
     level: 'Level',
     source: 'Source',
     content: 'Content',
@@ -1220,7 +1223,11 @@ export default {
     exportCsv: 'Export CSV',
     exportJson: 'Export JSON',
     exportHint: 'Export all records matching the current filters',
-    exportEmpty: 'No log entries match the current filters'
+    exportEmpty: 'No log entries match the current filters',
+    clear: 'Clear',
+    clearConfirm: 'Clear all operation logs? This deletes audit records and cannot be undone.',
+    clearTitle: 'Clear operation logs',
+    cleared: 'Cleared {count} operation log entries'
   },
   systemLogs: {
     title: 'System Logs',

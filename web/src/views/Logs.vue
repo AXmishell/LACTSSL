@@ -5,43 +5,48 @@
         <h1>{{ t('logs.title') }}</h1>
         <p>{{ subtitle }}</p>
       </div>
-      <el-tabs v-model="tab" class="logs-tabs" @tab-change="onTabChange">
+      <el-tabs
+        v-model="tab"
+        class="logs-tabs"
+        :before-leave="beforeLeave"
+        @tab-change="onTabChange"
+      >
         <el-tab-pane :label="t('logs.tabOperation')" name="operation" />
         <el-tab-pane :label="t('logs.tabSystem')" name="system" />
       </el-tabs>
     </div>
 
-    <div class="page-actions logs-actions">
+    <div class="page-actions logs-actions" :class="{ 'is-switching': switching }">
       <template v-if="tab === 'operation'">
         <el-select v-model="source" :placeholder="t('logs.allSources')" style="width: 140px" @change="reload">
           <el-option v-for="item in sources" :key="item.value" :label="t(item.label)" :value="item.value" />
         </el-select>
-        <el-select v-model="level" :placeholder="t('logs.allLevels')" style="width: 120px" @change="reload">
+        <el-select v-model="level" :placeholder="t('logs.allLevels')" style="width: 140px" @change="reload">
           <el-option v-for="item in levels" :key="item.value" :label="t(item.label)" :value="item.value" />
         </el-select>
       </template>
       <template v-else>
-        <el-select v-model="systemLevel" :placeholder="t('systemLogs.allLevels')" style="width: 130px" @change="reload">
+        <el-select v-model="systemLevel" :placeholder="t('systemLogs.allLevels')" style="width: 140px" @change="reload">
           <el-option v-for="item in systemLevels" :key="item.value" :label="t(item.label)" :value="item.value" />
         </el-select>
-        <el-select v-model="component" clearable :placeholder="t('systemLogs.allComponents')" style="width: 150px" @change="reload">
+        <el-select v-model="component" clearable :placeholder="t('systemLogs.allComponents')" style="width: 140px" @change="reload">
           <el-option v-for="item in components" :key="item" :label="componentLabel(item)" :value="item" />
         </el-select>
-        <el-input
-          v-model="query"
-          clearable
-          maxlength="100"
-          :placeholder="t('systemLogs.searchPlaceholder')"
-          style="width: 210px"
-          @keyup.enter="reload"
-          @clear="reload"
-        >
-          <template #suffix>
-            <el-icon class="system-log-search" @click="reload"><Search /></el-icon>
-          </template>
-        </el-input>
-        <el-switch v-model="autoRefresh" :active-text="t('systemLogs.autoRefresh')" />
       </template>
+      <el-input
+        v-model="activeQuery"
+        clearable
+        maxlength="100"
+        :placeholder="searchPlaceholder"
+        style="width: 210px"
+        @keyup.enter="reload"
+        @clear="reload"
+      >
+        <template #suffix>
+          <el-icon class="log-search" @click="reload"><Search /></el-icon>
+        </template>
+      </el-input>
+      <el-switch v-model="autoRefresh" :active-text="t('logs.autoRefresh')" />
       <el-date-picker
         v-model="activeRange"
         type="daterange"
@@ -64,14 +69,13 @@
       </el-dropdown>
       <el-button :icon="Refresh" circle @click="load()" />
       <el-button
-        v-if="tab === 'system'"
         type="danger"
         plain
         :icon="Delete"
         :loading="clearing"
         @click="clearAll"
       >
-        {{ t('systemLogs.clear') }}
+        {{ t(tab === 'operation' ? 'logs.clear' : 'systemLogs.clear') }}
       </el-button>
     </div>
 
@@ -85,9 +89,9 @@
     />
 
     <div class="k-card" style="padding: 0; overflow: hidden">
-      <div class="table-scroll">
+      <div class="table-scroll" :class="{ 'is-switching': switching }">
         <el-table :data="items" v-loading="loading" row-key="id" style="width: 100%">
-          <el-table-column v-if="tab === 'system'" type="expand">
+          <el-table-column v-if="tab === 'system'" type="expand" width="48">
             <template #default="{ row }">
               <div class="system-log-fields">
                 <template v-if="fieldEntries(row).length">
@@ -100,6 +104,8 @@
               </div>
             </template>
           </el-table-column>
+          <!-- 操作日志没有展开列，占位 48px 保证切换页签时其余列不横移。 -->
+          <el-table-column v-else width="48" />
           <el-table-column width="110" :label="t('logs.level')">
             <template #default="{ row }">
               <span class="tag-soft" :class="levelClass(row.level)">{{ t(levelKey(row.level)) }}</span>
@@ -123,7 +129,7 @@
               <span class="log-message">{{ row.message }}</span>
             </template>
           </el-table-column>
-          <el-table-column width="170" :label="t('logs.time')">
+          <el-table-column width="150" align="right" show-overflow-tooltip :label="t('logs.time')">
             <template #default="{ row }">
               <span class="muted">{{ formatDate(row.created_at) }}</span>
             </template>
@@ -151,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -176,6 +182,7 @@ const tab = ref(route.meta.logTab === 'system' ? 'system' : 'operation')
 const loading = ref(false)
 const clearing = ref(false)
 const exporting = ref(false)
+const switching = ref(false)
 const items = ref<LogRow[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -184,12 +191,13 @@ const size = 30
 // 操作日志筛选
 const source = ref('')
 const level = ref('')
+const operationQuery = ref('')
 const operationRange = ref<[Date, Date] | null>(null)
 
 // 系统日志筛选
 const systemLevel = ref('')
 const component = ref('')
-const query = ref('')
+const systemQuery = ref('')
 const systemRange = ref<[Date, Date] | null>(null)
 const components = ref<string[]>([])
 const retentionDays = ref(7)
@@ -256,6 +264,22 @@ const activeRange = computed({
   }
 })
 
+// 关键字搜索两个页签共用控件，但各自保留筛选状态。
+const activeQuery = computed({
+  get: () => (tab.value === 'operation' ? operationQuery.value : systemQuery.value),
+  set: (value: string) => {
+    if (tab.value === 'operation') {
+      operationQuery.value = value
+    } else {
+      systemQuery.value = value
+    }
+  }
+})
+
+const searchPlaceholder = computed(() =>
+  tab.value === 'operation' ? t('logs.searchPlaceholder') : t('systemLogs.searchPlaceholder')
+)
+
 function sourceLabel(value?: string): string {
   if (!value) return ''
   const item = sources.find((entry) => entry.value === value)
@@ -309,8 +333,8 @@ function filterParams(): Record<string, string> {
   } else {
     if (systemLevel.value) params.level = systemLevel.value
     if (component.value) params.component = component.value
-    if (query.value.trim()) params.q = query.value.trim()
   }
+  if (activeQuery.value.trim()) params.q = activeQuery.value.trim()
   return params
 }
 
@@ -349,10 +373,29 @@ function reload(): void {
 }
 
 function onTabChange(): void {
+  void switchTab()
+}
+
+// 先让旧内容淡出，再切换页签；新数据就绪后再淡入，
+// 避免表格先清空、再出现“暂无记录”的闪烁。
+async function beforeLeave(): Promise<boolean> {
+  if (switching.value) return true
+  switching.value = true
+  // 等 CSS 淡出动画基本完成后再放行页签切换。
+  await new Promise((resolve) => setTimeout(resolve, 160))
+  return true
+}
+
+let switchSeq = 0
+async function switchTab(): Promise<void> {
+  const seq = ++switchSeq
   page.value = 1
-  items.value = []
-  total.value = 0
-  load()
+  switching.value = true
+  await load()
+  if (seq !== switchSeq) return
+  // 等新数据渲染完成再淡入。
+  await nextTick()
+  if (seq === switchSeq) switching.value = false
 }
 
 function fileStamp(): string {
@@ -396,19 +439,26 @@ function formatValue(value: unknown): string {
 }
 
 async function clearAll(): Promise<void> {
+  const isOperation = tab.value === 'operation'
   try {
-    await ElMessageBox.confirm(t('systemLogs.clearConfirm'), t('systemLogs.clearTitle'), {
-      confirmButtonText: t('systemLogs.clear'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning'
-    })
+    await ElMessageBox.confirm(
+      t(isOperation ? 'logs.clearConfirm' : 'systemLogs.clearConfirm'),
+      t(isOperation ? 'logs.clearTitle' : 'systemLogs.clearTitle'),
+      {
+        confirmButtonText: t(isOperation ? 'logs.clear' : 'systemLogs.clear'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
   } catch (_) {
     return
   }
   clearing.value = true
   try {
-    const data = await api.delete<{ deleted: number }>('/system-logs')
-    ElMessage.success(t('systemLogs.cleared', { count: data?.deleted || 0 }))
+    const data = await api.delete<{ deleted: number }>(isOperation ? '/logs' : '/system-logs')
+    ElMessage.success(
+      t(isOperation ? 'logs.cleared' : 'systemLogs.cleared', { count: data?.deleted || 0 })
+    )
     await load()
   } catch (error: any) {
     ElMessage.error(error.message)
@@ -420,7 +470,7 @@ async function clearAll(): Promise<void> {
 function setupTimer(): void {
   if (timer) clearInterval(timer)
   timer = null
-  if (tab.value === 'system' && !autoRefresh.value) return
+  if (!autoRefresh.value) return
   const interval = tab.value === 'system' ? 15000 : 30000
   timer = setInterval(() => {
     // 页面不可见时暂停刷新，避免后台标签页持续请求。
@@ -452,6 +502,30 @@ onUnmounted(() => {
 .logs-actions {
   justify-content: flex-end;
   margin-bottom: 14px;
+}
+
+/* 切换页签时让工具栏与表格轻微淡出/下移，数据就绪后再淡入。 */
+.logs-actions,
+.table-scroll {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.logs-actions.is-switching,
+.table-scroll.is-switching {
+  opacity: 0.45;
+  transform: translateY(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logs-actions,
+  .table-scroll {
+    transition: none;
+  }
+
+  .logs-actions.is-switching,
+  .table-scroll.is-switching {
+    transform: none;
+  }
 }
 
 .log-message {
@@ -491,12 +565,12 @@ onUnmounted(() => {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-.system-log-search {
+.log-search {
   cursor: pointer;
   color: #94a3b8;
 }
 
-.system-log-search:hover {
+.log-search:hover {
   color: #2563eb;
 }
 

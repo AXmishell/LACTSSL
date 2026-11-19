@@ -1205,6 +1205,9 @@ export default {
     sourceCSR: 'CSR 申请',
     sourceAPIKeys: 'API 密钥',
     allLevels: '全部级别',
+    searchPlaceholder: '搜索内容或参数',
+    search: '搜索',
+    autoRefresh: '自动刷新',
     level: '级别',
     source: '来源',
     content: '内容',
@@ -1220,7 +1223,11 @@ export default {
     exportCsv: '导出 CSV',
     exportJson: '导出 JSON',
     exportHint: '导出当前筛选条件下的全部记录',
-    exportEmpty: '当前筛选条件下没有可导出的日志'
+    exportEmpty: '当前筛选条件下没有可导出的日志',
+    clear: '清空',
+    clearConfirm: '确定清空全部操作日志吗？该操作会删除审计记录且不可恢复。',
+    clearTitle: '清空操作日志',
+    cleared: '已清空 {count} 条操作日志'
   },
   systemLogs: {
     title: '系统日志',

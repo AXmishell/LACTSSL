@@ -27,7 +27,7 @@ const (
 
 var errLogExportTooLarge = errors.New("log export exceeds row limit")
 
-// listLogs 分页查询日志，支持来源、级别与时间范围筛选。
+// listLogs 分页查询日志，支持来源、级别、关键字与时间范围筛选。
 func (s *Server) listLogs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "50"))
@@ -123,10 +123,18 @@ func (s *Server) exportLogs(c *gin.Context) {
 func parseLogFilter(c *gin.Context) (store.LogFilter, error) {
 	filter := store.LogFilter{
 		Source: strings.TrimSpace(c.Query("source")),
-		Level:  strings.TrimSpace(c.Query("level")),
+		Level:  strings.ToLower(strings.TrimSpace(c.Query("level"))),
+		Query:  strings.TrimSpace(c.Query("q")),
+	}
+	// 复用系统日志的级别词表时，把 warn 归一化为操作日志使用的 warning。
+	if filter.Level == "warn" {
+		filter.Level = "warning"
 	}
 	if filter.Level != "" && !validLogLevel(filter.Level) {
 		return filter, i18n.E("api.error.logs_level_invalid")
+	}
+	if len([]rune(filter.Query)) > 100 {
+		return filter, i18n.E("api.error.invalid_params")
 	}
 	from, hasFrom, err := parseLogTime(c.Query("from"))
 	if err != nil {
@@ -154,6 +162,27 @@ func validLogLevel(level string) bool {
 		return true
 	}
 	return false
+}
+
+// clearLogs 清空操作日志。该操作本身会写入一条审计日志，便于事后追溯。
+func (s *Server) clearLogs(c *gin.Context) {
+	user := getUser(c)
+	if user == nil {
+		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
+		return
+	}
+	if allowed, wait := s.limiter.Allow("logs:clear:"+strconv.FormatInt(user.ID, 10), 3, 10*time.Minute); !allowed {
+		rateLimited(c, wait)
+		return
+	}
+	count, err := s.Store.ClearOperationLogs()
+	if err != nil {
+		failErr(c, http.StatusInternalServerError, err)
+		return
+	}
+	// 先清空再写审计日志，保证清空动作本身不会被一起删除。
+	s.Store.AddLogKey("settings", 0, "warning", "log.settings.logs_cleared", map[string]any{"count": count})
+	ok(c, gin.H{"deleted": count})
 }
 
 // parseLogTime 支持 RFC3339 与日期（按 UTC 零点解释）。

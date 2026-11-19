@@ -349,6 +349,7 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/monitors/:id/check", s.checkMonitor)
 	g.GET("/logs", s.listLogs)
 	g.GET("/logs/export", s.exportLogs)
+	g.DELETE("/logs", s.clearLogs)
 	g.GET("/system-logs", s.listSystemLogs)
 	g.GET("/system-logs/export", s.exportSystemLogs)
 	g.DELETE("/system-logs", s.clearSystemLogs)

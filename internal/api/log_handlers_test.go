@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
+	"lactssl/internal/model"
 	"lactssl/internal/store"
 )
 
@@ -153,5 +154,127 @@ func TestExportLogsRateLimited(t *testing.T) {
 	w := sessionRequest(t, router, http.MethodGet, "/api/logs/export", "", []*http.Cookie{session}, nil)
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("超过限流阈值应返回 429，实际 %d", w.Code)
+	}
+}
+
+func TestListLogsSearch(t *testing.T) {
+	router, st, session := setupLogTestServer(t)
+	st.AddLogKey("task", 1, "success", "log.task.created", map[string]any{"name": "demo.example"})
+	st.AddLog("deploy", 2, "error", "connection refused")
+	if err := st.AddSystemLogs([]model.SystemLogEntry{{
+		Level: "info", Component: "main", Message: "demo.example startup", CreatedAt: time.Now().UTC(),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	w := sessionRequest(t, router, http.MethodGet, "/api/logs?q=demo.example", "", []*http.Cookie{session}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("查询操作日志失败: %d %s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Items []struct {
+				Source  string `json:"source"`
+				Message string `json:"message"`
+			} `json:"items"`
+			Total int64 `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.Total != 1 || len(envelope.Data.Items) != 1 {
+		t.Fatalf("关键字搜索结果不正确: total=%d items=%+v", envelope.Data.Total, envelope.Data.Items)
+	}
+	if envelope.Data.Items[0].Source != "task" {
+		t.Fatalf("关键字搜索命中了错误的日志: %+v", envelope.Data.Items[0])
+	}
+
+	// 导出与列表共用筛选参数，关键字必须同样生效。
+	w = sessionRequest(t, router, http.MethodGet, "/api/logs/export?format=json&q=refused", "", []*http.Cookie{session}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("按关键字导出失败: %d %s", w.Code, w.Body.String())
+	}
+	var entries []logExportEntry
+	if err := json.Unmarshal(w.Body.Bytes(), &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Source != "deploy" {
+		t.Fatalf("按关键字导出结果不正确: %+v", entries)
+	}
+
+	tooLong := strings.Repeat("a", 101)
+	w = sessionRequest(t, router, http.MethodGet, "/api/logs?q="+tooLong, "", []*http.Cookie{session}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("超长关键字应返回 400，实际 %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestClearLogs(t *testing.T) {
+	router, st, session := setupLogTestServer(t)
+	_, before, err := st.ListLogs("", 1000, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.AddLogKey("task", 1, "info", "log.task.created", map[string]any{"name": "one"})
+	st.AddLogKey("deploy", 2, "error", "log.deploy.failed", map[string]any{"name": "two"})
+	if err := st.AddSystemLogs([]model.SystemLogEntry{{
+		Level: "info", Component: "main", Message: "keep me", CreatedAt: time.Now().UTC(),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	w := sessionRequest(t, router, http.MethodDelete, "/api/logs", "", []*http.Cookie{session}, map[string]string{
+		csrfHeaderName: "test-csrf",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("清空操作日志失败: %d %s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Deleted int64 `json:"deleted"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.Deleted != before+2 {
+		t.Fatalf("删除行数不正确: %d (before=%d)", envelope.Data.Deleted, before)
+	}
+
+	// 清空动作本身会写入一条审计日志，因此剩余 1 条操作日志。
+	remaining, total, err := st.ListLogs("", 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(remaining) != 1 {
+		t.Fatalf("操作日志清空结果不正确: total=%d list=%+v", total, remaining)
+	}
+	if key, _, ok := i18n.Decode(remaining[0].Message); !ok || key != "log.settings.logs_cleared" {
+		t.Fatalf("清空操作未写入审计日志: %+v", remaining[0])
+	}
+
+	// 系统日志不受影响。
+	_, systemTotal, err := st.ListSystemLogs(store.SystemLogFilter{}, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if systemTotal != 1 {
+		t.Fatalf("清空操作日志误删了系统日志: total=%d", systemTotal)
+	}
+}
+
+func TestClearLogsRequiresWriteScope(t *testing.T) {
+	router, _, session := setupLogTestServer(t)
+	readToken, _ := createAPIKeyForTest(t, router, session, "log-reader", []string{apiScopeLogsRead})
+	resp := apiKeyRequest(t, router, readToken, http.MethodDelete, "/api/logs", "", apiKeyHeader)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("只读密钥清空操作日志应返回 403，实际 %d %s", resp.Code, resp.Body)
+	}
+
+	writeToken, _ := createAPIKeyForTest(t, router, session, "log-cleaner", []string{apiScopeLogsWrite})
+	resp = apiKeyRequest(t, router, writeToken, http.MethodDelete, "/api/logs", "", apiKeyHeader)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("logs:write 密钥清空操作日志失败: %d %s", resp.Code, resp.Body)
 	}
 }

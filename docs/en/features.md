@@ -266,8 +266,10 @@ The UI supports Simplified Chinese and English and can be switched in settings. 
 
 - Shares the Misc → Logs page with system logs, switched via tabs.
 - Records task execution, certificate issuance, deployments, notifications, monitors, and settings changes.
-- Supports filtering by source, level, and time range.
-- Can export CSV or JSON; CSV includes a UTF-8 BOM and opens directly in Excel/WPS.
+- Supports filtering by source, level, keyword, and time range, with optional auto refresh.
+- Keywords match the raw stored content and parameter values (such as task names and domains), not the localized template text shown in the UI.
+- Can export CSV or JSON; CSV includes a UTF-8 BOM and opens directly in Excel/WPS. Export uses the same filters as the list.
+- Can be cleared; the clear action itself is written to the audit log. This requires the separate sensitive scope `logs:write` and a confirmation in the UI.
 - Export is limited to the most recent 90 days.
 - Export times follow the browser time zone by default; if unavailable, the server `TZ` is used.
 

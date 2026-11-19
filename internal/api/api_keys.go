@@ -63,6 +63,7 @@ const (
 	apiScopePluginsRead     = "plugins:read"
 	apiScopePluginsWrite    = "plugins:write"
 	apiScopeLogsRead        = "logs:read"
+	apiScopeLogsWrite       = "logs:write"
 	apiScopeSystemLogsRead  = "system_logs:read"
 	apiScopeSystemLogsWrite = "system_logs:write"
 	apiScopeSettingsRead    = "settings:read"
@@ -115,6 +116,7 @@ var apiKeyScopeDefs = []apiKeyScopeDef{
 	{apiScopePluginsRead, "plugins", "api.scope.plugins_read.label", "api.scope.plugins_read.desc", false},
 	{apiScopePluginsWrite, "plugins", "api.scope.plugins_write.label", "api.scope.plugins_write.desc", true},
 	{apiScopeLogsRead, "logs", "api.scope.logs_read.label", "api.scope.logs_read.desc", false},
+	{apiScopeLogsWrite, "logs", "api.scope.logs_write.label", "api.scope.logs_write.desc", true},
 	{apiScopeSystemLogsRead, "logs", "api.scope.system_logs_read.label", "api.scope.system_logs_read.desc", false},
 	{apiScopeSystemLogsWrite, "logs", "api.scope.system_logs_write.label", "api.scope.system_logs_write.desc", true},
 	{apiScopeSettingsRead, "settings", "api.scope.settings_read.label", "api.scope.settings_read.desc", false},
@@ -276,6 +278,7 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 
 	"GET /api/logs":               {apiScopeLogsRead},
 	"GET /api/logs/export":        {apiScopeLogsRead},
+	"DELETE /api/logs":            {apiScopeLogsWrite},
 	"GET /api/system-logs":        {apiScopeSystemLogsRead},
 	"GET /api/system-logs/export": {apiScopeSystemLogsRead},
 	"DELETE /api/system-logs":     {apiScopeSystemLogsWrite},
