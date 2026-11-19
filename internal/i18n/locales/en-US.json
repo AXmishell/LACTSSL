@@ -987,5 +987,18 @@
   "log.deploy.verify_success": "Target credential \"{name}\" verified ({mode})",
   "log.deploy.verify_failed": "Target credential \"{name}\" verification failed: {message}",
   "service.verify.local_no_paths": "Local deployment uses no separate credential; verify the certificate directory in the task deployment node",
-  "service.verify.read_failed": "Read-only probe failed: {error}"
+  "service.verify.read_failed": "Read-only probe failed: {error}",
+  "api.error.config_conflict": "The configuration was changed by another session or on the server; refresh and try again",
+  "api.error.config_invalid_reason": "Invalid configuration: {reason}",
+  "api.error.config_backup_not_found": "Configuration backup not found or already deleted",
+  "api.error.config_backup_create_failed": "Failed to create a configuration backup; the save was cancelled",
+  "api.error.config_backup_delete_failed": "Failed to delete the configuration backup",
+  "api.ok.config_backup_deleted": "Configuration backup deleted",
+  "api.ok.config_restored": "Configuration restored; restart the service to apply it",
+  "log.settings.config_updated": "Configuration updated: {fields}",
+  "log.settings.config_backup_created": "Configuration backup {id} created ({reason})",
+  "log.settings.config_backup_deleted": "Configuration backup {id} deleted",
+  "log.settings.config_restored": "Configuration restored from backup {id}: {fields}",
+  "log.settings.config_downloaded": "Configuration backup {id} downloaded",
+  "log.settings.config_restart": "Service restarted after a configuration change"
 }

@@ -230,6 +230,8 @@ func main() {
 		log.Fatalf("%s: %v", cliText("cli.error.init_entry"), err)
 	}
 	ensureDefaults(st)
+	// 配置保存后写入的“待重启”标记只对当前进程有效；启动成功即视为已生效。
+	_ = st.DeleteSetting("config.pending_restart")
 
 	// 默认每次启动都生成新的 JWT 签名子密钥，旧令牌在重启后必然签名校验失败；
 	// 开启会话保持时使用固定 jwt_secret 派生的子密钥，重启后旧令牌仍可通过校验。
@@ -362,6 +364,12 @@ func main() {
 		default:
 		}
 	}
+	server.RestartConfig = func() {
+		select {
+		case restart <- "config":
+		default:
+		}
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -449,6 +457,8 @@ func main() {
 			log.Println("程序升级完成，正在重启服务")
 		case "convert":
 			log.Println("数据库转换完成，正在重启服务")
+		case "config":
+			log.Println("配置文件已更新，正在重启服务")
 		default:
 			log.Println(cliText("cli.restoring_backup"))
 		}
@@ -460,7 +470,7 @@ func main() {
 	if acmeHTTPServer != nil {
 		_ = acmeHTTPServer.Shutdown(shutdownCtx)
 	}
-	if restartReason == "program" {
+	if restartReason == "program" || restartReason == "config" {
 		// exec 会跳过 defer，先显式关闭数据库，确保 WAL 正常收尾。
 		_ = conn.Close()
 		if err := reexecProcess(programUpdater.ExecutablePath()); err != nil {

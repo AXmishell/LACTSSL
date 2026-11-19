@@ -60,6 +60,16 @@ log:
 | Plugin enablement state | Database allowlist | Preserved after restarts and rescans |
 | System language, notification channels, etc. | Database | Changed in the UI |
 
+### 1.3 Web configuration editor
+
+After signing in, open **Settings → Configuration file** to edit whitelisted `config.yaml` fields, including the listen address, trusted reverse proxies, `security.public_url`, session persistence, ACME, logging, upgrade and plugin runtime settings.
+
+- `jwt_secret`, `salt`, `data_dir`, `database.path`, the log file, plugin directories and repository trust roots remain server-side only.
+- A snapshot is created under `<data_dir>/config-backups/` before every save; you can also create one manually. Snapshots contain only `config.yaml`, unlike the encrypted full backup that includes the database.
+- Restoring a snapshot only rewrites whitelisted fields. The current `jwt_secret`, `salt`, `data_dir` and `database.path` remain unchanged, so database decryption is not broken.
+- Restart the service to apply changes. When the listen port changes, the server performs a port preflight; if the new address is unavailable the service may not recover automatically, so keep SSH or console access available.
+- **Trusted reverse proxies** supports auto-detection. Detection only uses the TCP peer address of the current request; headers such as `X-Forwarded-For` are shown for reference and are never added automatically. Configure `security.public_url` when running behind a proxy.
+
 ## 2. Full field example
 
 ```yaml

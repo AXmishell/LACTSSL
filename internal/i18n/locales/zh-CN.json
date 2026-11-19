@@ -987,5 +987,18 @@
   "log.deploy.verify_success": "目标凭据「{name}」验证通过（{mode}）",
   "log.deploy.verify_failed": "目标凭据「{name}」验证失败: {message}",
   "service.verify.local_no_paths": "本地部署不使用独立凭据；请在任务部署节点验证证书目录是否可写",
-  "service.verify.read_failed": "只读探测失败: {error}"
+  "service.verify.read_failed": "只读探测失败: {error}",
+  "api.error.config_conflict": "配置文件已被其他会话或服务器上的手工编辑修改，请刷新后重试",
+  "api.error.config_invalid_reason": "配置校验失败：{reason}",
+  "api.error.config_backup_not_found": "配置备份不存在或已删除",
+  "api.error.config_backup_create_failed": "创建配置备份失败，已取消本次保存",
+  "api.error.config_backup_delete_failed": "删除配置备份失败",
+  "api.ok.config_backup_deleted": "配置备份已删除",
+  "api.ok.config_restored": "配置已恢复，重启服务后生效",
+  "log.settings.config_updated": "已更新配置文件: {fields}",
+  "log.settings.config_backup_created": "已创建配置备份 {id}（{reason}）",
+  "log.settings.config_backup_deleted": "已删除配置备份 {id}",
+  "log.settings.config_restored": "已从配置备份 {id} 恢复: {fields}",
+  "log.settings.config_downloaded": "已下载配置备份 {id}",
+  "log.settings.config_restart": "配置变更后重启服务"
 }

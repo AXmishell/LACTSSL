@@ -107,7 +107,9 @@ export const api = {
     request<T>({ method: 'POST', url, data, headers, timeout: 540000 }),
   put: <T = any>(url: string, data?: any, headers?: Record<string, string>) =>
     request<T>({ method: 'PUT', url, data, headers }),
-  delete: <T = any>(url: string, headers?: Record<string, string>) => request<T>({ method: 'DELETE', url, headers })
+  delete: <T = any>(url: string, headers?: Record<string, string>) => request<T>({ method: 'DELETE', url, headers }),
+  deleteWithBody: <T = any>(url: string, data?: any, headers?: Record<string, string>) =>
+    request<T>({ method: 'DELETE', url, data, headers })
 }
 
 export function errorText(error: unknown): string {

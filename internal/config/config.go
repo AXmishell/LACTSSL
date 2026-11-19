@@ -826,6 +826,18 @@ func validateFileValues(fc *fileConfig) error {
 	if err := validateListenAddr(strings.TrimSpace(fc.ACME.Addr), "acme.addr"); err != nil {
 		return err
 	}
+	if _, err := NormalizeTrustedProxies(fc.Server.TrustedProxies); err != nil {
+		return err
+	}
+	if strings.TrimSpace(fc.ACME.Addr) != "" {
+		mainAddr, err := resolveAddr(fc)
+		if err != nil {
+			return err
+		}
+		if listenAddrConflict(mainAddr, strings.TrimSpace(fc.ACME.Addr)) {
+			return fmt.Errorf("acme.addr 不能与主监听地址相同")
+		}
+	}
 	if err := validateHTTPURL(strings.TrimRight(strings.TrimSpace(fc.ACME.BaseURL), "/"), "acme.base_url"); err != nil {
 		return err
 	}

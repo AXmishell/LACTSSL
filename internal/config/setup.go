@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -302,6 +301,12 @@ func LoadSetupConfig(path string) (*SetupConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	return setupConfigFromFile(fc), nil
+}
+
+// setupConfigFromFile 把文件结构转换为对外的可编辑配置。
+// 只复制白名单字段，避免密钥、路径等敏感项进入 API 响应。
+func setupConfigFromFile(fc *fileConfig) *SetupConfig {
 	proxies := make([]string, len(fc.Server.TrustedProxies))
 	copy(proxies, fc.Server.TrustedProxies)
 	port := fc.Server.Port
@@ -386,7 +391,7 @@ func LoadSetupConfig(path string) (*SetupConfig, error) {
 			TimeoutSeconds: fc.NotifyPlugins.TimeoutSeconds,
 			MaxOutputKB:    fc.NotifyPlugins.MaxOutputKB,
 		},
-	}, nil
+	}
 }
 
 // UpdateSetupConfig 只更新白名单字段，保留配置文件中的其他内容和注释。
@@ -394,50 +399,14 @@ func UpdateSetupConfig(path string, patch SetupConfigPatch) error {
 	if patch.Empty() {
 		return nil
 	}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("配置文件不存在: %s", path)
-	}
+	prepared, err := PrepareConfigUpdate(path, patch, "")
 	if err != nil {
-		return fmt.Errorf("读取配置文件失败: %w", err)
-	}
-
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("%w: %v", ErrSetupConfigInvalid, err)
-	}
-	root, err := documentMapping(&doc)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrSetupConfigInvalid, err)
-	}
-	if err := applySetupPatch(root, patch); err != nil {
-		return fmt.Errorf("%w: %v", ErrSetupConfigInvalid, err)
-	}
-
-	var buf bytes.Buffer
-	encoder := yaml.NewEncoder(&buf)
-	encoder.SetIndent(2)
-	if err := encoder.Encode(&doc); err != nil {
-		return fmt.Errorf("序列化配置失败: %w", err)
-	}
-	if err := encoder.Close(); err != nil {
-		return fmt.Errorf("序列化配置失败: %w", err)
-	}
-
-	fc := defaults()
-	if err := yaml.Unmarshal(buf.Bytes(), fc); err != nil {
-		return fmt.Errorf("%w: %v", ErrSetupConfigInvalid, err)
-	}
-	if err := validateFileValues(fc); err != nil {
-		return fmt.Errorf("%w: %v", ErrSetupConfigInvalid, err)
-	}
-	if err := validateSetupValues(fc); err != nil {
-		return fmt.Errorf("%w: %v", ErrSetupConfigInvalid, err)
-	}
-	if err := writeFileAtomic(path, buf.Bytes()); err != nil {
 		return err
 	}
-	return nil
+	if len(prepared.ChangedFields) == 0 {
+		return nil
+	}
+	return writeFileAtomic(path, prepared.Next)
 }
 
 func documentMapping(doc *yaml.Node) (*yaml.Node, error) {
@@ -741,19 +710,16 @@ func validateSetupValues(fc *fileConfig) error {
 			return fmt.Errorf("server.port 必须在 0-65535 之间")
 		}
 	}
-	for _, item := range fc.Server.TrustedProxies {
-		proxy := strings.TrimSpace(item)
-		if proxy == "" {
-			return fmt.Errorf("server.trusted_proxies 不能包含空值")
+	if _, err := NormalizeTrustedProxies(fc.Server.TrustedProxies); err != nil {
+		return err
+	}
+	if strings.TrimSpace(fc.ACME.Addr) != "" {
+		mainAddr, err := resolveAddr(fc)
+		if err != nil {
+			return err
 		}
-		if strings.Contains(proxy, "/") {
-			if _, _, err := net.ParseCIDR(proxy); err != nil {
-				return fmt.Errorf("server.trusted_proxies 包含无效 CIDR: %s", proxy)
-			}
-			continue
-		}
-		if net.ParseIP(proxy) == nil {
-			return fmt.Errorf("server.trusted_proxies 包含无效 IP: %s", proxy)
+		if listenAddrConflict(mainAddr, strings.TrimSpace(fc.ACME.Addr)) {
+			return fmt.Errorf("acme.addr 不能与主监听地址相同")
 		}
 	}
 	switch channel := strings.ToLower(strings.TrimSpace(fc.Plugins.Repo.Channel)); channel {
@@ -762,6 +728,28 @@ func validateSetupValues(fc *fileConfig) error {
 		return fmt.Errorf("plugins.repo.channel 必须是 stable 或 beta")
 	}
 	return nil
+}
+
+// listenAddrConflict 判断两个监听地址是否会争用同一个端口。
+// 任一地址使用通配主机时，同端口的其他地址视为冲突。
+func listenAddrConflict(left, right string) bool {
+	leftHost, leftPort, leftErr := net.SplitHostPort(strings.TrimSpace(left))
+	rightHost, rightPort, rightErr := net.SplitHostPort(strings.TrimSpace(right))
+	if leftErr != nil || rightErr != nil {
+		return strings.TrimSpace(left) == strings.TrimSpace(right)
+	}
+	if leftPort != rightPort {
+		return false
+	}
+	if isWildcardListenHost(leftHost) || isWildcardListenHost(rightHost) {
+		return true
+	}
+	return strings.EqualFold(strings.Trim(leftHost, "[]"), strings.Trim(rightHost, "[]"))
+}
+
+func isWildcardListenHost(host string) bool {
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	return host == "" || host == "0.0.0.0" || host == "::"
 }
 
 func ensureMapping(parent *yaml.Node, key string) (*yaml.Node, error) {

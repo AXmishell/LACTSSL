@@ -59,6 +59,10 @@ type Server struct {
 	maintenance atomic.Bool
 	// RestartProgram 由 main 注入，用于在程序升级后优雅退出并重新执行新二进制。
 	RestartProgram func()
+	// RestartConfig 由 main 注入，用于在配置文件修改后优雅退出并重新执行当前二进制。
+	RestartConfig func()
+	// configMu 串行化 config.yaml 的读取、快照与写入，避免并发覆盖。
+	configMu sync.Mutex
 	// ConfigFile 是当前 config.yaml 路径，供初始化页面读写白名单配置项。
 	ConfigFile string
 	// DataDir 是数据目录，用于持久化插件图标等派生资源。
@@ -384,6 +388,15 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.GET("/settings/backup", s.backupInfo)
 	g.POST("/settings/backup/download", s.downloadBackup)
 	g.POST("/settings/backup/restore", s.restoreBackup)
+	g.GET("/settings/config", s.getSettingsConfig)
+	g.PUT("/settings/config", s.updateSettingsConfig)
+	g.GET("/settings/config/proxy-hints", s.settingsConfigProxyHints)
+	g.GET("/settings/config/backups", s.listSettingsConfigBackups)
+	g.POST("/settings/config/backups", s.createSettingsConfigBackup)
+	g.POST("/settings/config/backups/:id/download", s.downloadSettingsConfigBackup)
+	g.POST("/settings/config/backups/:id/restore", s.restoreSettingsConfigBackup)
+	g.DELETE("/settings/config/backups/:id", s.deleteSettingsConfigBackup)
+	g.POST("/settings/config/restart", s.restartSettingsConfig)
 	g.POST("/settings/test-mail", s.testMail)
 	g.POST("/settings/test-channel", s.testChannel)
 	g.POST("/security/entry", s.changeEntry)

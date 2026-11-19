@@ -848,6 +848,76 @@ export interface SetupConfigSaveResult {
   restart_required: boolean
 }
 
+export interface ConfigBackupInfo {
+  id: string
+  created_at: string
+  reason: string
+  note?: string
+  size: number
+  sha256: string
+  salt_fingerprint?: string
+  jwt_fingerprint?: string
+  actor?: string
+  app_version?: string
+  salt_matches: boolean
+}
+
+export interface PendingConfigRestart {
+  revision: string
+  at: string
+  fields?: string[]
+}
+
+export interface SettingsConfigResult {
+  config: SetupConfig
+  revision: string
+  path: string
+  writable: boolean
+  effective_addr: string
+  restart_pending: PendingConfigRestart | null
+  backups: ConfigBackupInfo[]
+}
+
+export interface SettingsConfigSaveResult {
+  message?: string
+  restart_required: boolean
+  changed_fields?: string[]
+  backup_id?: string
+  revision?: string
+}
+
+export interface ConfigProxySuggestion {
+  value: string
+  kind: string
+  confidence: 'high' | 'medium' | 'low'
+  reason: string
+  already_trusted: boolean
+}
+
+export interface ConfigProxyWarning {
+  code: string
+  detail?: string
+}
+
+export interface ConfigProxyHints {
+  peer_ip: string
+  peer_is_loopback: boolean
+  peer_is_private: boolean
+  has_forwarded: boolean
+  forwarded: {
+    x_forwarded_for: string[]
+    x_real_ip: string
+    x_forwarded_proto: string
+    forwarded: string
+    cf_connecting_ip: string
+    cf_ray: string
+  }
+  trusted_proxies: string[]
+  effective_client_ip: string
+  suggestions: ConfigProxySuggestion[]
+  warnings: ConfigProxyWarning[]
+}
+
 export interface ApiError extends Error {
   data?: unknown
   status?: number

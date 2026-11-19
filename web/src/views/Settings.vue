@@ -165,6 +165,134 @@
         </div>
       </el-tab-pane>
 
+      <!-- 配置文件 -->
+      <el-tab-pane :label="t('settings.tabConfig')" name="config">
+        <div class="k-card">
+          <div class="card-head">
+            <div>
+              <h3>{{ t('settings.configTitle') }}</h3>
+              <div class="sub">{{ t('settings.configSub') }}</div>
+            </div>
+            <el-button :icon="Refresh" circle :loading="configLoading" @click="loadConfig" />
+          </div>
+
+          <el-alert v-if="configLoadError" :title="configLoadError" type="error" :closable="false" show-icon />
+          <el-alert
+            v-else-if="configReady && !configWritable"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="t('settings.configReadonly')"
+            style="margin-bottom: 16px"
+          />
+          <el-alert
+            v-if="configPending"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="t('settings.configRestartPending')"
+            style="margin-bottom: 16px"
+          >
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+              <span>{{ t('settings.configRestartPendingHint') }}</span>
+              <el-button type="warning" plain size="small" @click="openConfigRestart">
+                {{ t('settings.configRestartNow') }}
+              </el-button>
+            </div>
+          </el-alert>
+
+          <div v-if="configReady && configForm" v-loading="configLoading">
+            <div class="config-meta">
+              <span>
+                <span class="muted">{{ t('settings.configPath') }}</span>
+                <span class="mono">{{ configPath }}</span>
+              </span>
+              <span>
+                <span class="muted">{{ t('settings.configEffectiveAddr') }}</span>
+                <span class="mono">{{ configEffectiveAddr || t('common.none') }}</span>
+              </span>
+            </div>
+            <ConfigEditor
+              :model-value="configForm"
+              :disabled="!configWritable"
+              show-detect
+              @detect-proxy="openProxyDialog"
+            />
+            <div class="flex gap-10 wrap" style="margin-top: 18px">
+              <el-button type="primary" :disabled="!configWritable" :loading="configSaving" @click="openConfigSave">
+                {{ t('settings.configSave') }}
+              </el-button>
+              <el-button :disabled="!configWritable" @click="openConfigBackup">
+                {{ t('settings.configBackupNow') }}
+              </el-button>
+            </div>
+          </div>
+        </div>
+
+        <div class="k-card" style="margin-top: 18px">
+          <div class="card-head">
+            <div>
+              <h3>{{ t('settings.configBackupTitle') }}</h3>
+              <div class="sub">{{ t('settings.configBackupSub') }}</div>
+            </div>
+          </div>
+          <el-alert
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="t('settings.configBackupWarning')"
+            style="margin-bottom: 16px"
+          />
+          <div class="table-scroll">
+            <el-table :data="configBackups" v-loading="configLoading" size="small" style="width: 100%">
+              <el-table-column width="170" :label="t('settings.configBackupTime')">
+                <template #default="{ row }">
+                  <span>{{ formatDate(row.created_at) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column width="110" :label="t('settings.configBackupReason')">
+                <template #default="{ row }">
+                  <span class="tag-soft tag-gray">{{ configBackupReason(row.reason) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column min-width="160" :label="t('settings.configBackupNote')">
+                <template #default="{ row }">
+                  <span :title="row.note || undefined">{{ row.note || t('common.none') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column width="110" :label="t('settings.configBackupSize')">
+                <template #default="{ row }">
+                  <span class="mono">{{ formatBytes(row.size) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column width="120" :label="t('settings.configBackupSalt')">
+                <template #default="{ row }">
+                  <span class="tag-soft" :class="row.salt_matches ? 'tag-green' : 'tag-red'">
+                    {{ row.salt_matches ? t('settings.configBackupSaltMatch') : t('settings.configBackupSaltMismatch') }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column width="210" align="right" :label="t('common.actions')">
+                <template #default="{ row }">
+                  <el-button text type="primary" size="small" @click="openBackupAction('restore', row)">
+                    {{ t('settings.configBackupRestore') }}
+                  </el-button>
+                  <el-button text size="small" @click="openBackupAction('download', row)">
+                    {{ t('settings.configBackupDownload') }}
+                  </el-button>
+                  <el-button text type="danger" size="small" @click="openBackupAction('delete', row)">
+                    {{ t('common.delete') }}
+                  </el-button>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div style="padding: 28px 0; color: #94a3b8">{{ t('settings.configBackupEmpty') }}</div>
+              </template>
+            </el-table>
+          </div>
+        </div>
+      </el-tab-pane>
+
       <!-- TLS 信任链 -->
       <el-tab-pane :label="t('settings.tabTrust')" name="trust">
         <div class="k-card">
@@ -533,6 +661,195 @@
       </template>
     </el-dialog>
 
+    <!-- 保存配置文件 -->
+    <el-dialog v-model="configSaveVisible" :title="t('settings.configSaveTitle')" width="480px" @closed="resetConfigSave">
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="t('settings.configSaveWarning')"
+        style="margin-bottom: 16px"
+      />
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.configNote')">
+          <el-input v-model="configSaveNote" maxlength="200" :placeholder="t('settings.configNotePlaceholder')" />
+        </el-form-item>
+        <ReauthFields
+          v-model:password="configSaveReauth.password"
+          v-model:totp="configSaveReauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="configSaveVisible = false">{{ t('settings.cancel') }}</el-button>
+        <el-button type="primary" :loading="configSaving" @click="saveConfig">{{ t('settings.configSave') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 手动备份配置文件 -->
+    <el-dialog v-model="configBackupVisible" :title="t('settings.configBackupNow')" width="460px" @closed="resetConfigBackup">
+      <p class="muted" style="margin-top: 0">{{ t('settings.configBackupCreateHint') }}</p>
+      <el-form label-position="top">
+        <el-form-item :label="t('settings.configNote')">
+          <el-input v-model="configBackupNote" maxlength="200" :placeholder="t('settings.configNotePlaceholder')" />
+        </el-form-item>
+        <ReauthFields
+          v-model:password="configBackupReauth.password"
+          v-model:totp="configBackupReauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="configBackupVisible = false">{{ t('settings.cancel') }}</el-button>
+        <el-button type="primary" :loading="configBackupSaving" @click="createConfigBackup">
+          {{ t('settings.configBackupNow') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 配置文件快照操作 -->
+    <el-dialog v-model="backupActionVisible" :title="backupActionTitle" width="460px" @closed="resetBackupAction">
+      <el-alert
+        v-if="backupAction === 'download'"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="t('settings.configBackupDownloadWarning')"
+        style="margin-bottom: 16px"
+      />
+      <el-alert
+        v-else-if="backupAction === 'restore'"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="t('settings.configBackupRestoreWarning')"
+        style="margin-bottom: 16px"
+      />
+      <el-alert
+        v-else
+        type="error"
+        :closable="false"
+        show-icon
+        :title="t('settings.configBackupDeleteWarning')"
+        style="margin-bottom: 16px"
+      />
+      <div v-if="backupTarget" class="muted" style="margin-bottom: 12px">
+        <span class="mono">{{ backupTarget.id }}</span>
+        <span> · {{ formatDate(backupTarget.created_at) }}</span>
+        <span v-if="backupTarget.note"> · {{ backupTarget.note }}</span>
+      </div>
+      <el-form label-position="top">
+        <ReauthFields
+          v-model:password="backupActionReauth.password"
+          v-model:totp="backupActionReauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="backupActionVisible = false">{{ t('settings.cancel') }}</el-button>
+        <el-button
+          :type="backupAction === 'download' ? 'primary' : 'danger'"
+          :loading="backupActionLoading"
+          @click="confirmBackupAction"
+        >
+          {{ backupActionConfirmText }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 自动检测反向代理 -->
+    <el-dialog v-model="proxyVisible" :title="t('settings.configDetectTitle')" width="620px">
+      <div v-loading="proxyLoading">
+        <el-alert
+          v-for="warning in proxyHints?.warnings || []"
+          :key="warning.code + (warning.detail || '')"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="proxyWarningText(warning)"
+          style="margin-bottom: 12px"
+        />
+        <div v-if="proxyHints" class="proxy-info">
+          <div class="about-line">
+            <span>{{ t('settings.configDetectPeer') }}</span>
+            <span class="mono">{{ proxyHints.peer_ip || t('common.none') }}</span>
+          </div>
+          <div class="about-line">
+            <span>{{ t('settings.configDetectEffective') }}</span>
+            <span class="mono">{{ proxyHints.effective_client_ip || t('common.none') }}</span>
+          </div>
+          <div class="about-line">
+            <span>{{ t('settings.configDetectForwarded') }}</span>
+            <span class="mono" style="word-break: break-all">{{ forwardedText }}</span>
+          </div>
+        </div>
+        <div v-if="proxyHints?.suggestions?.length" class="proxy-suggestions">
+          <div v-for="item in proxyHints.suggestions" :key="item.value" class="proxy-suggestion">
+            <div style="min-width: 0">
+              <div class="mono" style="font-weight: 600">{{ item.value }}</div>
+              <div class="muted" style="margin-top: 4px; font-size: 12px">
+                {{ proxyReasonText(item.reason) }}
+              </div>
+            </div>
+            <div class="flex gap-10" style="align-items: center">
+              <span class="tag-soft" :class="item.confidence === 'high' ? 'tag-green' : 'tag-gray'">
+                {{ proxyConfidenceText(item.confidence) }}
+              </span>
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :disabled="item.already_trusted"
+                @click="addProxySuggestion(item.value)"
+              >
+                {{ item.already_trusted ? t('settings.configDetectAlready') : t('settings.configDetectAdd') }}
+              </el-button>
+            </div>
+          </div>
+        </div>
+        <div v-else-if="!proxyLoading" class="muted" style="padding: 16px 0">
+          {{ t('settings.configDetectEmpty') }}
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="proxyVisible = false">{{ t('common.close') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 重启以应用配置 -->
+    <el-dialog v-model="configRestartVisible" :title="t('settings.configRestartTitle')" width="540px" @closed="resetConfigRestart">
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="t('settings.configRestartWarning')"
+        style="margin-bottom: 16px"
+      />
+      <div class="restart-info">
+        <div class="about-line">
+          <span>{{ t('settings.configEffectiveAddr') }}</span>
+          <span class="mono">{{ configEffectiveAddr || t('common.none') }}</span>
+        </div>
+        <div class="about-line">
+          <span>{{ t('settings.configRestartSession') }}</span>
+          <span>{{ t('settings.configRestartSessionHint') }}</span>
+        </div>
+      </div>
+      <el-form label-position="top">
+        <ReauthFields
+          v-model:password="configRestartReauth.password"
+          v-model:totp="configRestartReauth.totp"
+          :totp-enabled="!!user?.totp_enabled"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="configRestartVisible = false">{{ t('settings.configRestartLater') }}</el-button>
+        <el-button type="warning" :loading="configRestarting" @click="restartConfigService">
+          {{ t('settings.configRestartNow') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 导入内部 CA -->
     <el-dialog v-model="trustVisible" :title="t('settings.trustImportTitle')" width="640px" destroy-on-close>
       <p class="muted" style="margin-top: 0">{{ t('settings.trustImportHint') }}</p>
@@ -578,11 +895,28 @@ import type { UploadFile, UploadInstance } from 'element-plus'
 import { Document, Download, Lock, Refresh, Upload, UploadFilled } from '@element-plus/icons-vue'
 import QRCode from 'qrcode'
 import ReauthFields from '../components/ReauthFields.vue'
+import ConfigEditor from '../components/ConfigEditor.vue'
 import { api, copyText, downloadFile, errorText } from '../api'
 import { isPasskeyCancelled, passkeySecureContext, passkeySupported, registerPasskey } from '../passkeys'
 import { loadMeta, loadSettings, loadUser, logout, state } from '../store'
 import { formatDate } from '../utils'
-import type { AuthResult, BackupInfo, MessageResult, Meta, PasskeyInfo, Settings as AppSettings, TOTPSetup, TrustedCA } from '../types'
+import type {
+  AuthResult,
+  BackupInfo,
+  ConfigBackupInfo,
+  ConfigProxyHints,
+  ConfigProxyWarning,
+  MessageResult,
+  Meta,
+  PasskeyInfo,
+  PendingConfigRestart,
+  Settings as AppSettings,
+  SettingsConfigResult,
+  SettingsConfigSaveResult,
+  SetupConfig,
+  TOTPSetup,
+  TrustedCA
+} from '../types'
 
 interface ProgramStatus {
   version: string
@@ -658,6 +992,42 @@ const restoreReauth = reactive({ password: '', totp: '' })
 const restoring = ref(false)
 let restoreTimer: number | undefined
 
+const configLoading = ref(false)
+const configReady = ref(false)
+const configLoadError = ref('')
+const configForm = ref<SetupConfig | null>(null)
+const configRevision = ref('')
+const configPath = ref('')
+const configWritable = ref(true)
+const configEffectiveAddr = ref('')
+const configPending = ref<PendingConfigRestart | null>(null)
+const configBackups = ref<ConfigBackupInfo[]>([])
+
+const configSaveVisible = ref(false)
+const configSaving = ref(false)
+const configSaveNote = ref('')
+const configSaveReauth = reactive({ password: '', totp: '' })
+
+const configBackupVisible = ref(false)
+const configBackupSaving = ref(false)
+const configBackupNote = ref('')
+const configBackupReauth = reactive({ password: '', totp: '' })
+
+const backupActionVisible = ref(false)
+const backupAction = ref<'download' | 'restore' | 'delete'>('download')
+const backupTarget = ref<ConfigBackupInfo | null>(null)
+const backupActionLoading = ref(false)
+const backupActionReauth = reactive({ password: '', totp: '' })
+
+const proxyVisible = ref(false)
+const proxyLoading = ref(false)
+const proxyHints = ref<ConfigProxyHints | null>(null)
+
+const configRestartVisible = ref(false)
+const configRestarting = ref(false)
+const configRestartReauth = reactive({ password: '', totp: '' })
+let configRestartTimer: number | undefined
+
 const trustedCAs = ref<TrustedCA[]>([])
 const trustLoading = ref(false)
 const trustVisible = ref(false)
@@ -692,6 +1062,305 @@ function formatBytes(bytes?: number): string {
     index++
   }
   return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
+
+const forwardedText = computed(() => {
+  const hints = proxyHints.value
+  if (!hints) return t('common.none')
+  const parts: string[] = []
+  if (hints.forwarded.x_forwarded_for.length) {
+    parts.push(`X-Forwarded-For: ${hints.forwarded.x_forwarded_for.join(', ')}`)
+  }
+  if (hints.forwarded.x_real_ip) parts.push(`X-Real-IP: ${hints.forwarded.x_real_ip}`)
+  if (hints.forwarded.x_forwarded_proto) parts.push(`X-Forwarded-Proto: ${hints.forwarded.x_forwarded_proto}`)
+  if (hints.forwarded.forwarded) parts.push(`Forwarded: ${hints.forwarded.forwarded}`)
+  if (hints.forwarded.cf_connecting_ip) parts.push(`CF-Connecting-IP: ${hints.forwarded.cf_connecting_ip}`)
+  return parts.length ? parts.join(' · ') : t('common.none')
+})
+
+const backupActionTitle = computed(() => {
+  switch (backupAction.value) {
+    case 'restore':
+      return t('settings.configBackupRestore')
+    case 'delete':
+      return t('settings.configBackupDelete')
+    default:
+      return t('settings.configBackupDownload')
+  }
+})
+
+const backupActionConfirmText = computed(() => {
+  switch (backupAction.value) {
+    case 'restore':
+      return t('settings.configBackupRestore')
+    case 'delete':
+      return t('common.delete')
+    default:
+      return t('settings.configBackupDownload')
+  }
+})
+
+function configBackupReason(reason: string): string {
+  switch (reason) {
+    case 'manual':
+      return t('settings.configBackupReasonManual')
+    case 'before-restore':
+      return t('settings.configBackupReasonBeforeRestore')
+    default:
+      return t('settings.configBackupReasonBeforeSave')
+  }
+}
+
+function proxyConfidenceText(confidence: string): string {
+  if (confidence === 'high') return t('settings.configDetectConfidenceHigh')
+  if (confidence === 'medium') return t('settings.configDetectConfidenceMedium')
+  return t('settings.configDetectConfidenceLow')
+}
+
+function proxyReasonText(reason: string): string {
+  switch (reason) {
+    case 'loopback':
+      return t('settings.configDetectReasonLoopback')
+    case 'forwarded_headers':
+      return t('settings.configDetectReasonForwarded')
+    default:
+      return t('settings.configDetectReasonDirect')
+  }
+}
+
+function proxyWarningText(warning: ConfigProxyWarning): string {
+  switch (warning.code) {
+    case 'direct_connection':
+      return t('settings.configDetectDirectWarning')
+    case 'cdn_detected':
+      return t('settings.configDetectCDNWarning')
+    case 'broad_proxy_range':
+      return t('settings.configDetectBroadWarning', { value: warning.detail || '' })
+    default:
+      return warning.code
+  }
+}
+
+function requireConfigReauth(form: { password: string; totp: string }): boolean {
+  if (user.value?.totp_enabled) {
+    if (form.totp.trim()) return true
+  } else if (form.password) {
+    return true
+  }
+  ElMessage.warning(t('settings.configReauthRequired'))
+  return false
+}
+
+async function loadConfig(): Promise<void> {
+  configLoading.value = true
+  try {
+    const data = await api.get<SettingsConfigResult>('/settings/config')
+    configForm.value = data.config
+    configRevision.value = data.revision
+    configPath.value = data.path
+    configWritable.value = data.writable
+    configEffectiveAddr.value = data.effective_addr
+    configPending.value = data.restart_pending
+    configBackups.value = data.backups || []
+    configReady.value = true
+    configLoadError.value = ''
+  } catch (error: any) {
+    configLoadError.value = errorText(error)
+    configReady.value = false
+  } finally {
+    configLoading.value = false
+  }
+}
+
+function openConfigSave(): void {
+  if (!configForm.value) return
+  configSaveNote.value = ''
+  configSaveReauth.password = ''
+  configSaveReauth.totp = ''
+  configSaveVisible.value = true
+}
+
+function resetConfigSave(): void {
+  configSaveNote.value = ''
+  configSaveReauth.password = ''
+  configSaveReauth.totp = ''
+}
+
+async function saveConfig(): Promise<void> {
+  if (!configForm.value) return
+  if (!requireConfigReauth(configSaveReauth)) return
+  configSaving.value = true
+  try {
+    const result = await api.put<SettingsConfigSaveResult>('/settings/config', {
+      revision: configRevision.value,
+      note: configSaveNote.value.trim(),
+      password: configSaveReauth.password,
+      totp: configSaveReauth.totp.trim(),
+      config: configForm.value
+    })
+    configSaveVisible.value = false
+    ElMessage.success(result.message || t('settings.configSaved'))
+    await loadConfig()
+  } catch (error: any) {
+    ElMessage.error(errorText(error))
+  } finally {
+    configSaving.value = false
+  }
+}
+
+function openConfigBackup(): void {
+  configBackupNote.value = ''
+  configBackupReauth.password = ''
+  configBackupReauth.totp = ''
+  configBackupVisible.value = true
+}
+
+function resetConfigBackup(): void {
+  configBackupNote.value = ''
+  configBackupReauth.password = ''
+  configBackupReauth.totp = ''
+}
+
+async function createConfigBackup(): Promise<void> {
+  if (!requireConfigReauth(configBackupReauth)) return
+  configBackupSaving.value = true
+  try {
+    await api.post<ConfigBackupInfo>('/settings/config/backups', {
+      note: configBackupNote.value.trim(),
+      password: configBackupReauth.password,
+      totp: configBackupReauth.totp.trim()
+    })
+    configBackupVisible.value = false
+    ElMessage.success(t('settings.configBackupCreated'))
+    await loadConfig()
+  } catch (error: any) {
+    ElMessage.error(errorText(error))
+  } finally {
+    configBackupSaving.value = false
+  }
+}
+
+function openBackupAction(action: 'download' | 'restore' | 'delete', row: ConfigBackupInfo): void {
+  backupAction.value = action
+  backupTarget.value = row
+  backupActionReauth.password = ''
+  backupActionReauth.totp = ''
+  backupActionVisible.value = true
+}
+
+function resetBackupAction(): void {
+  backupTarget.value = null
+  backupActionReauth.password = ''
+  backupActionReauth.totp = ''
+  backupActionLoading.value = false
+}
+
+async function confirmBackupAction(): Promise<void> {
+  const target = backupTarget.value
+  if (!target) return
+  if (!requireConfigReauth(backupActionReauth)) return
+  backupActionLoading.value = true
+  try {
+    if (backupAction.value === 'download') {
+      await downloadFile(`/settings/config/backups/${target.id}/download`, `config-${target.id}.yaml`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password: backupActionReauth.password,
+          totp: backupActionReauth.totp.trim()
+        })
+      })
+      ElMessage.success(t('settings.configBackupDownloaded'))
+    } else if (backupAction.value === 'restore') {
+      const result = await api.post<SettingsConfigSaveResult>(
+        `/settings/config/backups/${target.id}/restore`,
+        { password: backupActionReauth.password, totp: backupActionReauth.totp.trim() }
+      )
+      ElMessage.success(result.message || t('settings.configBackupRestored'))
+      await loadConfig()
+    } else {
+      await api.deleteWithBody<MessageResult>(`/settings/config/backups/${target.id}`, {
+        password: backupActionReauth.password,
+        totp: backupActionReauth.totp.trim()
+      })
+      ElMessage.success(t('settings.configBackupDeletedMessage'))
+      await loadConfig()
+    }
+    backupActionVisible.value = false
+  } catch (error: any) {
+    ElMessage.error(errorText(error))
+  } finally {
+    backupActionLoading.value = false
+  }
+}
+
+function openProxyDialog(): void {
+  proxyVisible.value = true
+  loadProxyHints()
+}
+
+async function loadProxyHints(): Promise<void> {
+  proxyLoading.value = true
+  try {
+    proxyHints.value = await api.get<ConfigProxyHints>('/settings/config/proxy-hints')
+  } catch (error: any) {
+    proxyHints.value = null
+    ElMessage.error(errorText(error))
+  } finally {
+    proxyLoading.value = false
+  }
+}
+
+function addProxySuggestion(value: string): void {
+  if (!configForm.value) return
+  if (configForm.value.trusted_proxies.includes(value)) {
+    ElMessage.info(t('settings.configDetectAlready'))
+    return
+  }
+  configForm.value.trusted_proxies.push(value)
+  ElMessage.success(t('settings.configDetectAdded', { value }))
+}
+
+function openConfigRestart(): void {
+  configRestartReauth.password = ''
+  configRestartReauth.totp = ''
+  configRestartVisible.value = true
+}
+
+function resetConfigRestart(): void {
+  configRestartReauth.password = ''
+  configRestartReauth.totp = ''
+}
+
+function configRestartURL(): string {
+  const current = window.location
+  let port = current.port
+  const match = configEffectiveAddr.value.trim().match(/:(\d+)$/)
+  if (match) port = match[1]
+  const defaultPort = current.protocol === 'https:' ? '443' : '80'
+  const portPart = port && port !== defaultPort ? `:${port}` : ''
+  return `${current.protocol}//${current.hostname}${portPart}${current.pathname}${current.search}`
+}
+
+async function restartConfigService(): Promise<void> {
+  if (!requireConfigReauth(configRestartReauth)) return
+  if (configRestartTimer !== undefined) window.clearTimeout(configRestartTimer)
+  configRestarting.value = true
+  try {
+    const result = await api.post<{ message?: string }>('/settings/config/restart', {
+      revision: configRevision.value,
+      password: configRestartReauth.password,
+      totp: configRestartReauth.totp.trim()
+    })
+    ElMessage.success(result.message || t('settings.configRestarting'))
+    configRestartVisible.value = false
+    configRestartTimer = window.setTimeout(() => {
+      window.location.replace(configRestartURL())
+    }, 5000)
+  } catch (error: any) {
+    configRestarting.value = false
+    ElMessage.error(errorText(error))
+  }
 }
 
 function applySettings(data: AppSettings): void {
@@ -821,7 +1490,7 @@ async function reload(): Promise<void> {
     const [metaData, settingData] = await Promise.all([loadMeta(true), loadSettings(true)])
     meta.value = metaData
     applySettings(settingData)
-    await Promise.all([loadStatus(), loadUser(true), loadBackupInfo(), loadPasskeys(), loadTrustedCAs()])
+    await Promise.all([loadStatus(), loadUser(true), loadBackupInfo(), loadPasskeys(), loadTrustedCAs(), loadConfig()])
   } catch (error: any) {
     ElMessage.error(error.message)
   }
@@ -1201,6 +1870,7 @@ onUnmounted(() => {
   if (clockTimer !== undefined) window.clearInterval(clockTimer)
   if (statusTimer !== undefined) window.clearInterval(statusTimer)
   if (restoreTimer !== undefined) window.clearTimeout(restoreTimer)
+  if (configRestartTimer !== undefined) window.clearTimeout(configRestartTimer)
 })
 </script>
 
@@ -1364,5 +2034,48 @@ onUnmounted(() => {
 }
 .about-table-h tbody tr:last-child td {
   border-bottom: none;
+}
+.config-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 12px;
+}
+.config-meta .mono {
+  margin-left: 6px;
+  color: #334155;
+}
+.proxy-info {
+  padding: 4px 0 12px;
+}
+.proxy-suggestions {
+  display: grid;
+  gap: 10px;
+}
+.proxy-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #eef1f6;
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+.restart-info {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+@media (max-width: 640px) {
+  .proxy-suggestion {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>
