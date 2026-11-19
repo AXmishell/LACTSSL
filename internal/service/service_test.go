@@ -114,6 +114,12 @@ func TestNextRenewTimeShortLived(t *testing.T) {
 	}
 }
 
+func TestCADefsExcludeRetiredBuypass(t *testing.T) {
+	if ca, ok := CAInfo("buypass"); ok {
+		t.Fatalf("Buypass 已停止 ACME 服务，不应继续内置: %+v", ca)
+	}
+}
+
 func TestCAInfoLitessl(t *testing.T) {
 	ca, ok := CAInfo("litessl")
 	if !ok {

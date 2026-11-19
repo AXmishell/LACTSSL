@@ -551,8 +551,6 @@
   "meta.ca.zerossl.desc": "Requires EAB credentials from the ZeroSSL console",
   "meta.ca.google.label": "Google Trust Services",
   "meta.ca.google.desc": "Requires Google Cloud EAB credentials",
-  "meta.ca.buypass.label": "Buypass",
-  "meta.ca.buypass.desc": "Norwegian CA offering free DV certificates",
   "meta.ca.litessl.label": "LiteSSL",
   "meta.ca.litessl.desc": "Free DV certificates from TrustAsia; requires EAB credentials from the FreeSSL.cn console",
   "meta.deploy.local.label": "Local files",

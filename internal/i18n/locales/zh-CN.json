@@ -551,8 +551,6 @@
   "meta.ca.zerossl.desc": "需要 EAB 凭据，可在 ZeroSSL 控制台获取",
   "meta.ca.google.label": "Google Trust Services",
   "meta.ca.google.desc": "需要 Google Cloud EAB 凭据",
-  "meta.ca.buypass.label": "Buypass",
-  "meta.ca.buypass.desc": "挪威 CA，支持免费 DV 证书",
   "meta.ca.litessl.label": "LiteSSL",
   "meta.ca.litessl.desc": "TrustAsia 旗下免费 DV 证书，需要 EAB 凭据，可在 FreeSSL.cn 控制台获取",
   "meta.deploy.local.label": "本地文件",

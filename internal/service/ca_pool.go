@@ -248,6 +248,10 @@ func shouldFailoverCA(err error) bool {
 	var keyed *i18n.Error
 	if errors.As(err, &keyed) && keyed.Key != "" {
 		switch keyed.Key {
+		case "service.acme.client_init_failed":
+			// ACME 目录不可达或返回非 ACME 内容（例如 CA 已停服返回 404/HTML），
+			// 说明该上游整体不可用，应切换到下一个候选；单 CA 任务仍原样返回该错误。
+			return true
 		case "service.acme.domains_empty",
 			"service.acme.dns_account_required",
 			"service.acme.dns_provider_unavailable",

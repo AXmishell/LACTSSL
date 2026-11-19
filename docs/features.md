@@ -31,7 +31,6 @@
 | Let's Encrypt | 默认公共 CA，无需 EAB |
 | ZeroSSL | 需要 EAB |
 | Google Trust Services | 需要 EAB |
-| Buypass | 公共 CA |
 | LiteSSL | 需要 EAB |
 
 「权威CA」中还可以添加多个**通用 ACME 上游**：

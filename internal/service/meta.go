@@ -425,7 +425,6 @@ var CADefs = []CADef{
 	{Value: "letsencrypt", LabelKey: "meta.ca.letsencrypt.label", DescKey: "meta.ca.letsencrypt.desc", URL: "https://acme-v02.api.letsencrypt.org/directory"},
 	{Value: "zerossl", LabelKey: "meta.ca.zerossl.label", DescKey: "meta.ca.zerossl.desc", URL: "https://acme.zerossl.com/v2/DV90", EAB: true},
 	{Value: "google", LabelKey: "meta.ca.google.label", DescKey: "meta.ca.google.desc", URL: "https://dv.acme-v02.api.pki.goog/directory", EAB: true},
-	{Value: "buypass", LabelKey: "meta.ca.buypass.label", DescKey: "meta.ca.buypass.desc", URL: "https://api.buypass.com/acme/directory"},
 	{Value: "litessl", LabelKey: "meta.ca.litessl.label", DescKey: "meta.ca.litessl.desc", URL: "https://acme.litessl.com/acme/v2/directory", EAB: true},
 }
 

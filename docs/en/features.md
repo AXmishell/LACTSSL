@@ -31,7 +31,6 @@ This document describes LACTSSL capabilities by business domain, including key p
 | Let's Encrypt | Default public CA; no EAB required |
 | ZeroSSL | Requires EAB |
 | Google Trust Services | Requires EAB |
-| Buypass | Public CA |
 | LiteSSL | Requires EAB |
 
 "Authoritative CA" also lets you add multiple **generic ACME upstreams**:

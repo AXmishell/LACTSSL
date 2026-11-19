@@ -178,6 +178,8 @@ func TestShouldFailoverCA(t *testing.T) {
 		{name: "context canceled", err: context.Canceled, want: false},
 		{name: "rate limit", err: &RateLimitError{RetryAt: time.Now()}, want: true},
 		{name: "local dns account", err: i18n.E("service.acme.dns_account_required"), want: false},
+		{name: "client init failed", err: i18n.Wrap("service.acme.client_init_failed", errors.New("404")), want: true},
+		{name: "directory 404", err: &legoacme.ProblemDetails{HTTPStatus: 404, Type: "urn:ietf:params:acme:error:malformed"}, want: true},
 		{name: "dns validation", err: &legoacme.ProblemDetails{Type: "urn:ietf:params:acme:error:dns"}, want: false},
 		{name: "caa", err: &legoacme.ProblemDetails{Type: "urn:ietf:params:acme:error:caa"}, want: true},
 		{name: "server error", err: &legoacme.ProblemDetails{HTTPStatus: 500}, want: true},
