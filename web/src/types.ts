@@ -713,10 +713,18 @@ export interface DeployResult {
   message: string
   certificate_id?: number
   domain?: string
+  site?: string
+  status?: 'deployed' | 'skipped' | 'conflict' | 'failed'
 }
 
 export interface DeployResponse {
   results: DeployResult[]
+  summary?: {
+    deployed: number
+    skipped: number
+    conflict: number
+    failed: number
+  }
 }
 
 export interface SetupStatus {

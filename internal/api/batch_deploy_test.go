@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -9,8 +11,28 @@ import (
 	"time"
 
 	"lactssl/internal/model"
+	deployplugin "lactssl/internal/plugin/deploy"
 	"lactssl/internal/service"
 )
+
+type fakeBatchPlanner struct {
+	plan     deployplugin.PlanResult
+	planErr  error
+	deployed []deployplugin.Request
+}
+
+func (f *fakeBatchPlanner) ID() string        { return "baota" }
+func (f *fakeBatchPlanner) Aliases() []string { return nil }
+func (f *fakeBatchPlanner) Source() deployplugin.Source {
+	return deployplugin.SourceExec
+}
+func (f *fakeBatchPlanner) Deploy(_ context.Context, req deployplugin.Request) error {
+	f.deployed = append(f.deployed, req)
+	return nil
+}
+func (f *fakeBatchPlanner) Plan(_ context.Context, _ deployplugin.PlanRequest) (deployplugin.PlanResult, error) {
+	return f.plan, f.planErr
+}
 
 func useTestBaotaDeployType(t *testing.T) {
 	t.Helper()
@@ -28,6 +50,20 @@ func useTestBaotaDeployType(t *testing.T) {
 		},
 	})
 	t.Cleanup(func() { service.DeployTypes = original })
+}
+
+func setupFakePlanner(t *testing.T, objects ...string) *fakeBatchPlanner {
+	t.Helper()
+	plan := deployplugin.PlanResult{Field: "sites", Multiple: true}
+	for _, value := range objects {
+		plan.Objects = append(plan.Objects, deployplugin.PlanObject{Value: value, Name: value, Domains: []string{value}})
+	}
+	fake := &fakeBatchPlanner{plan: plan}
+	if err := deployplugin.RegisterExternal(fake); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { deployplugin.UnregisterSource(deployplugin.SourceExec) })
+	return fake
 }
 
 func createBatchTestCertificate(t *testing.T, st interface {
@@ -50,10 +86,11 @@ func createBatchTestCertificate(t *testing.T, st interface {
 	return cert
 }
 
-func TestBatchDeployRejectsMismatchedSite(t *testing.T) {
+func TestBatchDeployAutoMatchesSites(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	session := loginSessionTest(t, router)
 	useTestBaotaDeployType(t)
+	fake := setupFakePlanner(t, "a.example.com", "b.example.com")
 
 	certA := createBatchTestCertificate(t, st, "a.example.com")
 	certB := createBatchTestCertificate(t, st, "b.example.com")
@@ -62,26 +99,84 @@ func TestBatchDeployRejectsMismatchedSite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := fmt.Sprintf(`{"certificate_ids":[%d,%d],"targets":[{"deploy_account_id":%d,"deploy_config":{"sites":"a.example.com"}}]}`,
+	body := fmt.Sprintf(`{"certificate_ids":[%d,%d],"targets":[{"deploy_account_id":%d,"deploy_config":{}}]}`,
 		certA.ID, certB.ID, account.ID)
 	response := sessionRequest(t, router, http.MethodPost, "/api/certificates/batch/deploy", body,
 		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "service.deploy.batch_site_mismatch") {
-		t.Fatalf("mismatched site should be rejected: %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK {
+		t.Fatalf("batch deploy failed: %d %s", response.Code, response.Body.String())
 	}
-	records, err := st.ListDeployRecords(10)
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(response.Body.String(), `"status":"deployed"`) ||
+		!strings.Contains(response.Body.String(), `"summary":{"conflict":0,"deployed":2,"failed":0,"skipped":0}`) {
+		t.Fatalf("unexpected response: %s", response.Body.String())
 	}
-	if len(records) != 0 {
-		t.Fatalf("no deployment should run before preflight passes: %+v", records)
+	if len(fake.deployed) != 2 {
+		t.Fatalf("expected two deployments, got %d", len(fake.deployed))
+	}
+	if fake.deployed[0].Config["sites"] != "a.example.com" || fake.deployed[1].Config["sites"] != "b.example.com" {
+		t.Fatalf("unexpected site configs: %+v", fake.deployed)
 	}
 }
 
-func TestBatchDeployRejectsDuplicateSite(t *testing.T) {
+func TestBatchDeploySkipsUnmatchedSite(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	session := loginSessionTest(t, router)
 	useTestBaotaDeployType(t)
+	fake := setupFakePlanner(t, "a.example.com")
+
+	certA := createBatchTestCertificate(t, st, "a.example.com")
+	certC := createBatchTestCertificate(t, st, "c.example.com")
+	account := &model.DeployAccount{Name: "panel", Type: "baota", Config: map[string]string{}}
+	if err := st.CreateDeployAccount(account); err != nil {
+		t.Fatal(err)
+	}
+
+	body := fmt.Sprintf(`{"certificate_ids":[%d,%d],"targets":[{"deploy_account_id":%d,"deploy_config":{}}]}`,
+		certA.ID, certC.ID, account.ID)
+	response := sessionRequest(t, router, http.MethodPost, "/api/certificates/batch/deploy", body,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if response.Code != http.StatusOK {
+		t.Fatalf("batch deploy failed: %d %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"status":"skipped"`) ||
+		!strings.Contains(response.Body.String(), `"skipped":1`) {
+		t.Fatalf("unmatched certificate should be skipped: %s", response.Body.String())
+	}
+	if len(fake.deployed) != 1 {
+		t.Fatalf("only matched certificate should deploy, got %d", len(fake.deployed))
+	}
+}
+
+func TestBatchDeployForceSkipsPlanning(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	useTestBaotaDeployType(t)
+	fake := setupFakePlanner(t, "a.example.com")
+	fake.planErr = errors.New("panel unavailable")
+
+	certC := createBatchTestCertificate(t, st, "c.example.com")
+	account := &model.DeployAccount{Name: "panel", Type: "baota", Config: map[string]string{}}
+	if err := st.CreateDeployAccount(account); err != nil {
+		t.Fatal(err)
+	}
+
+	body := fmt.Sprintf(`{"certificate_ids":[%d],"targets":[{"deploy_account_id":%d,"deploy_config":{},"force":true}]}`,
+		certC.ID, account.ID)
+	response := sessionRequest(t, router, http.MethodPost, "/api/certificates/batch/deploy", body,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if response.Code != http.StatusOK {
+		t.Fatalf("force deploy should bypass plan: %d %s", response.Code, response.Body.String())
+	}
+	if len(fake.deployed) != 1 || fake.deployed[0].Config["sites"] != "c.example.com" {
+		t.Fatalf("force deploy should use certificate domains: %+v", fake.deployed)
+	}
+}
+
+func TestBatchDeploySkipsDuplicateSite(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	useTestBaotaDeployType(t)
+	fake := setupFakePlanner(t, "same.example.com")
 
 	certA := createBatchTestCertificate(t, st, "same.example.com")
 	certB := createBatchTestCertificate(t, st, "same.example.com")
@@ -90,20 +185,40 @@ func TestBatchDeployRejectsDuplicateSite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 站点留空时插件会回退到证书域名，两张同域名证书仍会写入同一个站点。
 	body := fmt.Sprintf(`{"certificate_ids":[%d,%d],"targets":[{"deploy_account_id":%d,"deploy_config":{}}]}`,
 		certA.ID, certB.ID, account.ID)
 	response := sessionRequest(t, router, http.MethodPost, "/api/certificates/batch/deploy", body,
 		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "api.error.batch_deploy_site_conflict") {
-		t.Fatalf("duplicate site should be rejected: %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"conflict"`) {
+		t.Fatalf("duplicate site should be skipped: %d %s", response.Code, response.Body.String())
 	}
-	records, err := st.ListDeployRecords(10)
-	if err != nil {
+	if len(fake.deployed) != 1 {
+		t.Fatalf("only first certificate should deploy, got %d", len(fake.deployed))
+	}
+}
+
+func TestBatchDeployPlanFailureAbortsBeforeWrite(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	useTestBaotaDeployType(t)
+	fake := setupFakePlanner(t, "a.example.com")
+	fake.planErr = errors.New("panel unavailable")
+
+	certA := createBatchTestCertificate(t, st, "a.example.com")
+	account := &model.DeployAccount{Name: "panel", Type: "baota", Config: map[string]string{}}
+	if err := st.CreateDeployAccount(account); err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 0 {
-		t.Fatalf("conflicting batch must not write any target: %+v", records)
+
+	body := fmt.Sprintf(`{"certificate_ids":[%d],"targets":[{"deploy_account_id":%d,"deploy_config":{}}]}`,
+		certA.ID, account.ID)
+	response := sessionRequest(t, router, http.MethodPost, "/api/certificates/batch/deploy", body,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "api.error.batch_deploy_plan_failed") {
+		t.Fatalf("plan failure should abort: %d %s", response.Code, response.Body.String())
+	}
+	if len(fake.deployed) != 0 {
+		t.Fatalf("no deployment should run when plan fails: %+v", fake.deployed)
 	}
 }
 

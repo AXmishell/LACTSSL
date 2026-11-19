@@ -176,6 +176,71 @@ func TestListOptionsUnsupported(t *testing.T) {
 	}
 }
 
+func TestPlan(t *testing.T) {
+	resetExternalState(t)
+	dir := t.TempDir()
+	output := filepath.Join(dir, "plan.json")
+	manifest := strings.Replace(testManifest, `"deploy_fields"`, `"capabilities":["plan-v1"],"deploy_fields"`, 1)
+	script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+manifest)
+  cat <<'JSON'
+%s
+JSON
+  ;;
+plan)
+  cat > %q
+  printf '{"ok":true,"field":"sites","multiple":true,"objects":[{"value":"a.example.com","name":"Site A","domains":["a.example.com","www.a.example.com"]},{"value":"b.example.com"}]}'
+  ;;
+*)
+  exit 2
+  ;;
+esac
+`, manifest, output)
+	writeHelper(t, dir, "fake-helper", script, 0o700)
+	Discover(DiscoverConfig{Dir: dir, EnabledDeployers: []string{"fakepanel"}})
+
+	result, err := Plan(context.Background(), "fakepanel", PlanRequest{
+		Auth:   map[string]string{"api_token": "secret-token"},
+		Config: map[string]string{"target": "site"},
+	})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if result.Field != "sites" || !result.Multiple || len(result.Objects) != 2 {
+		t.Fatalf("unexpected plan: %+v", result)
+	}
+	if len(result.Objects[0].Domains) != 2 || result.Objects[0].Domains[1] != "www.a.example.com" {
+		t.Fatalf("unexpected object: %+v", result.Objects[0])
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("read plan request: %v", err)
+	}
+	for _, want := range []string{
+		`"action":"plan"`,
+		`"provider":"fakepanel"`,
+		`"api_token":"secret-token"`,
+		`"target":"site"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("plan request missing %s: %s", want, data)
+		}
+	}
+}
+
+func TestPlanUnsupported(t *testing.T) {
+	resetExternalState(t)
+	if _, err := Plan(context.Background(), "missing", PlanRequest{}); err == nil {
+		t.Fatal("expected missing target error")
+	}
+	RegisterExternal(fakeDeployer{id: "fake", source: SourceExec})
+	t.Cleanup(func() { UnregisterSource(SourceExec) })
+	if _, err := Plan(context.Background(), "fake", PlanRequest{}); !errors.Is(err, ErrPlanUnsupported) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestDeployRedactsAndTimesOut(t *testing.T) {
 	resetExternalState(t)
 	dir := t.TempDir()

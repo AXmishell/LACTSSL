@@ -1,18 +1,196 @@
 package service
 
 import (
-	"sort"
+	"context"
 	"strings"
 
 	"lactssl/internal/i18n"
+	"lactssl/internal/model"
+	"lactssl/internal/plugin/deploy"
 )
 
-// deployObjectField 返回部署类型中用于指定“目标站点/对象”的字段。
-// 批量部署时这些字段与证书一一对应：同一取值不能套用到全部证书，
-// 否则后一次部署会覆盖前一次。
-//
-// fallback 表示字段留空时部署插件会回退到证书自身域名（例如宝塔网站、
-// AcePanel 网站）。此时批量部署可以按证书域名自动匹配站点。
+// DeployObject 是一个可部署对象，例如面板上的网站。
+type DeployObject struct {
+	Value       string
+	Name        string
+	Domains     []string
+	Identifiers []string
+}
+
+// DeployObjectPlan 是目标系统返回的部署对象清单。
+type DeployObjectPlan struct {
+	Field    string
+	Multiple bool
+	Objects  []DeployObject
+}
+
+// DeployObjectFieldInfo 返回站点类部署目标的字段信息。
+// key 是写入部署参数的字段，multiple 表示字段允许逗号分隔的多个值，
+// fallback 表示字段留空时插件会回退到证书域名。
+func DeployObjectFieldInfo(def ProviderDef, cfg map[string]string) (key string, multiple, fallback, ok bool) {
+	key, fallback, ok = deployObjectField(def)
+	if !ok || cfg == nil {
+		return "", false, false, false
+	}
+	field, found := deployObjectFieldDef(def, key)
+	if !found || !field.VisibleIn(def.DeployFields, cfg) {
+		return "", false, false, false
+	}
+	// 合并后的宝塔目标只有在网站模式下才会回退到证书域名，
+	// Docker 网站必须显式填写站点名称。
+	if strings.EqualFold(strings.TrimSpace(def.Value), "baota") &&
+		strings.TrimSpace(cfg["target"]) == "docker" {
+		fallback = false
+	}
+	return key, field.Multiple, fallback, true
+}
+
+// DeployObjectIsSingleton 判断部署目标是面板自身的唯一证书。
+func DeployObjectIsSingleton(def ProviderDef, cfg map[string]string) bool {
+	return deployObjectIsSingleton(def, cfg)
+}
+
+// PlanDeployObjects 调用部署插件读取目标系统中真实存在的部署对象。
+// 只传认证与部署参数，不传证书私钥。
+func (m *Manager) PlanDeployObjects(ctx context.Context, account *model.DeployAccount, deployConfig map[string]string, locale string) (DeployObjectPlan, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if account == nil {
+		return DeployObjectPlan{}, i18n.E("service.deploy.certificate_or_account_missing")
+	}
+	deployConfig = deployModeFallback(account, deployConfig)
+	deployerID := account.Type
+	// 与 DeployContext 保持一致：规范目标不支持某个部署对象时回退到旧 ID，
+	// 旧 helper 也可能只注册旧 ID。
+	if key, value, ok := deployTargetModeForAccount(*account); ok && !deployTargetSupports(account.Type, key, value) {
+		if legacy := legacyDeployerID(account.Type, deployConfig); legacy != "" {
+			deployerID = legacy
+		}
+	}
+	if !deployplugin.Has(deployerID) {
+		if legacy := legacyDeployerID(account.Type, deployConfig); legacy != "" {
+			deployerID = legacy
+		}
+	}
+	result, err := deployplugin.Plan(ctx, deployerID, deployplugin.PlanRequest{
+		Auth:   account.Config,
+		Config: deployConfig,
+		Locale: locale,
+	})
+	if err != nil {
+		return DeployObjectPlan{}, err
+	}
+	out := DeployObjectPlan{Field: result.Field, Multiple: result.Multiple, Objects: make([]DeployObject, 0, len(result.Objects))}
+	for _, object := range result.Objects {
+		out.Objects = append(out.Objects, DeployObject{
+			Value:       object.Value,
+			Name:        object.Name,
+			Domains:     object.Domains,
+			Identifiers: object.Identifiers,
+		})
+	}
+	return out, nil
+}
+
+// MatchDeployObjects 按证书域名和用户显式选择筛选部署对象。
+// selected 为空时返回所有命中证书域名的对象；非空时还必须命中用户选择值。
+func MatchDeployObjects(objects []DeployObject, selected, domains []string) []DeployObject {
+	out := make([]DeployObject, 0, len(objects))
+	for _, object := range objects {
+		if !objectMatchesDomains(object, domains) {
+			continue
+		}
+		if len(selected) > 0 && !objectSelected(object, selected) {
+			continue
+		}
+		out = append(out, object)
+	}
+	return out
+}
+
+// DeployObjectValues 返回写入部署参数字段的值，去重并保持稳定顺序。
+func DeployObjectValues(objects []DeployObject) []string {
+	out := make([]string, 0, len(objects))
+	seen := make(map[string]bool, len(objects))
+	for _, object := range objects {
+		if object.Value == "" || seen[object.Value] {
+			continue
+		}
+		seen[object.Value] = true
+		out = append(out, object.Value)
+	}
+	return out
+}
+
+// ForceDeployValues 返回强制部署时写入的值。
+// 用户显式填写时保留原值；留空时使用证书域名尝试下发。
+func ForceDeployValues(cfg map[string]string, key string, domains []string) []string {
+	values := splitConfigList(cfg[key])
+	if len(values) > 0 {
+		return values
+	}
+	return append([]string(nil), domains...)
+}
+
+// NormalizeDeployDomains 去重并规范化证书域名。
+func NormalizeDeployDomains(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		value = normalizeDeployDomain(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func objectMatchesDomains(object DeployObject, domains []string) bool {
+	for _, host := range objectHosts(object) {
+		if siteMatchesDomains(host, domains) {
+			return true
+		}
+	}
+	return false
+}
+
+func objectSelected(object DeployObject, selected []string) bool {
+	hosts := append(objectHosts(object), object.Identifiers...)
+	for _, value := range selected {
+		value = normalizeDeployDomain(value)
+		if value == "" {
+			continue
+		}
+		for _, host := range hosts {
+			if normalizeDeployDomain(host) == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func objectHosts(object DeployObject) []string {
+	out := make([]string, 0, len(object.Domains)+2)
+	out = append(out, object.Domains...)
+	out = append(out, object.Value, object.Name)
+	result := make([]string, 0, len(out))
+	seen := make(map[string]bool, len(out))
+	for _, host := range out {
+		host = normalizeDeployDomain(host)
+		if host == "" || seen[host] {
+			continue
+		}
+		seen[host] = true
+		result = append(result, host)
+	}
+	return result
+}
+
+// sites 以下为旧的字符串过滤逻辑，保留给单次部署和兼容场景。
 func deployObjectField(def ProviderDef) (key string, fallback bool, ok bool) {
 	switch strings.ToLower(strings.TrimSpace(def.Value)) {
 	case "baota", "baota_site":
@@ -51,79 +229,6 @@ func deployObjectIsSingleton(def ProviderDef, cfg map[string]string) bool {
 	return false
 }
 
-// FilterBatchDeployObjects 把批量部署共享的站点配置裁剪为当前证书可用的
-// 站点，并返回本次实际会写入的目标对象。
-//
-// 规则：
-//   - 显式填写站点时，只保留与证书域名匹配的站点；全部不匹配则返回错误，
-//     避免把证书写到不属于它的站点上。
-//   - 站点留空且插件支持回退时，按证书域名自动匹配。
-//   - 没有站点类字段的部署目标返回空对象，由调用方按普通目标处理。
-func FilterBatchDeployObjects(def ProviderDef, cfg map[string]string, domains []string) (string, []string, error) {
-	// 面板自身证书（宝塔/1Panel/AcePanel/雷池面板）只有一个部署对象，
-	// 多张证书写入同一凭据必然互相覆盖。
-	if deployObjectIsSingleton(def, cfg) {
-		return "@self", []string{"@panel"}, nil
-	}
-	key, fallback, ok := deployObjectField(def)
-	if !ok || cfg == nil {
-		return "", nil, nil
-	}
-	field, found := deployObjectFieldDef(def, key)
-	if !found || !field.VisibleIn(def.DeployFields, cfg) {
-		return "", nil, nil
-	}
-	// 合并后的宝塔目标只有在网站模式下才会回退到证书域名，
-	// Docker 网站必须显式填写站点名称。
-	if strings.EqualFold(strings.TrimSpace(def.Value), "baota") &&
-		strings.TrimSpace(cfg["target"]) == "docker" {
-		fallback = false
-	}
-
-	values := splitConfigList(cfg[key])
-	if len(values) == 0 {
-		if !fallback {
-			return key, nil, nil
-		}
-		values = domains
-		// 显式写入证书域名，确保插件实际写入的对象与冲突检测使用的一致。
-		cfg[key] = strings.Join(values, ",")
-	} else {
-		matched := make([]string, 0, len(values))
-		for _, value := range values {
-			if siteMatchesDomains(value, domains) {
-				matched = append(matched, value)
-				continue
-			}
-			// 数字 ID、自定义站点名等无法仅凭域名判断归属，保留原值交由
-			// 插件解析；后续的站点冲突检查会阻止多张证书写入同一对象。
-			if !looksLikeDeployDomain(value) {
-				matched = append(matched, value)
-			}
-		}
-		if len(matched) == 0 {
-			return key, nil, i18n.E("service.deploy.batch_site_mismatch",
-				"sites", strings.Join(values, ", "),
-				"domains", strings.Join(domains, ", "))
-		}
-		cfg[key] = strings.Join(matched, ",")
-		values = matched
-	}
-
-	objects := make([]string, 0, len(values))
-	seen := make(map[string]bool, len(values))
-	for _, value := range values {
-		value = normalizeDeployDomain(value)
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		objects = append(objects, value)
-	}
-	sort.Strings(objects)
-	return key, objects, nil
-}
-
 // siteMatchesDomains 判断站点名称是否属于证书覆盖的域名。
 // 证书包含通配符域名时，通配符下的任意子域名也视为匹配。
 func siteMatchesDomains(site string, domains []string) bool {
@@ -147,14 +252,6 @@ func siteMatchesDomains(site string, domains []string) bool {
 		}
 	}
 	return false
-}
-
-// looksLikeDeployDomain 判断站点字段值是否像域名。
-// 像域名的值必须与证书域名匹配；数字 ID 或自定义站点名无法在本地校验，
-// 由插件解析并交给批量冲突检查兜底。
-func looksLikeDeployDomain(value string) bool {
-	value = strings.TrimSpace(value)
-	return strings.Contains(value, ".") && !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://")
 }
 
 func normalizeDeployDomain(value string) string {

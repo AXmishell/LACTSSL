@@ -323,7 +323,7 @@ func inspectHelper(path string, cfg DiscoverConfig) (Manifest, error) {
 		MaxOutputKB:   manifestOutputKB,
 		Env: []string{
 			"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol,
-			"LACTSSL_DEPLOY_PLUGIN_FEATURES=" + FeatureMergedDeployers + "," + FeatureDynamicOptions + "," + pluginproto.FeatureVerify,
+			"LACTSSL_DEPLOY_PLUGIN_FEATURES=" + FeatureMergedDeployers + "," + FeatureDynamicOptions + "," + pluginproto.FeatureVerify + "," + pluginproto.FeaturePlan,
 		},
 	})
 	if errors.Is(err, pluginexec.ErrTimeout) {
@@ -540,6 +540,47 @@ func ListOptions(ctx context.Context, id string, req OptionsRequest) ([]Manifest
 	return lister.ListOptions(ctx, req)
 }
 
+// PlanRequest 是批量部署前的对象清单读取请求。
+// 只传认证与部署参数，不传证书私钥。
+type PlanRequest struct {
+	Auth   map[string]string
+	Config map[string]string
+	Locale string
+}
+
+// PlanObject 是一个可部署对象，Value 用于写入部署参数字段。
+type PlanObject struct {
+	Value       string
+	Name        string
+	Domains     []string
+	Identifiers []string
+}
+
+// PlanResult 是目标系统当前可部署对象的清单。
+type PlanResult struct {
+	Field    string
+	Multiple bool
+	Objects  []PlanObject
+}
+
+// ErrPlanUnsupported 表示目标没有实现 plan 能力。
+var ErrPlanUnsupported = errors.New("deploy target does not support plan")
+
+// Plan 调用外部部署 helper 的 plan 子命令读取可部署对象。
+func Plan(ctx context.Context, id string, req PlanRequest) (PlanResult, error) {
+	plugin, ok := Lookup(id)
+	if !ok {
+		return PlanResult{}, fmt.Errorf("部署目标 %s 未启用", id)
+	}
+	planner, ok := plugin.(interface {
+		Plan(context.Context, PlanRequest) (PlanResult, error)
+	})
+	if !ok {
+		return PlanResult{}, ErrPlanUnsupported
+	}
+	return planner.Plan(ctx, req)
+}
+
 type execSettings struct {
 	memoryLimitMB int
 	timeout       time.Duration
@@ -734,6 +775,131 @@ func (d *externalDeployer) Verify(ctx context.Context, req Request) (pluginproto
 		result.Checks = []pluginproto.VerifyCheck{}
 	}
 	return result, nil
+}
+
+func hasPlanCapability(values []string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), pluginproto.FeaturePlan) {
+			return true
+		}
+	}
+	return false
+}
+
+type execPlanRequest struct {
+	Action   string            `json:"action"`
+	Protocol string            `json:"protocol"`
+	Provider string            `json:"provider"`
+	Auth     map[string]string `json:"auth,omitempty"`
+	Config   map[string]string `json:"config,omitempty"`
+	Locale   string            `json:"locale,omitempty"`
+}
+
+// Plan 通过 plan 子命令读取目标系统中可部署的对象清单。
+// 未声明 plan-v1 的旧 helper 直接返回 ErrPlanUnsupported，不执行子进程。
+func (d *externalDeployer) Plan(ctx context.Context, req PlanRequest) (PlanResult, error) {
+	if !hasPlanCapability(d.deployer.Capabilities) {
+		return PlanResult{}, ErrPlanUnsupported
+	}
+	if err := d.verifyDigest(); err != nil {
+		return PlanResult{}, err
+	}
+	body, err := json.Marshal(execPlanRequest{
+		Action:   "plan",
+		Protocol: execProtocol,
+		Provider: d.ID(),
+		Auth:     cloneConfig(req.Auth),
+		Config:   cloneConfig(req.Config),
+		Locale:   req.Locale,
+	})
+	if err != nil {
+		return PlanResult{}, fmt.Errorf("编码插件计划请求失败: %w", err)
+	}
+	timeout := d.settings.timeout
+	if timeout <= 0 || timeout > 60*time.Second {
+		timeout = 60 * time.Second
+	}
+	stdout, stderr, err := pluginexec.Run(ctx, d.helper, []string{"plan"}, body, pluginexec.Options{
+		Timeout:       timeout,
+		MemoryLimitMB: d.settings.memoryLimitMB,
+		MaxOutputKB:   d.settings.maxOutputKB,
+		Env:           []string{"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol},
+	})
+	secrets := redactionSecrets(Request{Auth: req.Auth, Config: req.Config})
+	if errors.Is(err, pluginexec.ErrTimeout) {
+		return PlanResult{}, fmt.Errorf("插件 %s 读取部署对象超时（%s）", d.ID(), timeout)
+	}
+	var memoryErr *pluginexec.MemoryLimitError
+	if errors.As(err, &memoryErr) {
+		return PlanResult{}, fmt.Errorf("插件 %s 内存占用超过上限 %d MB，已强制结束", d.ID(), d.settings.memoryLimitMB)
+	}
+	if err != nil {
+		message := pluginexec.Redact(stderr, secrets)
+		return PlanResult{}, fmt.Errorf("插件 %s 读取部署对象失败: %v%s", d.ID(), err, suffix(message))
+	}
+	output := strings.TrimSpace(stdout)
+	if output == "" {
+		return PlanResult{}, fmt.Errorf("插件 %s 未返回部署对象", d.ID())
+	}
+	var result pluginproto.DeployPlanResponse
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		return PlanResult{}, fmt.Errorf("插件 %s 返回了非法部署对象: %s", d.ID(), pluginexec.Redact(pluginexec.Limit(output, 512), secrets))
+	}
+	if !result.OK {
+		message := strings.TrimSpace(result.Message)
+		if message == "" {
+			message = "插件未提供错误信息"
+		}
+		return PlanResult{}, fmt.Errorf("插件 %s 读取部署对象失败: %s", d.ID(), pluginexec.Redact(pluginexec.Limit(message, 512), secrets))
+	}
+	return sanitizePlanResult(result), nil
+}
+
+func sanitizePlanResult(result pluginproto.DeployPlanResponse) PlanResult {
+	out := PlanResult{
+		Field:    strings.TrimSpace(result.Field),
+		Multiple: result.Multiple,
+		Objects:  make([]PlanObject, 0, len(result.Objects)),
+	}
+	if out.Field != "" && !keyPattern.MatchString(out.Field) {
+		out.Field = ""
+	}
+	seen := make(map[string]bool, len(result.Objects))
+	for _, object := range result.Objects {
+		value := strings.TrimSpace(object.Value)
+		name := strings.TrimSpace(object.Name)
+		if value == "" || len(value) > 256 || len(name) > 256 || seen[value] {
+			continue
+		}
+		seen[value] = true
+		domains := make([]string, 0, len(object.Domains))
+		for _, domain := range object.Domains {
+			domain = strings.TrimSpace(domain)
+			if domain == "" || len(domain) > 256 {
+				continue
+			}
+			domains = append(domains, domain)
+			if len(domains) >= 64 {
+				break
+			}
+		}
+		identifiers := make([]string, 0, len(object.Identifiers))
+		for _, identifier := range object.Identifiers {
+			identifier = strings.TrimSpace(identifier)
+			if identifier == "" || len(identifier) > 256 {
+				continue
+			}
+			identifiers = append(identifiers, identifier)
+			if len(identifiers) >= 16 {
+				break
+			}
+		}
+		out.Objects = append(out.Objects, PlanObject{Value: value, Name: name, Domains: domains, Identifiers: identifiers})
+		if len(out.Objects) >= maxOptions {
+			break
+		}
+	}
+	return out
 }
 
 type execOptionsRequest struct {

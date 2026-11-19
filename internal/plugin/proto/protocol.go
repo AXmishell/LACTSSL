@@ -32,6 +32,10 @@ const FeatureDynamicOptions = "dynamic-options-v1"
 // 旧流程处理（DNS 回退写测试，部署目标显示不支持验证）。
 const FeatureVerify = "verify-v1"
 
+// FeaturePlan 告知 helper 宿主支持 plan 子命令，用于批量部署前读取
+// 网站等部署对象的清单，按证书域名完成匹配后再决定是否写入。
+const FeaturePlan = "plan-v1"
+
 // 验证检查项状态。
 const (
 	VerifyStatusOK          = "ok"

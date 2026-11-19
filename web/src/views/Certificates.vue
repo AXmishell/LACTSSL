@@ -239,14 +239,27 @@
             :model-value="target.deploy_config"
             @update:model-value="target.deploy_config = $event"
           />
+          <div v-if="deployCerts.length > 1 && targetSupportsMatch(target)" class="deploy-force">
+            <el-switch v-model="target.force" />
+            <div>
+              <strong>{{ t('certs.forceDeploy') }}</strong>
+              <div class="muted">{{ t('certs.forceDeployHint') }}</div>
+            </div>
+          </div>
         </el-form>
       </div>
       <el-button text type="primary" :icon="Plus" @click="addDeployTarget">{{ t('certs.addDeployTarget') }}</el-button>
       <div v-if="deployResults.length" class="deploy-results">
-        <div v-for="(result, index) in deployResults" :key="index" class="deploy-result" :class="{ fail: !result.success }">
-          <el-icon><component :is="result.success ? 'CircleCheck' : 'CircleClose'" /></el-icon>
+        <div
+          v-for="(result, index) in deployResults"
+          :key="index"
+          class="deploy-result"
+          :class="{ fail: result.status === 'failed' || (!result.status && !result.success), skipped: result.status === 'skipped' || result.status === 'conflict' }"
+        >
+          <el-icon><component :is="deployResultIcon(result)" /></el-icon>
           <div>
             <strong>{{ result.name }}</strong>
+            <el-tag v-if="result.status" size="small" effect="plain" class="deploy-status">{{ deployStatusLabel(result.status) }}</el-tag>
             <div class="muted">{{ result.message }}</div>
           </div>
         </div>
@@ -321,6 +334,7 @@ import type { Certificate, CertificateAnalysis, DeployAccount, DeployResponse, D
 interface DeployTarget {
   deploy_account_id: number
   deploy_config: Record<string, string>
+  force: boolean
 }
 
 interface LevelInfo {
@@ -526,6 +540,14 @@ function deployAccountFor(target: DeployTarget): DeployAccount | undefined {
   return deployAccounts.value.find((item) => item.id === target.deploy_account_id)
 }
 
+// 这些部署目标支持先读取网站列表再按证书域名匹配。
+function targetSupportsMatch(target: DeployTarget): boolean {
+  const type = deployAccountFor(target)?.type || ''
+  const mode = target.deploy_config?.target || ''
+  if (mode === 'panel') return false
+  return ['baota', 'baota_site', 'baota_docker', '1panel', '1panel_site', 'acepanel'].includes(type)
+}
+
 async function load(): Promise<void> {
   loading.value = true
   try {
@@ -619,7 +641,8 @@ function deployTargetsFromTask(taskId: number): DeployTarget[] {
       const source = Object.keys(node.config.deploy_config || {}).length ? node.config.deploy_config : account?.config
       return {
         deploy_account_id: node.config.deploy_account_id || 0,
-        deploy_config: normalizeDeployConfig(account?.type, source)
+        deploy_config: normalizeDeployConfig(account?.type, source),
+        force: false
       }
     })
     .filter((target) => target.deploy_account_id > 0)
@@ -629,7 +652,8 @@ function newDeployTarget(): DeployTarget {
   const account = deployAccounts.value[0]
   return {
     deploy_account_id: account?.id || 0,
-    deploy_config: normalizeDeployConfig(account?.type, {})
+    deploy_config: normalizeDeployConfig(account?.type, {}),
+    force: false
   }
 }
 
@@ -645,6 +669,26 @@ function removeDeployTarget(index: number): void {
 function onDeployTargetAccountChange(target: DeployTarget): void {
   const account = deployAccountFor(target)
   target.deploy_config = normalizeDeployConfig(account?.type, {})
+}
+
+function deployResultIcon(result: DeployResult): string {
+  if (result.status === 'skipped' || result.status === 'conflict') return 'Warning'
+  return result.success ? 'CircleCheck' : 'CircleClose'
+}
+
+function deployStatusLabel(status?: string): string {
+  switch (status) {
+    case 'deployed':
+      return t('certs.deployStatusDeployed')
+    case 'skipped':
+      return t('certs.deployStatusSkipped')
+    case 'conflict':
+      return t('certs.deployStatusConflict')
+    case 'failed':
+      return t('certs.deployStatusFailed')
+    default:
+      return ''
+  }
 }
 
 async function submitDeploy(): Promise<void> {
@@ -686,10 +730,15 @@ async function submitDeploy(): Promise<void> {
       : await api.post<DeployResponse>(`/certificates/${deployCerts.value[0].id}/deploy`, { targets: deployTargets.value })
     deployResults.value = (data.results || []).map((item) => ({
       ...item,
-      name: batch && item.domain ? `${item.domain} · ${item.name}` : item.name
+      name: batch && item.domain
+        ? `${item.domain} · ${item.name}${item.site ? ` · ${item.site}` : ''}`
+        : item.name
     }))
-    const failed = deployResults.value.filter((item) => !item.success).length
+    const failed = deployResults.value.filter((item) => item.status === 'failed' || (!item.status && !item.success)).length
+    const skipped = deployResults.value.filter((item) => item.status === 'skipped').length
+    const conflicts = deployResults.value.filter((item) => item.status === 'conflict').length
     if (failed) ElMessage.warning(t('certs.deployFailed', { count: failed }))
+    else if (skipped || conflicts) ElMessage.warning(t('certs.batchDeploySkipped', { count: skipped + conflicts }))
     else ElMessage.success(t('certs.deployDone'))
     load()
   } catch (error: any) {
@@ -993,5 +1042,22 @@ onMounted(load)
 .deploy-result.fail {
   background: #fef2f2;
   color: #b91c1c;
+}
+.deploy-result.skipped {
+  background: #fffbeb;
+  color: #b45309;
+}
+.deploy-force {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 12.5px;
+}
+.deploy-status {
+  margin-left: 8px;
+}
+.deploy-status :deep(.el-tag__content) {
+  font-size: 11px;
 }
 </style>

@@ -82,6 +82,38 @@ type DeployOptionsResponse struct {
 	Options []DeployOption `json:"options"`
 }
 
+// DeployPlanRequest 是 plan 的 stdin 请求。
+// plan 只读取目标系统中可部署的对象，不写入证书。
+type DeployPlanRequest struct {
+	Action   string            `json:"action"`
+	Protocol string            `json:"protocol,omitempty"`
+	Provider string            `json:"provider"`
+	Auth     map[string]string `json:"auth,omitempty"`
+	Config   map[string]string `json:"config,omitempty"`
+	Locale   string            `json:"locale,omitempty"`
+}
+
+// DeployPlanObject 是一个可部署对象，例如宝塔网站或 1Panel 网站。
+// Value 是写入部署参数字段的值；Domains 是该网站绑定的域名，
+// 宿主用它和证书域名做匹配。
+type DeployPlanObject struct {
+	Value   string   `json:"value"`
+	Name    string   `json:"name,omitempty"`
+	Domains []string `json:"domains,omitempty"`
+	// Identifiers 是对象的稳定 ID 等别名，仅用于匹配用户显式选择值，
+	// 不参与证书域名匹配。
+	Identifiers []string `json:"identifiers,omitempty"`
+}
+
+// DeployPlanResponse 是 plan 的 stdout 响应。
+type DeployPlanResponse struct {
+	OK       bool               `json:"ok"`
+	Message  string             `json:"message,omitempty"`
+	Field    string             `json:"field"`
+	Multiple bool               `json:"multiple,omitempty"`
+	Objects  []DeployPlanObject `json:"objects"`
+}
+
 // DeployRequest 是 deploy / verify 的 stdin 请求。
 type DeployRequest struct {
 	Action      string            `json:"action"`

@@ -277,6 +277,8 @@ func (s *Server) listDeployments(c *gin.Context) {
 type deployTargetBody struct {
 	DeployAccountID int64             `json:"deploy_account_id"`
 	DeployConfig    map[string]string `json:"deploy_config"`
+	// Force 为 true 时跳过站点匹配，按用户填写值或证书域名强制部署。
+	Force bool `json:"force"`
 }
 
 func (s *Server) deployCertificate(c *gin.Context) {
