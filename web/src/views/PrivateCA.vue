@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page table-page">
     <div class="page-head">
       <div>
         <h1>{{ t('privateCA.title') }}</h1>
@@ -20,7 +20,7 @@
       style="margin-bottom: 18px"
     />
 
-    <div class="k-card" style="padding: 0; overflow: hidden">
+    <div class="k-card table-fill" style="padding: 0; overflow: hidden">
       <div class="table-scroll">
         <el-table
           ref="tableRef"
@@ -29,6 +29,7 @@
           row-key="id"
           default-expand-all
           :tree-props="{ children: 'children' }"
+          height="100%"
           style="width: 100%"
           @selection-change="onSelectionChange"
         >

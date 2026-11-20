@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page table-page">
     <div class="page-head">
       <div>
         <h1>{{ t('apiKeys.title') }}</h1>
@@ -19,13 +19,14 @@
       style="margin-bottom: 16px"
     />
 
-    <div class="k-card" style="padding: 0; overflow: hidden">
+    <div class="k-card table-fill" style="padding: 0; overflow: hidden">
       <div class="table-scroll">
         <el-table
           ref="tableRef"
           :data="items"
           row-key="id"
           v-loading="loading"
+          height="100%"
           style="width: 100%"
           @selection-change="onSelectionChange"
         >

@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page table-page">
     <div class="page-head">
       <div>
         <h1>{{ t('acmeDiagnostics.title') }}</h1>
@@ -12,7 +12,7 @@
       </div>
     </div>
 
-    <div class="k-card" style="padding: 0">
+    <div class="k-card acme-diag-card table-fill" style="padding: 0; overflow: hidden">
       <el-tabs v-model="tab" @tab-change="onTabChange">
         <el-tab-pane :label="t('acmeDiagnostics.accounts')" name="accounts">
           <div class="filter-row">
@@ -22,7 +22,7 @@
             <span class="muted">{{ t('acmeDiagnostics.total', { count: accountTotal }) }}</span>
           </div>
           <div class="table-scroll">
-            <el-table :data="accounts" v-loading="accountLoading" style="width: 100%">
+            <el-table :data="accounts" v-loading="accountLoading" height="100%" style="width: 100%">
               <el-table-column width="150" :label="t('acmeDiagnostics.endpoint')">
                 <template #default="{ row }">{{ row.endpoint_name || `#${row.endpoint_id}` }}</template>
               </el-table-column>
@@ -78,7 +78,7 @@
             <span class="muted">{{ t('acmeDiagnostics.total', { count: orderTotal }) }}</span>
           </div>
           <div class="table-scroll">
-            <el-table :data="orders" v-loading="orderLoading" style="width: 100%">
+            <el-table :data="orders" v-loading="orderLoading" height="100%" style="width: 100%">
               <el-table-column width="140" :label="t('acmeDiagnostics.endpoint')">
                 <template #default="{ row }">{{ row.endpoint_name || `#${row.endpoint_id}` }}</template>
               </el-table-column>
@@ -514,6 +514,34 @@ onMounted(async () => {
   color: #dc2626;
   font-size: 12px;
   word-break: break-all;
+}
+/*
+ * 一屏布局下让 tabs 内容撑满卡片：筛选行与分页留在原位，
+ * 只有表格区域纵向滚动。
+ */
+@media (min-width: 861px) {
+  .acme-diag-card :deep(.el-tabs) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .acme-diag-card :deep(.el-tabs__content) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .acme-diag-card :deep(.el-tab-pane) {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .acme-diag-card :deep(.el-tab-pane > .table-scroll) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .acme-diag-card :deep(.el-tab-pane > .table-scroll > .el-table) {
+    min-width: 0;
+  }
 }
 .cleanup-form {
   margin-top: 18px;

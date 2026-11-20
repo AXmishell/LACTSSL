@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page table-page">
     <div class="page-head">
       <div>
         <h1>{{ t('certs.title') }}</h1>
@@ -14,8 +14,8 @@
       </div>
     </div>
 
-    <div class="cert-list">
-      <div class="k-card" style="padding: 0; overflow: hidden">
+    <div class="cert-list table-fill">
+      <div class="k-card table-fill" style="padding: 0; overflow: hidden">
         <div class="filter-row">
           <el-radio-group v-model="filter" size="default">
             <el-radio-button value="all">{{ t('certs.all', { count: certs.length }) }}</el-radio-button>
@@ -32,6 +32,7 @@
             :data="filtered"
             row-key="id"
             v-loading="loading"
+            height="100%"
             style="width: 100%"
             @selection-change="onSelectionChange"
           >

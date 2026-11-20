@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page table-page">
     <div class="page-head">
       <div>
         <h1>{{ t('tasks.title') }}</h1>
@@ -11,7 +11,7 @@
       </div>
     </div>
 
-    <div class="k-card task-list" style="padding: 0; overflow: hidden">
+    <div class="k-card task-list table-fill" style="padding: 0; overflow: hidden">
       <div class="filter-row">
         <el-radio-group v-model="flowFilter" size="default">
           <el-radio-button value="all">{{ t('tasks.flowAll', { count: tasks.length }) }}</el-radio-button>
@@ -26,6 +26,7 @@
           :data="filteredTasks"
           row-key="id"
           v-loading="loading"
+          height="100%"
           style="width: 100%"
           @selection-change="onSelectionChange"
         >

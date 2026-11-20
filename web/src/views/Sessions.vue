@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page table-page">
     <div class="page-head">
       <div>
         <h1>{{ t('sessions.title') }}</h1>
@@ -13,9 +13,9 @@
       </div>
     </div>
 
-    <div class="k-card" style="padding: 0; overflow: hidden">
+    <div class="k-card table-fill" style="padding: 0; overflow: hidden">
       <div class="table-scroll">
-        <el-table :data="items" v-loading="loading" style="width: 100%">
+        <el-table :data="items" v-loading="loading" height="100%" style="width: 100%">
           <el-table-column min-width="260" :label="t('sessions.device')">
             <template #default="{ row }">
               <div class="flex gap-10" style="align-items: center">

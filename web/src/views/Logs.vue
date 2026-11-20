@@ -1,5 +1,5 @@
 <template>
-  <div class="page logs-page">
+  <div class="page table-page">
     <div class="page-head">
       <div>
         <h1>{{ t('logs.title') }}</h1>
@@ -109,7 +109,7 @@
       {{ t('logs.archiveDir') }}: <span class="mono">{{ archiveDir }}</span>
     </div>
 
-    <div class="k-card logs-card" style="padding: 0; overflow: hidden">
+    <div class="k-card table-fill" style="padding: 0; overflow: hidden">
       <div class="table-scroll">
         <el-table v-if="tab !== 'archive'" :data="items" v-loading="loading" row-key="id" height="100%" style="width: 100%">
           <el-table-column v-if="tab === 'system'" type="expand" width="48">
@@ -708,40 +708,6 @@ onUnmounted(() => {
 .logs-actions {
   justify-content: flex-end;
   margin-bottom: 14px;
-}
-
-/*
- * 桌面端把日志页固定在一屏内：页头、筛选栏、分页留在原位，
- * 表格占满剩余高度，纵向滚动只发生在表格内部。
- */
-@media (min-width: 861px) {
-  .logs-page {
-    display: flex;
-    flex-direction: column;
-    height: calc(100vh - var(--kp-topbar-h) - 72px); /* 减去 main-content 上下内边距 */
-    min-height: 460px;
-  }
-
-  .logs-card {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .logs-card .table-scroll {
-    flex: 1;
-    min-height: 0;
-  }
-
-  /* 高度交给 el-table 内部滚动，避免外层横向滚动条挤掉最后一行。 */
-  .logs-card .table-scroll > .el-table {
-    min-width: 0;
-  }
-
-  .logs-foot {
-    flex: none;
-  }
 }
 
 .log-message {
