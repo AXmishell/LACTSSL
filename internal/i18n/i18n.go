@@ -18,7 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Locale 是 BCP 47 语言标签，例如 zh-CN、en-US、ja-JP。
+// Locale 是 BCP 47 语言标签，例如 zh-CN、zh-TW、en-US、ja-JP。
 type Locale string
 
 // Default 是默认语言，也是翻译缺失时的回退语言。
@@ -27,6 +27,7 @@ const Default Locale = "zh-CN"
 // 常见语言常量，便于调用方避免拼写错误。
 const (
 	ZhCN Locale = "zh-CN"
+	ZhTW Locale = "zh-TW"
 	EnUS Locale = "en-US"
 	RuRU Locale = "ru-RU"
 	JaJP Locale = "ja-JP"
@@ -124,11 +125,25 @@ func Normalize(tag string) Locale {
 			return locale
 		}
 	}
+	// 繁体中文的常见写法统一到 zh-TW，例如 zh-Hant、zh-HK、zh-MO。
+	if isTraditionalChinese(normalized) {
+		if _, ok := catalogs[ZhTW]; ok {
+			return ZhTW
+		}
+	}
 	// 再按语言主标签匹配，例如 en-GB -> en-US、zh -> zh-CN。
 	if locale, ok := languages[baseLanguage(normalized)]; ok {
 		return locale
 	}
 	return Default
+}
+
+// isTraditionalChinese 判断语言标签是否属于繁体中文。
+func isTraditionalChinese(tag string) bool {
+	return strings.HasPrefix(tag, "zh-hant") ||
+		strings.HasPrefix(tag, "zh-tw") ||
+		strings.HasPrefix(tag, "zh-hk") ||
+		strings.HasPrefix(tag, "zh-mo")
 }
 
 // ParseAcceptLanguage 解析 Accept-Language，返回第一个受支持的语言。
@@ -139,9 +154,20 @@ func ParseAcceptLanguage(header string) Locale {
 			continue
 		}
 		load()
+		// 先精确匹配，避免 zh-TW 被同主标签的 zh-CN 抢先命中。
 		for locale := range catalogs {
-			// 精确匹配，或客户端只给了语言主标签。
-			if strings.EqualFold(string(locale), tag) || strings.EqualFold(baseLanguage(string(locale)), baseLanguage(tag)) {
+			if strings.EqualFold(string(locale), tag) {
+				return locale
+			}
+		}
+		if isTraditionalChinese(strings.ToLower(tag)) {
+			if _, ok := catalogs[ZhTW]; ok {
+				return ZhTW
+			}
+		}
+		// 客户端只给了语言主标签时按主标签匹配，例如 en -> en-US、zh -> zh-CN。
+		for locale := range catalogs {
+			if strings.EqualFold(baseLanguage(string(locale)), baseLanguage(tag)) {
 				return locale
 			}
 		}
@@ -225,8 +251,9 @@ func lookup(locale Locale, key string) string {
 }
 
 // fallbackChain 为不参与中英一致性校验的语言指定回退顺序。
-// 例如俄语、日语缺译时先显示英文，再回退默认语言。
+// 例如俄语、日语缺译时先显示英文，再回退默认语言；繁体中文缺译时直接回退默认语言。
 var fallbackChain = map[Locale][]Locale{
+	ZhTW: {Default},
 	RuRU: {EnUS, Default},
 	JaJP: {EnUS, Default},
 }

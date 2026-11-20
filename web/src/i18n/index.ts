@@ -21,7 +21,10 @@ function detectLocale(): string {
   for (const candidate of candidates) {
     if (!candidate) continue
     if (Object.prototype.hasOwnProperty.call(messages, candidate)) return candidate
-    const base = candidate.toLowerCase().split('-')[0]
+    const normalized = candidate.replace(/_/g, '-').toLowerCase()
+    // 繁体中文的各种写法（zh-Hant、zh-HK、zh-MO 等）统一匹配到 zh-TW。
+    if (/^zh-(hant|tw|hk|mo)\b/.test(normalized) && messages['zh-TW']) return 'zh-TW'
+    const base = normalized.split('-')[0]
     const match = Object.keys(messages).find((locale) => locale.toLowerCase().split('-')[0] === base)
     if (match) return match
   }

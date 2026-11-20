@@ -51,7 +51,7 @@ make test         # go test ./...
 make typecheck    # Frontend vue-tsc + tsc for scripts
 make ci           # Full local CI
 make i18n-check   # Verify translation keys (Chinese/English by default)
-make i18n-check-all # Check every language (including Russian and Japanese)
+make i18n-check-all # Check all languages except zh-TW (including Russian and Japanese)
 make tidy         # go mod tidy + install frontend dependencies
 make clean        # Remove build artifacts
 make docs-build   # Build Chinese and English documentation (strict)
@@ -131,7 +131,7 @@ CI also runs `gofmt` checks, `go vet`, tests with `-race` and coverage reporting
 - Backend language resources live in `internal/i18n/locales/`.
 - Frontend language resources live in `web/src/i18n/locales/`.
 - When adding text, update both `zh-CN` and `en-US`, then run `make i18n-check`.
-- Russian (`ru-RU`) and Japanese (`ja-JP`) are bundled but excluded from the default Chinese/English key check; missing strings fall back `language → en-US → zh-CN`. After syncing translations, run `make i18n-check-all` (or `I18N_CHECK_ALL=1`) for a full check.
+- Traditional Chinese (`zh-TW`) is bundled but always excluded from the key check and falls back directly to `zh-CN`. Russian (`ru-RU`) and Japanese (`ja-JP`) are excluded from the default Chinese/English check; missing strings fall back `language → en-US → zh-CN`. After syncing translations, run `make i18n-check-all` (or `I18N_CHECK_ALL=1`) for a full check of the remaining languages.
 - The check script is TypeScript (`scripts/check-i18n.ts`), run directly by Node's native type stripping and requiring Node 22.18+.
 - The script's own type check is included in `make typecheck` (configuration in `scripts/tsconfig.json`).
 

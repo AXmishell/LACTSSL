@@ -11,6 +11,10 @@ func TestNormalize(t *testing.T) {
 		"zh-cn":          ZhCN,
 		"zh":             ZhCN,
 		"zh_Hans":        ZhCN,
+		"zh-TW":          ZhTW,
+		"zh-tw":          ZhTW,
+		"zh-Hant":        ZhTW,
+		"zh-HK":          ZhTW,
 		"en-US":          EnUS,
 		"en-GB":          EnUS,
 		"en":             EnUS,
@@ -33,6 +37,8 @@ func TestParseAcceptLanguage(t *testing.T) {
 	cases := map[string]Locale{
 		"en-US,en;q=0.9":          EnUS,
 		"zh-CN,zh;q=0.9,en;q=0.8": ZhCN,
+		"zh-TW,zh;q=0.9,en;q=0.8": ZhTW,
+		"zh-HK,zh;q=0.9,en;q=0.8": ZhTW,
 		"ru-RU,ru;q=0.9,en;q=0.8": RuRU,
 		"ja-JP,ja;q=0.9,en;q=0.8": JaJP,
 		"fr-FR,fr;q=0.9":          Default,
@@ -49,7 +55,7 @@ func TestSupportedIncludesAddedLanguages(t *testing.T) {
 	for _, locale := range Supported() {
 		supported[locale] = true
 	}
-	for _, locale := range []Locale{RuRU, JaJP} {
+	for _, locale := range []Locale{ZhTW, RuRU, JaJP} {
 		if !supported[locale] {
 			t.Errorf("%s is not registered", locale)
 		}
@@ -83,9 +89,10 @@ func TestCatalogsHaveSameKeys(t *testing.T) {
 		t.Fatal("missing default catalog")
 	}
 	// 中英是默认校验范围；俄语、日语等非中英语言默认跳过，可通过 I18N_TEST_ALL=1 做全量校验。
+	// 繁体中文始终不参与校验。
 	all := os.Getenv("I18N_TEST_ALL") == "1"
 	for locale, values := range catalogs {
-		if locale == Default {
+		if locale == Default || locale == ZhTW {
 			continue
 		}
 		if !all && locale != EnUS {

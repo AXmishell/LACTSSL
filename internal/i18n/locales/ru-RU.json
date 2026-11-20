@@ -596,6 +596,7 @@
   "meta.field.remote_key_path.placeholder": "/etc/nginx/ssl/private.key",
   "api.error.language_unsupported": "Неподдерживаемый язык",
   "language.zh-CN": "简体中文",
+  "language.zh-TW": "繁體中文",
   "language.en-US": "English",
   "language.ja-JP": "日本語",
   "language.ru-RU": "Русский",
