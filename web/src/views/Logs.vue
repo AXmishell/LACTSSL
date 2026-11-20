@@ -1,23 +1,18 @@
 <template>
-  <div class="page">
+  <div class="page logs-page">
     <div class="page-head">
       <div>
         <h1>{{ t('logs.title') }}</h1>
         <p>{{ subtitle }}</p>
       </div>
-      <el-tabs
-        v-model="tab"
-        class="logs-tabs"
-        :before-leave="beforeLeave"
-        @tab-change="onTabChange"
-      >
+      <el-tabs v-model="tab" class="logs-tabs" @tab-change="onTabChange">
         <el-tab-pane :label="t('logs.tabOperation')" name="operation" />
         <el-tab-pane :label="t('logs.tabSystem')" name="system" />
         <el-tab-pane :label="t('logs.tabArchive')" name="archive" />
       </el-tabs>
     </div>
 
-    <div class="page-actions logs-actions" :class="{ 'is-switching': switching }">
+    <div class="page-actions logs-actions">
       <template v-if="tab === 'operation'">
         <el-select v-model="source" :placeholder="t('logs.allSources')" style="width: 140px" @change="reload">
           <el-option v-for="item in sources" :key="item.value" :label="t(item.label)" :value="item.value" />
@@ -114,9 +109,9 @@
       {{ t('logs.archiveDir') }}: <span class="mono">{{ archiveDir }}</span>
     </div>
 
-    <div class="k-card" style="padding: 0; overflow: hidden">
-      <div class="table-scroll" :class="{ 'is-switching': switching }">
-        <el-table v-if="tab !== 'archive'" :data="items" v-loading="loading" row-key="id" style="width: 100%">
+    <div class="k-card logs-card" style="padding: 0; overflow: hidden">
+      <div class="table-scroll">
+        <el-table v-if="tab !== 'archive'" :data="items" v-loading="loading" row-key="id" height="100%" style="width: 100%">
           <el-table-column v-if="tab === 'system'" type="expand" width="48">
             <template #default="{ row }">
               <div class="system-log-fields">
@@ -166,7 +161,7 @@
             </div>
           </template>
         </el-table>
-        <el-table v-else :data="archiveItems" v-loading="loading" row-key="archive_id" style="width: 100%">
+        <el-table v-else :data="archiveItems" v-loading="loading" row-key="archive_id" height="100%" style="width: 100%">
           <el-table-column width="170" align="right" :label="t('logs.archiveCreatedAt')">
             <template #default="{ row }">
               <div class="muted">{{ formatDate(row.created_at) }}</div>
@@ -251,7 +246,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -276,7 +271,6 @@ const tab = ref(route.meta.logTab === 'system' ? 'system' : 'operation')
 const loading = ref(false)
 const clearing = ref(false)
 const exporting = ref(false)
-const switching = ref(false)
 const items = ref<LogRow[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -513,27 +507,11 @@ function onTabChange(): void {
   void switchTab()
 }
 
-// 先让旧内容淡出，再切换页签；新数据就绪后再淡入，
-// 避免表格先清空、再出现“暂无记录”的闪烁。
-async function beforeLeave(): Promise<boolean> {
-  if (switching.value) return true
-  switching.value = true
-  // 等 CSS 淡出动画基本完成后再放行页签切换。
-  await new Promise((resolve) => setTimeout(resolve, 160))
-  return true
-}
-
-let switchSeq = 0
+// 切页签时只重新拉取数据，加载动画交给表格的 v-loading，不做位移/淡出动画。
 async function switchTab(): Promise<void> {
-  const seq = ++switchSeq
   page.value = 1
   archivePage.value = 1
-  switching.value = true
   await load()
-  if (seq !== switchSeq) return
-  // 等新数据渲染完成再淡入。
-  await nextTick()
-  if (seq === switchSeq) switching.value = false
 }
 
 function fileStamp(): string {
@@ -732,27 +710,37 @@ onUnmounted(() => {
   margin-bottom: 14px;
 }
 
-/* 切换页签时让工具栏与表格轻微淡出/下移，数据就绪后再淡入。 */
-.logs-actions,
-.table-scroll {
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-
-.logs-actions.is-switching,
-.table-scroll.is-switching {
-  opacity: 0.45;
-  transform: translateY(3px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .logs-actions,
-  .table-scroll {
-    transition: none;
+/*
+ * 桌面端把日志页固定在一屏内：页头、筛选栏、分页留在原位，
+ * 表格占满剩余高度，纵向滚动只发生在表格内部。
+ */
+@media (min-width: 861px) {
+  .logs-page {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--kp-topbar-h) - 72px); /* 减去 main-content 上下内边距 */
+    min-height: 460px;
   }
 
-  .logs-actions.is-switching,
-  .table-scroll.is-switching {
-    transform: none;
+  .logs-card {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .logs-card .table-scroll {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* 高度交给 el-table 内部滚动，避免外层横向滚动条挤掉最后一行。 */
+  .logs-card .table-scroll > .el-table {
+    min-width: 0;
+  }
+
+  .logs-foot {
+    flex: none;
   }
 }
 
