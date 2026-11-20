@@ -142,7 +142,62 @@ sudo journalctl -u lactssl -f
 
 如果日志写入 `/opt/lactssl/data/logs/`，上面的 `ReadWritePaths` 已覆盖；如果写到其他目录，需要额外放行。使用 80/443 等特权端口时，建议由反向代理转发，而不是给二进制提权。
 
-### 3.3 从源码构建
+### 3.3 一键部署脚本
+
+仓库提供 `scripts/install.sh`，用于从 GitHub Release 下载 Linux amd64/arm64 二进制，创建运行用户与数据目录，安装 systemd 服务，并生成 Nginx 反向代理配置。默认不启用 TLS：二进制监听 `127.0.0.1:8080`，Nginx 监听 80 并转发到该端口。
+
+```bash
+sudo ./scripts/install.sh --port 8080 --domain ssl.example.com
+```
+
+也可以不克隆仓库，直接下载脚本执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AXmishell/LACTSSL/main/scripts/install.sh \
+  | sudo bash -s -- --port 8080 --domain ssl.example.com
+```
+
+Linux 发布压缩包中也会附带 `install.sh`，解压后可直接运行。
+
+常用参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--port PORT` | 二进制监听端口，默认 `8080`，必须 >= 1024 |
+| `--domain DOMAIN` | Nginx `server_name`，例如 `ssl.example.com`；默认 `_` |
+| `--version TAG` | 指定版本，例如 `v1.2.3`；默认最新稳定版 |
+| `--no-nginx` | 只部署 systemd 服务，不安装或修改 Nginx |
+| `--tls-cert` / `--tls-key` | 可选，启用 Nginx HTTPS 并配置 80 → 443 跳转 |
+| `--no-tls` | 关闭已有 Nginx TLS 配置（默认本来就不启用 TLS） |
+| `--read-write-path DIR` | 额外允许服务写入的目录，可重复；用于本机证书部署目标 |
+| `--skip-checksum` | 跳过 SHA-256 校验（不推荐） |
+
+示例：启用 HTTPS
+
+```bash
+sudo ./scripts/install.sh \
+  --domain ssl.example.com \
+  --port 8080 \
+  --tls-cert /etc/nginx/certs/ssl.example.com.pem \
+  --tls-key  /etc/nginx/certs/ssl.example.com.key
+```
+
+脚本会校验 Release 中的 `checksums.txt`。重复执行时只替换二进制并重启服务，已有 `config.yaml` 和 `data/` 会保留；指定 `--port` 时会同步更新 `server.addr`、`server.host`、`server.port`。未指定 `--domain` / `--tls-cert` / `--tls-key` 时，会沿用已有 Nginx 配置中的域名与证书，避免升级时意外退回默认站点或关闭 TLS；如需关闭 TLS 请显式使用 `--no-tls`。如果 Nginx 未安装，脚本会尝试通过系统的包管理器安装；不希望自动安装时可加 `--no-install-deps`，不配置 Nginx 时可加 `--no-nginx`。服务单元启用了 `ProtectSystem=strict`，程序页面中的自升级可能因目录只读而不可用；升级请重新运行本脚本。如需让内置部署目标写入本机 `/etc/nginx` 等目录，可重复使用 `--read-write-path` 放行，并确保 `lactssl` 用户对这些目录有写权限。
+
+默认生成的关键配置：
+
+```yaml
+server:
+  host: "127.0.0.1"
+  port: 8080
+  trusted_proxies: ["127.0.0.1", "::1"]
+security:
+  public_url: "http://ssl.example.com"
+```
+
+Nginx 配置写入 `/etc/nginx/conf.d/lactssl.conf`，包含 `client_max_body_size 256m` 和 600 秒读写超时。部署完成后按第 4 节通过启动日志中的门禁入口完成初始化。
+
+### 3.4 从源码构建
 
 ```bash
 git clone https://github.com/AXmishell/LACTSSL.git

@@ -240,6 +240,9 @@ if [ "$RUN_BUILD" -eq 1 ]; then
     stage="$STAGE_ROOT/$name"
     mkdir -p "$stage"
     cp README.md LICENSE config.yaml.example "$stage/"
+    if [ "$goos" != "windows" ] && [ -f scripts/install.sh ]; then
+      cp scripts/install.sh "$stage/"
+    fi
 
     if [ "$goos" = "windows" ]; then
       cp "out/$goos-$goarch/lactssl.exe" "$stage/"

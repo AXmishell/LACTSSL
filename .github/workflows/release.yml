@@ -182,6 +182,9 @@ jobs:
           name="lactssl_${VERSION}_${GOOS}_${GOARCH}"
           mkdir -p stage dist
           cp README.md LICENSE config.yaml.example stage/
+          if [ "$GOOS" != "windows" ] && [ -f scripts/install.sh ]; then
+            cp scripts/install.sh stage/
+          fi
 
           if [ "$GOOS" = "windows" ]; then
             cp out/lactssl.exe stage/

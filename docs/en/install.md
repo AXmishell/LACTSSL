@@ -142,7 +142,62 @@ sudo journalctl -u lactssl -f
 
 If logs are written to `/opt/lactssl/data/logs/`, the `ReadWritePaths` above already covers it; other directories require additional allowances. When using privileged ports such as 80/443, forward traffic through a reverse proxy rather than granting privileges to the binary.
 
-### 3.3 Build from source
+### 3.3 One-click deployment script
+
+The repository includes `scripts/install.sh`, which downloads the Linux amd64/arm64 binary from GitHub Releases, creates the runtime user and data directory, installs a systemd service, and generates an Nginx reverse proxy configuration. TLS is disabled by default: the binary listens on `127.0.0.1:8080`, and Nginx listens on port 80 and forwards to it.
+
+```bash
+sudo ./scripts/install.sh --port 8080 --domain ssl.example.com
+```
+
+You can also run the script without cloning the repository:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AXmishell/LACTSSL/main/scripts/install.sh \
+  | sudo bash -s -- --port 8080 --domain ssl.example.com
+```
+
+Linux release archives also include `install.sh`, so you can run it directly after extracting the archive.
+
+Common options:
+
+| Option | Description |
+| --- | --- |
+| `--port PORT` | Binary listen port, default `8080`, must be >= 1024 |
+| `--domain DOMAIN` | Nginx `server_name`, for example `ssl.example.com`; default `_` |
+| `--version TAG` | Release tag such as `v1.2.3`; defaults to the latest stable release |
+| `--no-nginx` | Deploy only the systemd service; do not install or modify Nginx |
+| `--tls-cert` / `--tls-key` | Optional; enable Nginx HTTPS and redirect 80 to 443 |
+| `--no-tls` | Disable TLS in an existing Nginx configuration (TLS is off by default) |
+| `--read-write-path DIR` | Additional directory the service may write to; repeatable, for local certificate deployment targets |
+| `--skip-checksum` | Skip SHA-256 verification (not recommended) |
+
+With HTTPS:
+
+```bash
+sudo ./scripts/install.sh \
+  --domain ssl.example.com \
+  --port 8080 \
+  --tls-cert /etc/nginx/certs/ssl.example.com.pem \
+  --tls-key  /etc/nginx/certs/ssl.example.com.key
+```
+
+The script verifies `checksums.txt` from the release. Re-running it replaces the binary and restarts the service while preserving the existing `config.yaml` and `data/`; when `--port` is specified, it also updates `server.addr`, `server.host`, and `server.port`. If `--domain` / `--tls-cert` / `--tls-key` are omitted, the domain and certificate from the existing Nginx configuration are reused, so an upgrade does not silently fall back to the default site or disable TLS; pass `--no-tls` to explicitly disable TLS. If Nginx is missing, the script tries to install it through the system package manager. Use `--no-install-deps` to disable automatic installation, or `--no-nginx` to skip Nginx entirely. The service unit uses `ProtectSystem=strict`, so self-upgrade from the web UI may be unavailable because the program directory is read-only; re-run this script to upgrade instead. To let built-in deployment targets write to local directories such as `/etc/nginx`, pass `--read-write-path` (repeatable) and make sure the `lactssl` user has write permission there.
+
+Key generated configuration:
+
+```yaml
+server:
+  host: "127.0.0.1"
+  port: 8080
+  trusted_proxies: ["127.0.0.1", "::1"]
+security:
+  public_url: "http://ssl.example.com"
+```
+
+The Nginx configuration is written to `/etc/nginx/conf.d/lactssl.conf`, with `client_max_body_size 256m` and 600-second read/write timeouts. After deployment, complete initialization through the secure entry printed in the startup log as described in section 4.
+
+### 3.4 Build from source
 
 ```bash
 git clone https://github.com/AXmishell/LACTSSL.git
