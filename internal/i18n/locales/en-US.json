@@ -595,6 +595,7 @@
   "api.error.language_unsupported": "Unsupported language",
   "language.zh-CN": "简体中文",
   "language.en-US": "English",
+  "language.ru-RU": "Русский",
   "api.error.entry_format": "Secure entry must be 8-32 characters using letters, digits, underscores or hyphens",
   "api.error.entry_reserved": "Secure entry {entry} is reserved; please choose another",
   "common.unknown": "Unknown",

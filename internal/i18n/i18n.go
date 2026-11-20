@@ -28,6 +28,7 @@ const Default Locale = "zh-CN"
 const (
 	ZhCN Locale = "zh-CN"
 	EnUS Locale = "en-US"
+	RuRU Locale = "ru-RU"
 )
 
 // 消息前缀用于区分普通文本与结构化消息。
@@ -177,11 +178,7 @@ func FromContext(c *gin.Context) Locale {
 // T 翻译指定 key。params 使用 {name} 占位符替换。
 func T(locale Locale, key string, params map[string]any) string {
 	load()
-	text := lookup(locale, key)
-	if text == "" {
-		// 回退到默认语言；仍然缺失时返回 key，便于发现漏翻。
-		text = lookup(Default, key)
-	}
+	text := translate(locale, key)
 	if text == "" {
 		return key
 	}
@@ -194,10 +191,7 @@ func T(locale Locale, key string, params map[string]any) string {
 // Th 与 T 相同，但对参数做 HTML 转义，用于拼接邮件等 HTML 内容。
 func Th(locale Locale, key string, params map[string]any) string {
 	load()
-	text := lookup(locale, key)
-	if text == "" {
-		text = lookup(Default, key)
-	}
+	text := translate(locale, key)
 	if text == "" {
 		return key
 	}
@@ -225,6 +219,28 @@ func lookup(locale Locale, key string) string {
 		if text, ok := values[key]; ok {
 			return text
 		}
+	}
+	return ""
+}
+
+// fallbackChain 为不参与中英一致性校验的语言指定回退顺序。
+// 例如俄语缺译时先显示英文，再回退默认语言。
+var fallbackChain = map[Locale][]Locale{
+	RuRU: {EnUS, Default},
+}
+
+func translate(locale Locale, key string) string {
+	if text := lookup(locale, key); text != "" {
+		return text
+	}
+	for _, fallback := range fallbackChain[locale] {
+		if text := lookup(fallback, key); text != "" {
+			return text
+		}
+	}
+	if locale != Default {
+		// 其余语言仍然回退到默认语言；仍然缺失时由调用方返回 key。
+		return lookup(Default, key)
 	}
 	return ""
 }

@@ -1,5 +1,5 @@
 import { createI18n } from 'vue-i18n'
-import { localeMeta, fallbackLocale } from './registry'
+import { localeMeta, fallbackLocale, localeFallbacks } from './registry'
 import { readStorage, writeStorage } from '../storage'
 
 export { localeMeta }
@@ -31,7 +31,7 @@ function detectLocale(): string {
 export const i18n = createI18n({
   legacy: false,
   locale: detectLocale(),
-  fallbackLocale,
+  fallbackLocale: localeFallbacks,
   messages,
   missingWarn: false,
   fallbackWarn: false

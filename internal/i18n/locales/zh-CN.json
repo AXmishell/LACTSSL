@@ -595,6 +595,7 @@
   "api.error.language_unsupported": "不支持该语言",
   "language.zh-CN": "简体中文",
   "language.en-US": "English",
+  "language.ru-RU": "Русский",
   "api.error.entry_format": "门禁入口仅支持 8-32 位字母、数字、下划线和中划线",
   "api.error.entry_reserved": "门禁入口 {entry} 为保留名称，请更换",
   "common.unknown": "未知",

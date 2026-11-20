@@ -50,7 +50,8 @@ make run          # 直接 go run ./cmd/server
 make test         # go test ./...
 make typecheck    # 前端 vue-tsc + scripts 的 tsc
 make ci           # 完整本地 CI
-make i18n-check   # 校验中英文翻译键一致
+make i18n-check   # 校验翻译键一致（默认仅中英）
+make i18n-check-all # 全量校验所有语言（含俄语）
 make tidy         # go mod tidy + 前端依赖安装
 make clean        # 清理构建产物
 make docs-build   # 构建中英文文档（strict）
@@ -130,6 +131,7 @@ CI 还会运行 `gofmt` 检查、`go vet`、带 `-race` 的测试与覆盖率统
 - 后端语言资源位于 `internal/i18n/locales/`。
 - 前端语言资源位于 `web/src/i18n/locales/`。
 - 新增文案时需同时补充 `zh-CN` 与 `en-US`，然后运行 `make i18n-check`。
+- 当前已内置俄语 `ru-RU`：默认不参与中英校验，缺少文案时按 `ru-RU → en-US → zh-CN` 回退；同步俄语后可用 `make i18n-check-all`（或 `I18N_CHECK_ALL=1`）做全量校验。
 - 检查脚本是 TypeScript（`scripts/check-i18n.ts`），由 Node 原生类型擦除直接运行，需要 Node 22.18+。
 - 脚本自身的类型检查已并入 `make typecheck`（配置见 `scripts/tsconfig.json`）。
 

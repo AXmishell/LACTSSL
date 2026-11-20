@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // 校验前后端所有语言的 key 与占位符是否一致，并检查前端 t('...') 引用的 key 是否存在。
-// 用法: node scripts/check-i18n.ts
+// 用法: node scripts/check-i18n.ts [--all]
+// 默认只校验 zh-CN 与 en-US；俄语等新增语言不参与中英校验，
+// 传入 --all 或设置 I18N_CHECK_ALL=1 可做全量校验。
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -36,6 +38,13 @@ const webDir = join(root, 'web')
 const frontendLocalesDir = join(webDir, 'src/i18n/locales')
 const backendLocalesDir = join(root, 'internal/i18n/locales')
 const defaultLocale = 'zh-CN'
+const validatedLocales = new Set([defaultLocale, 'en-US'])
+const checkAll = process.argv.includes('--all') || process.env.I18N_CHECK_ALL === '1'
+
+// 默认跳过俄语等非中英语言，避免翻译进度影响 CI；--all 时全部参与校验。
+function shouldValidate(locale: string): boolean {
+  return checkAll || validatedLocales.has(locale)
+}
 
 let failed = false
 
@@ -116,9 +125,11 @@ for (const file of frontendFiles) {
 if (!frontend.has(defaultLocale)) {
   fail(`前端缺少默认语言 ${defaultLocale}`)
 } else {
+  const skipped = [...frontend.keys()].filter((locale) => !shouldValidate(locale))
+  if (skipped.length) console.log(`- 前端跳过非中英语言: ${skipped.join(', ')}（--all 可全量校验）`)
   const base = frontend.get(defaultLocale)!
   for (const [locale, data] of frontend) {
-    if (locale === defaultLocale) continue
+    if (locale === defaultLocale || !shouldValidate(locale)) continue
     compare('前端', base.keys, defaultLocale, data.keys, locale)
 
     // 占位符必须完全一致，避免翻译后运行时报错或丢失变量。
@@ -189,9 +200,11 @@ for (const file of backendFiles) {
 if (!backend.has(defaultLocale)) {
   fail(`后端缺少默认语言 ${defaultLocale}`)
 } else {
+  const skipped = [...backend.keys()].filter((locale) => !shouldValidate(locale))
+  if (skipped.length) console.log(`- 后端跳过非中英语言: ${skipped.join(', ')}（--all 可全量校验）`)
   const base = backend.get(defaultLocale)!
   for (const [locale, data] of backend) {
-    if (locale === defaultLocale) continue
+    if (locale === defaultLocale || !shouldValidate(locale)) continue
     compare('后端', base.keys, defaultLocale, data.keys, locale)
     for (const key of [...base.keys].filter((key) => data.keys.has(key))) {
       const expected = placeholders(base.messages[key])

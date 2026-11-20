@@ -1,6 +1,9 @@
 package i18n
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestNormalize(t *testing.T) {
 	cases := map[string]Locale{
@@ -11,6 +14,8 @@ func TestNormalize(t *testing.T) {
 		"en-US":          EnUS,
 		"en-GB":          EnUS,
 		"en":             EnUS,
+		"ru-RU":          RuRU,
+		"ru":             RuRU,
 		"fr-FR":          Default,
 		"":               Default,
 		"not-a-language": Default,
@@ -26,6 +31,7 @@ func TestParseAcceptLanguage(t *testing.T) {
 	cases := map[string]Locale{
 		"en-US,en;q=0.9":          EnUS,
 		"zh-CN,zh;q=0.9,en;q=0.8": ZhCN,
+		"ru-RU,ru;q=0.9,en;q=0.8": RuRU,
 		"fr-FR,fr;q=0.9":          Default,
 	}
 	for input, expected := range cases {
@@ -33,6 +39,15 @@ func TestParseAcceptLanguage(t *testing.T) {
 			t.Fatalf("ParseAcceptLanguage(%q) = %q, want %q", input, actual, expected)
 		}
 	}
+}
+
+func TestSupportedIncludesRussian(t *testing.T) {
+	for _, locale := range Supported() {
+		if locale == RuRU {
+			return
+		}
+	}
+	t.Fatal("ru-RU is not registered")
 }
 
 func TestTranslateAndRender(t *testing.T) {
@@ -61,8 +76,13 @@ func TestCatalogsHaveSameKeys(t *testing.T) {
 	if !ok {
 		t.Fatal("missing default catalog")
 	}
+	// 中英是默认校验范围；俄语等非中英语言默认跳过，可通过 I18N_TEST_ALL=1 做全量校验。
+	all := os.Getenv("I18N_TEST_ALL") == "1"
 	for locale, values := range catalogs {
 		if locale == Default {
+			continue
+		}
+		if !all && locale != EnUS {
 			continue
 		}
 		for key := range base {

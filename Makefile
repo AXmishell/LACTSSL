@@ -12,7 +12,7 @@ BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_ARCH := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
 LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)'
 TAGS := embed
-.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test typecheck tidy clean ci release i18n-check docs-build docs-serve
+.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve
 
 all: build
 
@@ -78,6 +78,9 @@ release:
 
 i18n-check:
 	node scripts/check-i18n.ts
+
+i18n-check-all:
+	node scripts/check-i18n.ts --all
 
 docs-build:
 	zensical build --strict --clean
