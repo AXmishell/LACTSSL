@@ -18,7 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Locale 是 BCP 47 语言标签，例如 zh-CN、en-US。
+// Locale 是 BCP 47 语言标签，例如 zh-CN、en-US、ja-JP。
 type Locale string
 
 // Default 是默认语言，也是翻译缺失时的回退语言。
@@ -29,6 +29,7 @@ const (
 	ZhCN Locale = "zh-CN"
 	EnUS Locale = "en-US"
 	RuRU Locale = "ru-RU"
+	JaJP Locale = "ja-JP"
 )
 
 // 消息前缀用于区分普通文本与结构化消息。
@@ -224,9 +225,10 @@ func lookup(locale Locale, key string) string {
 }
 
 // fallbackChain 为不参与中英一致性校验的语言指定回退顺序。
-// 例如俄语缺译时先显示英文，再回退默认语言。
+// 例如俄语、日语缺译时先显示英文，再回退默认语言。
 var fallbackChain = map[Locale][]Locale{
 	RuRU: {EnUS, Default},
+	JaJP: {EnUS, Default},
 }
 
 func translate(locale Locale, key string) string {

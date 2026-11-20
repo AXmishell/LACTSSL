@@ -16,6 +16,8 @@ func TestNormalize(t *testing.T) {
 		"en":             EnUS,
 		"ru-RU":          RuRU,
 		"ru":             RuRU,
+		"ja-JP":          JaJP,
+		"ja":             JaJP,
 		"fr-FR":          Default,
 		"":               Default,
 		"not-a-language": Default,
@@ -32,6 +34,7 @@ func TestParseAcceptLanguage(t *testing.T) {
 		"en-US,en;q=0.9":          EnUS,
 		"zh-CN,zh;q=0.9,en;q=0.8": ZhCN,
 		"ru-RU,ru;q=0.9,en;q=0.8": RuRU,
+		"ja-JP,ja;q=0.9,en;q=0.8": JaJP,
 		"fr-FR,fr;q=0.9":          Default,
 	}
 	for input, expected := range cases {
@@ -41,13 +44,16 @@ func TestParseAcceptLanguage(t *testing.T) {
 	}
 }
 
-func TestSupportedIncludesRussian(t *testing.T) {
+func TestSupportedIncludesAddedLanguages(t *testing.T) {
+	supported := map[Locale]bool{}
 	for _, locale := range Supported() {
-		if locale == RuRU {
-			return
+		supported[locale] = true
+	}
+	for _, locale := range []Locale{RuRU, JaJP} {
+		if !supported[locale] {
+			t.Errorf("%s is not registered", locale)
 		}
 	}
-	t.Fatal("ru-RU is not registered")
 }
 
 func TestTranslateAndRender(t *testing.T) {
@@ -76,7 +82,7 @@ func TestCatalogsHaveSameKeys(t *testing.T) {
 	if !ok {
 		t.Fatal("missing default catalog")
 	}
-	// 中英是默认校验范围；俄语等非中英语言默认跳过，可通过 I18N_TEST_ALL=1 做全量校验。
+	// 中英是默认校验范围；俄语、日语等非中英语言默认跳过，可通过 I18N_TEST_ALL=1 做全量校验。
 	all := os.Getenv("I18N_TEST_ALL") == "1"
 	for locale, values := range catalogs {
 		if locale == Default {

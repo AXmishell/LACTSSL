@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 校验前后端所有语言的 key 与占位符是否一致，并检查前端 t('...') 引用的 key 是否存在。
 // 用法: node scripts/check-i18n.ts [--all]
-// 默认只校验 zh-CN 与 en-US；俄语等新增语言不参与中英校验，
+// 默认只校验 zh-CN 与 en-US；俄语、日语等新增语言不参与中英校验，
 // 传入 --all 或设置 I18N_CHECK_ALL=1 可做全量校验。
 
 import { readdirSync, readFileSync } from 'node:fs'
@@ -41,7 +41,7 @@ const defaultLocale = 'zh-CN'
 const validatedLocales = new Set([defaultLocale, 'en-US'])
 const checkAll = process.argv.includes('--all') || process.env.I18N_CHECK_ALL === '1'
 
-// 默认跳过俄语等非中英语言，避免翻译进度影响 CI；--all 时全部参与校验。
+// 默认跳过俄语、日语等非中英语言，避免翻译进度影响 CI；--all 时全部参与校验。
 function shouldValidate(locale: string): boolean {
   return checkAll || validatedLocales.has(locale)
 }
