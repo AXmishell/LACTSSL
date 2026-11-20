@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 )
 
@@ -101,17 +102,24 @@ func (s *Server) handleNewOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	limit := ep.MaxOrdersPerHour
+	window := time.Hour
 	if limit <= 0 {
-		limit = 60
+		rule := s.rateLimits.For(ratelimit.ACMEOrder)
+		limit = rule.Max
+		if rule.Window > 0 {
+			window = rule.Window
+		}
 	}
-	count, err := s.Store.CountACMEOrdersSince(account.ID, s.now().Add(-time.Hour))
-	if err != nil {
-		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "failed to check order rate limit")
-		return
-	}
-	if count >= int64(limit) {
-		writeProblemType(w, http.StatusTooManyRequests, ProblemRateLimited, "order rate limit exceeded")
-		return
+	if limit > 0 {
+		count, err := s.Store.CountACMEOrdersSince(account.ID, s.now().Add(-window))
+		if err != nil {
+			writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "failed to check order rate limit")
+			return
+		}
+		if count >= int64(limit) {
+			writeProblemType(w, http.StatusTooManyRequests, ProblemRateLimited, "order rate limit exceeded")
+			return
+		}
 	}
 
 	expires := s.now().Add(time.Hour).UTC()

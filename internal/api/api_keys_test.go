@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -56,8 +57,14 @@ func createAPIKeyForTest(t *testing.T, router http.Handler, session *http.Cookie
 	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("解析 API 密钥响应失败: %v", err)
 	}
-	if payload.Data.Token == "" || !strings.HasPrefix(payload.Data.Token, apiKeyTokenPrefix) {
+	if decoded, err := base64.RawURLEncoding.DecodeString(payload.Data.Token); err != nil || len(decoded) != apiKeyTokenBytes {
 		t.Fatalf("API 密钥令牌格式不正确: %q", payload.Data.Token)
+	}
+	if strings.HasPrefix(payload.Data.Token, legacyAPIKeyPrefix) {
+		t.Fatalf("API 密钥令牌不应携带固定前缀: %q", payload.Data.Token)
+	}
+	if payload.Data.Token != strings.TrimSpace(payload.Data.Token) || len(payload.Data.Token) != apiKeyTokenLength {
+		t.Fatalf("API 密钥令牌长度不正确: %q", payload.Data.Token)
 	}
 	if payload.Data.APIKey.ID == 0 {
 		t.Fatal("API 密钥 ID 为空")

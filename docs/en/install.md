@@ -337,7 +337,7 @@ curl -I http://127.0.0.1:8080/          # Without the gate cookie this should re
 ss -lntp | grep 8080
 
 # Authentication check with an API key
-curl -H "Authorization: Bearer lactssl_xxx" \
+curl -H "Authorization: Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   https://ssl.example.com/api/status
 ```
 

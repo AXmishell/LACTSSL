@@ -181,6 +181,7 @@ function emptySetupConfig(): SetupConfig {
     trusted_proxies: [],
     public_url: '',
     session_persistence: false,
+    rate_limit: { max_keys: 10000, rules: {} },
     acme: {
       enabled: true,
       addr: '',
@@ -282,6 +283,10 @@ async function saveConfig(): Promise<void> {
       trusted_proxies: proxies,
       public_url: form.public_url.trim(),
       session_persistence: form.session_persistence,
+      rate_limit: {
+        max_keys: form.rate_limit.max_keys,
+        rules: form.rate_limit.rules
+      },
       acme: {
         enabled: form.acme.enabled,
         addr: form.acme.addr.trim(),

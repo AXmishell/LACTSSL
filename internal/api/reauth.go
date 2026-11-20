@@ -4,18 +4,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/auth"
 	"lactssl/internal/model"
-)
-
-const (
-	// reauthFailureLimit 限制同一账户在窗口内连续失败的再认证次数，
-	// 防止会话持有者通过接口暴力尝试当前密码或 TOTP。
-	reauthFailureLimit  = 10
-	reauthFailureWindow = 10 * time.Minute
+	"lactssl/internal/ratelimit"
 )
 
 // requireReauth 校验敏感操作前的再认证信息。
@@ -36,7 +29,7 @@ func (s *Server) requireReauth(c *gin.Context, user *model.User, password, totpC
 		s.limiter.Reset(key)
 		return true
 	}
-	if allowed, wait := s.limiter.Allow(key, reauthFailureLimit, reauthFailureWindow); !allowed {
+	if allowed, wait := s.allow(ratelimit.Reauth, key); !allowed {
 		rateLimited(c, wait)
 		return false
 	}

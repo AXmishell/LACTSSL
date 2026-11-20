@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// State 是持久化的转换状态，供进程重启后继续自检或回滚。
+// State 是持久化的切换状态，供进程重启后继续自检或回滚。
 type State struct {
 	ID            string     `json:"id"`
 	Phase         Phase      `json:"phase"`
@@ -22,18 +22,19 @@ type State struct {
 	BackupPath    string     `json:"backup_path,omitempty"`
 	ConfigBackup  string     `json:"config_backup,omitempty"`
 	TargetCreated bool       `json:"target_created"`
+	SourceRemoved bool       `json:"source_removed,omitempty"`
 	StartedAt     time.Time  `json:"started_at"`
 	FinishedAt    *time.Time `json:"finished_at,omitempty"`
 	Error         string     `json:"error,omitempty"`
 	Report        *Report    `json:"report,omitempty"`
 }
 
-// StatePath 返回转换状态文件路径。
+// StatePath 返回切换状态文件路径。
 func StatePath(dataDir string) string {
 	return filepath.Join(dataDir, "db-convert", "state.json")
 }
 
-// LoadState 读取转换状态；不存在时返回 nil。
+// LoadState 读取切换状态；不存在时返回 nil。
 func LoadState(dataDir string) (*State, error) {
 	data, err := os.ReadFile(StatePath(dataDir))
 	if errors.Is(err, os.ErrNotExist) {
@@ -49,7 +50,7 @@ func LoadState(dataDir string) (*State, error) {
 	return &state, nil
 }
 
-// SaveState 原子写入转换状态。
+// SaveState 原子写入切换状态。
 func SaveState(dataDir string, state *State) error {
 	path := StatePath(dataDir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -66,7 +67,7 @@ func SaveState(dataDir string, state *State) error {
 	return os.Rename(temp, path)
 }
 
-// ClearState 删除转换状态。
+// ClearState 删除切换状态。
 func ClearState(dataDir string) error {
 	return os.Remove(StatePath(dataDir))
 }

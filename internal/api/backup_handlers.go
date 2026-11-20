@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/backup"
 	"lactssl/internal/i18n"
+	"lactssl/internal/ratelimit"
 )
 
 // minBackupPasswordLength 是备份加密密码的最小长度，与账户密码要求独立。
@@ -58,7 +59,7 @@ func (s *Server) downloadBackup(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if allowed, wait := s.limiter.Allow("backup:download:"+strconv.FormatInt(user.ID, 10), 5, 10*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.BackupDownload, "backup:download:"+strconv.FormatInt(user.ID, 10)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -158,7 +159,7 @@ func (s *Server) handleSetupRestore(c *gin.Context) {
 		failKey(c, http.StatusServiceUnavailable, "api.error.backup_unavailable")
 		return
 	}
-	if allowed, wait := s.limiter.Allow("setup-restore:"+clientRateKey(c), 5, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.SetupRestore, "setup-restore:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

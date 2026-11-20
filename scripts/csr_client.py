@@ -13,7 +13,7 @@
 
 示例（首次申请）：
     export LACTSSL_URL="https://ssl.example.com"
-    export LACTSSL_TOKEN="lactssl_xxxxxxxxxxxxxxxx"
+    export LACTSSL_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     python3 scripts/csr_client.py \
         --domains example.com,www.example.com \
         --dns-account-id 3 \

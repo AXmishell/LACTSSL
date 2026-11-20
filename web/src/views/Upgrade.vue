@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page" :class="{ 'database-active': tab === 'database' }">
     <div class="page-head">
       <div>
         <h1>{{ t('upgrade.title') }}</h1>
@@ -131,7 +131,7 @@
       </el-tab-pane>
 
       <el-tab-pane :label="t('upgrade.tabs.database')" name="database">
-        <div class="k-card" style="margin-bottom: 16px">
+        <div class="k-card database-card">
           <div class="card-head">
             <div>
               <h3>{{ t('upgrade.database.title') }}</h3>
@@ -157,103 +157,193 @@
             </div>
             <div v-if="dbTargetDriver === 'postgres'">
               <div class="stat-label">{{ t('upgrade.database.dsn') }}</div>
-              <el-input v-model="dbTargetDSN" class="mono" placeholder="postgres://user:pass@host:5432/db?sslmode=verify-full" :disabled="dbStatus?.running" />
+              <el-radio-group v-model="dbDSNMode" size="small" :disabled="dbStatus?.running">
+                <el-radio-button value="form">{{ t('upgrade.database.modeForm') }}</el-radio-button>
+                <el-radio-button value="raw">{{ t('upgrade.database.modeRaw') }}</el-radio-button>
+              </el-radio-group>
             </div>
             <div v-else>
               <div class="stat-label">{{ t('upgrade.database.path') }}</div>
               <el-input v-model="dbTargetPath" class="mono" placeholder="data/lactssl-converted.db" :disabled="dbStatus?.running" />
             </div>
             <div class="database-force">
-              <el-checkbox v-model="dbForce" :disabled="dbStatus?.running">
+              <el-checkbox v-model="dbForce" :disabled="dbStatus?.running || sameDriver">
                 {{ t('upgrade.database.force') }}
               </el-checkbox>
+              <div v-if="sameDriver" class="form-help">{{ t('upgrade.database.sameDriverForceHint') }}</div>
             </div>
           </div>
 
-          <div class="flex gap-10 wrap" style="margin-top: 14px">
-            <el-button :loading="dbTesting" :disabled="dbStatus?.running" @click="testDatabaseTarget">
-              {{ t('upgrade.database.test') }}
-            </el-button>
-            <el-button :loading="dbPreflighting" :disabled="dbStatus?.running" @click="preflightDatabaseConvert">
-              {{ t('upgrade.database.preflight') }}
-            </el-button>
+          <div class="database-scroll">
+            <div v-if="dbTargetDriver === 'postgres'" class="dsn-block">
+            <el-form
+              v-if="dbDSNMode === 'form'"
+              ref="dsnFormRef"
+              :model="dbDSNForm"
+              :rules="dsnRules"
+              label-position="left"
+              label-width="96px"
+              require-asterisk-position="right"
+              :disabled="dbStatus?.running"
+              class="dsn-form"
+            >
+              <div class="dsn-grid">
+                <el-form-item :label="t('upgrade.database.host')" prop="host">
+                  <el-input v-model="dbDSNForm.host" placeholder="db.example.com" autocomplete="off" />
+                </el-form-item>
+                <el-form-item :label="t('upgrade.database.port')" prop="port">
+                  <el-input-number v-model="dbDSNForm.port" :min="1" :max="65535" controls-position="right" align="left" style="width: 100%" />
+                </el-form-item>
+                <el-form-item :label="t('upgrade.database.username')" prop="username">
+                  <el-input v-model="dbDSNForm.username" placeholder="postgres" autocomplete="off" />
+                </el-form-item>
+                <el-form-item :label="t('upgrade.database.dbPassword')">
+                  <el-input v-model="dbDSNForm.password" type="password" show-password autocomplete="new-password" />
+                </el-form-item>
+                <el-form-item :label="t('upgrade.database.dbName')" prop="database">
+                  <el-input v-model="dbDSNForm.database" placeholder="lactssl" autocomplete="off" />
+                </el-form-item>
+                <el-form-item :label="t('upgrade.database.sslMode')" prop="sslmode">
+                  <el-select v-model="dbDSNForm.sslmode" style="width: 100%">
+                    <el-option v-for="mode in sslModes" :key="mode" :value="mode" :label="mode" />
+                  </el-select>
+                </el-form-item>
+              </div>
+              <div class="form-help">{{ t('upgrade.database.dsnHelp') }}</div>
+              <div class="dsn-preview">
+                <span class="stat-label">{{ t('upgrade.database.preview') }}</span>
+                <code class="mono break-all">{{ (dsnRevealed ? targetDSN : maskedTargetDSN) || t('common.none') }}</code>
+                <el-button text type="primary" size="small" @click="dsnRevealed = !dsnRevealed">
+                  {{ t(dsnRevealed ? 'upgrade.database.hide' : 'upgrade.database.reveal') }}
+                </el-button>
+                <el-button text type="primary" size="small" :icon="CopyDocument" @click="copyTargetDSN">
+                  {{ t('common.copy') }}
+                </el-button>
+              </div>
+            </el-form>
+
+            <template v-else>
+              <el-input
+                v-model="dbRawDSN"
+                class="mono"
+                type="textarea"
+                :rows="2"
+                :disabled="dbStatus?.running"
+                placeholder="postgres://user:pass@host:5432/db?sslmode=disable"
+              />
+              <div class="flex gap-10 wrap" style="margin-top: 10px">
+                <el-button size="small" :disabled="dbStatus?.running || !dbRawDSN.trim()" @click="parseRawDSN">
+                  {{ t('upgrade.database.parseDsn') }}
+                </el-button>
+                <span class="muted">{{ t('upgrade.database.rawDsnHelp') }}</span>
+              </div>
+            </template>
+            </div>
           </div>
 
-          <el-alert
-            v-if="dbTargetMessage"
-            :type="dbTargetError ? 'error' : 'success'"
-            :closable="false"
-            show-icon
-            :title="dbTargetMessage"
-            style="margin-top: 12px"
-          />
-          <div v-if="dbPreflight" class="muted" style="margin-top: 10px">
-            {{ t('upgrade.database.preflightSummary', {
-              tables: dbPreflight.source_tables,
-              rows: dbPreflight.source_rows,
-              size: formatBytes(dbPreflight.source_bytes),
-              empty: dbPreflight.target_empty ? t('common.yes') : t('common.no')
-            }) }}
-          </div>
+          <div class="database-footer">
+            <div class="database-status">
+            <div class="flex gap-10 wrap" style="margin-bottom: 8px">
+              <el-button :loading="dbTesting" :disabled="dbStatus?.running" @click="testDatabaseTarget">
+                {{ t('upgrade.database.test') }}
+              </el-button>
+              <el-button :loading="dbPreflighting" :disabled="dbStatus?.running" @click="preflightDatabaseConvert">
+                {{ t('upgrade.database.preflight') }}
+              </el-button>
+            </div>
 
-          <el-collapse v-if="dbStatus?.state || dbStatus?.progress" style="margin-top: 12px">
-            <el-collapse-item :title="t('upgrade.database.progress')" name="progress">
-              <div class="muted">
-                {{ t('upgrade.database.phaseLabel', { phase: dbProgressLabel }) }}
-                <span v-if="dbStatus?.progress.table"> · {{ dbStatus.progress.table }}</span>
-                <span v-if="dbStatus?.progress.table_total">
-                  ({{ dbStatus.progress.table_index }}/{{ dbStatus.progress.table_total }})
+            <el-tooltip :content="dbStatusLine.text" placement="top" :show-after="300">
+              <el-alert
+                :type="dbStatusLine.type"
+                :title="dbStatusLine.text"
+                :closable="false"
+                show-icon
+                class="status-line-alert"
+              />
+            </el-tooltip>
+            </div>
+
+            <div class="database-progress">
+              <div class="progress-meta">
+                <span class="stat-label">{{ t('upgrade.database.progress') }}</span>
+                <span class="muted">
+                  {{ t('upgrade.database.phaseLabel', { phase: dbProgressLabel }) }}
+                  <span v-if="dbStatus?.progress.table"> · {{ dbStatus.progress.table }}</span>
+                  <span v-if="dbStatus?.progress.table_total">
+                    ({{ dbStatus.progress.table_index }}/{{ dbStatus.progress.table_total }})
+                  </span>
                 </span>
+                <span class="muted">
+                  {{ t('upgrade.database.rows', {
+                    rows: dbStatus?.progress.rows || 0,
+                    total: dbStatus?.progress.total_rows || 0
+                  }) }}
+                </span>
+                <span class="muted progress-percent">{{ dbPercent }}%</span>
               </div>
               <el-progress
                 :percentage="dbPercent"
                 :status="dbStatus?.state?.phase === 'failed' ? 'exception' : undefined"
-                style="margin-top: 8px"
+                :show-text="false"
+                :stroke-width="6"
+                style="margin-top: 6px"
               />
-              <div class="muted" style="margin-top: 6px">
-                {{ t('upgrade.database.rows', {
-                  rows: dbStatus?.progress.rows || 0,
-                  total: dbStatus?.progress.total_rows || 0
-                }) }}
-              </div>
-              <el-alert
-                v-if="dbStatus?.state?.error"
-                type="error"
-                :closable="false"
-                show-icon
-                :title="dbStatus.state.error"
-                style="margin-top: 8px"
-              />
-              <div v-if="dbStatus?.report?.backup_path" class="muted mono break-all" style="margin-top: 8px">
-                {{ t('upgrade.database.backup') }}: {{ dbStatus.report.backup_path }}
-              </div>
-            </el-collapse-item>
-          </el-collapse>
+            </div>
 
-          <div style="margin-top: 14px">
-            <el-input v-model="dbPassword" type="password" show-password :placeholder="t('upgrade.database.password')" style="max-width: 280px" />
-            <el-input v-model="dbTOTP" :placeholder="t('upgrade.database.totp')" style="max-width: 180px; margin-left: 8px" />
-            <el-input v-model="dbConfirm" :placeholder="t('upgrade.database.confirmPlaceholder')" style="max-width: 180px; margin-left: 8px" />
-            <el-button type="primary" :loading="dbStarting" :disabled="dbStatus?.running" style="margin-left: 8px" @click="startDatabaseConvert">
-              {{ t('upgrade.database.start') }}
-            </el-button>
-            <el-button v-if="dbStatus?.running" @click="cancelDatabaseConvert">
-              {{ t('common.cancel') }}
-            </el-button>
+            <div class="footer-actions">
+              <div class="footer-auth-pair">
+                <div class="footer-action-group footer-auth-group">
+                  <el-input v-model="dbPassword" class="auth-password" type="password" show-password :placeholder="t('upgrade.database.password')" />
+                </div>
+                <div v-if="totpEnabled" class="footer-action-group footer-auth-group">
+                  <el-input v-model="dbTOTP" class="auth-totp" :placeholder="t('upgrade.database.totp')" />
+                </div>
+              </div>
+
+              <div class="footer-action-pair">
+                <div class="footer-action-group">
+                  <span class="math-check" :class="{ 'is-error': dbMathError }">
+                    <el-input
+                      v-model="dbMathAnswer"
+                      :placeholder="t('upgrade.database.mathPlaceholder')"
+                      style="width: 160px"
+                      @input="dbMathError = false"
+                      @keyup.enter="startDatabaseConvert"
+                    >
+                      <template #prefix>
+                        <span class="math-question">{{ t('upgrade.database.mathPrompt', { a: dbMathA, b: dbMathB }) }}</span>
+                      </template>
+                    </el-input>
+                  </span>
+                  <el-button type="primary" :loading="dbStarting" :disabled="dbStatus?.running" @click="startDatabaseConvert">
+                    {{ t('upgrade.database.start') }}
+                  </el-button>
+                  <el-button v-if="dbStatus?.running" @click="cancelDatabaseConvert">
+                    {{ t('common.cancel') }}
+                  </el-button>
+                </div>
+
+                <div v-if="rollbackVisible" class="footer-action-group">
+                  <span class="math-check" :class="{ 'is-error': dbRollbackMathError }">
+                    <el-input
+                      v-model="dbRollbackMathAnswer"
+                      :placeholder="t('upgrade.database.mathPlaceholder')"
+                      style="width: 160px"
+                      @input="dbRollbackMathError = false"
+                      @keyup.enter="rollbackDatabaseConvert"
+                    >
+                      <template #prefix>
+                        <span class="math-question">{{ t('upgrade.database.mathPrompt', { a: dbRollbackMathA, b: dbRollbackMathB }) }}</span>
+                      </template>
+                    </el-input>
+                  </span>
+                  <el-button type="danger" plain :loading="dbRollingBack" @click="rollbackDatabaseConvert">
+                    {{ t('upgrade.database.rollback') }}
+                  </el-button>
+                </div>
+              </div>
+            </div>
           </div>
-          <div v-if="dbStatus?.state?.phase === 'completed'" style="margin-top: 10px">
-            <el-input v-model="dbRollbackConfirm" :placeholder="t('upgrade.database.rollbackPlaceholder')" style="max-width: 180px" />
-            <el-button type="danger" plain :loading="dbRollingBack" style="margin-left: 8px" @click="rollbackDatabaseConvert">
-              {{ t('upgrade.database.rollback') }}
-            </el-button>
-          </div>
-          <el-alert
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="t('upgrade.database.warning')"
-            style="margin-top: 12px"
-          />
         </div>
       </el-tab-pane>
 
@@ -424,10 +514,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, MagicStick, Refresh, RefreshRight, SwitchButton } from '@element-plus/icons-vue'
-import { api, apiBase, errorText } from '../api'
+import type { FormInstance, FormRules } from 'element-plus'
+import { CopyDocument, Download, MagicStick, Refresh, RefreshRight, SwitchButton } from '@element-plus/icons-vue'
+import { api, apiBase, copyText, errorText } from '../api'
 import { t } from '../i18n'
 import { loadUser, state } from '../store'
 import { formatDate } from '../utils'
@@ -455,8 +546,20 @@ const programRestarting = ref(false)
 const dbStatus = ref<DatabaseConvertStatus | null>(null)
 const dbTargetDriver = ref('postgres')
 const dbTargetPath = ref('')
-const dbTargetDSN = ref('')
 const dbForce = ref(false)
+const dbDSNMode = ref<'form' | 'raw'>('form')
+const dbRawDSN = ref('')
+const dbDSNForm = reactive({
+  host: '',
+  port: 5432 as number | null,
+  username: '',
+  password: '',
+  database: '',
+  sslmode: 'disable'
+})
+const dsnFormRef = ref<FormInstance>()
+const dsnRevealed = ref(false)
+const sslModes = ['disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full']
 const dbTesting = ref(false)
 const dbPreflighting = ref(false)
 const dbStarting = ref(false)
@@ -465,11 +568,61 @@ const dbTargetMessage = ref('')
 const dbTargetError = ref(false)
 const dbPassword = ref('')
 const dbTOTP = ref('')
-const dbConfirm = ref('')
-const dbRollbackConfirm = ref('')
+const dbMathA = ref(0)
+const dbMathB = ref(0)
+const dbMathAnswer = ref('')
+const dbMathError = ref(false)
+const dbRollbackMathA = ref(0)
+const dbRollbackMathB = ref(0)
+const dbRollbackMathAnswer = ref('')
+const dbRollbackMathError = ref(false)
 const dbRollingBack = ref(false)
 let dbPollTimer: number | undefined
 
+newMathChallenge()
+newRollbackMathChallenge()
+
+const totpEnabled = computed(() => !!state.user?.totp_enabled)
+const sameDriver = computed(() => !!dbStatus.value && dbTargetDriver.value === dbStatus.value.source.driver)
+// 切换完成后，底部操作组由“开始切换”切换为“一键回滚”，避免同时出现两套算术和按钮。
+const rollbackVisible = computed(() => {
+  const state = dbStatus.value?.state
+  return state?.phase === 'completed' && state.from_driver !== state.to_driver
+})
+// 底部状态栏一次只显示一条提示，长文本用 tooltip 查看完整内容。
+const dbStatusLine = computed<{ text: string; type: 'error' | 'warning' | 'success' | 'info' }>(() => {
+  if (dbTargetMessage.value) {
+    return { text: dbTargetMessage.value, type: dbTargetError.value ? 'error' : 'success' }
+  }
+  if (dbStatus.value?.state?.error) {
+    return { text: dbStatus.value.state.error, type: 'error' }
+  }
+  if (sameDriver.value && dbStatus.value?.state?.phase === 'completed') {
+    return { text: t('upgrade.database.sameDriverNoRollback'), type: 'warning' }
+  }
+  if (sameDriver.value) {
+    return { text: t('upgrade.database.sameDriverAlert'), type: 'warning' }
+  }
+  if (dbPreflight.value) {
+    return {
+      text: t('upgrade.database.preflightSummary', {
+        tables: dbPreflight.value.source_tables,
+        rows: dbPreflight.value.source_rows,
+        size: formatBytes(dbPreflight.value.source_bytes),
+        empty: dbPreflight.value.target_empty ? t('common.yes') : t('common.no')
+      }),
+      type: 'info'
+    }
+  }
+  if (dbStatus.value?.report?.backup_path) {
+    return { text: `${t('upgrade.database.backup')}: ${dbStatus.value.report.backup_path}`, type: 'info' }
+  }
+  return { text: t('upgrade.database.warning'), type: 'warning' }
+})
+// 同构迁移不允许清空目标库。
+watch(sameDriver, (value) => {
+  if (value) dbForce.value = false
+})
 const dbProgressLabel = computed(() => t(`upgrade.database.phase.${dbStatus.value?.state?.phase || dbStatus.value?.progress.phase || 'idle'}`))
 const dbPercent = computed(() => {
   const progress = dbStatus.value?.progress
@@ -478,6 +631,167 @@ const dbPercent = computed(() => {
   if (progress.table_total > 0) return Math.min(100, Math.round((progress.table_index / progress.table_total) * 100))
   return 0
 })
+
+// 表单只是输入层：提交前统一拼成标准 URL DSN，后端、CLI 与配置文件格式保持不变。
+const targetDSN = computed(() => {
+  if (dbTargetDriver.value !== 'postgres') return ''
+  if (dbDSNMode.value === 'raw') return dbRawDSN.value.trim()
+  const host = dbDSNForm.host.trim()
+  const username = dbDSNForm.username.trim()
+  const database = dbDSNForm.database.trim()
+  if (!host || !username || !database) return ''
+  const port = Number(dbDSNForm.port) || 5432
+  const hostPart = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+  const auth = `${encodeURIComponent(username)}${dbDSNForm.password ? `:${encodeURIComponent(dbDSNForm.password)}` : ''}@`
+  const params = new URLSearchParams({ sslmode: dbDSNForm.sslmode || 'disable' })
+  return `postgres://${auth}${hostPart}:${port}/${encodeURIComponent(database)}?${params.toString()}`
+})
+
+const maskedTargetDSN = computed(() => {
+  if (!targetDSN.value) return ''
+  try {
+    const parsed = new URL(targetDSN.value)
+    if (parsed.password) parsed.password = '***'
+    return parsed.toString()
+  } catch (_) {
+    return targetDSN.value
+  }
+})
+
+const dsnRules = computed<FormRules>(() => ({
+  host: [
+    {
+      validator: (_rule, value, callback) => {
+        const host = String(value || '').trim()
+        if (!host) {
+          callback(new Error(t('upgrade.database.hostRequired')))
+          return
+        }
+        if (host.includes('://') || /[\s/?#@]/.test(host)) {
+          callback(new Error(t('upgrade.database.hostInvalid')))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur'
+    }
+  ],
+  port: [
+    {
+      validator: (_rule, value, callback) => {
+        const port = Number(value)
+        if (!value || !Number.isInteger(port) || port < 1 || port > 65535) {
+          callback(new Error(t('upgrade.database.portInvalid')))
+          return
+        }
+        callback()
+      },
+      trigger: 'change'
+    }
+  ],
+  username: [{ required: true, message: t('upgrade.database.usernameRequired'), trigger: 'blur' }],
+  database: [{ required: true, message: t('upgrade.database.dbNameRequired'), trigger: 'blur' }]
+}))
+
+// 简单算术验证只是前端的误操作防呆；真正的敏感操作仍由密码/TOTP 与后端校验保护。
+function newMathChallenge(): void {
+  dbMathA.value = 1 + Math.floor(Math.random() * 9)
+  dbMathB.value = 1 + Math.floor(Math.random() * 9)
+  dbMathAnswer.value = ''
+  dbMathError.value = false
+}
+
+function verifyMathChallenge(): boolean {
+  const raw = dbMathAnswer.value.trim()
+  const answer = Number(raw)
+  if (!raw || !Number.isInteger(answer) || answer !== dbMathA.value + dbMathB.value) {
+    newMathChallenge()
+    dbMathError.value = true
+    ElMessage.error(t('upgrade.database.mathWrong'))
+    return false
+  }
+  dbMathError.value = false
+  return true
+}
+
+function newRollbackMathChallenge(): void {
+  dbRollbackMathA.value = 1 + Math.floor(Math.random() * 9)
+  dbRollbackMathB.value = 1 + Math.floor(Math.random() * 9)
+  dbRollbackMathAnswer.value = ''
+  dbRollbackMathError.value = false
+}
+
+function verifyRollbackMathChallenge(): boolean {
+  const raw = dbRollbackMathAnswer.value.trim()
+  const answer = Number(raw)
+  if (!raw || !Number.isInteger(answer) || answer !== dbRollbackMathA.value + dbRollbackMathB.value) {
+    newRollbackMathChallenge()
+    dbRollbackMathError.value = true
+    ElMessage.error(t('upgrade.database.mathWrong'))
+    return false
+  }
+  dbRollbackMathError.value = false
+  return true
+}
+
+// 表单模式下交给 Element Plus 校验；原生模式只要求非空，其余交由后端解析。
+async function validateDatabaseTarget(): Promise<boolean> {
+  if (dbTargetDriver.value === 'sqlite' && !dbTargetPath.value.trim()) {
+    dbTargetError.value = true
+    dbTargetMessage.value = t('upgrade.database.pathRequired')
+    ElMessage.warning(t('upgrade.database.pathRequired'))
+    return false
+  }
+  if (dbTargetDriver.value !== 'postgres') return true
+  if (dbDSNMode.value === 'raw') {
+    if (!dbRawDSN.value.trim()) {
+      dbTargetError.value = true
+      dbTargetMessage.value = t('upgrade.database.rawDsnRequired')
+      return false
+    }
+    return true
+  }
+  if (!dsnFormRef.value) return false
+  try {
+    await dsnFormRef.value.validate()
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+function parseRawDSN(): void {
+  const raw = dbRawDSN.value.trim()
+  if (!raw) return
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch (_) {
+    ElMessage.error(t('upgrade.database.parseFailed'))
+    return
+  }
+  // Unix socket、多主机等无法用固定字段表达的 DSN 保留在原生模式。
+  if ((parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') || !parsed.hostname) {
+    ElMessage.error(t('upgrade.database.parseFailed'))
+    return
+  }
+  dbDSNForm.host = parsed.hostname.replace(/^\[(.*)\]$/, '$1')
+  dbDSNForm.port = parsed.port ? Number(parsed.port) : 5432
+  dbDSNForm.username = decodeURIComponent(parsed.username)
+  dbDSNForm.password = decodeURIComponent(parsed.password)
+  dbDSNForm.database = decodeURIComponent(parsed.pathname.replace(/^\//, ''))
+  const sslmode = parsed.searchParams.get('sslmode') || ''
+  if (sslModes.includes(sslmode)) dbDSNForm.sslmode = sslmode
+  dbDSNMode.value = 'form'
+  ElMessage.success(t('upgrade.database.parseOk'))
+}
+
+async function copyTargetDSN(): Promise<void> {
+  if (!targetDSN.value) return
+  const copied = await copyText(targetDSN.value)
+  if (copied) ElMessage.success(t('common.copied'))
+  else ElMessage.error(t('common.copyFailed'))
+}
 
 async function loadDatabaseStatus(): Promise<void> {
   try {
@@ -524,8 +838,9 @@ function databaseTargetBody(): Record<string, unknown> {
   return {
     target_driver: dbTargetDriver.value,
     target_path: dbTargetPath.value,
-    target_dsn: dbTargetDSN.value,
-    force: dbForce.value
+    target_dsn: targetDSN.value,
+    force: sameDriver.value ? false : dbForce.value,
+    allow_same_driver: sameDriver.value
   }
 }
 
@@ -534,6 +849,7 @@ async function testDatabaseTarget(): Promise<void> {
   dbTargetMessage.value = ''
   dbTargetError.value = false
   try {
+    if (!(await validateDatabaseTarget())) return
     const result = await api.post<Record<string, unknown>>('/upgrade/database/test', databaseTargetBody())
     dbTargetMessage.value = t('upgrade.database.testOk', {
       version: result?.server_version || result?.driver || '',
@@ -552,6 +868,7 @@ async function preflightDatabaseConvert(): Promise<void> {
   dbTargetMessage.value = ''
   dbTargetError.value = false
   try {
+    if (!(await validateDatabaseTarget())) return
     dbPreflight.value = await api.post<DatabasePreflightReport>('/upgrade/database/preflight', databaseTargetBody())
   } catch (error) {
     dbTargetError.value = true
@@ -566,21 +883,26 @@ async function startDatabaseConvert(): Promise<void> {
   dbTargetMessage.value = ''
   dbTargetError.value = false
   try {
+    if (!(await validateDatabaseTarget())) return
+    if (!verifyMathChallenge()) return
     await api.post('/upgrade/database/convert', {
       ...databaseTargetBody(),
       account_password: dbPassword.value,
       totp: dbTOTP.value,
-      confirm: dbConfirm.value
+      // 服务端仍以 CONVERT 作为接口级确认词，界面层用算术验证替代手动输入。
+      confirm: 'CONVERT'
     })
     dbPassword.value = ''
     dbTOTP.value = ''
-    dbConfirm.value = ''
+    newMathChallenge()
     ElMessage.success(t('upgrade.database.started'))
     await loadDatabaseStatus()
     startDatabasePolling()
   } catch (error) {
     dbTargetError.value = true
     dbTargetMessage.value = errorText(error)
+    // 操作区固定在底部，错误提示在滚动区，额外用 toast 保证立即可见。
+    ElMessage.error(errorText(error))
   } finally {
     dbStarting.value = false
   }
@@ -589,14 +911,16 @@ async function startDatabaseConvert(): Promise<void> {
 async function rollbackDatabaseConvert(): Promise<void> {
   dbRollingBack.value = true
   try {
+    if (!verifyRollbackMathChallenge()) return
     await api.post('/upgrade/database/rollback', {
       account_password: dbPassword.value,
       totp: dbTOTP.value,
-      confirm: dbRollbackConfirm.value
+      // 服务端仍以 ROLLBACK 作为接口级确认词，界面层用算术验证替代手动输入。
+      confirm: 'ROLLBACK'
     })
     dbPassword.value = ''
     dbTOTP.value = ''
-    dbRollbackConfirm.value = ''
+    newRollbackMathChallenge()
     ElMessage.success(t('upgrade.database.rollbackStarted'))
     await loadDatabaseStatus()
     startDatabasePolling()
@@ -629,7 +953,7 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false
   }
-  await Promise.all([loadProgram(), loadDatabaseStatus()])
+  await Promise.all([loadProgram(), loadDatabaseStatus(), loadUser().catch(() => null)])
   pickInitialTab()
 }
 
@@ -847,11 +1171,272 @@ onUnmounted(stopDatabasePolling)
   display: grid;
   grid-template-columns: minmax(180px, 0.6fr) minmax(280px, 1.4fr) auto;
   gap: 14px;
-  align-items: end;
+  align-items: start;
 }
 
 .database-force {
   padding-bottom: 6px;
+}
+
+/* 切换数据库：卡片固定高度，表单区滚动，进度与操作区固定在底部。 */
+.database-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.database-card > .card-head,
+.database-card > .database-grid {
+  flex: none;
+}
+
+.database-scroll {
+  min-height: 0;
+}
+
+.database-footer {
+  flex: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--kp-border);
+}
+
+.database-status {
+  margin-bottom: 12px;
+}
+
+.status-line-alert {
+  min-height: 28px;
+  padding: 3px 10px;
+}
+
+.status-line-alert :deep(.el-alert__content) {
+  min-width: 0;
+}
+
+.status-line-alert :deep(.el-alert__title) {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.status-line-alert :deep(.el-alert__icon) {
+  margin-right: 6px;
+}
+
+.database-progress .progress-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.progress-meta .stat-label {
+  margin-bottom: 0;
+}
+
+.progress-percent {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.footer-actions {
+  /* 与“开始切换/一键回滚”操作组同宽，形成两列对齐的 2×2 结构。 */
+  --footer-cell-width: 258px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* 账户组与操作组使用相同的两列结构，整体参与换行。 */
+.footer-auth-pair,
+.footer-action-pair {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.footer-action-group {
+  display: flex;
+  flex: 0 0 var(--footer-cell-width);
+  width: var(--footer-cell-width);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.footer-auth-pair :deep(.el-input) {
+  width: 100%;
+  max-width: none;
+}
+
+@media (max-width: 620px) {
+  .footer-actions {
+    --footer-cell-width: 100%;
+  }
+
+  .footer-auth-pair,
+  .footer-action-pair {
+    flex: 1 1 100%;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .footer-action-group {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
+
+
+.math-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.math-question {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+
+.math-check.is-error .math-question {
+  color: #dc2626;
+}
+
+.dsn-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #eef1f6;
+}
+
+/* 每行内部标签与输入框左右横向排列，字段本身最多两列。 */
+.dsn-form {
+  max-width: 980px;
+}
+
+.dsn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 0 24px;
+  width: 100%;
+}
+
+.dsn-form :deep(.el-form-item) {
+  /* 紧凑行距；错误提示缩小到 11px，仍能在 16px 内完整显示。 */
+  margin-bottom: 16px;
+}
+
+.dsn-form :deep(.el-form-item__label) {
+  height: 28px;
+  line-height: 28px;
+  white-space: nowrap;
+}
+
+.dsn-form :deep(.el-form-item:last-child) {
+  margin-bottom: 0;
+}
+
+.dsn-form :deep(.el-input__wrapper),
+.dsn-form :deep(.el-select__wrapper) {
+  height: 28px;
+}
+
+.dsn-form :deep(.el-form-item__error) {
+  padding-top: 2px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.form-help {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+  line-height: 1.6;
+}
+
+.dsn-form .form-help {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* 说明文字与预览对齐到输入框列，而不是从标签列开始。 */
+.dsn-form .form-help,
+.dsn-form .dsn-preview {
+  margin-left: 96px;
+}
+
+.dsn-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  min-height: 32px;
+  padding: 5px 8px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.dsn-preview .stat-label {
+  margin-bottom: 0;
+}
+
+/* 预览固定单行高度，长 DSN 横向滚动，不把卡片撑高。 */
+.dsn-preview code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+@media (min-width: 861px) {
+  /* 数据库标签页占满主内容区高度：中间表单滚动，底部操作栏固定。 */
+  .page.database-active {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--kp-topbar-h) - 72px);
+    min-height: 460px;
+  }
+
+  .database-active .upgrade-tabs {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .database-active .upgrade-tabs :deep(.el-tabs__content) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .database-active .upgrade-tabs :deep(.el-tab-pane) {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .database-card {
+    height: 100%;
+    margin-bottom: 0;
+  }
+
+  .database-scroll {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
 }
 
 @media (max-width: 860px) {

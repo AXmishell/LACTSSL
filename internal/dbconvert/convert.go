@@ -27,10 +27,12 @@ func (r *Runner) Preflight(ctx context.Context) (*PreflightReport, error) {
 		return nil, errors.New("目标数据库驱动不能为空")
 	}
 	if opts.SourceDriver == opts.TargetDriver {
-		return nil, errors.New("源数据库与目标数据库类型相同，无需转换")
-	}
-	if opts.SourceDriver == db.SQLite && opts.TargetDriver == db.SQLite {
-		return nil, errors.New("不支持 SQLite 到 SQLite 的转换")
+		if !opts.AllowSameDriver {
+			return nil, errors.New("源数据库与目标数据库类型相同；同构迁移需要显式确认")
+		}
+		if opts.Force {
+			return nil, errors.New("同构迁移不允许清空目标库，请使用空目标")
+		}
 	}
 	if opts.SourceDriver == db.SQLite && strings.TrimSpace(opts.SourcePath) == "" {
 		return nil, errors.New("缺少 SQLite 源数据库路径")
@@ -43,11 +45,6 @@ func (r *Runner) Preflight(ctx context.Context) (*PreflightReport, error) {
 	}
 	if opts.TargetDriver == db.Postgres && strings.TrimSpace(opts.TargetDSN) == "" {
 		return nil, errors.New("缺少 PostgreSQL 目标 DSN")
-	}
-	if opts.SourceDriver == db.SQLite && opts.TargetDriver == db.SQLite {
-		if filepath.Clean(opts.SourcePath) == filepath.Clean(opts.TargetPath) {
-			return nil, errors.New("源数据库与目标数据库路径相同")
-		}
 	}
 
 	source, closeSource, err := r.openSource(ctx)
@@ -72,6 +69,9 @@ func (r *Runner) Preflight(ctx context.Context) (*PreflightReport, error) {
 		return nil, err
 	}
 	defer closeTarget()
+	if err := ensureDistinctTarget(ctx, source, target, opts.SourceDriver, opts.TargetDriver, opts.SourcePath, opts.TargetPath); err != nil {
+		return nil, err
+	}
 
 	empty, err := targetEmpty(ctx, target)
 	if err != nil {
@@ -83,8 +83,13 @@ func (r *Runner) Preflight(ctx context.Context) (*PreflightReport, error) {
 		TargetEmpty:  empty,
 		Tables:       []TableProgress{},
 	}
-	if !empty && !opts.Force {
-		return nil, errors.New("目标数据库非空；如需清空请显式启用覆盖选项")
+	if !empty {
+		if opts.SourceDriver == opts.TargetDriver {
+			return nil, errors.New("同构迁移要求目标数据库为空，请先手动清空目标")
+		}
+		if !opts.Force {
+			return nil, errors.New("目标数据库非空；如需清空请显式启用覆盖选项")
+		}
 	}
 	for _, spec := range db.DataTables() {
 		ok, err := tableExists(ctx, source, spec.Name)
@@ -475,11 +480,11 @@ func (r *Runner) verifyEncrypted(ctx context.Context, target *db.Handle) error {
 	return nil
 }
 
-// backupSource 在复制前备份源库，失败时阻止转换。
+// backupSource 在复制前备份源库，失败时阻止切换。
 func (r *Runner) backupSource(ctx context.Context) (string, error) {
 	dir := filepath.Join(r.opts.DataDir, "db-convert", "backups", time.Now().UTC().Format("20060102-150405"))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("创建转换备份目录失败: %w", err)
+		return "", fmt.Errorf("创建切换前备份目录失败: %w", err)
 	}
 	if r.opts.SourceDriver == db.SQLite {
 		target := filepath.Join(dir, "source.db")

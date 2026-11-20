@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 )
 
 func (s *Server) listMonitors(c *gin.Context) {
@@ -203,7 +204,7 @@ func (s *Server) deleteMonitor(c *gin.Context) {
 }
 
 func (s *Server) checkMonitor(c *gin.Context) {
-	if allowed, wait := s.limiter.Allow("monitor:check:"+clientRateKey(c), 20, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.MonitorCheck, "monitor:check:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

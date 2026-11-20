@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/config"
 	"lactssl/internal/i18n"
+	"lactssl/internal/ratelimit"
 )
 
 const configPendingRestartSetting = "config.pending_restart"
@@ -89,7 +90,7 @@ func (s *Server) updateSettingsConfig(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow(fmt.Sprintf("settings-config-save:%d", user.ID), 10, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.SettingsConfigSave, fmt.Sprintf("settings-config-save:%d", user.ID)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -270,7 +271,7 @@ func (s *Server) createSettingsConfigBackup(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow(fmt.Sprintf("settings-config-backup:%d", user.ID), 5, 10*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.SettingsConfigBackup, fmt.Sprintf("settings-config-backup:%d", user.ID)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -310,7 +311,7 @@ func (s *Server) downloadSettingsConfigBackup(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow(fmt.Sprintf("settings-config-download:%d", user.ID), 5, 10*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.SettingsConfigDownload, fmt.Sprintf("settings-config-download:%d", user.ID)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -346,7 +347,7 @@ func (s *Server) restoreSettingsConfigBackup(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow(fmt.Sprintf("settings-config-restore:%d", user.ID), 5, 10*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.SettingsConfigRestore, fmt.Sprintf("settings-config-restore:%d", user.ID)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -404,7 +405,7 @@ func (s *Server) deleteSettingsConfigBackup(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow(fmt.Sprintf("settings-config-delete:%d", user.ID), 5, 10*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.SettingsConfigDelete, fmt.Sprintf("settings-config-delete:%d", user.ID)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -447,7 +448,7 @@ func (s *Server) restartSettingsConfig(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow(fmt.Sprintf("settings-config-restart:%d", user.ID), 3, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.SettingsConfigRestart, fmt.Sprintf("settings-config-restart:%d", user.ID)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

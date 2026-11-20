@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -15,18 +14,19 @@ import (
 	"lactssl/internal/util"
 )
 
-// ErrBusy 表示已有转换任务正在执行。
-var ErrBusy = errors.New("已有转换任务正在进行")
+// ErrBusy 表示已有切换任务正在执行。
+var ErrBusy = errors.New("已有切换任务正在进行")
 
-// StartRequest 是 Web 端发起转换的参数。
+// StartRequest 是 Web 端发起切换的参数。
 type StartRequest struct {
-	TargetDriver db.Dialect `json:"-"`
-	TargetPath   string     `json:"target_path"`
-	TargetDSN    string     `json:"target_dsn"`
-	Force        bool       `json:"force"`
+	TargetDriver    db.Dialect `json:"-"`
+	TargetPath      string     `json:"target_path"`
+	TargetDSN       string     `json:"target_dsn"`
+	Force           bool       `json:"force"`
+	AllowSameDriver bool       `json:"allow_same_driver"`
 }
 
-// Manager 管理一次异步转换任务，供 /upgrade 页面轮询。
+// Manager 管理一次异步切换任务，供 /upgrade 页面轮询。
 type Manager struct {
 	Source       *db.Handle
 	SourceDriver db.Dialect
@@ -104,6 +104,9 @@ func (m *Manager) TestTarget(ctx context.Context, req StartRequest) (map[string]
 		return nil, err
 	}
 	defer conn.Close()
+	if err := ensureDistinctTarget(ctx, m.Source, conn, m.SourceDriver, req.TargetDriver, m.SourcePath, req.TargetPath); err != nil {
+		return nil, err
+	}
 	result := map[string]any{"driver": req.TargetDriver.String()}
 	empty, err := targetEmpty(ctx, conn)
 	if err != nil {
@@ -124,7 +127,7 @@ func (m *Manager) TestTarget(ctx context.Context, req StartRequest) (map[string]
 	return result, nil
 }
 
-// Preflight 生成转换前检查报告。
+// Preflight 生成切换前检查报告。
 func (m *Manager) Preflight(ctx context.Context, req StartRequest) (*PreflightReport, error) {
 	if err := m.validateTarget(req); err != nil {
 		return nil, err
@@ -133,7 +136,7 @@ func (m *Manager) Preflight(ctx context.Context, req StartRequest) (*PreflightRe
 	return runner.Preflight(ctx)
 }
 
-// Start 启动异步转换。成功后会改写配置并调用 OnSwitching。
+// Start 启动异步切换。成功后会改写配置并调用 OnSwitching。
 func (m *Manager) Start(req StartRequest) (*State, error) {
 	m.mu.Lock()
 	if m.running {
@@ -173,7 +176,7 @@ func (m *Manager) Start(req StartRequest) (*State, error) {
 	return state, nil
 }
 
-// NewManager 创建转换任务管理器。
+// NewManager 创建切换任务管理器。
 func NewManager(source *db.Handle, sourceDriver db.Dialect, sourcePath, sourceDSN, dataDir, configPath string, cipher *util.Cipher, version string) *Manager {
 	if sourceDriver == "" && source != nil {
 		sourceDriver = source.Dialect()
@@ -202,8 +205,12 @@ func (m *Manager) validateTarget(req StartRequest) error {
 	if req.TargetDriver == "" {
 		return errors.New("目标数据库驱动不能为空")
 	}
-	if req.TargetDriver == m.SourceDriver {
-		return errors.New("目标数据库与当前数据库类型相同")
+	sameDriver := req.TargetDriver == m.SourceDriver
+	if sameDriver && !req.AllowSameDriver {
+		return errors.New("目标数据库与当前数据库类型相同；同构迁移需要显式确认")
+	}
+	if sameDriver && req.Force {
+		return errors.New("同构迁移不允许清空目标库，请使用空目标")
 	}
 	if os.Getenv("LACTSSL_DATABASE_DSN") != "" {
 		return errors.New("检测到 LACTSSL_DATABASE_DSN 环境变量；请先移除该变量并重启，否则配置切换不会生效")
@@ -213,10 +220,12 @@ func (m *Manager) validateTarget(req StartRequest) error {
 			return errors.New("SQLite 目标路径不能为空")
 		}
 		if m.SourceDriver == db.SQLite {
-			sourceAbs, _ := filepath.Abs(m.SourcePath)
-			targetAbs, _ := filepath.Abs(req.TargetPath)
-			if sourceAbs == targetAbs {
-				return errors.New("目标 SQLite 路径不能与当前数据库相同")
+			same, err := sameSQLiteFile(m.SourcePath, req.TargetPath)
+			if err != nil {
+				return fmt.Errorf("校验 SQLite 源/目标路径失败: %w", err)
+			}
+			if same {
+				return errors.New("目标 SQLite 文件不能与当前数据库是同一个文件")
 			}
 		}
 	}
@@ -225,19 +234,20 @@ func (m *Manager) validateTarget(req StartRequest) error {
 
 func (m *Manager) runner(req StartRequest, progress func(Progress)) *Runner {
 	return NewRunner(Options{
-		Source:       m.Source,
-		SourceDriver: m.SourceDriver,
-		SourcePath:   m.SourcePath,
-		SourceDSN:    m.SourceDSN,
-		TargetDriver: req.TargetDriver,
-		TargetPath:   req.TargetPath,
-		TargetDSN:    req.TargetDSN,
-		Force:        req.Force,
-		DataDir:      m.DataDir,
-		ConfigPath:   m.ConfigPath,
-		Cipher:       m.Cipher,
-		Version:      m.Version,
-		Progress:     progress,
+		Source:          m.Source,
+		SourceDriver:    m.SourceDriver,
+		SourcePath:      m.SourcePath,
+		SourceDSN:       m.SourceDSN,
+		TargetDriver:    req.TargetDriver,
+		TargetPath:      req.TargetPath,
+		TargetDSN:       req.TargetDSN,
+		Force:           req.Force,
+		AllowSameDriver: req.AllowSameDriver,
+		DataDir:         m.DataDir,
+		ConfigPath:      m.ConfigPath,
+		Cipher:          m.Cipher,
+		Version:         m.Version,
+		Progress:        progress,
 	})
 }
 
@@ -285,7 +295,7 @@ func (m *Manager) run(ctx context.Context, req StartRequest, state *State) {
 		m.mu.Unlock()
 		return
 	}
-	// 转换成功：写配置，保持源库冻结，随后由 main 重启。
+	// 切换成功：写配置，保持源库冻结，随后由 main 重启。
 	dsn, path := "", ""
 	if req.TargetDriver == db.Postgres {
 		dsn = req.TargetDSN
@@ -345,7 +355,7 @@ func (m *Manager) finishFailed(err error) {
 	}
 }
 
-// Rollback 用当前数据库的数据反向转换回转换前的后端（一键回滚）。
+// Rollback 用当前数据库的数据反向切换回切换前的后端（一键回滚）。
 // 它会覆盖旧后端中的同名数据表，因此要求旧配置备份存在。
 func (m *Manager) Rollback() (*State, error) {
 	m.mu.Lock()
@@ -356,23 +366,26 @@ func (m *Manager) Rollback() (*State, error) {
 		return nil, ErrBusy
 	}
 	if state == nil || state.Phase != PhaseCompleted {
-		return nil, errors.New("当前没有可回滚的已完成转换")
+		return nil, errors.New("当前没有可回滚的已完成切换")
+	}
+	if state.FromDriver == state.ToDriver {
+		return nil, errors.New("同构迁移不支持一键回滚，请使用切换前备份恢复")
 	}
 	if state.ConfigBackup == "" {
-		return nil, errors.New("缺少转换前配置备份，无法一键回滚")
+		return nil, errors.New("缺少切换前配置备份，无法一键回滚")
 	}
 	settings, err := config.DatabaseFromFile(state.ConfigBackup)
 	if err != nil {
-		return nil, fmt.Errorf("读取转换前配置失败: %w", err)
+		return nil, fmt.Errorf("读取切换前配置失败: %w", err)
 	}
 	driver, ok := db.ParseDialect(settings.Driver)
 	if !ok || driver == "" {
-		return nil, errors.New("转换前数据库类型无效")
+		return nil, errors.New("切换前数据库类型无效")
 	}
 	if m.SourceDriver == db.Postgres {
 		// 当前是 PG 源，旧配置的 DSN 不能为空。
 		if driver == db.Postgres && settings.DSN == "" {
-			return nil, errors.New("转换前 PostgreSQL DSN 缺失")
+			return nil, errors.New("切换前 PostgreSQL DSN 缺失")
 		}
 	}
 	req := StartRequest{
@@ -386,16 +399,16 @@ func (m *Manager) Rollback() (*State, error) {
 	return m.Start(req)
 }
 
-// Cancel 取消尚未切换的转换。
+// Cancel 取消尚未进入切换阶段的切换任务。
 func (m *Manager) Cancel() error {
 	m.mu.Lock()
 	if !m.running || m.cancel == nil {
 		m.mu.Unlock()
-		return errors.New("没有可取消的转换任务")
+		return errors.New("没有可取消的切换任务")
 	}
 	if m.state != nil && (m.state.Phase == PhaseSwitching || m.state.Phase == PhaseCompleted) {
 		m.mu.Unlock()
-		return errors.New("转换已进入切换阶段，无法取消")
+		return errors.New("已进入切换阶段，无法取消")
 	}
 	cancel := m.cancel
 	m.mu.Unlock()

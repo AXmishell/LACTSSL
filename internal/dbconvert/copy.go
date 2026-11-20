@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -80,15 +81,29 @@ type hashAccumulator struct {
 	xor [sha256.Size]byte
 }
 
-func (h *hashAccumulator) addRow(cells []cell) {
+// addRow 按列名排序后计算行哈希。不同方言的 SELECT * 列顺序可能不同
+// （例如 SQLite 用 ALTER TABLE 追加的列会排在最后），按列名归一化才能跨库比较。
+func (h *hashAccumulator) addRow(cells []cell, order []int) {
 	var buf strings.Builder
-	for _, c := range cells {
-		c.canonical(&buf)
+	for _, index := range order {
+		cells[index].canonical(&buf)
 	}
 	sum := sha256.Sum256([]byte(buf.String()))
 	for i := range h.xor {
 		h.xor[i] ^= sum[i]
 	}
+}
+
+// columnOrder 返回按列名升序排列的下标，用于稳定行编码。
+func columnOrder(columns []string) []int {
+	order := make([]int, len(columns))
+	for i := range order {
+		order[i] = i
+	}
+	sort.Slice(order, func(a, b int) bool {
+		return columns[order[a]] < columns[order[b]]
+	})
+	return order
 }
 
 func (h *hashAccumulator) String() string {
@@ -130,6 +145,7 @@ func copyTable(ctx context.Context, source, target *db.Handle, spec db.TableSpec
 		result.Status = "done"
 		return result, nil
 	}
+	order := columnOrder(columns)
 	insertSQL := `INSERT INTO ` + quoteIdent(spec.Name) + `(` + joinIdentifiers(columns) + `) VALUES `
 	const maxParams = 900 // SQLite 保守上限；PG 更高，统一按小批量执行
 	batchSize := maxParams / len(columns)
@@ -183,7 +199,7 @@ func copyTable(ctx context.Context, source, target *db.Handle, spec db.TableSpec
 				bytes += int64(len(text))
 			}
 		}
-		hash.addRow(values)
+		hash.addRow(values, order)
 		total++
 		batchRows++
 		if batchRows >= batchSize {
@@ -234,6 +250,7 @@ func scanTable(ctx context.Context, conn *db.Handle, spec db.TableSpec) (TablePr
 	if err != nil {
 		return result, err
 	}
+	order := columnOrder(columns)
 	var (
 		hash  hashAccumulator
 		total int64
@@ -251,7 +268,7 @@ func scanTable(ctx context.Context, conn *db.Handle, spec db.TableSpec) (TablePr
 		if err := rows.Scan(dest...); err != nil {
 			return result, err
 		}
-		hash.addRow(values)
+		hash.addRow(values, order)
 		total++
 		for _, value := range values {
 			if text, ok := value.arg().(string); ok {

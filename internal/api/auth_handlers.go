@@ -14,6 +14,7 @@ import (
 	"lactssl/internal/auth"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 	"lactssl/internal/util"
 )
@@ -53,7 +54,7 @@ func (s *Server) setupStatus(c *gin.Context) {
 }
 
 func (s *Server) handleSetup(c *gin.Context) {
-	if allowed, wait := s.limiter.Allow("setup:"+clientRateKey(c), 5, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.Setup, "setup:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -136,7 +137,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 	// 登录限流：IP 维度在密码校验前扣减，成功后归还；账户维度只对失败扣减，
 	// 这样即使账户配额被攻击者耗尽，正确密码仍可登录，避免账户被恶意锁定。
 	ipKey := "login:ip:" + clientRateKey(c)
-	if allowed, wait := s.limiter.Allow(ipKey, 10, 5*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.LoginIP, ipKey); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -151,7 +152,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 		auth.VerifyDummy(body.Password)
 	}
 	if !passwordOK {
-		if allowed, wait := s.limiter.Allow(acctKey, 20, 15*time.Minute); !allowed {
+		if allowed, wait := s.allow(ratelimit.LoginAccount, acctKey); !allowed {
 			rateLimited(c, wait)
 			return
 		}
@@ -171,7 +172,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 		}
 		totpKey := "login:totp:" + acctKey
 		if !auth.ValidateTOTP(user.TOTPSecret, body.TOTP) {
-			if allowed, wait := s.limiter.Allow(totpKey, 5, 10*time.Minute); !allowed {
+			if allowed, wait := s.allow(ratelimit.LoginTOTP, totpKey); !allowed {
 				rateLimited(c, wait)
 				return
 			}
@@ -398,12 +399,12 @@ func (s *Server) handleForgotPassword(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(body.Email))
-	if allowed, wait := s.limiter.Allow("forgot:ip:"+clientRateKey(c), 5, 10*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.ForgotIP, "forgot:ip:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
 	// 邮箱维度限制重置邮件发送频率；超限时仍返回统一提示，避免泄露邮箱是否存在。
-	if allowed, _ := s.limiter.Allow("forgot:acct:"+util.HashToken(email)[:16], 3, time.Hour); !allowed {
+	if allowed, _ := s.allow(ratelimit.ForgotAccount, "forgot:acct:"+util.HashToken(email)[:16]); !allowed {
 		ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.reset_sent", nil)})
 		return
 	}

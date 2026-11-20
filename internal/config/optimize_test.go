@@ -38,6 +38,10 @@ func collectConfigYAMLPaths(t reflect.Type, prefix string, out map[string]bool) 
 func collectSpecPaths(value any, prefix string, out map[string]bool) {
 	switch typed := value.(type) {
 	case map[string]any:
+		// 空映射（例如未填写的 rate_limit.rules）在 fileConfig 中是一个叶子节点。
+		if prefix != "" && len(typed) == 0 {
+			out[prefix] = true
+		}
 		for key, child := range typed {
 			path := key
 			if prefix != "" {
@@ -61,6 +65,14 @@ func assertYAMLHasAllConfigFields(t *testing.T, data []byte, label string) {
 	}
 	present := map[string]bool{}
 	collectSpecPaths(doc, "", present)
+	// 动态键映射会展开成多条子路径，这里补齐所有父路径，
+	// 使 fileConfig 中以整张映射作为叶子的字段也能通过检查。
+	for path := range present {
+		parts := strings.Split(path, ".")
+		for i := 1; i < len(parts); i++ {
+			present[strings.Join(parts[:i], ".")] = true
+		}
+	}
 
 	var missing []string
 	for path := range configYAMLFields() {

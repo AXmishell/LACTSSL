@@ -31,7 +31,7 @@ type Options struct {
 	SingleInstance bool
 }
 
-// Gate 是写操作门禁。转换器可以冻结写入，等待进行中的写事务结束后
+// Gate 是写操作门禁。切换过程可以冻结写入，等待进行中的写事务结束后
 // 独占写入；读操作不受影响。
 type Gate struct {
 	mu      sync.Mutex
@@ -276,7 +276,7 @@ func openPostgres(opts Options) (*Handle, error) {
 	return h, nil
 }
 
-// NewHandle 用已有连接构造 Handle，主要用于测试与转换目标。
+// NewHandle 用已有连接构造 Handle，主要用于测试与切换目标。
 func NewHandle(conn *sql.DB, dialect Dialect) *Handle {
 	if dialect == "" {
 		dialect = SQLite
@@ -467,6 +467,16 @@ func (tx *Tx) release() {
 		return
 	}
 	tx.once.Do(func() { tx.gate.RUnlock() })
+}
+
+// Prepare 预编译语句，并把 ? 占位符转换为当前方言。
+func (tx *Tx) Prepare(query string) (*sql.Stmt, error) {
+	return tx.Tx.Prepare(tx.dialect.Rebind(query))
+}
+
+// PrepareContext 预编译语句，并把 ? 占位符转换为当前方言。
+func (tx *Tx) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	return tx.Tx.PrepareContext(ctx, tx.dialect.Rebind(query))
 }
 
 // Exec 执行语句。

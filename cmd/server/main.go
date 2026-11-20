@@ -254,7 +254,7 @@ func main() {
 		}
 	}
 
-	server := api.New(st, authManager, manager, entry, webui.Assets(), cfg.TrustedProxies)
+	server := api.New(st, authManager, manager, entry, webui.Assets(), cfg.TrustedProxies, cfg.RateLimit)
 	server.Upgrade = upgrader
 	server.LogArchives = logArchiveService
 	server.Program = programUpdater
@@ -387,7 +387,7 @@ func main() {
 	var mainHandler http.Handler = server.Router()
 	var acmeHTTPServer *http.Server
 	if cfg.ACME.Enabled {
-		acmeServer := acme.NewServer(st, cfg.ACME.BaseURL)
+		acmeServer := acme.NewServer(st, cfg.ACME.BaseURL, cfg.RateLimit)
 		acmeServer.TrustedProxies = cfg.TrustedProxies
 		acmeHandler := acmeServer.Handler()
 		if cfg.ACME.Addr == "" {
@@ -465,7 +465,7 @@ func main() {
 		case "program":
 			log.Println("程序升级完成，正在重启服务")
 		case "convert":
-			log.Println("数据库转换完成，正在重启服务")
+			log.Println("数据库切换完成，正在重启服务")
 		case "config":
 			log.Println("配置文件已更新，正在重启服务")
 		default:

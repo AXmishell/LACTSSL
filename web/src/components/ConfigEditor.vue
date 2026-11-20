@@ -40,6 +40,59 @@
           <div class="form-help">{{ t('setup.configSessionPersistenceHint') }}</div>
         </el-form-item>
       </el-tab-pane>
+      <el-tab-pane :label="t('setup.configRateLimit')" name="rate_limit">
+        <el-form-item :label="t('setup.configRateLimitMaxKeys')">
+          <el-input-number
+            v-model="modelValue.rate_limit.max_keys"
+            :min="1"
+            :max="1000000"
+            :step="1000"
+            controls-position="right"
+            style="width: 100%"
+          />
+          <div class="form-help">{{ t('setup.configRateLimitHint') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('setup.configRateLimitSearch')">
+          <el-input
+            v-model="rateLimitQuery"
+            clearable
+            :placeholder="t('setup.configRateLimitSearchHint')"
+          />
+        </el-form-item>
+        <el-table :data="rateLimitRows" size="small" max-height="420" style="width: 100%">
+          <el-table-column :label="t('setup.configRateLimitRule')" min-width="220">
+            <template #default="{ row }">
+              <span class="mono">{{ row }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('setup.configRateLimitMax')" width="170">
+            <template #default="{ row }">
+              <el-input-number
+                v-model="modelValue.rate_limit.rules[row].max"
+                :min="0"
+                :max="1000000"
+                size="small"
+                controls-position="right"
+                style="width: 130px"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('setup.configRateLimitWindow')" width="180">
+            <template #default="{ row }">
+              <el-input-number
+                v-model="modelValue.rate_limit.rules[row].window_seconds"
+                :min="0"
+                :max="604800"
+                :step="30"
+                size="small"
+                controls-position="right"
+                style="width: 140px"
+              />
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="form-help">{{ t('setup.configRateLimitTableHint') }}</div>
+      </el-tab-pane>
       <el-tab-pane :label="t('setup.configACME')" name="acme">
         <el-form-item>
           <el-switch v-model="modelValue.acme.enabled" :active-text="t('setup.configACMEEnabled')" />
@@ -365,7 +418,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Aim } from '@element-plus/icons-vue'
 import type { SetupConfig } from '../types'
@@ -384,6 +437,28 @@ const { t } = useI18n()
 
 const tab = ref('network')
 const trustedProxiesText = ref((props.modelValue.trusted_proxies || []).join(', '))
+const rateLimitQuery = ref('')
+
+const rateLimitRows = computed(() => {
+  const rules = props.modelValue.rate_limit?.rules || {}
+  const query = rateLimitQuery.value.trim().toLowerCase()
+  return Object.keys(rules)
+    .filter((name) => !query || name.toLowerCase().includes(query))
+    .sort()
+})
+
+watch(
+  () => props.modelValue.rate_limit,
+  (value) => {
+    if (!value) {
+      props.modelValue.rate_limit = { max_keys: 10000, rules: {} }
+      return
+    }
+    if (!value.rules) value.rules = {}
+    if (!value.max_keys) value.max_keys = 10000
+  },
+  { immediate: true }
+)
 
 function parseProxyText(value: string): string[] {
   return value

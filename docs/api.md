@@ -22,12 +22,12 @@ API 密钥不是多用户 RBAC。需要多人分权时，应通过企业 IAM、�
 把密钥放在 `Authorization: Bearer` 或 `X-API-Key` 请求头中：
 
 ```bash
-curl -H "Authorization: Bearer lactssl_xxxxxxxxxxxxxxxx" \
+curl -H "Authorization: Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   https://ssl.example.com/api/certificates
 ```
 
 ```bash
-curl -H "X-API-Key: lactssl_xxxxxxxxxxxxxxxx" \
+curl -H "X-API-Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   https://ssl.example.com/api/certificates
 ```
 
@@ -48,13 +48,13 @@ curl -H "X-API-Key: lactssl_xxxxxxxxxxxxxxxx" \
 3. 填写名称、过期时间，并按需勾选权限。
 4. 页面会显示一次完整密钥；关闭弹窗后无法再次查看，只能轮换。
 
-密钥格式为 `lactssl_` 开头的一串随机字符。服务端只保存摘要，数据库泄露时无法直接还原明文密钥。
+密钥格式为 86 位 Base64URL 随机字符串（64 字节熵），不含固定前缀。服务端只保存摘要，数据库泄露时无法直接还原明文密钥。
 
 创建请求示例：
 
 ```bash
 curl -X POST \
-  -H "Authorization: Bearer lactssl_xxxxxxxxxxxxxxxx" \
+  -H "Authorization: Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "CI deployment",
@@ -341,7 +341,7 @@ curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
 
 ```bash
 export LACTSSL_URL="https://ssl.example.com"
-export LACTSSL_TOKEN="lactssl_xxxxxxxxxxxxxxxx"
+export LACTSSL_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 python3 scripts/csr_client.py \
   --domains example.com,www.example.com \

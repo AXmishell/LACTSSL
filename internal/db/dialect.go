@@ -177,7 +177,7 @@ func itoa(v int) string {
 	return string(buf[pos:])
 }
 
-// isWriteSQL 判断语句是否会修改数据。用于转换期间的写门禁。
+// isWriteSQL 判断语句是否会修改数据。用于切换期间的写门禁。
 // 读取型 CTE（WITH ... SELECT）不会命中；当前代码没有写型 CTE。
 func isWriteSQL(query string) bool {
 	s := strings.TrimSpace(query)

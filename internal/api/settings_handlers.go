@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 	"lactssl/internal/util"
 )
@@ -296,7 +297,7 @@ func (s *Server) testMail(c *gin.Context) {
 	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
 		return
 	}
-	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.NotifyTest, "notifytest:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -340,7 +341,7 @@ func (s *Server) testChannel(c *gin.Context) {
 	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
 		return
 	}
-	if allowed, wait := s.limiter.Allow("notifytest:"+clientRateKey(c), 20, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.NotifyTest, "notifytest:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -366,7 +367,7 @@ func (s *Server) testChannel(c *gin.Context) {
 }
 
 func (s *Server) changeEntry(c *gin.Context) {
-	if allowed, wait := s.limiter.Allow("entry-change:"+clientRateKey(c), 5, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.EntryChange, "entry-change:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

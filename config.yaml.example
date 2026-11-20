@@ -123,6 +123,56 @@ security:
   jwt_secret: ""
   # 数据库敏感字段加密盐（AES-256-GCM）；留空则自动生成并写回本文件。手动配置时至少 32 个字符。
   salt: ""
+  rate_limit:
+    # 管理端内存限流器最多保留的 key 数；0 表示使用默认值
+    max_keys: 10000
+    # 各接口限流阈值：max 为窗口内允许次数（0 表示不限制），window_seconds 为窗口秒数。
+    # 删除某条规则即恢复内置默认值；未知规则名会导致启动失败。
+    rules:
+      acme_account: {max: 30, window_seconds: 3600}
+      acme_order: {max: 60, window_seconds: 3600}
+      acme_pki: {max: 600, window_seconds: 60}
+      acme_request: {max: 1200, window_seconds: 60}
+      api_anonymous: {max: 120, window_seconds: 60}
+      api_ip: {max: 600, window_seconds: 60}
+      backup_download: {max: 5, window_seconds: 600}
+      cert_key_export: {max: 30, window_seconds: 60}
+      cert_key_view: {max: 30, window_seconds: 60}
+      credential_verify: {max: 5, window_seconds: 60}
+      credential_verify_client: {max: 20, window_seconds: 60}
+      csr_create: {max: 20, window_seconds: 3600}
+      database_operation: {max: 10, window_seconds: 60}
+      deployments_clear: {max: 3, window_seconds: 600}
+      entry: {max: 60, window_seconds: 60}
+      entry_change: {max: 5, window_seconds: 60}
+      forgot_account: {max: 3, window_seconds: 3600}
+      forgot_ip: {max: 5, window_seconds: 600}
+      log_archive_delete: {max: 10, window_seconds: 60}
+      log_archive_download: {max: 20, window_seconds: 60}
+      log_clear: {max: 3, window_seconds: 600}
+      log_export: {max: 5, window_seconds: 600}
+      login_account: {max: 20, window_seconds: 900}
+      login_ip: {max: 10, window_seconds: 300}
+      login_totp: {max: 5, window_seconds: 600}
+      monitor_check: {max: 20, window_seconds: 60}
+      notify_test: {max: 20, window_seconds: 60}
+      passkey_login_begin: {max: 20, window_seconds: 300}
+      passkey_login_fail: {max: 10, window_seconds: 300}
+      private_ca_create: {max: 10, window_seconds: 60}
+      private_ca_key_export: {max: 30, window_seconds: 60}
+      reauth: {max: 10, window_seconds: 600}
+      settings_config_backup: {max: 5, window_seconds: 600}
+      settings_config_delete: {max: 5, window_seconds: 600}
+      settings_config_download: {max: 5, window_seconds: 600}
+      settings_config_restart: {max: 3, window_seconds: 60}
+      settings_config_restore: {max: 5, window_seconds: 600}
+      settings_config_save: {max: 10, window_seconds: 60}
+      setup: {max: 5, window_seconds: 60}
+      setup_config: {max: 10, window_seconds: 60}
+      setup_restart: {max: 3, window_seconds: 60}
+      setup_restore: {max: 5, window_seconds: 60}
+      system_log_clear: {max: 3, window_seconds: 600}
+      system_log_export: {max: 5, window_seconds: 600}
 
 acme:
   # 是否启用内置 ACME 服务端（默认开启）；端点、EAB、域名白名单在管理接口中配置

@@ -4,10 +4,21 @@
 # 首次启动后入口只保存在数据库里，这里读取它，供 Vite 模拟页面门禁；
 # 接口默认挂在裸 /api 下，旧版 /<entry>/api 仍作为兼容别名。
 
-# entry_from_db 从 SQLite 的 settings 表读取 security.entry。
+# entry_from_db 从数据库的 settings 表读取 security.entry。
+# PostgreSQL 需要 psql；SQLite 使用 sqlite3 或 python3。
 entry_from_db() {
   local config_path="$1"
-  local data_dir db
+  local data_dir db driver dsn
+  driver=$(awk '/^[[:space:]]*driver:/{gsub(/["'\'']/,"",$2); print $2; exit}' "$config_path")
+  if [ "$driver" = "postgres" ]; then
+    dsn=$(awk '/^[[:space:]]*dsn:/{sub(/^[[:space:]]*dsn:[[:space:]]*/, ""); gsub(/^["'\'']|["'\'']$/, ""); print; exit}' "$config_path")
+    [ -n "$dsn" ] || return 0
+    if command -v psql >/dev/null 2>&1; then
+      psql "$dsn" -Atc "SELECT value FROM settings WHERE key='security.entry' LIMIT 1;" </dev/null 2>/dev/null || true
+    fi
+    return 0
+  fi
+
   data_dir=$(awk '/^[[:space:]]*data_dir:/{gsub(/["'\'']/,"",$2); print $2; exit}' "$config_path")
   db=$(awk '/^[[:space:]]*path:/{gsub(/["'\'']/,"",$2); print $2; exit}' "$config_path")
   [ -n "$db" ] || db="${data_dir:-data}/lactssl.db"

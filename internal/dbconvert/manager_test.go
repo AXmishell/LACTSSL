@@ -39,7 +39,7 @@ func TestManagerWritesConfigAndFreezesSource(t *testing.T) {
 	for time.Now().Before(deadline) {
 		status := manager.CurrentStatus()
 		if status.State != nil && status.State.Phase == PhaseFailed {
-			t.Fatalf("转换失败: %s", status.State.Error)
+			t.Fatalf("切换失败: %s", status.State.Error)
 		}
 		if status.State != nil && status.State.Phase == PhaseSwitching {
 			break
@@ -52,7 +52,7 @@ func TestManagerWritesConfigAndFreezesSource(t *testing.T) {
 		t.Fatal("未触发切换回调")
 	}
 	if !maintenance {
-		t.Fatal("转换期间应进入维护模式")
+		t.Fatal("切换期间应进入维护模式")
 	}
 	data, err := os.ReadFile(configPath)
 	if err != nil {

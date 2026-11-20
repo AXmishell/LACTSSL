@@ -160,34 +160,34 @@ data/upgrade-backups/program/
 3. 如需回滚数据，按上一节操作。
 4. 启动服务，确认版本号与数据格式迁移状态。
 
-## 7. 数据库在线转换（SQLite ↔ PostgreSQL）
+## 7. 数据库在线切换（SQLite ↔ PostgreSQL）
 
-`/upgrade` 页面提供数据库后端转换。转换在服务进程内完成，不需要手工执行 SQL 或替换数据库文件。
+`/upgrade` 页面提供数据库后端切换。切换在服务进程内完成，不需要手工执行 SQL 或替换数据库文件。
 
 ### 7.1 前提
 
 - 目标 PostgreSQL 建议 18；应用会检查服务端版本。
 - 目标 PostgreSQL 默认必须是空库；非空时必须在页面勾选“清空当前 schema”，该操作只删除当前 schema 中的表。
-- 默认不允许第二个实例共享同一个 PostgreSQL 数据库（`database.allow_multi_instance: false`），转换前也会检查。
-- 转换前会强制备份源库：SQLite 使用 `VACUUM INTO`，PostgreSQL 使用 `pg_dump --format=custom`，备份位于 `data/db-convert/backups/<时间>/`。
+- 默认不允许第二个实例共享同一个 PostgreSQL 数据库（`database.allow_multi_instance: false`），切换前也会检查。
+- 切换前会强制备份源库：SQLite 使用 `VACUUM INTO`，PostgreSQL 使用 `pg_dump --format=custom`，备份位于 `data/db-convert/backups/<时间>/`。
 - 服务需要由 systemd、Docker restart policy 或类似进程管理器托管，否则切换后需要手动启动。
 
 ### 7.2 执行流程
 
-1. 在 `/upgrade` 选择目标后端，填写 PostgreSQL DSN 或 SQLite 文件路径（必须位于 `data_dir` 内）。
+1. 在 `/upgrade` 选择目标后端。PostgreSQL 可填写主机、端口、用户名、密码、数据库名与 SSL 模式，也可切换到“原生 DSN”直接粘贴完整 DSN；SQLite 填写文件路径（必须位于 `data_dir` 内）。
 2. 点击“测试连接”和“预检”，确认目标版本、空库状态、表与行数。
-3. 输入账户密码/TOTP 和 `CONVERT` 后开始转换。
-4. 转换期间进入维护模式，普通 API 暂停；应用先备份，再冻结写入、逐表复制、校验行数与逐表哈希、抽样解密敏感字段。
+3. 输入账户密码/TOTP，并完成页面上的算术确认后开始切换（界面不再要求手动输入 `CONVERT`，接口仍使用该确认词）。
+4. 切换期间进入维护模式，普通 API 暂停；应用先备份，再冻结写入、逐表复制、校验行数与逐表哈希、抽样解密敏感字段。
 5. 校验通过后原子改写 `config.yaml`，写入 `data/db-convert/state.json`，自动重启。
-6. 新进程打开目标库并执行启动自检；失败会自动恢复旧配置并回到源库。
+6. 新进程打开目标库并执行启动自检；失败会自动恢复旧配置并回到源库。自检通过后会自动删除旧 SQLite 数据库文件（含 `-wal`/`-shm`/`-journal`），切换前备份继续保留。
 
 写冻结时间取决于数据量；典型小库为秒级，日志/证书很多时为分钟级。复制和校验期间页面仍可轮询进度。
 
 ### 7.3 一键回滚
 
-转换完成后，`/upgrade` 会显示“一键回滚”。回滚不是简单切回旧配置，而是把**当前库的最新数据**反向转换回转换前的后端，再切换配置并重启，避免丢掉切换后的写入。
+切换完成后，`/upgrade` 会显示“一键回滚”（同构迁移除外）。回滚不是简单切回旧配置，而是把**当前库的最新数据**反向切换回切换前的后端，再切换配置并重启，避免丢掉切换后的写入。
 
-回滚同样会强制备份当前库、冻结写入并校验；需要输入 `ROLLBACK` 与账户密码/TOTP。转换前配置备份保留在 `config.yaml.before-db-convert-<时间>`，源库数据在转换成功后不会被删除。
+回滚同样会强制备份当前库、冻结写入并校验；需要完成页面上的算术确认并输入账户密码/TOTP（接口仍使用 `ROLLBACK` 作为确认词）。切换前配置备份保留在 `config.yaml.before-db-convert-<时间>`。切换自检通过后旧 SQLite 文件会被自动删除，但 `data/db-convert/backups/<时间>/` 中的切换前备份仍保留；回滚会基于当前 PostgreSQL 数据重新生成 SQLite 库。
 
 ### 7.4 CLI
 
@@ -201,10 +201,21 @@ data/upgrade-backups/program/
 
 ### 7.5 限制
 
-- 不提供双写/CDC 的零停机转换；写入会在复制与切换阶段暂停。
-- 多实例共享 PostgreSQL 时不能安全转换，v1 直接拒绝。
-- 环境变量 `LACTSSL_DATABASE_DSN` 存在时，改写配置文件不会生效；转换前必须先移除该变量并重启。
-- 转换前必须确保没有正在执行的批量部署/签发任务。
+- 不提供双写/CDC 的零停机切换；写入会在复制与切换阶段暂停。
+- 多实例共享 PostgreSQL 时不能安全切换，v1 直接拒绝。
+- 环境变量 `LACTSSL_DATABASE_DSN` 存在时，改写配置文件不会生效；切换前必须先移除该变量并重启。
+- 切换前必须确保没有正在执行的批量部署/签发任务。
+
+### 7.6 同构迁移（SQLite → SQLite / PostgreSQL → PostgreSQL）
+
+默认不允许同构迁移。确实需要把数据库搬到另一个文件或 PostgreSQL 实例时，必须在页面勾选“同构迁移”确认；API 请求体传 `allow_same_driver: true`，CLI 使用 `-allow-same-driver`。同构迁移额外限制：
+
+- 目标必须是空库/空文件；同构迁移不允许勾选“清空 schema”，避免误删源库。
+- 目标不能是当前库本身：SQLite 会比较真实文件（含软链接、硬链接）；PostgreSQL 会比较实例启动时间和数据库名，同一实例的同一数据库（包括不同 schema）都会被拒绝。
+- PostgreSQL → PostgreSQL 切换成功后不会删除源数据库，需要管理员确认后手工清理。
+- SQLite → SQLite 切换自检通过后会删除旧 SQLite 文件，切换前备份仍保留在 `data/db-convert/backups/`。
+- 同构迁移不支持页面上的“一键回滚”，请使用切换前备份手动恢复；PostgreSQL 源库会保留，SQLite 旧文件可由备份恢复。
+- 同构迁移与 `-force` 不能同时使用。
 
 ## 8. 手动迁移与数据库优化
 
@@ -270,13 +281,13 @@ upgrade:
 | `/upgrade` | GET | `upgrade:read` | 预检状态 |
 | `/upgrade/run` | POST | `upgrade:write` | 迁移、配置优化与数据库优化 |
 | `/upgrade/optimize` | POST | `upgrade:write` | 仅优化配置与数据库 |
-| `/upgrade/database` | GET | `upgrade:read` | 当前后端与转换进度 |
+| `/upgrade/database` | GET | `upgrade:read` | 当前后端与切换进度 |
 | `/upgrade/database/test` | POST | `upgrade:read` | 测试目标连接与空库状态 |
-| `/upgrade/database/preflight` | POST | `upgrade:read` | 转换预检 |
-| `/upgrade/database/convert` | POST | `upgrade:write` | 启动转换（需二次认证） |
-| `/upgrade/database/convert` | GET | `upgrade:read` | 查询转换进度 |
-| `/upgrade/database/convert/cancel` | POST | `upgrade:write` | 取消未切换的转换 |
-| `/upgrade/database/rollback` | POST | `upgrade:write` | 一键反向转换回旧后端 |
+| `/upgrade/database/preflight` | POST | `upgrade:read` | 切换预检 |
+| `/upgrade/database/convert` | POST | `upgrade:write` | 启动切换（需二次认证） |
+| `/upgrade/database/convert` | GET | `upgrade:read` | 查询切换进度 |
+| `/upgrade/database/convert/cancel` | POST | `upgrade:write` | 取消未完成的切换 |
+| `/upgrade/database/rollback` | POST | `upgrade:write` | 一键反向切换回旧后端 |
 | `/upgrade/program` | GET | `upgrade:read` | 程序升级状态 |
 | `/upgrade/program/check` | POST | `upgrade:write` | 立即查询 GitHub Release |
 | `/upgrade/program/apply` | POST | `upgrade:write` | 下载并安装指定版本 |

@@ -16,11 +16,15 @@ import (
 	"lactssl/internal/util"
 )
 
-// API 密钥令牌使用固定前缀，便于认证中间件与普通会话 JWT 区分。
+// API 密钥令牌是 64 字节随机数的无填充 Base64URL 编码，共 86 个字符。
+// 不携带固定前缀，认证中间件通过长度与字符集与会话 JWT 区分。
 const (
-	apiKeyTokenPrefix = "lactssl_"
-	apiKeyHeader      = "X-API-Key" // #nosec G101 -- API 协议头名称，非凭据
-	apiKeyContextKey  = "api_key"
+	apiKeyTokenBytes  = 64
+	apiKeyTokenLength = 86
+	// legacyAPIKeyPrefix 仅为兼容旧版本已签发的密钥而保留；新密钥不再使用前缀。
+	legacyAPIKeyPrefix = "lactssl_"
+	apiKeyHeader       = "X-API-Key" // #nosec G101 -- API 协议头名称，非凭据
+	apiKeyContextKey   = "api_key"
 	// apiKeyTouchWindow 限制最近使用时间的写库频率，避免每个请求都写 SQLite。
 	apiKeyTouchWindow = time.Minute
 )
@@ -352,8 +356,16 @@ func apiKeyFromContext(c *gin.Context) *model.APIKey {
 }
 
 // looksLikeAPIKey 判断令牌是否使用 API 密钥格式。
+// 新密钥为 86 位 Base64URL 随机串；旧版本带 lactssl_ 前缀的密钥继续接受。
 func looksLikeAPIKey(token string) bool {
-	return strings.HasPrefix(token, apiKeyTokenPrefix)
+	if strings.HasPrefix(token, legacyAPIKeyPrefix) {
+		return true
+	}
+	if len(token) != apiKeyTokenLength {
+		return false
+	}
+	_, err := base64.RawURLEncoding.DecodeString(token)
+	return err == nil
 }
 
 // authenticateAPIKey 校验 API 密钥并写入认证上下文。
@@ -702,20 +714,19 @@ func (s *Server) rotateAPIKey(c *gin.Context) {
 }
 
 func newAPIKeyToken() (string, error) {
-	buf := make([]byte, 32)
+	buf := make([]byte, apiKeyTokenBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	return apiKeyTokenPrefix + base64.RawURLEncoding.EncodeToString(buf), nil
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 func apiKeyPrefixOf(token string) string {
 	const visible = 8
-	start := len(apiKeyTokenPrefix)
-	if len(token) <= start+visible {
+	if len(token) <= visible {
 		return token
 	}
-	return token[:start+visible]
+	return token[:visible]
 }
 
 func validateAPIKeyName(name string) error {

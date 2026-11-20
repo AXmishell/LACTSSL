@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
 )
@@ -66,7 +67,7 @@ func (s *Server) downloadCertificate(c *gin.Context) {
 			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 			return
 		}
-		if allowed, wait := s.limiter.Allow("certkeyexport:"+fmt.Sprintf("%d", user.ID), 30, time.Minute); !allowed {
+		if allowed, wait := s.allow(ratelimit.CertKeyExport, "certkeyexport:"+fmt.Sprintf("%d", user.ID)); !allowed {
 			rateLimited(c, wait)
 			return
 		}
@@ -108,7 +109,7 @@ func (s *Server) getCertificatePEM(c *gin.Context) {
 			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 			return
 		}
-		if allowed, wait := s.limiter.Allow("certkeyview:"+fmt.Sprintf("%d", user.ID), 30, time.Minute); !allowed {
+		if allowed, wait := s.allow(ratelimit.CertKeyView, "certkeyview:"+fmt.Sprintf("%d", user.ID)); !allowed {
 			rateLimited(c, wait)
 			return
 		}
@@ -282,7 +283,7 @@ func (s *Server) clearDeployments(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow("deployments:clear:"+strconv.FormatInt(user.ID, 10), 3, 10*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.DeploymentsClear, "deployments:clear:"+strconv.FormatInt(user.ID, 10)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

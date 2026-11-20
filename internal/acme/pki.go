@@ -17,10 +17,8 @@ import (
 )
 
 const (
-	maxOCSPBody  = 64 * 1024
-	crlCacheTTL  = 5 * time.Minute
-	pkiRateLimit = 600
-	pkiRateWin   = time.Minute
+	maxOCSPBody = 64 * 1024
+	crlCacheTTL = 5 * time.Minute
 )
 
 // crlCacheEntry 缓存同一吊销集合的 CRL，避免每次请求都自增编号并重新签名。

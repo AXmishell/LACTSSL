@@ -1,6 +1,6 @@
 package db
 
-// TableSpec 描述一张需要备份/转换的数据表。
+// TableSpec 描述一张需要备份/切换的数据表。
 type TableSpec struct {
 	Name       string
 	PrimaryKey []string
@@ -8,7 +8,7 @@ type TableSpec struct {
 }
 
 // DataTables 返回需要复制的业务表，顺序已按外键依赖排列。
-// 新增表时必须同步维护这里，转换/校验会检查表集合是否一致。
+// 新增表时必须同步维护这里，切换/校验会检查表集合是否一致。
 func DataTables() []TableSpec {
 	return []TableSpec{
 		{Name: "users", PrimaryKey: []string{"id"}, HasID: true},

@@ -12,14 +12,11 @@ import (
 
 	"golang.org/x/sync/singleflight"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/store"
 )
 
-const (
-	maxACMEBody           = 64 * 1024
-	acmeRequestRateLimit  = 1200
-	acmeRequestRateWindow = time.Minute
-)
+const maxACMEBody = 64 * 1024
 
 // Server 实现 ACME v2 协议的服务端核心。
 type Server struct {
@@ -32,6 +29,7 @@ type Server struct {
 	Now       func() time.Time
 
 	validationSem  chan struct{}
+	rateLimits     ratelimit.Config
 	accountLimiter *ipRateLimiter
 	pkiLimiter     *ipRateLimiter
 	requestLimiter *ipRateLimiter
@@ -62,25 +60,38 @@ type ocspCacheEntry struct {
 	expires time.Time
 }
 
-// NewServer 创建 ACME 协议服务。
-func NewServer(st *store.Store, baseURL string) *Server {
-	return &Server{
-		Store:          st,
-		BaseURL:        strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		Nonces:         NewNonceStore(),
-		HTTP01:         NewHTTP01Validator(),
-		DNS01:          NewDNS01Validator(),
-		TLSALPN01:      NewTLSALPN01Validator(),
-		Now:            time.Now,
-		validationSem:  make(chan struct{}, 8),
-		accountLimiter: newIPRateLimiter(30, time.Hour),
-		pkiLimiter:     newIPRateLimiter(pkiRateLimit, pkiRateWin),
-		// 覆盖 new-nonce/directory 与非法 slug，避免匿名请求放大内存与 SQLite 读压力。
-		requestLimiter:  newIPRateLimiter(acmeRequestRateLimit, acmeRequestRateWindow),
+// NewServer 创建 ACME 协议服务。limits 可选，用于覆盖内置限流阈值。
+func NewServer(st *store.Store, baseURL string, limits ...ratelimit.Config) *Server {
+	s := &Server{
+		Store:           st,
+		BaseURL:         strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		Nonces:          NewNonceStore(),
+		HTTP01:          NewHTTP01Validator(),
+		DNS01:           NewDNS01Validator(),
+		TLSALPN01:       NewTLSALPN01Validator(),
+		Now:             time.Now,
+		validationSem:   make(chan struct{}, 8),
 		crlCache:        make(map[int64]crlCacheEntry),
 		validationQuota: make(map[int64]chan struct{}),
 		ocspCache:       make(map[string]ocspCacheEntry),
 	}
+	s.SetRateLimits(ratelimit.DefaultConfig())
+	if len(limits) > 0 {
+		s.SetRateLimits(limits[0])
+	}
+	return s
+}
+
+// SetRateLimits 应用限流配置并重建 ACME 入口限流器。
+func (s *Server) SetRateLimits(cfg ratelimit.Config) {
+	s.rateLimits = cfg
+	request := cfg.For(ratelimit.ACMERequest)
+	account := cfg.For(ratelimit.ACMEAccount)
+	pki := cfg.For(ratelimit.ACMEPKI)
+	// 覆盖 new-nonce/directory 与非法 slug，避免匿名请求放大内存与 SQLite 读压力。
+	s.requestLimiter = newIPRateLimiter(request.Max, request.Window)
+	s.accountLimiter = newIPRateLimiter(account.Max, account.Window)
+	s.pkiLimiter = newIPRateLimiter(pki.Max, pki.Window)
 }
 
 // Handler 返回 ACME 协议处理器。处理器可挂载在独立端口，也可挂到主路由的 /acme 前缀。

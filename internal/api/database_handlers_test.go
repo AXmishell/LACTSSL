@@ -21,7 +21,7 @@ func TestMaintenanceGateAllowsDatabaseStatusOnly(t *testing.T) {
 	status := httptest.NewRecorder()
 	r.ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/api/upgrade/database", nil))
 	if status.Code != http.StatusOK {
-		t.Fatalf("转换状态接口应放行，实际 %d", status.Code)
+		t.Fatalf("切换状态接口应放行，实际 %d", status.Code)
 	}
 	blocked := httptest.NewRecorder()
 	r.ServeHTTP(blocked, httptest.NewRequest(http.MethodGet, "/api/certificates", nil))

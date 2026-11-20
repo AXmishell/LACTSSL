@@ -19,6 +19,7 @@ import (
 	"lactssl/internal/auth"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/store"
 )
 
@@ -197,7 +198,7 @@ func (s *Server) handlePasskeyAvailability(c *gin.Context) {
 }
 
 func (s *Server) handlePasskeyLoginBegin(c *gin.Context) {
-	if allowed, wait := s.limiter.Allow("passkey:login:begin:"+clientRateKey(c), 20, 5*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.PasskeyLoginBegin, "passkey:login:begin:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -248,7 +249,7 @@ func (s *Server) handlePasskeyLoginFinish(c *gin.Context) {
 	webauthnUser, credential, err := instance.ValidatePasskeyLogin(s.findPasskeyUser, ceremony.Session, parsed)
 	if err != nil {
 		s.Store.AddLogKey("auth", 0, "warning", "log.auth.passkey_login_failed", map[string]any{"ip": c.ClientIP()})
-		if allowed, wait := s.limiter.Allow("passkey:login:fail:"+clientRateKey(c), 10, 5*time.Minute); !allowed {
+		if allowed, wait := s.allow(ratelimit.PasskeyLoginFail, "passkey:login:fail:"+clientRateKey(c)); !allowed {
 			rateLimited(c, wait)
 			return
 		}

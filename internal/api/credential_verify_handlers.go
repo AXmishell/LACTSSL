@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 )
 
@@ -51,11 +52,11 @@ func (s *Server) verifyGuard(c *gin.Context, password, totp, scope string) bool 
 }
 
 func (s *Server) verifyRateLimit(c *gin.Context, key string) bool {
-	if allowed, wait := s.limiter.Allow(key, 5, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.CredentialVerify, key); !allowed {
 		rateLimited(c, wait)
 		return false
 	}
-	if allowed, wait := s.limiter.Allow("verify:client:"+clientRateKey(c), 20, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.CredentialVerifyClient, "verify:client:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return false
 	}

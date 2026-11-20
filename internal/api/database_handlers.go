@@ -14,9 +14,10 @@ import (
 	"lactssl/internal/db"
 	"lactssl/internal/dbconvert"
 	"lactssl/internal/i18n"
+	"lactssl/internal/ratelimit"
 )
 
-// maintenanceGate 在数据库转换期间拒绝普通 API，只保留状态轮询与静态页面。
+// maintenanceGate 在数据库切换期间拒绝普通 API，只保留状态轮询与静态页面。
 func (s *Server) maintenanceGate() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !s.maintenance.Load() {
@@ -39,7 +40,7 @@ func (s *Server) maintenanceGate() gin.HandlerFunc {
 	}
 }
 
-// SetMaintenance 由转换管理器回调，切换期间拒绝普通 API。
+// SetMaintenance 由切换管理器回调，切换期间拒绝普通 API。
 func (s *Server) SetMaintenance(active bool) { s.maintenance.Store(active) }
 
 func (s *Server) databaseConvertManager(c *gin.Context) *dbconvert.Manager {
@@ -50,7 +51,7 @@ func (s *Server) databaseConvertManager(c *gin.Context) *dbconvert.Manager {
 	return s.DBConvert
 }
 
-// getDatabaseConvertStatus 返回当前数据库与转换任务进度。
+// getDatabaseConvertStatus 返回当前数据库与切换任务进度。
 func (s *Server) getDatabaseConvertStatus(c *gin.Context) {
 	manager := s.databaseConvertManager(c)
 	if manager == nil {
@@ -60,10 +61,11 @@ func (s *Server) getDatabaseConvertStatus(c *gin.Context) {
 }
 
 type databaseTargetBody struct {
-	TargetDriver string `json:"target_driver"`
-	TargetPath   string `json:"target_path"`
-	TargetDSN    string `json:"target_dsn"`
-	Force        bool   `json:"force"`
+	TargetDriver    string `json:"target_driver"`
+	TargetPath      string `json:"target_path"`
+	TargetDSN       string `json:"target_dsn"`
+	Force           bool   `json:"force"`
+	AllowSameDriver bool   `json:"allow_same_driver"`
 }
 
 func (s *Server) targetRequest(c *gin.Context) (dbconvert.StartRequest, bool) {
@@ -112,10 +114,11 @@ func (s *Server) targetRequest(c *gin.Context) (dbconvert.StartRequest, bool) {
 		}
 	}
 	return dbconvert.StartRequest{
-		TargetDriver: driver,
-		TargetPath:   path,
-		TargetDSN:    dsn,
-		Force:        body.Force,
+		TargetDriver:    driver,
+		TargetPath:      path,
+		TargetDSN:       dsn,
+		Force:           body.Force,
+		AllowSameDriver: body.AllowSameDriver,
 	}, true
 }
 
@@ -125,7 +128,7 @@ func (s *Server) databaseTargetRateLimit(c *gin.Context) bool {
 	if apiKeyFromContext(c) != nil {
 		key = "db-target:" + currentSessionID(c)
 	}
-	if allowed, wait := s.limiter.Allow(key, 10, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.DatabaseOperation, key); !allowed {
 		rateLimited(c, wait)
 		return false
 	}
@@ -218,7 +221,7 @@ func (s *Server) preflightDatabaseConvert(c *gin.Context) {
 	ok(c, report)
 }
 
-// startDatabaseConvert 启动异步转换。调用方需要二次认证并输入确认词。
+// startDatabaseConvert 启动异步切换。调用方需要二次认证并输入确认词。
 func (s *Server) startDatabaseConvert(c *gin.Context) {
 	manager := s.databaseConvertManager(c)
 	if manager == nil {
@@ -230,6 +233,7 @@ func (s *Server) startDatabaseConvert(c *gin.Context) {
 		TargetPath      string `json:"target_path"`
 		TargetDSN       string `json:"target_dsn"`
 		Force           bool   `json:"force"`
+		AllowSameDriver bool   `json:"allow_same_driver"`
 		AccountPassword string `json:"account_password"`
 		TOTP            string `json:"totp"`
 		Confirm         string `json:"confirm"`
@@ -255,10 +259,11 @@ func (s *Server) startDatabaseConvert(c *gin.Context) {
 		return
 	}
 	req := dbconvert.StartRequest{
-		TargetDriver: driver,
-		TargetPath:   strings.TrimSpace(body.TargetPath),
-		TargetDSN:    strings.TrimSpace(body.TargetDSN),
-		Force:        body.Force,
+		TargetDriver:    driver,
+		TargetPath:      strings.TrimSpace(body.TargetPath),
+		TargetDSN:       strings.TrimSpace(body.TargetDSN),
+		Force:           body.Force,
+		AllowSameDriver: body.AllowSameDriver,
 	}
 	if driver == db.SQLite {
 		abs, err := filepath.Abs(req.TargetPath)
@@ -294,7 +299,7 @@ func (s *Server) startDatabaseConvert(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": state})
 }
 
-// rollbackDatabaseConvert 用当前数据反向转换回转换前的后端。
+// rollbackDatabaseConvert 用当前数据反向切换回切换前的后端。
 func (s *Server) rollbackDatabaseConvert(c *gin.Context) {
 	manager := s.databaseConvertManager(c)
 	if manager == nil {
@@ -333,7 +338,7 @@ func (s *Server) rollbackDatabaseConvert(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": state})
 }
 
-// cancelDatabaseConvert 取消尚未切换的转换。
+// cancelDatabaseConvert 取消尚未进入切换阶段的切换任务。
 func (s *Server) cancelDatabaseConvert(c *gin.Context) {
 	manager := s.databaseConvertManager(c)
 	if manager == nil {

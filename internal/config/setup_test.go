@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"lactssl/internal/ratelimit"
 )
 
 func TestUpdateSetupConfigPreservesCommentsAndSecrets(t *testing.T) {
@@ -362,6 +364,75 @@ func TestLoadSetupConfigUsesDefaultsAndDoesNotExposeSecrets(t *testing.T) {
 	}
 	if !cfg.Plugins.Repo.Enabled || cfg.Plugins.Repo.Channel != "stable" || cfg.Plugins.TimeoutSeconds != 60 {
 		t.Fatalf("默认插件配置不正确: %+v", cfg.Plugins)
+	}
+	if cfg.RateLimit.MaxKeys != ratelimit.DefaultMaxKeys {
+		t.Fatalf("默认限流 key 上限不正确: %d", cfg.RateLimit.MaxKeys)
+	}
+	if rule := cfg.RateLimit.Rules[ratelimit.LoginIP]; rule.Max != 10 || rule.WindowSeconds != 300 {
+		t.Fatalf("默认登录限流规则不正确: %+v", rule)
+	}
+}
+
+func TestUpdateSetupConfigRateLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := `security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	maxKeys := 2000
+	max := 3
+	window := 90
+	patch := SetupConfigPatch{RateLimit: &SetupRateLimitPatch{
+		MaxKeys: &maxKeys,
+		Rules: map[string]SetupRateLimitRulePatch{
+			ratelimit.LoginIP: {Max: &max, WindowSeconds: &window},
+		},
+	}}
+	if err := UpdateSetupConfig(path, patch); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadSetupConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RateLimit.MaxKeys != maxKeys {
+		t.Fatalf("max_keys 未写入: %d", cfg.RateLimit.MaxKeys)
+	}
+	if rule := cfg.RateLimit.Rules[ratelimit.LoginIP]; rule.Max != max || rule.WindowSeconds != window {
+		t.Fatalf("login_ip 未写入: %+v", rule)
+	}
+	if rule := cfg.RateLimit.Rules[ratelimit.ACMERequest]; rule.Max != 1200 || rule.WindowSeconds != 60 {
+		t.Fatalf("未覆盖的规则应保持默认值: %+v", rule)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "rate_limit:") || !strings.Contains(string(data), "login_ip:") {
+		t.Fatalf("配置文件缺少限流节点:\n%s", data)
+	}
+}
+
+func TestUpdateSetupConfigRejectsUnknownRateLimitRule(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := `security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	max := 1
+	patch := SetupConfigPatch{RateLimit: &SetupRateLimitPatch{
+		Rules: map[string]SetupRateLimitRulePatch{
+			"not_a_rule": {Max: &max},
+		},
+	}}
+	if err := UpdateSetupConfig(path, patch); !errors.Is(err, ErrSetupConfigInvalid) {
+		t.Fatalf("未知规则应被拒绝，实际: %v", err)
 	}
 }
 

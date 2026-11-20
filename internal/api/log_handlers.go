@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/store"
 )
 
@@ -58,7 +59,7 @@ func (s *Server) exportLogs(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow("logs:export:"+strconv.FormatInt(user.ID, 10), 5, 10*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.LogExport, "logs:export:"+strconv.FormatInt(user.ID, 10)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -171,7 +172,7 @@ func (s *Server) clearLogs(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow("logs:clear:"+strconv.FormatInt(user.ID, 10), 3, 10*time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.LogClear, "logs:clear:"+strconv.FormatInt(user.ID, 10)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

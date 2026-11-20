@@ -108,6 +108,8 @@ a {
 }
 
 .k-card {
+  /* 卡片高度始终由内容决定，避免被父级 flex/grid 拉伸成固定高度。 */
+  height: auto;
   background: var(--kp-card);
   border: 1px solid var(--kp-border);
   border-radius: 16px;

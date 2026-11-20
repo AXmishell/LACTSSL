@@ -337,7 +337,7 @@ curl -I http://127.0.0.1:8080/          # 未带门禁 Cookie 应为 404，属�
 ss -lntp | grep 8080
 
 # 使用 API 密钥做认证检查
-curl -H "Authorization: Bearer lactssl_xxx" \
+curl -H "Authorization: Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   https://ssl.example.com/api/status
 ```
 

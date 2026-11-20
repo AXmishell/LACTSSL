@@ -111,6 +111,11 @@ func defaultSpec() map[string]any {
 			"session_persistence": fc.Security.SessionPersistence,
 			"jwt_secret":          fc.Security.JWTSecret,
 			"salt":                fc.Security.Salt,
+			"rate_limit": map[string]any{
+				"max_keys": fc.Security.RateLimit.MaxKeys,
+				// 动态规则表：旧配置缺少该节点时补一个空表，由运行时使用内置默认值。
+				"rules": map[string]any{},
+			},
 		},
 		"acme": map[string]any{
 			"enabled":  fc.ACME.Enabled,

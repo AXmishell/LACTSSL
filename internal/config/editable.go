@@ -230,6 +230,12 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 	proxies := append([]string(nil), cfg.TrustedProxies...)
 	publicURL := cfg.PublicURL
 	sessionPersistence := cfg.SessionPersistence
+	rateLimitMaxKeys := cfg.RateLimit.MaxKeys
+	rateLimitRules := make(map[string]SetupRateLimitRulePatch, len(cfg.RateLimit.Rules))
+	for name, rule := range cfg.RateLimit.Rules {
+		max, window := rule.Max, rule.WindowSeconds
+		rateLimitRules[name] = SetupRateLimitRulePatch{Max: &max, WindowSeconds: &window}
+	}
 
 	acmeEnabled := cfg.ACME.Enabled
 	acmeAddr := cfg.ACME.Addr
@@ -292,6 +298,10 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 		TrustedProxies:     &proxies,
 		PublicURL:          &publicURL,
 		SessionPersistence: &sessionPersistence,
+		RateLimit: &SetupRateLimitPatch{
+			MaxKeys: &rateLimitMaxKeys,
+			Rules:   rateLimitRules,
+		},
 		ACME: &SetupACMEPatch{
 			Enabled: &acmeEnabled,
 			Addr:    &acmeAddr,

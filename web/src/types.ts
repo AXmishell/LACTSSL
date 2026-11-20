@@ -871,6 +871,16 @@ export interface SetupPluginRuntimeConfig {
   max_output_kb: number
 }
 
+export interface SetupRateLimitRule {
+  max: number
+  window_seconds: number
+}
+
+export interface SetupRateLimitConfig {
+  max_keys: number
+  rules: Record<string, SetupRateLimitRule>
+}
+
 export interface SetupConfig {
   server: {
     addr: string
@@ -880,6 +890,7 @@ export interface SetupConfig {
   trusted_proxies: string[]
   public_url: string
   session_persistence: boolean
+  rate_limit: SetupRateLimitConfig
   acme: {
     enabled: boolean
     addr: string

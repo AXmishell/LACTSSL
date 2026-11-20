@@ -41,7 +41,7 @@ Key conclusions:
 
 ### 2.2 API keys
 
-- Keys start with `lactssl_`; the server stores only a digest.
+- Keys are 86-character Base64URL random strings (64 bytes of entropy) with no fixed prefix; the server stores only a SHA-256 digest.
 - Permissions are divided by "resource:action"; `*` represents all system API capabilities.
 - Sensitive permissions are listed separately: `certificates:key`, `private_cas:key`, `deploy:execute`, `backup:download`, `backup:restore`, `plugins:write`, `settings:write`, `api_keys:write`, and others.
 - When managing other keys through an API key, a key cannot grant permissions it does not have, nor modify, rotate, or delete keys with higher privileges than its own.

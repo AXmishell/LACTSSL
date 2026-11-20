@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/util"
 )
 
@@ -46,6 +47,7 @@ type Config struct {
 	// 且 JWT 签名子密钥不随启动轮换），否则每次启动都会使所有旧登录失效。
 	SessionPersistence bool             // 重启后保留登录会话
 	TrustedProxies     []string         // 可信反向代理 CIDR；为空表示不信任任何代理头
+	RateLimit          ratelimit.Config // 管理端与 ACME 入口限流阈值
 	ACME               ACMEConfig       // 内置 ACME 服务端配置
 	Plugins            PluginsConfig    // 外部 DNS 插件配置
 	PluginRepo         PluginRepoConfig // 插件仓库配置
@@ -181,6 +183,10 @@ type fileConfig struct {
 		SessionPersistence bool   `yaml:"session_persistence"`
 		JWTSecret          string `yaml:"jwt_secret"`
 		Salt               string `yaml:"salt"`
+		RateLimit          struct {
+			MaxKeys int                          `yaml:"max_keys"`
+			Rules   map[string]fileRateLimitRule `yaml:"rules"`
+		} `yaml:"rate_limit"`
 	} `yaml:"security"`
 	ACME struct {
 		Enabled bool   `yaml:"enabled"`
@@ -269,10 +275,18 @@ type fileConfig struct {
 	} `yaml:"upgrade"`
 }
 
+// fileRateLimitRule 是 config.yaml 中单条限流规则的覆盖项。
+// 使用指针区分「未配置」与「显式配置为 0」；未配置的字段回退到内置默认值。
+type fileRateLimitRule struct {
+	Max           *int `yaml:"max"`
+	WindowSeconds *int `yaml:"window_seconds"`
+}
+
 // defaults 返回配置文件缺失字段时使用的默认值。
 func defaults() *fileConfig {
 	fc := &fileConfig{}
 	fc.Server.Port = 8080
+	fc.Security.RateLimit.MaxKeys = ratelimit.DefaultMaxKeys
 	fc.DataDir = "data"
 	// 默认仍使用 SQLite；PostgreSQL 需要显式配置 driver 与 dsn。
 	fc.Database.Driver = "sqlite"
@@ -472,6 +486,11 @@ func LoadFrom(path string) (*Config, error) {
 
 	trustedProxies := fc.Server.TrustedProxies
 
+	rateLimitCfg, err := resolveRateLimit(fc)
+	if err != nil {
+		return nil, err
+	}
+
 	acmeCfg := ACMEConfig{
 		Enabled:      fc.ACME.Enabled,
 		Addr:         strings.TrimSpace(fc.ACME.Addr),
@@ -645,6 +664,7 @@ func LoadFrom(path string) (*Config, error) {
 		PublicURL:          publicURL,
 		SessionPersistence: sessionPersistence,
 		TrustedProxies:     trustedProxies,
+		RateLimit:          rateLimitCfg,
 		ACME:               acmeCfg,
 		Plugins:            pluginsCfg,
 		PluginRepo:         repoCfg,
@@ -660,6 +680,40 @@ func LoadFrom(path string) (*Config, error) {
 		File:             path,
 		LegacySecretFile: filepath.Join(dataDir, "jwt.secret"),
 	}, nil
+}
+
+// resolveRateLimit 把配置文件中的局部覆盖合并到内置默认限流规则。
+func resolveRateLimit(fc *fileConfig) (ratelimit.Config, error) {
+	cfg := ratelimit.DefaultConfig()
+	if fc.Security.RateLimit.MaxKeys != 0 {
+		cfg.MaxKeys = fc.Security.RateLimit.MaxKeys
+	}
+	if cfg.MaxKeys < 1 || cfg.MaxKeys > 1000000 {
+		return ratelimit.Config{}, fmt.Errorf("security.rate_limit.max_keys 必须在 1-1000000 之间")
+	}
+	for name, override := range fc.Security.RateLimit.Rules {
+		if !ratelimit.Known(name) {
+			return ratelimit.Config{}, fmt.Errorf("security.rate_limit.rules.%s 不是已知的限流规则", name)
+		}
+		rule := cfg.For(name)
+		if override.Max != nil {
+			rule.Max = *override.Max
+		}
+		if override.WindowSeconds != nil {
+			rule.Window = time.Duration(*override.WindowSeconds) * time.Second
+		}
+		if rule.Max < 0 || rule.Max > 1000000 {
+			return ratelimit.Config{}, fmt.Errorf("security.rate_limit.rules.%s.max 必须在 0-1000000 之间", name)
+		}
+		if rule.Window < 0 || rule.Window > 7*24*time.Hour {
+			return ratelimit.Config{}, fmt.Errorf("security.rate_limit.rules.%s.window_seconds 必须在 0-604800 之间", name)
+		}
+		if rule.Max > 0 && rule.Window <= 0 {
+			return ratelimit.Config{}, fmt.Errorf("security.rate_limit.rules.%s.window_seconds 必须大于 0", name)
+		}
+		cfg.Rules[name] = rule
+	}
+	return cfg, nil
 }
 
 // validatePluginConfig 校验外部插件配置范围，避免误配导致子进程无法启动。
@@ -820,6 +874,9 @@ func validateFileValues(fc *fileConfig) error {
 		}
 	}
 	if err := validatePublicURL(strings.TrimRight(strings.TrimSpace(fc.Security.PublicURL), "/")); err != nil {
+		return err
+	}
+	if _, err := resolveRateLimit(fc); err != nil {
 		return err
 	}
 	if fc.Server.Port < 0 || fc.Server.Port > 65535 {
@@ -1151,7 +1208,7 @@ security:
   jwt_secret: %s
   # 数据库敏感字段加密盐（AES-256-GCM）；留空则自动生成并写回本文件。手动配置时至少 32 个字符。
   salt: %s
-
+%s
 acme:
   # 是否启用内置 ACME 服务端（默认开启）；端点、EAB、域名白名单在管理接口中配置
   enabled: %t
@@ -1268,6 +1325,7 @@ notify_plugins:
 		fc.Security.SessionPersistence,
 		quote(fc.Security.JWTSecret),
 		quote(fc.Security.Salt),
+		rateLimitTemplateBlock(),
 		fc.ACME.Enabled,
 		quote(fc.ACME.Addr),
 		quote(fc.ACME.BaseURL),
@@ -1357,6 +1415,23 @@ func writeFile(path string, data []byte) error {
 		return fmt.Errorf("设置配置文件权限失败: %w", err)
 	}
 	return nil
+}
+
+// rateLimitTemplateBlock 生成 config.yaml 中 security.rate_limit 的默认配置片段。
+func rateLimitTemplateBlock() string {
+	cfg := ratelimit.DefaultConfig()
+	var b strings.Builder
+	b.WriteString("  rate_limit:\n")
+	b.WriteString("    # 管理端内存限流器最多保留的 key 数；0 表示使用默认值\n")
+	fmt.Fprintf(&b, "    max_keys: %d\n", cfg.MaxKeys)
+	b.WriteString("    # 各接口限流阈值：max 为窗口内允许次数（0 表示不限制），window_seconds 为窗口秒数。\n")
+	b.WriteString("    # 删除某条规则即恢复内置默认值；未知规则名会导致启动失败。\n")
+	b.WriteString("    rules:\n")
+	for _, name := range ratelimit.Names() {
+		rule := cfg.For(name)
+		fmt.Fprintf(&b, "      %s: {max: %d, window_seconds: %d}\n", name, rule.Max, int(rule.Window.Seconds()))
+	}
+	return b.String()
 }
 
 // quote 生成安全的 YAML 双引号字符串。

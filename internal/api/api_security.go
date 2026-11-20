@@ -4,9 +4,9 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
+	"lactssl/internal/ratelimit"
 )
 
 // publicAPIRoutes 是允许匿名访问的接口。新增接口默认需要认证，
@@ -87,6 +87,16 @@ func (s *Server) csrfGuard() gin.HandlerFunc {
 			return
 		}
 		if !s.validCSRF(c) {
+			s.logger().Warn("csrf validation failed",
+				"request_id", c.GetString(requestIDKey),
+				"path", s.logPath(c),
+				"header_present", strings.TrimSpace(c.GetHeader(csrfHeaderName)) != "",
+				"legacy_cookie", cookiePresent(c, csrfCookieName),
+				"host_cookie", cookiePresent(c, hostCookiePrefix+csrfCookieName),
+				"sec_fetch_site", c.GetHeader("Sec-Fetch-Site"),
+				"origin", c.GetHeader("Origin"),
+				"host", c.Request.Host,
+			)
 			failKey(c, http.StatusForbidden, "api.error.unauthorized")
 			return
 		}
@@ -99,18 +109,24 @@ func (s *Server) csrfGuard() gin.HandlerFunc {
 // 裸 /api 会直接面对扫描器；登录接口在处理器内还有更严格的 IP 与账户维度限流。
 func (s *Server) apiRateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if allowed, wait := s.limiter.Allow("api-ip:"+clientRateKey(c), 600, time.Minute); !allowed {
+		if allowed, wait := s.allow(ratelimit.APIIP, "api-ip:"+clientRateKey(c)); !allowed {
 			rateLimited(c, wait)
 			return
 		}
 		if token, _ := s.sessionToken(c); token == "" && strings.TrimSpace(c.GetHeader(apiKeyHeader)) == "" {
-			if allowed, wait := s.limiter.Allow("anon-api:"+clientRateKey(c), 120, time.Minute); !allowed {
+			if allowed, wait := s.allow(ratelimit.APIAnonymous, "anon-api:"+clientRateKey(c)); !allowed {
 				rateLimited(c, wait)
 				return
 			}
 		}
 		c.Next()
 	}
+}
+
+// cookiePresent 判断请求是否携带指定名称的 Cookie，仅用于诊断日志，不输出值。
+func cookiePresent(c *gin.Context, name string) bool {
+	value, err := c.Cookie(name)
+	return err == nil && value != ""
 }
 
 // entryMiddleware 仅用于旧版 /<entry>/api 兼容路径：入口错误时拒绝执行，
@@ -121,7 +137,7 @@ func (s *Server) entryMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if allowed, wait := s.limiter.Allow("entry:"+clientRateKey(c), 60, time.Minute); !allowed {
+		if allowed, wait := s.allow(ratelimit.Entry, "entry:"+clientRateKey(c)); !allowed {
 			rateLimited(c, wait)
 			return
 		}

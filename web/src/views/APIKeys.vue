@@ -225,7 +225,7 @@
     </el-dialog>
 
     <!-- 仅显示一次的令牌 -->
-    <el-dialog v-model="tokenVisible" :title="t('apiKeys.tokenTitle')" width="620px" :close-on-click-modal="false" @closed="issuedToken = ''">
+    <el-dialog v-model="tokenVisible" :title="t('apiKeys.tokenTitle')" width="min(860px, 94vw)" :close-on-click-modal="false" @closed="issuedToken = ''">
       <el-alert type="warning" :closable="false" show-icon :title="t('apiKeys.tokenWarning')" style="margin-bottom: 16px" />
       <div class="token-box mono">{{ issuedToken }}</div>
       <div class="flex gap-10" style="margin: 12px 0 18px">

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"lactssl/internal/config"
+	"lactssl/internal/ratelimit"
 )
 
 func newSettingsConfigTestServer(t *testing.T) (*Server, *gin.Engine) {
@@ -74,6 +76,45 @@ func TestSettingsConfigRequiresAuthAndReauth(t *testing.T) {
 		if !strings.Contains(saved.Body.String(), want) {
 			t.Fatalf("保存响应缺少 %q: %s", want, saved.Body.String())
 		}
+	}
+}
+
+func TestSettingsConfigSavesRateLimits(t *testing.T) {
+	s, router := newSettingsConfigTestServer(t)
+	session := loginSessionTest(t, router)
+	revision, configData := settingsConfigGet(t, router, session)
+	rateLimit, ok := configData["rate_limit"].(map[string]any)
+	if !ok {
+		t.Fatalf("配置响应缺少 rate_limit: %v", configData["rate_limit"])
+	}
+	rules, ok := rateLimit["rules"].(map[string]any)
+	if !ok || rules[ratelimit.LoginIP] == nil {
+		t.Fatalf("rate_limit.rules 不完整: %v", rateLimit["rules"])
+	}
+
+	saved := sessionRequest(t, router, http.MethodPut, "/api/settings/config",
+		`{"revision":"`+revision+`","password":"password1234","config":{"rate_limit":{"max_keys":2000,"rules":{"login_ip":{"max":3,"window_seconds":60}}}}}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if saved.Code != http.StatusOK {
+		t.Fatalf("保存限流配置失败: %d %s", saved.Code, saved.Body.String())
+	}
+	cfg, err := config.LoadSetupConfig(s.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RateLimit.MaxKeys != 2000 {
+		t.Fatalf("max_keys 未保存: %d", cfg.RateLimit.MaxKeys)
+	}
+	if rule := cfg.RateLimit.Rules[ratelimit.LoginIP]; rule.Max != 3 || rule.WindowSeconds != 60 {
+		t.Fatalf("login_ip 未保存: %+v", rule)
+	}
+
+	revision, _ = settingsConfigGet(t, router, session)
+	bad := sessionRequest(t, router, http.MethodPut, "/api/settings/config",
+		`{"revision":"`+revision+`","password":"password1234","config":{"rate_limit":{"rules":{"not_a_rule":{"max":1,"window_seconds":60}}}}}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("未知限流规则应返回 400: %d %s", bad.Code, bad.Body.String())
 	}
 }
 

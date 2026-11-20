@@ -1,4 +1,4 @@
-// Package dbconvert 实现 SQLite 与 PostgreSQL 之间的逻辑数据库转换。
+// Package dbconvert 实现 SQLite 与 PostgreSQL 之间的逻辑数据库切换。
 package dbconvert
 
 import (
@@ -10,7 +10,7 @@ import (
 	"lactssl/internal/util"
 )
 
-// Phase 是转换状态机的阶段。
+// Phase 是切换状态机的阶段。
 type Phase string
 
 const (
@@ -26,7 +26,7 @@ const (
 	PhaseRolledBack Phase = "rolled_back"
 )
 
-// Options 描述一次转换。
+// Options 描述一次切换。
 type Options struct {
 	// Source 是当前运行中的数据库连接；调用方负责在 Run 前/期间冻结写入。
 	Source *db.Handle
@@ -40,6 +40,9 @@ type Options struct {
 	TargetDSN    string
 	// Force 表示目标库非空时清空当前 schema 中的表。默认必须为空。
 	Force bool
+	// AllowSameDriver 允许同构迁移（SQLite→SQLite、PostgreSQL→PostgreSQL）。
+	// 开启后仍要求目标与源不是同一个数据库/文件，且目标必须为空。
+	AllowSameDriver bool
 
 	DataDir    string
 	ConfigPath string
@@ -75,7 +78,7 @@ type TableProgress struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// Report 是转换结果。
+// Report 是切换结果。
 type Report struct {
 	FromDriver string          `json:"from_driver"`
 	ToDriver   string          `json:"to_driver"`
@@ -90,7 +93,7 @@ type Report struct {
 	Error      string          `json:"error,omitempty"`
 }
 
-// PreflightReport 是转换前的只读检查结果。
+// PreflightReport 是切换前的只读检查结果。
 type PreflightReport struct {
 	SourceDriver string          `json:"source_driver"`
 	TargetDriver string          `json:"target_driver"`
@@ -102,13 +105,13 @@ type PreflightReport struct {
 	Warnings     []string        `json:"warnings,omitempty"`
 }
 
-// Runner 是带进度回调的转换执行器。
+// Runner 是带进度回调的切换执行器。
 type Runner struct {
 	opts Options
 	now  func() time.Time
 }
 
-// NewRunner 创建转换执行器。
+// NewRunner 创建切换执行器。
 func NewRunner(opts Options) *Runner {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()

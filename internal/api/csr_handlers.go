@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
 	"lactssl/internal/util"
@@ -68,7 +69,7 @@ func (s *Server) createCSRRequest(c *gin.Context) {
 	if key := apiKeyFromContext(c); key != nil {
 		rateKey = "csr:create:key:" + strconv.FormatInt(key.ID, 10)
 	}
-	if allowed, wait := s.limiter.Allow(rateKey, 20, time.Hour); !allowed {
+	if allowed, wait := s.allow(ratelimit.CSRCreate, rateKey); !allowed {
 		rateLimited(c, wait)
 		return
 	}

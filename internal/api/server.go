@@ -35,6 +35,7 @@ import (
 	"lactssl/internal/plugin/dns"
 	"lactssl/internal/plugin/notify"
 	"lactssl/internal/plugin/repo"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
 	"lactssl/internal/upgrade"
@@ -53,9 +54,9 @@ type Server struct {
 	LogArchives *logarchive.Service
 	// Program 是程序二进制自升级工具，由 main 注入。
 	Program *upgrade.ProgramUpdater
-	// DBConvert 是数据库在线转换任务管理器，由 main 注入。
+	// DBConvert 是数据库在线切换任务管理器，由 main 注入。
 	DBConvert *dbconvert.Manager
-	// maintenance 表示数据库转换正在复制/切换，API 读写暂时拒绝。
+	// maintenance 表示数据库切换正在复制数据或切换配置，API 读写暂时拒绝。
 	maintenance atomic.Bool
 	// RestartProgram 由 main 注入，用于在程序升级后优雅退出并重新执行新二进制。
 	RestartProgram func()
@@ -110,9 +111,11 @@ type Server struct {
 	setupToken atomic.Value
 	// setupMu 串行化初始化、恢复和初始化配置写入，避免匿名恢复与管理员
 	// 首次创建账户之间的检查-写入竞态。
-	setupMu   sync.Mutex
-	limiter   *rateLimiter
-	startedAt time.Time
+	setupMu sync.Mutex
+	limiter *rateLimiter
+	// RateLimits 是各接口的限流阈值，零值表示全部使用内置默认值。
+	RateLimits ratelimit.Config
+	startedAt  time.Time
 
 	pluginMu     sync.Mutex
 	pluginResult dnsplugin.DiscoverResult
@@ -143,20 +146,31 @@ type Server struct {
 	passkeyCeremonies map[string]passkeyCeremony
 }
 
-// New 创建 API 服务。
-func New(st *store.Store, a *auth.Manager, mgr *service.Manager, entry string, webFS fs.FS, trustedProxies []string) *Server {
+// New 创建 API 服务。limits 可选，用于覆盖内置限流阈值。
+func New(st *store.Store, a *auth.Manager, mgr *service.Manager, entry string, webFS fs.FS, trustedProxies []string, limits ...ratelimit.Config) *Server {
+	rateLimits := ratelimit.DefaultConfig()
+	if len(limits) > 0 {
+		rateLimits = limits[0]
+	}
 	s := &Server{
 		Store:             st,
 		Auth:              a,
 		Manager:           mgr,
 		WebFS:             webFS,
 		TrustedProxies:    trustedProxies,
-		limiter:           newRateLimiter(defaultLimiterMaxKeys),
+		RateLimits:        rateLimits,
+		limiter:           newRateLimiter(rateLimits.MaxKeys),
 		startedAt:         time.Now(),
 		passkeyCeremonies: make(map[string]passkeyCeremony),
 	}
 	s.entry.Store(entry)
 	return s
+}
+
+// allow 按命名规则对 key 做限流；规则缺失时使用内置默认值。
+func (s *Server) allow(rule, key string) (bool, time.Duration) {
+	r := s.RateLimits.For(rule)
+	return s.limiter.Allow(key, r.Max, r.Window)
 }
 
 // Entry 返回当前门禁入口。
@@ -487,6 +501,14 @@ func (s *Server) originGuard() gin.HandlerFunc {
 		switch c.Request.Method {
 		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 			if !s.sameOrigin(c) {
+				s.logger().Warn("origin validation failed",
+					"request_id", c.GetString(requestIDKey),
+					"path", s.logPath(c),
+					"sec_fetch_site", c.GetHeader("Sec-Fetch-Site"),
+					"origin", c.GetHeader("Origin"),
+					"host", c.Request.Host,
+					"remote", c.Request.RemoteAddr,
+				)
 				failKey(c, http.StatusForbidden, "api.error.unauthorized")
 				return
 			}
@@ -573,15 +595,17 @@ func rateLimited(c *gin.Context, wait time.Duration) {
 func (s *Server) authenticate(c *gin.Context) bool {
 	token, fromHeader := s.sessionToken(c)
 	// API 密钥也可以放在独立请求头中，便于命令行与自动化工具调用。
+	// 显式使用 X-API-Key 时固定走 API 密钥校验，避免格式变化被误判为会话 JWT。
+	fromAPIKeyHeader := false
 	if keyToken := strings.TrimSpace(c.GetHeader(apiKeyHeader)); keyToken != "" {
-		token, fromHeader = keyToken, true
+		token, fromHeader, fromAPIKeyHeader = keyToken, true, true
 	}
 	if token == "" {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return false
 	}
 	// API 密钥使用独立的哈希校验与权限模型，不参与 JWT 与 CSRF 流程。
-	if looksLikeAPIKey(token) {
+	if fromAPIKeyHeader || looksLikeAPIKey(token) {
 		return s.authenticateAPIKey(c, token)
 	}
 	claims, err := s.Auth.Parse(token)
@@ -823,7 +847,7 @@ func (s *Server) serveSPA(c *gin.Context) {
 // 没有门禁 Cookie 的请求只返回精简版 404；已通过入口但未登录的请求
 // 才展示控制台样式的 404 页面（含请求路径与重新进入的提示）。
 func (s *Server) entryNotFound(c *gin.Context) {
-	if allowed, wait := s.limiter.Allow("entry:"+clientRateKey(c), 60, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.Entry, "entry:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

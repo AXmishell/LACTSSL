@@ -194,7 +194,7 @@ func migrate(conn *Handle) error {
 	return nil
 }
 
-// Migrate 执行结构迁移，供转换目标等场景在连接后显式调用。
+// Migrate 执行结构迁移，供切换目标等场景在连接后显式调用。
 func (h *Handle) Migrate() error { return migrate(h) }
 
 // CurrentSchemaVersion 返回当前程序的基础表结构版本。

@@ -15,10 +15,10 @@ type DatabaseSettings struct {
 }
 
 // DatabaseFromFile 读取指定配置文件的 database 段，不生成密钥、不写入磁盘。
-// 用于数据库转换回滚时定位转换前的后端。
+// 用于数据库切换回滚时定位切换前的后端。
 func DatabaseFromFile(path string) (DatabaseSettings, error) {
 	if _, err := os.Stat(path); err != nil {
-		return DatabaseSettings{}, fmt.Errorf("读取转换前配置失败: %w", err)
+		return DatabaseSettings{}, fmt.Errorf("读取切换前配置失败: %w", err)
 	}
 	fc, _, err := loadFile(path)
 	if err != nil {

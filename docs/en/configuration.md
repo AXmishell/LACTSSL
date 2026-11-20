@@ -62,8 +62,9 @@ log:
 
 ### 1.3 Web configuration editor
 
-After signing in, open **Settings → Configuration file** to edit whitelisted `config.yaml` fields, including the listen address, trusted reverse proxies, `security.public_url`, session persistence, ACME, logging, upgrade and plugin runtime settings.
+After signing in, open **Settings → Configuration file** to edit whitelisted `config.yaml` fields, including the listen address, trusted reverse proxies, `security.public_url`, session persistence, rate limits, ACME, logging, upgrade and plugin runtime settings.
 
+- The rate limit tab shows effective rules after merging built-in defaults; saving writes them back to `config.yaml` and takes effect after a restart.
 - `jwt_secret`, `salt`, `data_dir`, `database.path`, the log file, plugin directories and repository trust roots remain server-side only.
 - A snapshot is created under `<data_dir>/config-backups/` before every save; you can also create one manually. Snapshots contain only `config.yaml`, unlike the encrypted full backup that includes the database.
 - Restoring a snapshot only rewrites whitelisted fields. The current `jwt_secret`, `salt`, `data_dir` and `database.path` remain unchanged, so database decryption is not broken.
@@ -114,6 +115,16 @@ security:
   session_persistence: false  # When true, login sessions survive a process restart
   jwt_secret: ""        # JWT signing key; generated and written back when empty; at least 32 characters when configured manually
   salt: ""              # Encryption salt for sensitive fields; generated and written back when empty; at least 32 characters when configured manually
+  rate_limit:
+    max_keys: 10000     # Maximum number of keys kept by the in-memory limiter
+    rules:
+      # max is the allowed count per window (0 disables the rule); window_seconds is the window length.
+      # Rules not listed here use built-in defaults; see config.yaml.example for the full list.
+      login_ip: {max: 10, window_seconds: 300}
+      login_account: {max: 20, window_seconds: 900}
+      api_ip: {max: 600, window_seconds: 60}
+      acme_request: {max: 1200, window_seconds: 60}
+      acme_order: {max: 60, window_seconds: 3600}
 
 acme:
   enabled: true         # Whether to enable the built-in ACME server; enabled by default
@@ -230,6 +241,23 @@ Production recommendations: place log files on a dedicated disk or mounted volum
 - `session_persistence`: session persistence, defaults to `false`. When `true`, service startup no longer clears the `sessions` table, and JWTs are signed with the fixed `jwt_secret`, so browsers can continue using existing login sessions after the backend process restarts; when `false`, every startup invalidates all previous logins.
 - `jwt_secret`: signing key for login tokens. When empty, a random 32-byte value is generated and written back to the configuration file; manual values must be at least 32 characters, otherwise startup is refused.
 - `salt`: encryption salt for sensitive fields in the database (DNS/deployment credentials, notification keys, private CA and certificate private keys, etc.). When empty, it is generated and written back; manual values must be at least 32 characters, otherwise startup is refused.
+- `rate_limit.max_keys`: maximum number of keys kept by the in-memory token bucket, default `10000`. Each client IP, account, or operation consumes one key; when the limit is reached, the least recently used keys are evicted.
+- `rate_limit.rules`: per-rule overrides. Each entry has `max` (allowed requests per window) and `window_seconds` (window length). Rules that are omitted use built-in defaults; omitting `window_seconds` keeps the default window; `max: 0` disables the rule. Unknown rule names fail startup so typos are caught early.
+
+Common rules and defaults:
+
+| Rule | Default | Purpose |
+| --- | --- | --- |
+| `login_ip` / `login_account` / `login_totp` | 10/5 min, 20/15 min, 5/10 min | Login IP, account failures, TOTP verification |
+| `forgot_ip` / `forgot_account` | 5/10 min, 3/hour | Password reset |
+| `passkey_login_begin` / `passkey_login_fail` | 20/5 min, 10/5 min | Passkey sign-in |
+| `reauth` | 10/10 min | Reauthentication failures for sensitive actions |
+| `api_ip` / `api_anonymous` / `entry` | 600/min, 120/min, 60/min | `/api` total, anonymous requests, and entry probing |
+| `csr_create` | 20/hour | ACME client CSR submissions |
+| `acme_request` / `acme_account` / `acme_pki` | 1200/min, 30/hour, 600/min | ACME protocol entry, account creation, CRL/OCSP |
+| `acme_order` | 60/hour | Order limit when an ACME endpoint does not set its own |
+
+> Rate limit changes require a service restart. The per-endpoint "orders per hour" setting in the admin UI takes precedence over `acme_order`.
 
 > **Always back up `config.yaml`.** If `salt` is lost, credentials already encrypted in the database cannot be decrypted; losing or changing `jwt_secret` invalidates existing login sessions. By default, the JWT signing subkey is rotated on every startup and server-side sessions are cleared, so a restart requires signing in again. Set `security.session_persistence: true` to preserve login state.
 

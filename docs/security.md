@@ -41,7 +41,7 @@ LACTSSL 按“自托管单实例”设计，信任边界如下：
 
 ### 2.2 API 密钥
 
-- 密钥格式为 `lactssl_` 开头，服务端只保存摘要。
+- 密钥为 86 位 Base64URL 随机串（64 字节熵），不含固定前缀，服务端只保存 SHA-256 摘要。
 - 权限按「资源:动作」划分；`*` 表示全部系统 API 能力。
 - 敏感权限单独列出：`certificates:key`、`private_cas:key`、`deploy:execute`、`deploy:command`、`backup:download`、`backup:restore`、`plugins:write`、`settings:write`、`api_keys:write`、`monitors:internal` 等。
 - 通过 API 密钥管理其他密钥时，不能授予自身没有的权限，也不能修改/轮换/删除权限高于自身的密钥。

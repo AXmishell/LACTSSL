@@ -281,7 +281,9 @@ export default defineConfig({
       // 同时代理裸 /api 与旧版 /<entry>/api 兼容路径。
       '^/(?:[^/]+/)?api/': {
         target: backendTarget,
-        changeOrigin: true
+        // 保留浏览器原始 Host：后端的同源校验会比对 Origin 与 Host，
+        // 改写为 127.0.0.1:8080 会让局域网/非回环访问被误判为跨站。
+        changeOrigin: false
       },
       // 开发时让浏览器地址（:5173）也能访问 ACME 端点；保留原始 Host，
       // 使后端返回的 directory 地址与浏览器地址一致。

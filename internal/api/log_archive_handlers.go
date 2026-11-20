@@ -13,6 +13,7 @@ import (
 	"lactssl/internal/i18n"
 	"lactssl/internal/logarchive"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 )
 
 // logArchiveFilter 是归档列表的筛选条件。
@@ -172,7 +173,7 @@ func (s *Server) downloadLogArchive(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow("log-archives:download:"+strconv.FormatInt(user.ID, 10), 20, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.LogArchiveDownload, "log-archives:download:"+strconv.FormatInt(user.ID, 10)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -218,7 +219,7 @@ func (s *Server) deleteLogArchive(c *gin.Context) {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.limiter.Allow("log-archives:delete:"+strconv.FormatInt(user.ID, 10), 10, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.LogArchiveDelete, "log-archives:delete:"+strconv.FormatInt(user.ID, 10)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 )
 
@@ -23,7 +23,7 @@ func (s *Server) listPrivateCAs(c *gin.Context) {
 
 func (s *Server) createPrivateCA(c *gin.Context) {
 	// RSA 4096 生成开销较大，限制同一客户端的高频创建。
-	if allowed, wait := s.limiter.Allow("privateca:create:"+clientRateKey(c), 10, time.Minute); !allowed {
+	if allowed, wait := s.allow(ratelimit.PrivateCACreate, "privateca:create:"+clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -180,7 +180,7 @@ func (s *Server) downloadPrivateCA(c *gin.Context) {
 			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 			return
 		}
-		if allowed, wait := s.limiter.Allow("keyexport:"+fmt.Sprintf("%d", user.ID), 30, time.Minute); !allowed {
+		if allowed, wait := s.allow(ratelimit.PrivateCAKeyExport, "keyexport:"+fmt.Sprintf("%d", user.ID)); !allowed {
 			rateLimited(c, wait)
 			return
 		}

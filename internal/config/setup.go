@@ -6,10 +6,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"lactssl/internal/ratelimit"
 )
 
 // ErrSetupConfigInvalid 表示初始化页面提交的配置内容不合法。
@@ -24,6 +26,7 @@ type SetupConfig struct {
 	TrustedProxies     []string                 `json:"trusted_proxies"`
 	PublicURL          string                   `json:"public_url"`
 	SessionPersistence bool                     `json:"session_persistence"`
+	RateLimit          SetupRateLimitConfig     `json:"rate_limit"`
 	ACME               SetupACMEConfig          `json:"acme"`
 	Log                SetupLogConfig           `json:"log"`
 	Upgrade            SetupUpgradeConfig       `json:"upgrade"`
@@ -54,6 +57,18 @@ type SetupTLSConfig struct {
 type SetupMTLSConfig struct {
 	Enabled  bool   `json:"enabled"`
 	ClientCA string `json:"client_ca"`
+}
+
+// SetupRateLimitConfig 是限流阈值的完整生效值（默认值 + 配置文件覆盖）。
+type SetupRateLimitConfig struct {
+	MaxKeys int                           `json:"max_keys"`
+	Rules   map[string]SetupRateLimitRule `json:"rules"`
+}
+
+// SetupRateLimitRule 是单条限流规则的生效值。
+type SetupRateLimitRule struct {
+	Max           int `json:"max"`
+	WindowSeconds int `json:"window_seconds"`
 }
 
 type SetupLogConfig struct {
@@ -123,6 +138,7 @@ type SetupConfigPatch struct {
 	TrustedProxies     *[]string                `json:"trusted_proxies"`
 	PublicURL          *string                  `json:"public_url"`
 	SessionPersistence *bool                    `json:"session_persistence"`
+	RateLimit          *SetupRateLimitPatch     `json:"rate_limit"`
 	ACME               *SetupACMEPatch          `json:"acme"`
 	Log                *SetupLogPatch           `json:"log"`
 	Upgrade            *SetupUpgradePatch       `json:"upgrade"`
@@ -153,6 +169,18 @@ type SetupTLSPatch struct {
 type SetupMTLSPatch struct {
 	Enabled  *bool   `json:"enabled"`
 	ClientCA *string `json:"client_ca"`
+}
+
+// SetupRateLimitPatch 是限流阈值的局部更新请求。
+type SetupRateLimitPatch struct {
+	MaxKeys *int                               `json:"max_keys"`
+	Rules   map[string]SetupRateLimitRulePatch `json:"rules"`
+}
+
+// SetupRateLimitRulePatch 只写入显式提交的字段。
+type SetupRateLimitRulePatch struct {
+	Max           *int `json:"max"`
+	WindowSeconds *int `json:"window_seconds"`
 }
 
 type SetupLogPatch struct {
@@ -238,6 +266,9 @@ func (p SetupConfigPatch) Empty() bool {
 	if p.NotifyPlugins != nil && !p.NotifyPlugins.empty() {
 		return false
 	}
+	if p.RateLimit != nil && !p.RateLimit.empty() {
+		return false
+	}
 	return p.TrustedProxies == nil && p.PublicURL == nil && p.SessionPersistence == nil
 }
 
@@ -297,6 +328,10 @@ func (p SetupPluginRuntimePatch) empty() bool {
 	return p.Enabled == nil && p.MemoryLimitMB == nil && p.TimeoutSeconds == nil && p.MaxOutputKB == nil
 }
 
+func (p SetupRateLimitPatch) empty() bool {
+	return p.MaxKeys == nil && p.Rules == nil
+}
+
 // LoadSetupConfig 读取初始化页面可编辑的配置项。
 func LoadSetupConfig(path string) (*SetupConfig, error) {
 	fc, _, err := loadFile(path)
@@ -325,6 +360,7 @@ func setupConfigFromFile(fc *fileConfig) *SetupConfig {
 		TrustedProxies:     proxies,
 		PublicURL:          strings.TrimSpace(fc.Security.PublicURL),
 		SessionPersistence: fc.Security.SessionPersistence,
+		RateLimit:          setupRateLimitConfig(fc),
 		ACME: SetupACMEConfig{
 			Enabled: fc.ACME.Enabled,
 			Addr:    strings.TrimSpace(fc.ACME.Addr),
@@ -397,6 +433,25 @@ func setupConfigFromFile(fc *fileConfig) *SetupConfig {
 	}
 }
 
+// setupRateLimitConfig 返回合并默认值后的完整限流配置，供设置页面展示。
+func setupRateLimitConfig(fc *fileConfig) SetupRateLimitConfig {
+	cfg, err := resolveRateLimit(fc)
+	if err != nil {
+		// 单独读取页面时不让一条非法规则导致整个页面打不开；
+		// 保存时仍会经过完整校验并拒绝非法值。
+		cfg = ratelimit.DefaultConfig()
+	}
+	rules := make(map[string]SetupRateLimitRule, len(ratelimit.Names()))
+	for _, name := range ratelimit.Names() {
+		rule := cfg.For(name)
+		rules[name] = SetupRateLimitRule{
+			Max:           rule.Max,
+			WindowSeconds: int(rule.Window.Seconds()),
+		}
+	}
+	return SetupRateLimitConfig{MaxKeys: cfg.MaxKeys, Rules: rules}
+}
+
 // UpdateSetupConfig 只更新白名单字段，保留配置文件中的其他内容和注释。
 func UpdateSetupConfig(path string, patch SetupConfigPatch) error {
 	if patch.Empty() {
@@ -467,6 +522,46 @@ func applySetupPatch(root *yaml.Node, patch SetupConfigPatch) error {
 		}
 		if err := setOptBool(section, "session_persistence", patch.SessionPersistence); err != nil {
 			return err
+		}
+	}
+	if patch.RateLimit != nil {
+		securitySection, err := ensureMapping(root, "security")
+		if err != nil {
+			return err
+		}
+		section, err := ensureMapping(securitySection, "rate_limit")
+		if err != nil {
+			return err
+		}
+		if err := setOptInt(section, "max_keys", patch.RateLimit.MaxKeys); err != nil {
+			return err
+		}
+		if patch.RateLimit.Rules != nil {
+			rulesSection, err := ensureMapping(section, "rules")
+			if err != nil {
+				return err
+			}
+			names := make([]string, 0, len(patch.RateLimit.Rules))
+			for name := range patch.RateLimit.Rules {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				if !ratelimit.Known(name) {
+					return fmt.Errorf("security.rate_limit.rules.%s 不是已知的限流规则", name)
+				}
+				rule := patch.RateLimit.Rules[name]
+				ruleSection, err := ensureMapping(rulesSection, name)
+				if err != nil {
+					return err
+				}
+				if err := setOptInt(ruleSection, "max", rule.Max); err != nil {
+					return err
+				}
+				if err := setOptInt(ruleSection, "window_seconds", rule.WindowSeconds); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if patch.ACME != nil {

@@ -62,8 +62,9 @@ log:
 
 ### 1.3 Web 配置文件入口
 
-登录后可在「系统设置 → 配置文件」中修改 `config.yaml` 的白名单字段，包括监听地址、可信反向代理、`security.public_url`、会话保持、ACME、日志、升级与插件运行参数。
+登录后可在「系统设置 → 配置文件」中修改 `config.yaml` 的白名单字段，包括监听地址、可信反向代理、`security.public_url`、会话保持、限流阈值、ACME、日志、升级与插件运行参数。
 
+- 限流页签展示合并内置默认值后的生效规则；保存时会写回 `config.yaml`，重启后生效。
 - `jwt_secret`、`salt`、`data_dir`、`database.path`、日志文件、插件目录与仓库信任根等高风险字段仍只能在服务器上编辑。
 - 保存前会自动在 `<data_dir>/config-backups/` 创建配置快照；也可手动创建。快照只包含 `config.yaml`，与包含数据库的加密全量备份不同。
 - 恢复快照只回写白名单字段，当前的 `jwt_secret`、`salt`、`data_dir`、`database.path` 保持不变，避免破坏数据库解密。
@@ -120,6 +121,16 @@ security:
   session_persistence: false  # 为 true 时进程重启后保留登录会话
   jwt_secret: ""        # JWT 签名密钥，留空自动生成并写回；手动配置至少 32 字符
   salt: ""              # 敏感字段加密盐，留空自动生成并写回；手动配置至少 32 字符
+  rate_limit:
+    max_keys: 10000     # 内存限流器最多保留的 key 数
+    rules:
+      # max 为窗口内允许次数（0 表示不限制），window_seconds 为窗口秒数。
+      # 未列出的规则使用内置默认值；完整规则列表见 config.yaml.example。
+      login_ip: {max: 10, window_seconds: 300}
+      login_account: {max: 20, window_seconds: 900}
+      api_ip: {max: 600, window_seconds: 60}
+      acme_request: {max: 1200, window_seconds: 60}
+      acme_order: {max: 60, window_seconds: 3600}
 
 acme:
   enabled: true         # 是否启用内置 ACME 服务端，默认开启
@@ -203,7 +214,7 @@ database:
 - `driver=postgres` 时 `path` 被忽略，`dsn` 必填；也可以用环境变量 `LACTSSL_DATABASE_DSN` 覆盖，避免密码写入配置文件。
 - 默认 `allow_multi_instance: false`，应用会持有 PostgreSQL advisory lock；第二个实例连接同一个数据库会启动失败。
 - SQLite 仍固定单连接，适合单机小规模部署；需要外部备份、集中运维时再选 PostgreSQL。
-- 切换后端不需要手工改库：登录后到 `/upgrade` 的“数据库转换”卡片执行，详见 [upgrade.md](upgrade.md#7-数据库在线转换sqlite--postgresql)。
+- 切换后端不需要手工改库：登录后到 `/upgrade` 的“切换数据库”卡片执行，详见 [upgrade.md](upgrade.md#7-数据库在线切换sqlite--postgresql)。
 
 数据目录用于存放数据库、插件、日志和升级备份。目录会以 `0700` 权限创建。`database.path` 留空时使用 `<data_dir>/lactssl.db`。
 
@@ -249,6 +260,23 @@ database:
 - `session_persistence`：会话保持，默认 `false`。为 `true` 时服务启动不再清空 `sessions` 表，JWT 也改用固定的 `jwt_secret` 签名，因此后台进程重启后浏览器仍可继续使用原有登录会话；为 `false` 时每次启动仍会强制所有旧登录失效。
 - `jwt_secret`：登录令牌签名密钥。留空时自动生成 32 字节随机值并写回配置文件；手动配置时至少 32 个字符，否则拒绝启动。
 - `salt`：数据库中敏感字段（DNS/部署凭据、通知密钥、私有 CA 与证书私钥等）的加密盐。留空时自动生成并写回；手动配置时至少 32 个字符，否则拒绝启动。
+- `rate_limit.max_keys`：内存令牌桶最多保留的 key 数，默认 `10000`。每个客户端 IP、账户或操作会占用一个 key；超出后按最近未使用顺序淘汰。
+- `rate_limit.rules`：按规则名覆盖限流阈值，每项包含 `max`（窗口内允许次数）与 `window_seconds`（窗口秒数）。未配置的规则使用内置默认值；省略 `window_seconds` 时沿用默认窗口；`max: 0` 表示关闭该规则。未知规则名会导致启动失败，便于发现拼写错误。
+
+常用规则及默认值：
+
+| 规则 | 默认值 | 说明 |
+| --- | --- | --- |
+| `login_ip` / `login_account` / `login_totp` | 10/5 分钟、20/15 分钟、5/10 分钟 | 登录 IP、账户失败与 TOTP 校验 |
+| `forgot_ip` / `forgot_account` | 5/10 分钟、3/小时 | 忘记密码 |
+| `passkey_login_begin` / `passkey_login_fail` | 20/5 分钟、10/5 分钟 | Passkey 登录 |
+| `reauth` | 10/10 分钟 | 敏感操作再认证失败 |
+| `api_ip` / `api_anonymous` / `entry` | 600/分钟、120/分钟、60/分钟 | `/api` 总量、匿名请求与门禁探测 |
+| `csr_create` | 20/小时 | ACME 客户端 CSR 提交 |
+| `acme_request` / `acme_account` / `acme_pki` | 1200/分钟、30/小时、600/分钟 | ACME 协议入口、建账户、CRL/OCSP |
+| `acme_order` | 60/小时 | 未在 ACME 端点单独配置时的订单上限 |
+
+> 限流阈值修改后需重启服务生效。ACME 端点自身的「每小时订单数」在管理界面配置，优先级高于 `acme_order`。
 
 > **务必备份 `config.yaml`。** 丢失 `salt` 后，数据库中已加密的凭据无法解密；丢失或更换 `jwt_secret` 会使现有登录会话失效。默认每次启动都会轮换 JWT 签名子密钥并清空服务端会话，因此重启后需要重新登录；设置 `security.session_persistence: true` 可保留登录状态。
 

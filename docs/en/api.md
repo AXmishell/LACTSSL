@@ -22,12 +22,12 @@ API keys are not multi-user RBAC. Where separation of duties is required, implem
 Place the key in the `Authorization: Bearer` or `X-API-Key` request header:
 
 ```bash
-curl -H "Authorization: Bearer lactssl_xxxxxxxxxxxxxxxx" \
+curl -H "Authorization: Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   https://ssl.example.com/api/certificates
 ```
 
 ```bash
-curl -H "X-API-Key: lactssl_xxxxxxxxxxxxxxxx" \
+curl -H "X-API-Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   https://ssl.example.com/api/certificates
 ```
 
@@ -48,13 +48,13 @@ Key points:
 3. Enter a name and expiry, and select permissions as needed.
 4. The page displays the full key once; after closing the dialog it cannot be viewed again and can only be rotated.
 
-Keys use the format of a random string prefixed with `lactssl_`. The server stores only a digest, so a database leak cannot directly recover the plaintext key.
+Keys are 86-character Base64URL random strings (64 bytes of entropy) with no fixed prefix. The server stores only a digest, so a database leak cannot directly recover the plaintext key.
 
 Create request example:
 
 ```bash
 curl -X POST \
-  -H "Authorization: Bearer lactssl_xxxxxxxxxxxxxxxx" \
+  -H "Authorization: Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "CI deployment",
@@ -322,7 +322,7 @@ The repository includes a ready-to-use Python client, `scripts/csr_client.py`. I
 
 ```bash
 export LACTSSL_URL="https://ssl.example.com"
-export LACTSSL_TOKEN="lactssl_xxxxxxxxxxxxxxxx"
+export LACTSSL_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 python3 scripts/csr_client.py \
   --domains example.com,www.example.com \

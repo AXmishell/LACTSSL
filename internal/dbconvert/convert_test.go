@@ -89,7 +89,7 @@ func TestSQLiteToPostgresRoundTrip(t *testing.T) {
 	}
 	source.Unfreeze()
 	if report.Rows == 0 {
-		t.Fatal("转换行数为 0")
+		t.Fatal("切换行数为 0")
 	}
 	if report.BackupPath == "" {
 		t.Fatal("未生成备份")
@@ -112,7 +112,7 @@ func TestSQLiteToPostgresRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 反向转换：PG -> 新的 SQLite 文件。
+	// 反向切换：PG -> 新的 SQLite 文件。
 	backPath := filepath.Join(dir, "roundtrip.db")
 	backRunner := NewRunner(Options{
 		Source:       pg,
@@ -253,5 +253,71 @@ func TestPreflightRejectsNonEmptyTarget(t *testing.T) {
 	})
 	if _, err := runner.Preflight(context.Background()); err == nil {
 		t.Fatal("非空目标库应被拒绝")
+	}
+}
+
+func TestSQLiteToSQLiteSameDriver(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "source.db")
+	targetPath := filepath.Join(dir, "target.db")
+	source, _ := seedSQLite(t, sourcePath)
+	defer source.Close()
+
+	runner := NewRunner(Options{
+		Source:          source,
+		SourceDriver:    db.SQLite,
+		SourcePath:      sourcePath,
+		TargetDriver:    db.SQLite,
+		TargetPath:      targetPath,
+		AllowSameDriver: true,
+		DataDir:         dir,
+		Cipher:          testCipher(t),
+		Version:         "test",
+	})
+	report, err := runner.Run(context.Background())
+	if err != nil {
+		t.Fatalf("SQLite -> SQLite 同构迁移失败: %v", err)
+	}
+	source.Unfreeze()
+	if report.Rows == 0 {
+		t.Fatal("迁移行数为 0")
+	}
+
+	target, err := db.OpenWithOptions(db.Options{Driver: db.SQLite, Path: targetPath, Migrate: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	var users, certs int
+	if err := target.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users); err != nil {
+		t.Fatal(err)
+	}
+	if err := target.QueryRow(`SELECT COUNT(*) FROM certificates`).Scan(&certs); err != nil {
+		t.Fatal(err)
+	}
+	if users != 1 || certs != 1 {
+		t.Fatalf("目标库数据不正确: users=%d certificates=%d", users, certs)
+	}
+}
+
+func TestPreflightSameDriverRequiresFlag(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "source.db")
+	targetPath := filepath.Join(dir, "target.db")
+	source, _ := seedSQLite(t, sourcePath)
+	defer source.Close()
+
+	runner := NewRunner(Options{
+		Source:       source,
+		SourceDriver: db.SQLite,
+		SourcePath:   sourcePath,
+		TargetDriver: db.SQLite,
+		TargetPath:   targetPath,
+		DataDir:      dir,
+		Cipher:       testCipher(t),
+		Version:      "test",
+	})
+	if _, err := runner.Preflight(context.Background()); err == nil {
+		t.Fatal("未显式允许时同构迁移预检应被拒绝")
 	}
 }

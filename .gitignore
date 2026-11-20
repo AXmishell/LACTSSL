@@ -7,6 +7,7 @@
 
 # 本地配置（包含密钥，勿提交）
 /config.yaml
+/config.yaml.before-db-convert-*
 .env
 .env.*
 !.env.example
