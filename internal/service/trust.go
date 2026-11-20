@@ -19,12 +19,10 @@ func (m *Manager) TrustedPEMs() []string {
 			}
 		}
 	}
-	if list, err := m.Store.ListPrivateCAs(); err == nil {
-		for _, ca := range list {
-			if now.Before(ca.NotAfter) {
-				out = append(out, ca.CertPEM)
-			}
-		}
+	// 列表接口出于脱敏目的不返回 cert_pem，必须使用专门的信任链查询，
+	// 否则私有 CA 永远不会进入 SSL_CERT_FILE / 监控信任池。
+	if list, err := m.Store.ListPrivateCATrustCertificates(); err == nil {
+		out = append(out, list...)
 	}
 	return out
 }

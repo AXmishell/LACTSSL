@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +46,11 @@ func (m *Manager) DeployContext(ctx context.Context, cert *model.Certificate, ac
 	}
 	if strings.TrimSpace(cert.KeyPEM) == "" {
 		return i18n.E("service.deploy.private_key_missing")
+	}
+	// 历史数据或上游 CA 响应可能包含 PEM 之外的尾随内容。部署前统一复核，
+	// 避免把任意文本写到调用方指定的路径。
+	if err := ValidateCertificateChainPEM(cert.FullchainPEM); err != nil {
+		return i18n.E("service.deploy.certificate_invalid", "error", err.Error())
 	}
 	var deployConfig map[string]string
 	if len(deployConfigs) > 0 {
@@ -305,6 +311,11 @@ func deployLocal(ctx context.Context, m *Manager, cert *model.Certificate, cfg m
 
 // validateLocalDeployPaths 拒绝把证书/私钥写入数据目录、配置目录或程序目录，
 // 避免部署参数覆盖数据库、config.yaml 或二进制。SSH 目标路径在远端，另行处理。
+//
+// 校验必须基于真实路径：仅用 filepath.Abs/Rel 会让 /proc/self/root、/proc/self/cwd
+// 以及任意目录符号链接绕过保护。这里解析最近已存在父目录的符号链接，并拒绝
+// 通过 /proc、/sys 以及 /dev/fd、/dev/std* 等伪文件系统写入（否则可借其他
+// 进程的 fd 写入任意文件）。
 func validateLocalDeployPaths(m *Manager, paths ...string) error {
 	if m == nil {
 		return nil
@@ -318,16 +329,31 @@ func validateLocalDeployPaths(m *Manager, paths ...string) error {
 		if err != nil {
 			return i18n.E("service.deploy.path_invalid", "path", path)
 		}
+		// 先按原始路径拒绝 /proc、/sys、/dev：/proc/<pid>/fd/N 可能解析成
+		// 管道或套接字，只在解析后判断会漏掉。
+		if isMagicFilesystemPath(abs) {
+			return i18n.E("service.deploy.path_protected", "path", path)
+		}
+		resolved, err := resolveLocalDeployPath(path)
+		if err != nil {
+			return i18n.E("service.deploy.path_invalid", "path", path)
+		}
+		if isMagicFilesystemPath(resolved) {
+			return i18n.E("service.deploy.path_protected", "path", path)
+		}
 		for _, root := range m.ProtectedPaths {
 			root = strings.TrimSpace(root)
 			if root == "" {
 				continue
 			}
-			rootAbs, err := filepath.Abs(root)
+			rootAbs, err := resolveLocalDeployPath(root)
 			if err != nil {
-				continue
+				rootAbs, err = filepath.Abs(root)
+				if err != nil {
+					continue
+				}
 			}
-			rel, err := filepath.Rel(rootAbs, abs)
+			rel, err := filepath.Rel(rootAbs, resolved)
 			if err != nil {
 				// 不同卷/盘符，必然不在受保护目录内。
 				continue
@@ -338,6 +364,56 @@ func validateLocalDeployPaths(m *Manager, paths ...string) error {
 		}
 	}
 	return nil
+}
+
+// resolveLocalDeployPath 把路径解析为真实绝对路径。
+// 目标文件可能尚不存在，因此先找到最近的已存在父目录做 EvalSymlinks，
+// 再把尚未创建的后缀拼回去。这样 /proc/self/root/... 与目录符号链接都会
+// 被还原成真实路径，再参与受保护目录比较。
+func resolveLocalDeployPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("empty path")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	dir := abs
+	suffix := make([]string, 0, 2)
+	for {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(dir))
+		dir = parent
+	}
+}
+
+// isMagicFilesystemPath 拒绝通过 /proc、/sys 与 /dev/fd、/dev/std* 写入。
+// 这些路径可以指向其他进程的 fd 或内核接口，绕过普通目录权限。
+func isMagicFilesystemPath(resolved string) bool {
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(resolved))
+	for _, prefix := range []string{"/proc", "/sys", "/dev/fd", "/dev/stdin", "/dev/stdout", "/dev/stderr"} {
+		if cleaned == prefix || strings.HasPrefix(cleaned, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // dialSSHDeploy 建立 SSH 连接，按配置完成密码/私钥认证与主机指纹校验。

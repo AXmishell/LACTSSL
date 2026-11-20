@@ -105,3 +105,60 @@ func TestTrustedCAImportAndDelete(t *testing.T) {
 		t.Fatalf("删除后仍有记录: %v %+v", err, items)
 	}
 }
+
+func TestPrivateCAIncludedInTrustBundle(t *testing.T) {
+	st := newSessionTestStore(t)
+	gin.SetMode(gin.TestMode)
+	s := New(
+		st,
+		auth.New([]byte("jwt-secret")),
+		service.New(st),
+		"secret-entry",
+		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
+		nil,
+	)
+	s.DataDir = t.TempDir()
+	router := s.Router()
+
+	setup := sessionRequest(t, router, http.MethodPost, "/api/setup",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if setup.Code != http.StatusOK {
+		t.Fatalf("初始化失败: %d %s", setup.Code, setup.Body.String())
+	}
+	cookies := setup.Result().Cookies()
+	session := findCookie(t, cookies, sessionCookieName)
+	csrf := findCookie(t, cookies, csrfCookieName)
+	headers := map[string]string{csrfHeaderName: csrf.Value}
+
+	created := sessionRequest(t, router, http.MethodPost, "/api/private-cas",
+		`{"name":"Private Trust","common_name":"Private Trust CA","key_type":"ecdsa","valid_days":30}`,
+		[]*http.Cookie{session}, headers)
+	if created.Code != http.StatusOK {
+		t.Fatalf("创建私有 CA 失败: %d %s", created.Code, created.Body.String())
+	}
+
+	raw := sessionRequest(t, router, http.MethodGet, "/api/trusted-cas/bundle", "", []*http.Cookie{session}, nil)
+	if raw.Code != http.StatusOK {
+		t.Fatalf("下载信任链失败: %d %s", raw.Code, raw.Body.String())
+	}
+	found := false
+	remaining := raw.Body.Bytes()
+	for {
+		block, rest := pem.Decode(remaining)
+		if block == nil {
+			break
+		}
+		remaining = rest
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		if cert.Subject.CommonName == "Private Trust CA" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("信任链应包含新建私有 CA")
+	}
+}

@@ -107,6 +107,67 @@ func DialSafe(ctx context.Context, network, address string) (net.Conn, error) {
 	return nil, i18n.E("service.url_blocked", "url", address)
 }
 
+// cgnatNet 是运营商级 NAT 网段；公网监控目标也不应落到该网段。
+var cgnatNet = func() *net.IPNet {
+	_, network, _ := net.ParseCIDR("100.64.0.0/10")
+	return network
+}()
+
+// isPublicIP 判断地址是否可作为“公网监控”目标：
+// 拒绝回环、私网、链路本地、未指定、CGNAT 与所有保留/元数据网段。
+func isPublicIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	if cgnatNet != nil && cgnatNet.Contains(ip) {
+		return false
+	}
+	return !isBlockedIP(ip)
+}
+
+// DialPublic 只连接公网地址，并在解析后直接拨号解析出的 IP。
+// 监控等“只应访问公网”的场景使用该函数，避免 DNS 先返回公网、检查时
+// 再返回内网（DNS rebinding）绕过创建阶段的 scope 校验。
+func DialPublic(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		if !isPublicIP(ip) {
+			return nil, i18n.E("service.url_blocked", "url", address)
+		}
+		return dialer.DialContext(ctx, network, address)
+	}
+	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	var lastErr error
+	for _, item := range addresses {
+		if !isPublicIP(item.IP) {
+			continue
+		}
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(item.IP.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, i18n.E("service.url_blocked", "url", address)
+}
+
 // NewClient 返回带安全拨号器的 HTTP 客户端。
 // skipVerify 仅用于用户明确允许的自签证书场景。
 func NewClient(timeout time.Duration, skipVerify bool) *http.Client {

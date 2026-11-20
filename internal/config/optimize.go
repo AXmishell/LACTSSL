@@ -193,6 +193,7 @@ func defaultSpec() map[string]any {
 				"check_interval_hours": fc.Upgrade.Program.CheckIntervalHours,
 				"max_download_mb":      fc.Upgrade.Program.MaxDownloadMB,
 				"public_key":           fc.Upgrade.Program.PublicKey,
+				"allow_unsigned":       fc.Upgrade.Program.AllowUnsigned,
 				"token":                fc.Upgrade.Program.Token,
 			},
 		},

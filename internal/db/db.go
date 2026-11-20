@@ -20,7 +20,8 @@ import (
 //   - 10：CA 调度组（ca_pools / ca_pool_items）与任务 CA 池引用。
 //   - 11：目标流程 Beta（tasks.flow_mode / tasks.target_flow）。
 //   - 12：目标流程多证书关联（task_certificate_links）。
-const schemaVersion = 12
+//   - 13：监控项内网目标授权（monitors.allow_internal）。
+const schemaVersion = 13
 
 func migrate(conn *Handle) error {
 	version, err := conn.SchemaVersion()
@@ -113,6 +114,11 @@ func migrate(conn *Handle) error {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
 	if err := ensureColumn(conn, "tasks", "target_flow", `TEXT NOT NULL DEFAULT '{}'`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	// 兼容旧监控表：记录调用方是否有权监控内网/回环目标。历史数据默认 0，
+	// 由管理员重新保存后再开启内网拨号，避免升级后立即放开内网探测。
+	if err := ensureColumn(conn, "monitors", "allow_internal", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
 	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_ca_pool ON tasks(ca_pool_id)`); err != nil {

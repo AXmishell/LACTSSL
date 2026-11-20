@@ -1,14 +1,19 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/db"
 	"lactssl/internal/dbconvert"
+	"lactssl/internal/i18n"
 )
 
 // maintenanceGate 在数据库转换期间拒绝普通 API，只保留状态轮询与静态页面。
@@ -96,9 +101,15 @@ func (s *Server) targetRequest(c *gin.Context) (dbconvert.StartRequest, bool) {
 		path = abs
 	}
 	dsn := strings.TrimSpace(body.TargetDSN)
-	if driver == db.Postgres && dsn == "" {
-		failKey(c, http.StatusBadRequest, "api.error.db_convert_dsn_required")
-		return dbconvert.StartRequest{}, false
+	if driver == db.Postgres {
+		if dsn == "" {
+			failKey(c, http.StatusBadRequest, "api.error.db_convert_dsn_required")
+			return dbconvert.StartRequest{}, false
+		}
+		if err := validateDatabaseTargetDSN(c.Request.Context(), dsn); err != nil {
+			failErr(c, http.StatusBadRequest, err)
+			return dbconvert.StartRequest{}, false
+		}
 	}
 	return dbconvert.StartRequest{
 		TargetDriver: driver,
@@ -108,8 +119,68 @@ func (s *Server) targetRequest(c *gin.Context) (dbconvert.StartRequest, bool) {
 	}, true
 }
 
+// databaseTargetRateLimit 限制数据库连通性测试频率，避免被当作高速端口扫描器。
+func (s *Server) databaseTargetRateLimit(c *gin.Context) bool {
+	key := "db-target:" + clientRateKey(c)
+	if apiKeyFromContext(c) != nil {
+		key = "db-target:" + currentSessionID(c)
+	}
+	if allowed, wait := s.limiter.Allow(key, 10, time.Minute); !allowed {
+		rateLimited(c, wait)
+		return false
+	}
+	return true
+}
+
+// validateDatabaseTargetDSN 拒绝云元数据/链路本地等不应作为数据库目标的主机，
+// 防止把“数据库连通性测试”变成元数据服务探测器。私网/回环仍允许用于真实迁移。
+func validateDatabaseTargetDSN(ctx context.Context, dsn string) error {
+	parsed, err := url.Parse(strings.TrimSpace(dsn))
+	if err != nil || parsed.Hostname() == "" {
+		// 关键字式 DSN（host=...）交给 pgx 解析；这里只处理 URL 形式。
+		return nil
+	}
+	host := parsed.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		if blockedDatabaseTargetIP(ip) {
+			return i18n.E("api.error.db_convert_target_blocked", "host", host)
+		}
+		return nil
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	addresses, err := net.DefaultResolver.LookupIPAddr(lookupCtx, host)
+	if err != nil {
+		// 解析失败由实际连接阶段报错，不额外改变错误语义。
+		return nil
+	}
+	for _, address := range addresses {
+		if blockedDatabaseTargetIP(address.IP) {
+			return i18n.E("api.error.db_convert_target_blocked", "host", host)
+		}
+	}
+	return nil
+}
+
+func blockedDatabaseTargetIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+	// 阿里云元数据地址（不在 169.254.0.0/16）。
+	if ip.Equal(net.ParseIP("100.100.100.200")) {
+		return true
+	}
+	return false
+}
+
 // testDatabaseTarget 只测试目标连接，不修改数据。
 func (s *Server) testDatabaseTarget(c *gin.Context) {
+	if !s.databaseTargetRateLimit(c) {
+		return
+	}
 	manager := s.databaseConvertManager(c)
 	if manager == nil {
 		return
@@ -128,6 +199,9 @@ func (s *Server) testDatabaseTarget(c *gin.Context) {
 
 // preflightDatabaseConvert 返回表数量、行数与目标空库状态。
 func (s *Server) preflightDatabaseConvert(c *gin.Context) {
+	if !s.databaseTargetRateLimit(c) {
+		return
+	}
 	manager := s.databaseConvertManager(c)
 	if manager == nil {
 		return

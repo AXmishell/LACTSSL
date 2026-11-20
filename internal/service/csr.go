@@ -215,11 +215,15 @@ func isInternalDNSName(name string) bool {
 	return false
 }
 
-// ValidateCSRDomains 校验 CSR 域名是否在允许列表中。允许列表为空表示不限制。
+// ValidateCSRDomains 校验 CSR 域名是否在允许列表中。
+// 允许列表为空时默认拒绝（fail-closed）；只有显式开启 allowAll 才放行全部域名。
 // example.com 匹配该域及其子域，*.example.com 匹配子域，也允许为该域申请通配符证书。
-func ValidateCSRDomains(domains, allowed []string) error {
+func ValidateCSRDomains(domains, allowed []string, allowAll bool) error {
 	if len(allowed) == 0 {
-		return nil
+		if allowAll {
+			return nil
+		}
+		return i18n.E("service.csr.allowed_domains_required")
 	}
 	for _, domain := range domains {
 		ok := false
@@ -320,9 +324,9 @@ func (m *Manager) ObtainForCSR(req CSRACMERequest) (*ACMEResult, error) {
 		return nil, err
 	}
 
-	fullchain := string(resource.Certificate)
-	if len(resource.IssuerCertificate) > 0 && !strings.Contains(fullchain, string(resource.IssuerCertificate)) {
-		fullchain = strings.TrimRight(fullchain, "\n") + "\n" + string(resource.IssuerCertificate)
+	fullchain, err := BuildFullchainPEM(leaf, resource.Certificate, resource.IssuerCertificate)
+	if err != nil {
+		return nil, i18n.Wrap("service.acme.chain_parse_failed", err, "error", err.Error())
 	}
 	issuer := leaf.Issuer.CommonName
 	if issuer == "" && len(leaf.Issuer.Organization) > 0 {
@@ -467,7 +471,8 @@ func (m *Manager) runCSRRequest(ctx context.Context, id int64) error {
 		return nil
 	}
 	allowed := ParseAllowedDomains(m.mustSetting("csr.allowed_domains"))
-	if err := ValidateCSRDomains(info.DNSNames, allowed); err != nil {
+	allowAll := strings.EqualFold(strings.TrimSpace(m.mustSetting("csr.allow_all_domains")), "true")
+	if err := ValidateCSRDomains(info.DNSNames, allowed, allowAll); err != nil {
 		m.failCSR(req, err, false)
 		return nil
 	}

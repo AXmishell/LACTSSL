@@ -1,6 +1,7 @@
 package api
 
 import (
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -137,9 +138,18 @@ func (s *Server) updateDNSAccount(c *gin.Context) {
 		return
 	}
 	// 只有服务商未变化时才复用已有密钥，避免把旧服务商的密钥带到新服务商。
+	// 即使服务商不变，只要连接/目标字段发生变化，也必须重新提交密钥，
+	// 否则写权限可把旧密钥发往攻击者修改后的目标。
+	incoming := maps.Clone(body.Config)
 	var base map[string]string
 	if item.Provider == strings.TrimSpace(body.Provider) {
 		base = item.Config
+		if def, found := service.DNSProviderInfo(item.Provider); found {
+			if err := service.RequireSecretsOnChange(def, item.Config, incoming); err != nil {
+				failErr(c, http.StatusBadRequest, err)
+				return
+			}
+		}
 	}
 	if err := body.validate(locale(c), base); err != nil {
 		failErr(c, http.StatusBadRequest, err)
@@ -291,9 +301,18 @@ func (s *Server) updateDeployAccount(c *gin.Context) {
 		return
 	}
 	// 只有凭据类型未变化时才复用已有密钥，避免类型切换后残留旧凭据。
+	// 连接目标（host/port/endpoint 等）变化时强制重新输入密钥，防止
+	// “修改目标 + 留空密钥”把已保存的 SSH 密码/面板令牌发往攻击者主机。
+	incoming := maps.Clone(body.Config)
 	var base map[string]string
 	if item.Type == strings.TrimSpace(body.Type) {
 		base = item.Config
+		if def, found := service.DeployTypeInfo(item.Type); found {
+			if err := service.RequireSecretsOnChange(def, item.Config, incoming); err != nil {
+				failErr(c, http.StatusBadRequest, err)
+				return
+			}
+		}
 	}
 	if err := body.validate(locale(c), base); err != nil {
 		failErr(c, http.StatusBadRequest, err)

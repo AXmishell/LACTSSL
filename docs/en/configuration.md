@@ -167,6 +167,8 @@ upgrade:
     check_interval_hours: 6
     max_download_mb: 128
     public_key: ""
+    # 未配置 public_key 时默认拒绝在线升级；仅受控环境显式允许未签名包
+    allow_unsigned: false
     token: ""
 ```
 

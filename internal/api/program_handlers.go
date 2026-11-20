@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -42,13 +43,24 @@ func (s *Server) applyProgram(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Version string `json:"version"`
+		Version  string `json:"version"`
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
 	}
 	_ = c.ShouldBindJSON(&body)
+	// 浏览器会话替换程序二进制前必须再次证明身份；API 密钥仍由
+	// upgrade:write 这一敏感 scope 约束。
+	if apiKeyFromContext(c) == nil && !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
+		return
+	}
 
 	report, err := updater.Apply(c.Request.Context(), body.Version)
 	if err != nil {
 		s.Store.AddLogKey("system", 0, "error", "log.system.program_update_failed", map[string]any{"error": err.Error()})
+		if errors.Is(err, upgrade.ErrSignatureRequired) {
+			fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}

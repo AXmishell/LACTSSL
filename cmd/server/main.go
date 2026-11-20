@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -207,12 +208,20 @@ func main() {
 		CheckInterval:  cfg.Upgrade.Program.CheckInterval,
 		MaxDownloadMB:  cfg.Upgrade.Program.MaxDownloadMB,
 		PublicKey:      cfg.Upgrade.Program.PublicKey,
+		AllowUnsigned:  cfg.Upgrade.Program.AllowUnsigned,
 		Token:          cfg.Upgrade.Program.Token,
 		Store:          st,
 		Logger:         logger,
 	})
 	if err != nil {
 		log.Fatalf("%s: %v", cliText("cli.error.upgrade"), err)
+	}
+	if cfg.Upgrade.Program.Enabled && strings.TrimSpace(cfg.Upgrade.Program.PublicKey) == "" {
+		if cfg.Upgrade.Program.AllowUnsigned {
+			logger.Warn("程序自升级未配置 upgrade.program.public_key，但已显式允许未签名升级；生产环境不建议")
+		} else {
+			logger.Warn("程序自升级未配置 upgrade.program.public_key：将拒绝在线升级；请配置 Ed25519 发布公钥，或在受控环境显式设置 allow_unsigned")
+		}
 	}
 
 	// 默认在进程重启后强制所有登录失效：清空服务端会话记录，

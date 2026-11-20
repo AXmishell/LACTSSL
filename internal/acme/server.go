@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
 	"lactssl/internal/model"
 	"lactssl/internal/store"
 )
@@ -52,6 +53,8 @@ type Server struct {
 	// OCSP 响应缓存：避免每个请求都用 CA 私钥重新签名。
 	ocspMu    sync.Mutex
 	ocspCache map[string]ocspCacheEntry
+	// ocspGroup 合并同一 CA/序列号的并发签名，避免缓存击穿时重复使用私钥。
+	ocspGroup singleflight.Group
 }
 
 type ocspCacheEntry struct {

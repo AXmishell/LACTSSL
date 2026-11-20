@@ -69,11 +69,17 @@ type ProgramOptions struct {
 	// PublicKey 是发布校验和签名（checksums.txt.sig）的 Ed25519 公钥（base64）。
 	// 配置后强制验签，防止 Release 资产与 checksums.txt 被同时替换。
 	PublicKey string
+	// AllowUnsigned 表示在未配置 PublicKey 时仍允许安装未签名发布包。
+	// 默认 false：未配置公钥时拒绝 Apply。
+	AllowUnsigned bool
 	// HTTP 可注入测试客户端；为空时使用带 SSRF 防护的默认客户端。
 	HTTP   *http.Client
 	Store  *store.Store
 	Logger *slog.Logger
 }
+
+// ErrSignatureRequired 表示未配置发布公钥且未允许未签名升级。
+var ErrSignatureRequired = errors.New("未配置 upgrade.program.public_key：已拒绝未签名升级；请配置发布公钥，或在受控环境显式设置 allow_unsigned")
 
 // ProgramUpdater 负责检查 GitHub Release、下载校验并替换当前二进制。
 type ProgramUpdater struct {
@@ -90,6 +96,7 @@ type ProgramUpdater struct {
 	maxDownloadMB  int
 	token          string
 	publicKey      ed25519.PublicKey
+	allowUnsigned  bool
 	http           *http.Client
 	downloadHTTP   *http.Client
 	store          *store.Store
@@ -162,6 +169,10 @@ type ProgramStatus struct {
 	LastRun         *ProgramRunReport `json:"last_run,omitempty"`
 	// RestartPending 表示二进制已替换但进程仍在运行旧版本。
 	RestartPending bool `json:"restart_pending"`
+	// SignatureRequired 表示当前配置要求校验发布签名。
+	SignatureRequired bool `json:"signature_required"`
+	// AllowUnsigned 表示管理员显式允许未签名升级。
+	AllowUnsigned bool `json:"allow_unsigned"`
 }
 
 // NewProgramUpdater 创建程序升级管理器。配置不完整时返回错误，避免运行期才暴露。
@@ -244,6 +255,7 @@ func NewProgramUpdater(opts ProgramOptions) (*ProgramUpdater, error) {
 		maxDownloadMB:  maxDownload,
 		token:          strings.TrimSpace(opts.Token),
 		publicKey:      publicKey,
+		allowUnsigned:  opts.AllowUnsigned,
 		http:           httpClient,
 		downloadHTTP:   downloadClient,
 		store:          opts.Store,
@@ -254,12 +266,14 @@ func NewProgramUpdater(opts ProgramOptions) (*ProgramUpdater, error) {
 // Status 返回程序升级状态。force 为 true 时忽略检查间隔立即请求 GitHub。
 func (u *ProgramUpdater) Status(ctx context.Context, force bool) ProgramStatus {
 	status := ProgramStatus{
-		Enabled:        u.enabled,
-		Repo:           u.repo,
-		Channel:        u.channel,
-		CurrentVersion: u.currentVersion,
-		Platform:       u.goos + "/" + u.goarch,
-		RestartMode:    u.restartMode(),
+		Enabled:           u.enabled,
+		Repo:              u.repo,
+		Channel:           u.channel,
+		CurrentVersion:    u.currentVersion,
+		Platform:          u.goos + "/" + u.goarch,
+		RestartMode:       u.restartMode(),
+		SignatureRequired: u.publicKey != nil,
+		AllowUnsigned:     u.allowUnsigned,
 	}
 
 	u.mu.Lock()
@@ -328,6 +342,10 @@ func (u *ProgramUpdater) Status(ctx context.Context, force bool) ProgramStatus {
 		status.Reason = err.Error()
 		return status
 	}
+	if u.publicKey == nil && !u.allowUnsigned {
+		status.Reason = "未配置 upgrade.program.public_key，已拒绝在线升级；请配置发布公钥，或在受控环境显式设置 allow_unsigned"
+		return status
+	}
 	status.CanUpdate = true
 	return status
 }
@@ -336,6 +354,9 @@ func (u *ProgramUpdater) Status(ctx context.Context, force bool) ProgramStatus {
 func (u *ProgramUpdater) Apply(ctx context.Context, version string) (*ProgramRunReport, error) {
 	u.applyMu.Lock()
 	defer u.applyMu.Unlock()
+	if u.publicKey == nil && !u.allowUnsigned {
+		return nil, ErrSignatureRequired
+	}
 
 	report := &ProgramRunReport{
 		FromVersion: u.currentVersion,

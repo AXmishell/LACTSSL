@@ -43,6 +43,7 @@ const (
 	apiScopeTasksRun            = "tasks:run"
 	apiScopeMonitorsRead        = "monitors:read"
 	apiScopeMonitorsWrite       = "monitors:write"
+	apiScopeMonitorsInternal    = "monitors:internal"
 	apiScopeDNSRead             = "dns_accounts:read"
 	apiScopeDNSWrite            = "dns_accounts:write"
 	apiScopeDeployAccountsRead  = "deploy_accounts:read"
@@ -102,6 +103,7 @@ var apiKeyScopeDefs = []apiKeyScopeDef{
 	{apiScopeTasksRun, "tasks", "api.scope.tasks_run.label", "api.scope.tasks_run.desc", false},
 	{apiScopeMonitorsRead, "monitors", "api.scope.monitors_read.label", "api.scope.monitors_read.desc", false},
 	{apiScopeMonitorsWrite, "monitors", "api.scope.monitors_write.label", "api.scope.monitors_write.desc", false},
+	{apiScopeMonitorsInternal, "monitors", "api.scope.monitors_internal.label", "api.scope.monitors_internal.desc", true},
 	{apiScopeDNSRead, "credentials", "api.scope.dns_read.label", "api.scope.dns_read.desc", false},
 	{apiScopeDNSWrite, "credentials", "api.scope.dns_write.label", "api.scope.dns_write.desc", true},
 	{apiScopeDeployAccountsRead, "credentials", "api.scope.deploy_accounts_read.label", "api.scope.deploy_accounts_read.desc", false},
@@ -288,14 +290,16 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"GET /api/log-archives/:id/download": {},
 	"DELETE /api/log-archives/:id":       {},
 
-	"GET /api/settings":                              {apiScopeSettingsRead},
-	"PUT /api/settings":                              {apiScopeSettingsWrite},
-	"GET /api/upgrade":                               {apiScopeUpgradeRead},
-	"POST /api/upgrade/run":                          {apiScopeUpgradeWrite},
-	"POST /api/upgrade/optimize":                     {apiScopeUpgradeWrite},
-	"GET /api/upgrade/database":                      {apiScopeUpgradeRead},
-	"POST /api/upgrade/database/test":                {apiScopeUpgradeRead},
-	"POST /api/upgrade/database/preflight":           {apiScopeUpgradeRead},
+	"GET /api/settings":          {apiScopeSettingsRead},
+	"PUT /api/settings":          {apiScopeSettingsWrite},
+	"GET /api/upgrade":           {apiScopeUpgradeRead},
+	"POST /api/upgrade/run":      {apiScopeUpgradeWrite},
+	"POST /api/upgrade/optimize": {apiScopeUpgradeWrite},
+	"GET /api/upgrade/database":  {apiScopeUpgradeRead},
+	// 数据库连通性测试会让服务端主动连接任意 PostgreSQL DSN，属于出站操作，
+	// 不能由只读 scope 触发。
+	"POST /api/upgrade/database/test":                {apiScopeUpgradeWrite},
+	"POST /api/upgrade/database/preflight":           {apiScopeUpgradeWrite},
 	"POST /api/upgrade/database/convert":             {apiScopeUpgradeWrite},
 	"GET /api/upgrade/database/convert":              {apiScopeUpgradeRead},
 	"POST /api/upgrade/database/convert/cancel":      {apiScopeUpgradeWrite},

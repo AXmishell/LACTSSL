@@ -70,13 +70,14 @@ func createBatchTestCertificate(t *testing.T, st interface {
 	CreateCertificate(*model.Certificate) error
 }, domains ...string) *model.Certificate {
 	t.Helper()
+	certPEM, fullchainPEM := testCertificateChainPEM(t)
 	cert := &model.Certificate{
 		PrimaryDomain: domains[0],
 		Domains:       domains,
 		KeyAvailable:  true,
-		CertPEM:       "CERT",
+		CertPEM:       certPEM,
 		KeyPEM:        "PRIVATE-KEY",
-		FullchainPEM:  "CHAIN",
+		FullchainPEM:  fullchainPEM,
 		NotBefore:     time.Now().Add(-time.Hour),
 		NotAfter:      time.Now().Add(24 * time.Hour),
 	}

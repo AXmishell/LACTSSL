@@ -66,6 +66,7 @@ func seedTargetFlowTask(t *testing.T, st *store.Store, strategy string) (*model.
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
+	fullchainPEM := testFullchainPEM(t)
 	cert := &model.Certificate{
 		Domains:       []string{"a.example.com", "www.a.example.com", "b.example.com"},
 		PrimaryDomain: "a.example.com",
@@ -73,7 +74,7 @@ func seedTargetFlowTask(t *testing.T, st *store.Store, strategy string) (*model.
 		CA:            "letsencrypt",
 		CertPEM:       "CERT",
 		KeyPEM:        "KEY",
-		FullchainPEM:  "FULL",
+		FullchainPEM:  fullchainPEM,
 		Serial:        "01",
 		NotBefore:     now.Add(-time.Hour),
 		NotAfter:      now.Add(90 * 24 * time.Hour),

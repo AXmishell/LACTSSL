@@ -99,8 +99,10 @@ upgrade:
     # 发布包下载大小上限（MB）
     max_download_mb: 128
     # 发布签名公钥（base64 Ed25519）；配置后强制校验 release 中的 checksums.txt.sig。
-    # 发布流程需配置 ED25519_PRIVATE_KEY 密钥；留空表示仅依赖 HTTPS 与 SHA-256。
+    # 发布流程需配置 ED25519_PRIVATE_KEY 密钥；留空时默认拒绝在线升级。
     public_key: ""
+    # 未配置 public_key 时显式允许未签名升级（不推荐，仅限受控内网/离线环境）。
+    allow_unsigned: false
     # 可选的 GitHub API token，用于提高版本检查的速率上限；留空表示匿名请求。
     token: ""
 

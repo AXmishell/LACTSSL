@@ -703,6 +703,7 @@ export interface Monitor {
   message: string
   expires_at: string | null
   issuer: string
+  allow_internal: boolean
   last_check_at: string | null
   next_check_at: string | null
   created_at: string
@@ -1355,4 +1356,6 @@ export interface ProgramStatus {
   check_error?: string
   last_run?: ProgramRunReport
   restart_pending: boolean
+  signature_required: boolean
+  allow_unsigned: boolean
 }

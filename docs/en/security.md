@@ -195,6 +195,7 @@ Recommendations:
 ## 8. Plugin and supply chain security
 
 - The official plugin repository supports Ed25519 index signatures; once a public key is configured, `index.json.sig` is verified mandatorily.
+- Program self-upgrade requires `upgrade.program.public_key` by default; without it online upgrades are rejected, and only controlled environments may enable `upgrade.program.allow_unsigned`.
 - Assets must provide a 64-character hexadecimal SHA-256 digest, which is verified after download.
 - Installation validates `plugin.json`, the ID and version in the manifest, and other attributes; any failure triggers a rollback.
 - File digests from installation records are rechecked during discovery, registration, and before every DNS/deployment/notification call; replaced files are refused for loading or execution.

@@ -96,7 +96,7 @@ sudo journalctl -u lactssl -f
 
 - **检查更新**：按 `upgrade.program.channel` 查询 Release；`stable` 只接受正式版，`beta` 包含预发布。
 - **安装更新**：下载 `lactssl_<version>_<os>_<arch>.tar.gz`（Windows 为 `.zip`），使用 `checksums.txt` 强制校验 SHA-256，解出 `lactssl` 后替换当前可执行文件。
-- **发布签名**：配置 `upgrade.program.public_key` 后，强制校验 `checksums.txt.sig`；缺失或错误签名直接拒绝。
+- **发布签名**：配置 `upgrade.program.public_key` 后，强制校验 `checksums.txt.sig`；缺失或错误签名直接拒绝。**未配置公钥时默认拒绝在线升级**，必须在受控环境显式设置 `upgrade.program.allow_unsigned: true` 才能安装未签名包。
 - **备份与回滚**：替换前把旧二进制复制到 `<data_dir>/upgrade-backups/program/`，默认保留最近 3 份。
 - **重启生效**：安装完成后页面提示重启；默认重启会清空会话，启用 `security.session_persistence` 后可继续使用原会话。
 
@@ -254,6 +254,8 @@ upgrade:
     check_interval_hours: 6
     max_download_mb: 128
     public_key: ""
+    # 未配置 public_key 时默认拒绝在线升级；仅受控环境可显式允许未签名包
+    allow_unsigned: false
     token: ""
 ```
 

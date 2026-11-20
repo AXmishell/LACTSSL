@@ -112,6 +112,9 @@ func (s *Server) createPrivateCA(c *gin.Context) {
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}
+	if err := s.syncTrustBundle(); err != nil {
+		s.logger().Warn("重建私有 CA 信任链失败", "error", err)
+	}
 	s.Store.AddLogKey("ca", ca.ID, "success", "log.private_ca.generated", map[string]any{"name": ca.Name, "common_name": ca.CommonName})
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.private_ca_generated", nil)})
 }
@@ -149,6 +152,9 @@ func (s *Server) importPrivateCA(c *gin.Context) {
 	if err := s.Store.CreatePrivateCA(ca); err != nil {
 		failErr(c, http.StatusInternalServerError, err)
 		return
+	}
+	if err := s.syncTrustBundle(); err != nil {
+		s.logger().Warn("重建私有 CA 信任链失败", "error", err)
 	}
 	s.Store.AddLogKey("ca", ca.ID, "warning", "log.private_ca.imported", map[string]any{"name": ca.Name, "common_name": ca.CommonName})
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.private_ca_imported", nil)})
@@ -223,6 +229,9 @@ func (s *Server) deletePrivateCA(c *gin.Context) {
 	if err := s.Store.DeletePrivateCA(id); err != nil {
 		failErr(c, http.StatusBadRequest, err)
 		return
+	}
+	if err := s.syncTrustBundle(); err != nil {
+		s.logger().Warn("重建私有 CA 信任链失败", "error", err)
 	}
 	s.Store.AddLogKey("ca", id, "warning", "log.private_ca.deleted", map[string]any{"name": ca.Name})
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.deleted", nil)})

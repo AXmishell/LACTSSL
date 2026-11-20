@@ -2,6 +2,7 @@ package outbound
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,5 +42,33 @@ func TestClientRejectsRedirectToBlockedTarget(t *testing.T) {
 	}
 	if _, err := client.Do(req); err == nil {
 		t.Fatal("redirect to link-local metadata address should be rejected")
+	}
+}
+
+func TestIsPublicIP(t *testing.T) {
+	cases := map[string]bool{
+		"8.8.8.8":         true,
+		"1.1.1.1":         true,
+		"127.0.0.1":       false,
+		"10.0.0.1":        false,
+		"192.168.1.1":     false,
+		"172.16.0.1":      false,
+		"169.254.169.254": false,
+		"100.64.0.1":      false,
+		"0.0.0.0":         false,
+		"::1":             false,
+		"fc00::1":         false,
+	}
+	for raw, want := range cases {
+		ip := net.ParseIP(raw)
+		if got := isPublicIP(ip); got != want {
+			t.Fatalf("isPublicIP(%s)=%v want %v", raw, got, want)
+		}
+	}
+}
+
+func TestDialPublicRejectsLoopback(t *testing.T) {
+	if _, err := DialPublic(context.Background(), "tcp", "127.0.0.1:1"); err == nil {
+		t.Fatal("loopback target should be rejected")
 	}
 }

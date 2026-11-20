@@ -103,14 +103,20 @@ func TestParseCSRInfoRejectsInvalidCSR(t *testing.T) {
 
 func TestValidateCSRDomains(t *testing.T) {
 	allowed := ParseAllowedDomains("example.com, *.api.example.com")
-	if err := ValidateCSRDomains([]string{"example.com", "www.example.com", "a.b.api.example.com"}, allowed); err != nil {
+	if err := ValidateCSRDomains([]string{"example.com", "www.example.com", "a.b.api.example.com"}, allowed, false); err != nil {
 		t.Fatalf("允许列表内域名被拒绝: %v", err)
 	}
-	if err := ValidateCSRDomains([]string{"other.com"}, allowed); err == nil {
+	if err := ValidateCSRDomains([]string{"other.com"}, allowed, false); err == nil {
 		t.Fatal("允许列表外域名应拒绝")
 	}
-	if err := ValidateCSRDomains([]string{"*.example.com"}, allowed); err != nil {
+	if err := ValidateCSRDomains([]string{"*.example.com"}, allowed, false); err != nil {
 		t.Fatalf("裸域允许列表应允许通配符: %v", err)
+	}
+	if err := ValidateCSRDomains([]string{"example.com"}, nil, false); err == nil {
+		t.Fatal("空允许列表且未开启 allowAll 时应默认拒绝")
+	}
+	if err := ValidateCSRDomains([]string{"example.com"}, nil, true); err != nil {
+		t.Fatalf("显式 allowAll 时应放行: %v", err)
 	}
 }
 

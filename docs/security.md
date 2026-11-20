@@ -43,7 +43,7 @@ LACTSSL 按“自托管单实例”设计，信任边界如下：
 
 - 密钥格式为 `lactssl_` 开头，服务端只保存摘要。
 - 权限按「资源:动作」划分；`*` 表示全部系统 API 能力。
-- 敏感权限单独列出：`certificates:key`、`private_cas:key`、`deploy:execute`、`deploy:command`、`backup:download`、`backup:restore`、`plugins:write`、`settings:write`、`api_keys:write` 等。
+- 敏感权限单独列出：`certificates:key`、`private_cas:key`、`deploy:execute`、`deploy:command`、`backup:download`、`backup:restore`、`plugins:write`、`settings:write`、`api_keys:write`、`monitors:internal` 等。
 - 通过 API 密钥管理其他密钥时，不能授予自身没有的权限，也不能修改/轮换/删除权限高于自身的密钥。
 - 账户安全类操作（改密、通行密钥、会话管理）只允许浏览器登录会话，API 密钥不能调用。
 - 建议为每个自动化系统创建独立密钥，设置过期时间，按最小权限授权，并定期轮换。
@@ -87,6 +87,7 @@ LACTSSL 按“自托管单实例”设计，信任边界如下：
 
 - 字面量与解析后的目标地址会拒绝云元数据、链路本地、保留、文档、NAT64 等网段（如 `169.254.169.254`、`100.100.100.200`、`fd00:ec2::254`、`0.0.0.0/8`、`240.0.0.0/4`）。
 - 回环与私网地址仍允许使用，便于 Gotify、自建面板、内网 Webhook 等场景；如不需要可在网络层进一步限制。
+- 站点监控默认只允许公网目标；监控私网/回环需要 API 密钥额外具备 `monitors:internal`，且拨号阶段会按最终解析出的 IP 再校验一次，防止 DNS rebinding。
 - 部署 Webhook 会携带证书私钥，公网目标强制使用 `https://`；回环、私网、`.local`、`.internal` 目标允许 HTTP。
 - 拨号阶段会重新校验 DNS 解析结果并直接连接校验后的 IP，避免 DNS 重绑定绕过。
 - 第三方请求失败写入日志前会脱敏 URL 路径与查询参数，避免 Telegram bot token、Gotify token、Server酱 SendKey 等进入日志或备份。
@@ -195,6 +196,7 @@ security:
 ## 8. 插件与供应链安全
 
 - 官方插件仓库支持 Ed25519 索引签名；配置公钥后强制校验 `index.json.sig`。
+- 程序自升级默认要求配置 `upgrade.program.public_key`；未配置时拒绝在线升级，只有受控环境可显式开启 `upgrade.program.allow_unsigned`。
 - 资产必须提供 64 位十六进制 SHA-256；下载后强制校验。
 - 安装时校验 `plugin.json`、manifest 中的 ID 与版本；任一步失败都会回滚。
 - 安装记录中的文件摘要会在发现、注册和每次 DNS/部署/通知调用前复核；文件被替换时拒绝加载或执行。

@@ -405,6 +405,7 @@ func newProgramTestUpdater(t *testing.T, exePath, dataDir, apiBase string, st *s
 		GOARCH:         "amd64",
 		CheckInterval:  0,
 		MaxDownloadMB:  16,
+		AllowUnsigned:  true,
 		Store:          st,
 	})
 	if err != nil {
@@ -483,4 +484,22 @@ func mustParseTime(t *testing.T, value string) (parsed time.Time) {
 		t.Fatal(err)
 	}
 	return parsed
+}
+
+func TestApplyRejectsUnsignedByDefault(t *testing.T) {
+	updater := &ProgramUpdater{enabled: true}
+	if _, err := updater.Apply(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "public_key") {
+		t.Fatalf("未配置公钥且未允许未签名升级时应拒绝: %v", err)
+	}
+}
+
+func TestStatusRequiresSignature(t *testing.T) {
+	updater := &ProgramUpdater{enabled: false, currentVersion: "1.0.0", goos: "linux", goarch: "amd64"}
+	status := updater.Status(context.Background(), false)
+	if status.SignatureRequired {
+		t.Fatal("未配置公钥时不应标记为需要签名校验")
+	}
+	if status.AllowUnsigned {
+		t.Fatal("默认不应允许未签名升级")
+	}
 }

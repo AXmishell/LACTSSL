@@ -242,10 +242,12 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 		return nil, err
 	}
 
-	fullchain := string(resource.Certificate)
-	// 保证完整链包含根证书之外的中间证书。
-	if len(resource.IssuerCertificate) > 0 && !strings.Contains(fullchain, string(resource.IssuerCertificate)) {
-		fullchain = strings.TrimRight(fullchain, "\n") + "\n" + string(resource.IssuerCertificate)
+	// 上游 CA 响应不可信：只保留 CERTIFICATE 块并重新编码，拒绝任何尾随
+	// 文本。否则恶意 CA 可把脚本/authorized_keys/cron 内容塞进 FullchainPEM，
+	// 再由本地部署原样写到目标路径。
+	fullchain, err := BuildFullchainPEM(leaf, resource.Certificate, resource.IssuerCertificate)
+	if err != nil {
+		return nil, i18n.Wrap("service.acme.chain_parse_failed", err, "error", err.Error())
 	}
 
 	issuer := leaf.Issuer.CommonName

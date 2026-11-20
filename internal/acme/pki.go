@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/crypto/ocsp"
 	"lactssl/internal/service"
+	"lactssl/internal/store"
 )
 
 const (
@@ -191,11 +192,6 @@ func (s *Server) writeOCSPResponse(w http.ResponseWriter, r *http.Request, reque
 		writeProblemType(w, http.StatusNotFound, ProblemMalformed, "CA not found")
 		return
 	}
-	ca, err := s.Store.GetPrivateCA(caID)
-	if err != nil {
-		writeProblemType(w, http.StatusNotFound, ProblemMalformed, "CA not found")
-		return
-	}
 	request, err := ocsp.ParseRequest(requestBytes)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/ocsp-response")
@@ -225,27 +221,67 @@ func (s *Server) writeOCSPResponse(w http.ResponseWriter, r *http.Request, reque
 			status = ocsp.Good
 		}
 	}
-	cacheKey := ""
-	if status != ocsp.Unknown {
-		cacheKey = fmt.Sprintf("%d|%s|%d|%d|%d", caID, request.SerialNumber.Text(16), int(status), revokedAt.Unix(), reason)
-		if cached, ok := s.cachedOCSPResponse(cacheKey); ok {
-			w.Header().Set("Content-Type", "application/ocsp-response")
-			w.Header().Set("Cache-Control", "public, max-age=60")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(cached)
-			return
-		}
-	}
-	der, err := service.BuildOCSPResponse(ca, request.SerialNumber, status, revokedAt, reason, s.now())
-	if err != nil {
-		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, err.Error())
+
+	// Good/Unknown 的缓存 key 不能包含“当前时间”：Good 的 revokedAt 是本次
+	// 请求的 now，按秒变化会让缓存永不命中；Unknown 之前则完全不缓存。
+	cacheKey, cacheTTL := ocspCacheKey(caID, serial, status, revokedAt, reason)
+	if cached, ok := s.cachedOCSPResponse(cacheKey); ok {
+		writeOCSPBytes(w, cached, cacheTTL)
 		return
 	}
-	if cacheKey != "" {
-		s.cacheOCSPResponse(cacheKey, der, s.now().Add(time.Minute))
+
+	value, err, _ := s.ocspGroup.Do(cacheKey, func() (any, error) {
+		if cached, ok := s.cachedOCSPResponse(cacheKey); ok {
+			return cached, nil
+		}
+		// 私钥解密/签名只在缓存未命中时执行；命中路径不触碰 CA 私钥。
+		ca, err := s.Store.GetPrivateCA(caID)
+		if err != nil {
+			return nil, err
+		}
+		der, err := service.BuildOCSPResponse(ca, request.SerialNumber, status, revokedAt, reason, s.now())
+		if err != nil {
+			return nil, err
+		}
+		s.cacheOCSPResponse(cacheKey, der, s.now().Add(cacheTTL))
+		return der, nil
+	})
+	if err != nil {
+		if store.IsNotFound(err) {
+			writeProblemType(w, http.StatusNotFound, ProblemMalformed, "CA not found")
+			return
+		}
+		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "failed to build OCSP response")
+		return
+	}
+	der, _ := value.([]byte)
+	if len(der) == 0 {
+		writeProblemType(w, http.StatusInternalServerError, ProblemServerInternal, "failed to build OCSP response")
+		return
+	}
+	writeOCSPBytes(w, der, cacheTTL)
+}
+
+// ocspCacheKey 为 OCSP 响应生成稳定缓存 key 与 TTL。
+// Revoked 绑定吊销时间/原因；Good/Unknown 使用稳定 key，并做短 TTL 负缓存。
+func ocspCacheKey(caID int64, serial string, status int, revokedAt time.Time, reason int) (string, time.Duration) {
+	switch status {
+	case ocsp.Revoked:
+		return fmt.Sprintf("%d|%s|%d|%d|%d", caID, serial, status, revokedAt.Unix(), reason), time.Minute
+	case ocsp.Good:
+		return fmt.Sprintf("%d|%s|%d", caID, serial, status), time.Minute
+	default:
+		return fmt.Sprintf("%d|%s|%d", caID, serial, status), 30 * time.Second
+	}
+}
+
+func writeOCSPBytes(w http.ResponseWriter, der []byte, ttl time.Duration) {
+	seconds := int(ttl.Seconds())
+	if seconds < 1 {
+		seconds = 1
 	}
 	w.Header().Set("Content-Type", "application/ocsp-response")
-	w.Header().Set("Cache-Control", "public, max-age=60")
+	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", seconds))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(der)
 }

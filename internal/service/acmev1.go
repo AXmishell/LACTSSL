@@ -144,14 +144,14 @@ func (m *Manager) obtainV1(ca CADef, user *acmeUser, req ACMERequest, provider c
 	if issuer == "" && len(leaf.Issuer.Organization) > 0 {
 		issuer = leaf.Issuer.Organization[0]
 	}
-	fullchain := strings.TrimRight(string(certPEM), "\n")
-	if len(issuerPEM) > 0 {
-		fullchain += "\n" + strings.TrimRight(string(issuerPEM), "\n")
+	fullchain, err := BuildFullchainPEM(leaf, certPEM, issuerPEM)
+	if err != nil {
+		return nil, i18n.Wrap("service.acme.chain_parse_failed", err, "error", err.Error())
 	}
 	return &ACMEResult{
 		CertPEM:      string(certPEM),
 		KeyPEM:       string(keyPEM),
-		FullchainPEM: fullchain + "\n",
+		FullchainPEM: fullchain,
 		Issuer:       issuer,
 		Serial:       strings.ToUpper(leaf.SerialNumber.Text(16)),
 		NotBefore:    leaf.NotBefore,

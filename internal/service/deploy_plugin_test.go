@@ -176,6 +176,7 @@ func TestExternalDeployerIntegration(t *testing.T) {
 		t.Fatal("external deploy type missing from localized list")
 	}
 
+	fullchainPEM := testFullchainPEM(t)
 	cert := &model.Certificate{
 		PrimaryDomain: "example.com",
 		Domains:       []string{"example.com", "www.example.com"},
@@ -184,7 +185,7 @@ func TestExternalDeployerIntegration(t *testing.T) {
 		NotBefore:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		NotAfter:      time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		CertPEM:       "CERT",
-		FullchainPEM:  "FULLCHAIN",
+		FullchainPEM:  fullchainPEM,
 		KeyPEM:        "PRIVATE KEY",
 	}
 	account := &model.DeployAccount{Type: "capture-target", Config: map[string]string{"api_token": "token"}}

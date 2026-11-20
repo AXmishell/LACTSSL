@@ -32,7 +32,7 @@ func (m *Manager) CheckMonitor(monitorID int64) error {
 	}
 	next := now.Add(time.Duration(interval) * time.Hour)
 
-	cert, chain, checkErr := fetchCertificate(monitor.Target)
+	cert, chain, checkErr := fetchCertificate(monitor.Target, monitor.AllowInternal)
 	status := "valid"
 	message := ""
 	issuer := ""
@@ -102,7 +102,7 @@ func (m *Manager) CheckMonitor(monitorID int64) error {
 	return checkErr
 }
 
-func fetchCertificate(target string) (*x509.Certificate, []*x509.Certificate, error) {
+func fetchCertificate(target string, allowInternal bool) (*x509.Certificate, []*x509.Certificate, error) {
 	host, port, err := parseTarget(target)
 	if err != nil {
 		return nil, nil, err
@@ -113,7 +113,13 @@ func fetchCertificate(target string) (*x509.Certificate, []*x509.Certificate, er
 	addr := net.JoinHostPort(host, port)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	raw, err := dialSafe(ctx, "tcp", addr)
+	// 未获得内网监控授权时，在拨号阶段按最终解析出的 IP 再做一次公网校验：
+	// 即使创建时域名解析到公网、检查时切换到内网，也无法连接。
+	dial := dialPublic
+	if allowInternal {
+		dial = dialSafe
+	}
+	raw, err := dial(ctx, "tcp", addr)
 	if err != nil {
 		return nil, nil, i18n.E("monitor.error.connect_failed", "address", addr, "error", SafeError(err))
 	}

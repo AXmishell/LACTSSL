@@ -692,6 +692,27 @@ func (s *Store) ListPrivateCAs() ([]model.PrivateCA, error) {
 	return list, rows.Err()
 }
 
+// ListPrivateCATrustCertificates 返回仍在有效期内的私有 CA 公钥证书，
+// 供出站 TLS 信任链使用。列表接口不返回证书内容，因此单独提供此方法。
+func (s *Store) ListPrivateCATrustCertificates() ([]string, error) {
+	rows, err := s.DB.Query(`SELECT cert_pem FROM private_cas WHERE cert_pem<>'' AND not_after>?`, nowUTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var cert string
+		if err := rows.Scan(&cert); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(cert) != "" {
+			out = append(out, cert)
+		}
+	}
+	return out, rows.Err()
+}
+
 // GetPrivateCA 查询单个私有 CA，并解密私钥。
 func (s *Store) GetPrivateCA(id int64) (*model.PrivateCA, error) {
 	var c model.PrivateCA
@@ -1362,7 +1383,7 @@ func (s *Store) ClearDeployRecords() (int64, error) {
 
 // ListMonitors 返回监控项。
 func (s *Store) ListMonitors() ([]model.Monitor, error) {
-	rows, err := s.DB.Query(`SELECT id,name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at FROM monitors ORDER BY id DESC`)
+	rows, err := s.DB.Query(`SELECT id,name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at,allow_internal FROM monitors ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1380,15 +1401,15 @@ func (s *Store) ListMonitors() ([]model.Monitor, error) {
 
 // GetMonitor 查询监控项。
 func (s *Store) GetMonitor(id int64) (*model.Monitor, error) {
-	row := s.DB.QueryRow(`SELECT id,name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at FROM monitors WHERE id=?`, id)
+	row := s.DB.QueryRow(`SELECT id,name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at,allow_internal FROM monitors WHERE id=?`, id)
 	return scanMonitor(row)
 }
 
 // CreateMonitor 新建监控项。
 func (s *Store) CreateMonitor(m *model.Monitor) error {
 	now := nowUTC()
-	id, err := s.DB.InsertID(`INSERT INTO monitors(name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at) VALUES(?,?,?,?,?,?,NULL,'',NULL,?,?)`,
-		m.Name, m.Target, m.IntervalHour, boolInt(m.Enabled), "pending", "", now, now)
+	id, err := s.DB.InsertID(`INSERT INTO monitors(name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at,allow_internal) VALUES(?,?,?,?,?,?,NULL,'',NULL,?,?,?)`,
+		m.Name, m.Target, m.IntervalHour, boolInt(m.Enabled), "pending", "", now, now, boolInt(m.AllowInternal))
 	if err != nil {
 		return err
 	}
@@ -1401,8 +1422,8 @@ func (s *Store) CreateMonitor(m *model.Monitor) error {
 
 // UpdateMonitor 更新监控配置。
 func (s *Store) UpdateMonitor(m *model.Monitor) error {
-	_, err := s.DB.Exec(`UPDATE monitors SET name=?,target=?,interval_hours=?,enabled=?,next_check_at=? WHERE id=?`,
-		m.Name, m.Target, m.IntervalHour, boolInt(m.Enabled), nowUTC(), m.ID)
+	_, err := s.DB.Exec(`UPDATE monitors SET name=?,target=?,interval_hours=?,enabled=?,allow_internal=?,next_check_at=? WHERE id=?`,
+		m.Name, m.Target, m.IntervalHour, boolInt(m.Enabled), boolInt(m.AllowInternal), nowUTC(), m.ID)
 	return err
 }
 
@@ -1421,7 +1442,7 @@ func (s *Store) UpdateMonitorResult(id int64, status, message, issuer string, ex
 
 // DueMonitors 返回需要检查的监控项。
 func (s *Store) DueMonitors(now time.Time) ([]model.Monitor, error) {
-	rows, err := s.DB.Query(`SELECT id,name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at
+	rows, err := s.DB.Query(`SELECT id,name,target,interval_hours,enabled,status,message,expires_at,issuer,last_check_at,next_check_at,created_at,allow_internal
 		FROM monitors WHERE enabled=1 AND next_check_at IS NOT NULL AND next_check_at<=? ORDER BY next_check_at LIMIT 10`, now)
 	if err != nil {
 		return nil, err
@@ -1440,12 +1461,13 @@ func (s *Store) DueMonitors(now time.Time) ([]model.Monitor, error) {
 
 func scanMonitor(row interface{ Scan(...any) error }) (*model.Monitor, error) {
 	var m model.Monitor
-	var enabled int
+	var enabled, allowInternal int
 	var expires, lastCheck, nextCheck sql.NullTime
-	if err := row.Scan(&m.ID, &m.Name, &m.Target, &m.IntervalHour, &enabled, &m.Status, &m.Message, &expires, &m.Issuer, &lastCheck, &nextCheck, &m.CreatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.Name, &m.Target, &m.IntervalHour, &enabled, &m.Status, &m.Message, &expires, &m.Issuer, &lastCheck, &nextCheck, &m.CreatedAt, &allowInternal); err != nil {
 		return nil, err
 	}
 	m.Enabled = enabled == 1
+	m.AllowInternal = allowInternal == 1
 	if expires.Valid {
 		m.ExpiresAt = &expires.Time
 	}

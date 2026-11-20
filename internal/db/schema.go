@@ -233,6 +233,7 @@ func sqliteStatements() []string {
 			message TEXT NOT NULL DEFAULT '',
 			expires_at DATETIME,
 			issuer TEXT NOT NULL DEFAULT '',
+			allow_internal INTEGER NOT NULL DEFAULT 0,
 			last_check_at DATETIME,
 			next_check_at DATETIME,
 			created_at DATETIME NOT NULL

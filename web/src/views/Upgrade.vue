@@ -429,6 +429,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, MagicStick, Refresh, RefreshRight, SwitchButton } from '@element-plus/icons-vue'
 import { api, apiBase, errorText } from '../api'
 import { t } from '../i18n'
+import { loadUser, state } from '../store'
 import { formatDate } from '../utils'
 import type {
   DatabaseConvertStatus,
@@ -685,9 +686,27 @@ async function applyProgram(): Promise<void> {
     }
   ).catch(() => false)
   if (!confirmed) return
+  // 替换当前二进制属于敏感操作，后端要求浏览器会话再次认证。
+  const currentUser = state.user ?? (await loadUser().catch(() => null))
+  const totpEnabled = !!currentUser?.totp_enabled
+  const prompt = await ElMessageBox.prompt(
+    t(totpEnabled ? 'settings.reauthTotpPlaceholder' : 'settings.reauthPasswordPlaceholder'),
+    t(totpEnabled ? 'settings.reauthTotpLabel' : 'settings.reauthPasswordLabel'),
+    {
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
+      inputType: totpEnabled ? 'text' : 'password',
+      inputPattern: totpEnabled ? /^\d{6}$/ : undefined,
+      inputErrorMessage: t(totpEnabled ? 'settings.reauthTotpRequired' : 'settings.reauthPasswordRequired')
+    }
+  ).catch(() => null)
+  if (!prompt) return
+  const reauth = totpEnabled
+    ? { totp: prompt.value.trim() }
+    : { password: prompt.value }
   programApplying.value = true
   try {
-    const result = await api.postSlow<ProgramRunReport>('/upgrade/program/apply', { version: target.version })
+    const result = await api.postSlow<ProgramRunReport>('/upgrade/program/apply', { version: target.version, ...reauth })
     if (!result) return
     ElMessage.success(t('upgrade.program.applySuccess', { version: result.to_version }))
     await loadProgram()

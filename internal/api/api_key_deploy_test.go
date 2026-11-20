@@ -20,11 +20,12 @@ func TestAPIKeyDeployRequiresDeployScope(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	session := loginSessionTest(t, router)
 
+	certPEM, fullchainPEM := testCertificateChainPEM(t)
 	cert := &model.Certificate{
 		PrimaryDomain: "deploy.example.com",
-		CertPEM:       "CERT",
+		CertPEM:       certPEM,
 		KeyPEM:        "PRIVATE-KEY",
-		FullchainPEM:  "CHAIN",
+		FullchainPEM:  fullchainPEM,
 		NotBefore:     time.Now().Add(-time.Hour),
 		NotAfter:      time.Now().Add(24 * time.Hour),
 	}
@@ -95,11 +96,12 @@ func TestAPIKeyTaskDeployRequiresDeployScope(t *testing.T) {
 
 	caValue := service.PrivateCAValue(ca.ID)
 	dir := t.TempDir()
+	certPEM, fullchainPEM := testCertificateChainPEM(t)
 	cert := &model.Certificate{
 		PrimaryDomain: "task.example.com",
-		CertPEM:       "CERT",
+		CertPEM:       certPEM,
 		KeyPEM:        "PRIVATE-KEY",
-		FullchainPEM:  "CHAIN",
+		FullchainPEM:  fullchainPEM,
 		NotBefore:     time.Now().Add(-time.Hour),
 		NotAfter:      time.Now().Add(24 * time.Hour),
 	}

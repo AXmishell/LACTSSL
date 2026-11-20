@@ -129,8 +129,16 @@ func TestUpdateDeployAccountResetsVerification(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := `{"name":"ssh-target","type":"ssh","config":{"host":"new.example.com","user":"root","auth_type":"password","password":""}}`
+	// 目标变化但密钥留空必须被拒绝，避免把旧密码发往新主机。
+	rejected := `{"name":"ssh-target","type":"ssh","config":{"host":"new.example.com","user":"root","auth_type":"password","password":""}}`
 	response := sessionRequest(t, router, http.MethodPut, fmt.Sprintf("/api/deploy-accounts/%d", account.ID),
+		rejected, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "credentials_target_changed") {
+		t.Fatalf("目标变化且密钥留空应被拒绝: %d %s", response.Code, response.Body.String())
+	}
+
+	body := `{"name":"ssh-target","type":"ssh","config":{"host":"new.example.com","user":"root","auth_type":"password","password":"new-secret"}}`
+	response = sessionRequest(t, router, http.MethodPut, fmt.Sprintf("/api/deploy-accounts/%d", account.ID),
 		body, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if response.Code != http.StatusOK {
 		t.Fatalf("更新凭据失败: %d %s", response.Code, response.Body.String())

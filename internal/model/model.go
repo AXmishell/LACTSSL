@@ -234,9 +234,12 @@ type Monitor struct {
 	Message      string     `json:"message"`
 	ExpiresAt    *time.Time `json:"expires_at"`
 	Issuer       string     `json:"issuer"`
-	LastCheckAt  *time.Time `json:"last_check_at"`
-	NextCheckAt  *time.Time `json:"next_check_at"`
-	CreatedAt    time.Time  `json:"created_at"`
+	// AllowInternal 表示该监控项由具备内网监控权限的调用方创建/更新，
+	// 允许在拨号阶段连接到私网/回环地址。
+	AllowInternal bool       `json:"allow_internal"`
+	LastCheckAt   *time.Time `json:"last_check_at"`
+	NextCheckAt   *time.Time `json:"next_check_at"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 // 日志分类。operation 是业务/操作日志，runtime 是进程运行日志。

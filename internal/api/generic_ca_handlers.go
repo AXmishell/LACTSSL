@@ -89,6 +89,13 @@ func (s *Server) updateACMECA(c *gin.Context) {
 		EABKid:       strings.TrimSpace(body.EABKid),
 		EABHMAC:      hmac,
 	}
+	// 修改上游目录等同于改变 EAB 凭据的去向：必须重新输入 HMAC，避免
+	// 旧 EAB 密钥被发往攻击者 ACME 服务端。
+	if ca.DirectoryURL != strings.TrimSpace(existing.DirectoryURL) &&
+		ca.EABRequired && strings.TrimSpace(ca.EABHMAC) == "" && existing.EABHMACSet {
+		failKey(c, http.StatusBadRequest, "api.error.credentials_target_changed", "field", "eab_hmac")
+		return
+	}
 	if err := s.validateACMECA(ca, existing.EABHMACSet); err != nil {
 		failErr(c, http.StatusBadRequest, err)
 		return

@@ -88,6 +88,7 @@ type SetupProgramConfig struct {
 	Channel            string `json:"channel"`
 	CheckIntervalHours int    `json:"check_interval_hours"`
 	MaxDownloadMB      int    `json:"max_download_mb"`
+	AllowUnsigned      bool   `json:"allow_unsigned"`
 }
 
 type SetupPluginsConfig struct {
@@ -186,6 +187,7 @@ type SetupProgramPatch struct {
 	Channel            *string `json:"channel"`
 	CheckIntervalHours *int    `json:"check_interval_hours"`
 	MaxDownloadMB      *int    `json:"max_download_mb"`
+	AllowUnsigned      *bool   `json:"allow_unsigned"`
 }
 
 type SetupPluginsPatch struct {
@@ -362,6 +364,7 @@ func setupConfigFromFile(fc *fileConfig) *SetupConfig {
 				Channel:            strings.ToLower(strings.TrimSpace(fc.Upgrade.Program.Channel)),
 				CheckIntervalHours: fc.Upgrade.Program.CheckIntervalHours,
 				MaxDownloadMB:      fc.Upgrade.Program.MaxDownloadMB,
+				AllowUnsigned:      fc.Upgrade.Program.AllowUnsigned,
 			},
 		},
 		Plugins: SetupPluginsConfig{
@@ -588,6 +591,9 @@ func applySetupPatch(root *yaml.Node, patch SetupConfigPatch) error {
 				return err
 			}
 			if err := setOptInt(programSection, "max_download_mb", patch.Upgrade.Program.MaxDownloadMB); err != nil {
+				return err
+			}
+			if err := setOptBool(programSection, "allow_unsigned", patch.Upgrade.Program.AllowUnsigned); err != nil {
 				return err
 			}
 		}

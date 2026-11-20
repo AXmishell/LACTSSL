@@ -31,3 +31,8 @@ func newOutboundClient(timeout time.Duration, skipVerify bool) *http.Client {
 func dialSafe(ctx context.Context, network, address string) (net.Conn, error) {
 	return outbound.DialSafe(ctx, network, address)
 }
+
+// dialPublic 只允许公网目标，用于未获得内网监控授权的监控项。
+func dialPublic(ctx context.Context, network, address string) (net.Conn, error) {
+	return outbound.DialPublic(ctx, network, address)
+}

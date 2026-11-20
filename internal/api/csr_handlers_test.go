@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"net/http"
+	"strings"
 	"testing"
 
 	"lactssl/internal/model"
@@ -49,6 +50,9 @@ func TestCSRRequestCreatesPendingRequest(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	session := loginSessionTest(t, router)
 	if err := st.SetSetting("acme.email", "admin@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("csr.allowed_domains", "example.com"); err != nil {
 		t.Fatal(err)
 	}
 	account := &model.DNSAccount{Name: "test-dns", Provider: "test", Config: map[string]string{}}
@@ -112,6 +116,9 @@ func TestCSRRequestAPIKeyOwnership(t *testing.T) {
 	if err := st.SetSetting("acme.email", "admin@example.com"); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.SetSetting("csr.allowed_domains", "example.com"); err != nil {
+		t.Fatal(err)
+	}
 	account := &model.DNSAccount{Name: "test-dns", Provider: "test", Config: map[string]string{}}
 	if err := st.CreateDNSAccount(account); err != nil {
 		t.Fatal(err)
@@ -134,7 +141,7 @@ func TestCSRRequestAPIKeyOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	token, _ := createAPIKeyForTest(t, router, session, "csr-client", []string{apiScopeCertificatesRequest})
+	token, _ := createAPIKeyForTest(t, router, session, "csr-client", []string{apiScopeCertificatesRequest, apiScopeDNSRead})
 	// 其他 API 密钥不能读取会话创建的申请。
 	denied := apiKeyRequest(t, router, token, http.MethodGet, "/api/certificate-requests/"+payload.Data.ID, "", "")
 	if denied.Code != http.StatusNotFound {
@@ -166,4 +173,51 @@ func containsCode(body []byte, code string) bool {
 		return false
 	}
 	return payload.Code == code
+}
+
+func TestCSRRequestRequiresAllowlist(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	if err := st.SetSetting("acme.email", "admin@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	account := &model.DNSAccount{Name: "test-dns", Provider: "test", Config: map[string]string{}}
+	if err := st.CreateDNSAccount(account); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"csr":            testCSRPEM(t, "example.com"),
+		"ca":             "letsencrypt",
+		"dns_account_id": account.ID,
+	})
+	resp := sessionRequest(t, router, http.MethodPost, "/api/certificate-requests", string(body),
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if resp.Code != http.StatusForbidden || !containsCode(resp.Body.Bytes(), "service.csr.allowed_domains_required") {
+		t.Fatalf("未配置允许域名时应默认拒绝: %d %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCSRRequestAPIKeyRequiresDNSAccountScope(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	if err := st.SetSetting("acme.email", "admin@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("csr.allowed_domains", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	account := &model.DNSAccount{Name: "test-dns", Provider: "test", Config: map[string]string{}}
+	if err := st.CreateDNSAccount(account); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"csr":            testCSRPEM(t, "example.com"),
+		"ca":             "letsencrypt",
+		"dns_account_id": account.ID,
+	})
+	token, _ := createAPIKeyForTest(t, router, session, "csr-only", []string{apiScopeCertificatesRequest})
+	resp := apiKeyRequest(t, router, token, http.MethodPost, "/api/certificate-requests", string(body), "")
+	if resp.Code != http.StatusForbidden || !strings.Contains(resp.Body, apiScopeDNSRead) {
+		t.Fatalf("仅 certificates:request 不应借用 DNS 账户: %d %s", resp.Code, resp.Body)
+	}
 }

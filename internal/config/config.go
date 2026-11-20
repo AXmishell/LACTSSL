@@ -84,8 +84,11 @@ type ProgramConfig struct {
 	// MaxDownloadMB 是发布包下载大小上限。
 	MaxDownloadMB int
 	// PublicKey 是发布校验和签名（checksums.txt.sig）的 Ed25519 公钥（base64）。
-	// 配置后强制验签；为空表示仅依赖 HTTPS 与 SHA-256。
+	// 配置后强制验签；为空时必须显式允许未签名升级（AllowUnsigned）。
 	PublicKey string
+	// AllowUnsigned 表示在未配置 PublicKey 时仍允许替换二进制。
+	// 默认 false：未配置公钥时拒绝升级，避免仅依赖 HTTPS/同源 checksum。
+	AllowUnsigned bool
 	// Token 是可选的 GitHub API token，用于提高版本检查的速率上限。
 	Token string
 }
@@ -260,6 +263,7 @@ type fileConfig struct {
 			CheckIntervalHours int    `yaml:"check_interval_hours"`
 			MaxDownloadMB      int    `yaml:"max_download_mb"`
 			PublicKey          string `yaml:"public_key"`
+			AllowUnsigned      bool   `yaml:"allow_unsigned"`
 			Token              string `yaml:"token"`
 		} `yaml:"program"`
 	} `yaml:"upgrade"`
@@ -606,6 +610,7 @@ func LoadFrom(path string) (*Config, error) {
 		CheckInterval: time.Duration(fc.Upgrade.Program.CheckIntervalHours) * time.Hour,
 		MaxDownloadMB: fc.Upgrade.Program.MaxDownloadMB,
 		PublicKey:     strings.TrimSpace(fc.Upgrade.Program.PublicKey),
+		AllowUnsigned: fc.Upgrade.Program.AllowUnsigned,
 		Token:         strings.TrimSpace(fc.Upgrade.Program.Token),
 	}
 	if programCfg.Repo == "" {
@@ -1126,8 +1131,10 @@ upgrade:
     check_interval_hours: %d
     # 发布包下载大小上限（MB）
     max_download_mb: %d
-    # 发布校验和签名公钥（base64 Ed25519）；留空表示仅依赖 HTTPS 与 SHA-256
+    # 发布校验和签名公钥（base64 Ed25519）；留空时默认拒绝在线升级。
     public_key: %s
+    # 未配置 public_key 时显式允许未签名升级（不推荐，仅限受控内网/离线环境）。
+    allow_unsigned: %t
     # 可选的 GitHub API token，用于提高版本检查的速率上限；留空表示匿名请求。
     token: %s
 
@@ -1254,6 +1261,7 @@ notify_plugins:
 		fc.Upgrade.Program.CheckIntervalHours,
 		fc.Upgrade.Program.MaxDownloadMB,
 		quote(fc.Upgrade.Program.PublicKey),
+		fc.Upgrade.Program.AllowUnsigned,
 		quote(fc.Upgrade.Program.Token),
 		quote(fc.Security.Entry),
 		quote(fc.Security.PublicURL),

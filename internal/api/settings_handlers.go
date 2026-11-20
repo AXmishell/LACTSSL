@@ -111,26 +111,27 @@ func (s *Server) getSettings(c *gin.Context) {
 	user := getUser(c)
 	passkeyCount, _ := s.Store.CountPasskeys(user.ID)
 	resp := gin.H{
-		"entry":               s.Entry(),
-		"passkey_enabled":     passkeyCount > 0,
-		"passkey_count":       passkeyCount,
-		"language":            s.setting("language", string(i18n.Default)),
-		"acme_email":          s.setting("acme.email", ""),
-		"acme_ca":             s.setting("acme.ca", "letsencrypt"),
-		"acme_ca_pool_id":     s.settingInt(service.CAPoolSettingKey, 0),
-		"acme_key_type":       s.setting("acme.key_type", "ecdsa"),
-		"acme_renew_days":     s.settingInt("acme.renew_days", 30),
-		"csr_allowed_domains": s.setting("csr.allowed_domains", ""),
-		"smtp_host":           s.setting("smtp.host", ""),
-		"smtp_port":           s.settingInt("smtp.port", 465),
-		"smtp_username":       s.setting("smtp.username", ""),
-		"smtp_from":           s.setting("smtp.from", ""),
-		"smtp_ssl":            s.setting("smtp.ssl", "true") == "true",
-		"smtp_password_set":   smtpPassword != "",
-		"notify_enabled":      s.setting("notify.enabled", "false") == "true",
-		"notify_to":           s.setting("notify.to", ""),
-		"notify_channels":     s.Manager.NotifyChannelsForUI(),
-		"notify_channel_defs": s.Manager.NotifyChannelDefinitions(),
+		"entry":                 s.Entry(),
+		"passkey_enabled":       passkeyCount > 0,
+		"passkey_count":         passkeyCount,
+		"language":              s.setting("language", string(i18n.Default)),
+		"acme_email":            s.setting("acme.email", ""),
+		"acme_ca":               s.setting("acme.ca", "letsencrypt"),
+		"acme_ca_pool_id":       s.settingInt(service.CAPoolSettingKey, 0),
+		"acme_key_type":         s.setting("acme.key_type", "ecdsa"),
+		"acme_renew_days":       s.settingInt("acme.renew_days", 30),
+		"csr_allowed_domains":   s.setting("csr.allowed_domains", ""),
+		"csr_allow_all_domains": s.setting("csr.allow_all_domains", "false") == "true",
+		"smtp_host":             s.setting("smtp.host", ""),
+		"smtp_port":             s.settingInt("smtp.port", 465),
+		"smtp_username":         s.setting("smtp.username", ""),
+		"smtp_from":             s.setting("smtp.from", ""),
+		"smtp_ssl":              s.setting("smtp.ssl", "true") == "true",
+		"smtp_password_set":     smtpPassword != "",
+		"notify_enabled":        s.setting("notify.enabled", "false") == "true",
+		"notify_to":             s.setting("notify.to", ""),
+		"notify_channels":       s.Manager.NotifyChannelsForUI(),
+		"notify_channel_defs":   s.Manager.NotifyChannelDefinitions(),
 	}
 	// 门禁入口只返回给浏览器会话；API 密钥不应借此获知入口。
 	if apiKeyFromContext(c) != nil {
@@ -149,22 +150,23 @@ func (s *Server) settingInt(key string, def int) int {
 
 func (s *Server) updateSettings(c *gin.Context) {
 	var body struct {
-		Language          *string                                `json:"language"`
-		ACMEEmail         *string                                `json:"acme_email"`
-		ACMECA            *string                                `json:"acme_ca"`
-		ACMECAPoolID      *int64                                 `json:"acme_ca_pool_id"`
-		ACMEKeyType       *string                                `json:"acme_key_type"`
-		ACMERenew         *int                                   `json:"acme_renew_days"`
-		CSRAllowedDomains *string                                `json:"csr_allowed_domains"`
-		SMTPHost          *string                                `json:"smtp_host"`
-		SMTPPort          *int                                   `json:"smtp_port"`
-		SMTPUsername      *string                                `json:"smtp_username"`
-		SMTPPassword      *string                                `json:"smtp_password"`
-		SMTPFrom          *string                                `json:"smtp_from"`
-		SMTPSSL           *bool                                  `json:"smtp_ssl"`
-		NotifyEnable      *bool                                  `json:"notify_enabled"`
-		NotifyTo          *string                                `json:"notify_to"`
-		NotifyChannels    map[string]service.NotifyChannelConfig `json:"notify_channels"`
+		Language           *string                                `json:"language"`
+		ACMEEmail          *string                                `json:"acme_email"`
+		ACMECA             *string                                `json:"acme_ca"`
+		ACMECAPoolID       *int64                                 `json:"acme_ca_pool_id"`
+		ACMEKeyType        *string                                `json:"acme_key_type"`
+		ACMERenew          *int                                   `json:"acme_renew_days"`
+		CSRAllowedDomains  *string                                `json:"csr_allowed_domains"`
+		CSRAllowAllDomains *bool                                  `json:"csr_allow_all_domains"`
+		SMTPHost           *string                                `json:"smtp_host"`
+		SMTPPort           *int                                   `json:"smtp_port"`
+		SMTPUsername       *string                                `json:"smtp_username"`
+		SMTPPassword       *string                                `json:"smtp_password"`
+		SMTPFrom           *string                                `json:"smtp_from"`
+		SMTPSSL            *bool                                  `json:"smtp_ssl"`
+		NotifyEnable       *bool                                  `json:"notify_enabled"`
+		NotifyTo           *string                                `json:"notify_to"`
+		NotifyChannels     map[string]service.NotifyChannelConfig `json:"notify_channels"`
 		// 出站目标（SMTP/通知）可能携带已存储的密钥，变更时必须再认证。
 		Password string `json:"password"`
 		TOTP     string `json:"totp"`
@@ -244,6 +246,9 @@ func (s *Server) updateSettings(c *gin.Context) {
 	}
 	if body.CSRAllowedDomains != nil {
 		_ = s.Store.SetSetting("csr.allowed_domains", strings.TrimSpace(*body.CSRAllowedDomains))
+	}
+	if body.CSRAllowAllDomains != nil {
+		_ = s.Store.SetSetting("csr.allow_all_domains", strconv.FormatBool(*body.CSRAllowAllDomains))
 	}
 	set("smtp.host", body.SMTPHost)
 	set("smtp.username", body.SMTPUsername)

@@ -101,12 +101,26 @@ func (s *Server) createCSRRequest(c *gin.Context) {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
+	// 自定义 CA 或需要 EAB 的 CA 会使用管理员保存的上游账户/EAB 凭据，
+	// 受限 API Key 必须额外具备 ca:read 才能借用。
+	if key := apiKeyFromContext(c); key != nil && (caDef.Custom || caDef.EAB) &&
+		!key.HasScope(apiScopeCARead) && !key.HasScope(apiScopeCAWrite) {
+		failKey(c, http.StatusForbidden, "api.error.api_key_scope_denied", "scope", apiScopeCARead)
+		return
+	}
 	if strings.EqualFold(caDef.Protocol, "v1") {
 		failKey(c, http.StatusBadRequest, "api.error.csr_ca_v1_unsupported")
 		return
 	}
 	if body.DNSAccountID <= 0 {
 		failKey(c, http.StatusBadRequest, "api.error.csr_dns_account_required")
+		return
+	}
+	// API 密钥代表受限机器身份，不能凭 certificates:request 借用管理员的任意
+	// DNS 凭据。要求同时具备 dns_accounts:read，明确把“可使用的 DNS 账户”
+	// 纳入密钥授权范围；浏览器会话代表管理员本人，不受此限制。
+	if key := apiKeyFromContext(c); key != nil && !key.HasScope(apiScopeDNSRead) && !key.HasScope(apiScopeDNSWrite) {
+		failKey(c, http.StatusForbidden, "api.error.api_key_scope_denied", "scope", apiScopeDNSRead)
 		return
 	}
 	if _, err := s.Store.GetDNSAccount(body.DNSAccountID); err != nil {
@@ -118,7 +132,8 @@ func (s *Server) createCSRRequest(c *gin.Context) {
 		return
 	}
 	allowed := service.ParseAllowedDomains(s.setting("csr.allowed_domains", ""))
-	if err := service.ValidateCSRDomains(info.DNSNames, allowed); err != nil {
+	allowAll := strings.EqualFold(strings.TrimSpace(s.setting("csr.allow_all_domains", "false")), "true")
+	if err := service.ValidateCSRDomains(info.DNSNames, allowed, allowAll); err != nil {
 		failErr(c, http.StatusForbidden, err)
 		return
 	}

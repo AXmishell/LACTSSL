@@ -1,6 +1,10 @@
 package service
 
-import "strings"
+import (
+	"strings"
+
+	"lactssl/internal/i18n"
+)
 
 // FilterAuthConfig 只保留部署类型声明过的认证与连接字段。
 // 旧版本把部署路径等参数也存在凭据里，升级后保存凭据时会被过滤掉；
@@ -106,6 +110,38 @@ func MergeDeployConfig(def ProviderDef, auth, deployCfg map[string]string) map[s
 		}
 	}
 	return out
+}
+
+// RequireSecretsOnChange 阻止“修改目标地址 + 留空密钥 = 复用旧密码发往新主机”。
+// 只要任一同名字段发生变化（包括插件把 endpoint/api_url 标记为密钥的情况），
+// 调用方就必须重新提交其余可见密钥；仅修改备注/名称不在此校验范围内。
+func RequireSecretsOnChange(def ProviderDef, current, incoming map[string]string) error {
+	changed := make(map[string]bool)
+	for _, field := range def.Fields {
+		value, has := incoming[field.Key]
+		if !has {
+			continue
+		}
+		// 密钥留空表示“保留原值”，不视为变更。
+		if field.IsSecret() && strings.TrimSpace(value) == "" {
+			continue
+		}
+		if strings.TrimSpace(value) != strings.TrimSpace(current[field.Key]) {
+			changed[field.Key] = true
+		}
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	for _, field := range def.Fields {
+		if !field.IsSecret() || changed[field.Key] || !field.VisibleIn(def.Fields, incoming) {
+			continue
+		}
+		if strings.TrimSpace(incoming[field.Key]) == "" {
+			return i18n.E("api.error.credentials_target_changed", "field", field.Key)
+		}
+	}
+	return nil
 }
 
 // MaskProviderConfig 返回脱敏后的凭据配置，密钥字段统一置空。
