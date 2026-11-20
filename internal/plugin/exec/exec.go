@@ -73,7 +73,7 @@ func Run(ctx context.Context, path string, args []string, stdin []byte, opts Opt
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, path, args...)
+	cmd := exec.CommandContext(runCtx, path, args...) // #nosec G204 -- path 为已安装插件路径，参数由插件调用协议构造
 	setProcessGroup(cmd)
 	cmd.Cancel = func() error {
 		if cmd.Process != nil {

@@ -472,13 +472,12 @@ func splitVersion(value string) ([3]int, string) {
 		pre = core[idx+1:]
 		core = core[:idx]
 	}
-	var out [3]int
-	for i, part := range strings.SplitN(core, ".", 3) {
-		if i >= 3 {
-			break
-		}
+	numbers := make([]int, 0, 3)
+	for _, part := range strings.SplitN(core, ".", 3) {
 		number, _ := strconv.Atoi(strings.TrimSpace(part))
-		out[i] = number
+		numbers = append(numbers, number)
 	}
+	var out [3]int
+	copy(out[:], numbers)
 	return out, pre
 }

@@ -105,14 +105,14 @@ func SendMail(cfg SMTPConfig, to, subject, html string) error {
 	if cfg.SSL {
 		tlsConn := tls.Client(conn, &tls.Config{ServerName: cfg.Host, MinVersion: tls.VersionTLS12})
 		if err := tlsConn.Handshake(); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return i18n.E("service.notify.tls_failed", "error", err.Error())
 		}
 		conn = tlsConn
 	}
 	client, err := smtp.NewClient(conn, cfg.Host)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return i18n.E("service.notify.connect_failed", "error", err.Error())
 	}
 	defer client.Close()

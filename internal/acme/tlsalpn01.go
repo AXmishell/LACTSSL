@@ -78,7 +78,7 @@ func (v *TLSALPN01Validator) Validate(ctx context.Context, identifier, keyAuthor
 		tlsConn := tls.Client(conn, &tls.Config{
 			ServerName:         sni,
 			NextProtos:         []string{acmeTLSALPNProtocol},
-			InsecureSkipVerify: true, // 挑战证书是自签名证书，不能按公共信任链校验。
+			InsecureSkipVerify: true, // #nosec G402 -- TLS-ALPN 挑战证书为自签名，VerifyConnection 已校验 SAN 与 acmeIdentifier
 			VerifyConnection: func(state tls.ConnectionState) error {
 				return verifyTLSALPNState(state, host, ip, expected[:])
 			},

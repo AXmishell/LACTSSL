@@ -402,12 +402,12 @@ func clearTarget(ctx context.Context, conn *db.Handle) error {
 		for rows.Next() {
 			var name string
 			if err := rows.Scan(&name); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			names = append(names, name)
 		}
-		rows.Close()
+		_ = rows.Close()
 		for _, name := range names {
 			if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS `+quoteIdent(name)+` CASCADE`); err != nil {
 				return err
@@ -427,12 +427,12 @@ func clearTarget(ctx context.Context, conn *db.Handle) error {
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		names = append(names, name)
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, name := range names {
 		if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS `+quoteIdent(name)); err != nil {
 			return err
@@ -498,7 +498,7 @@ func (r *Runner) backupSource(ctx context.Context) (string, error) {
 		if err != nil {
 			return dir, err
 		}
-		cmd := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, r.opts.SourceDSN)
+		cmd := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, r.opts.SourceDSN) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return dir, fmt.Errorf("pg_dump 备份失败: %w: %s", err, strings.TrimSpace(string(output)))
 		}

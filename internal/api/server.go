@@ -169,7 +169,7 @@ func (s *Server) SetEntry(entry string) {
 	s.entry.Store(entry)
 }
 
-const setupTokenHeader = "X-LACTSSL-SETUP-TOKEN"
+const setupTokenHeader = "X-LACTSSL-SETUP-TOKEN" // #nosec G101 -- 初始化令牌 HTTP 头名称，非凭据
 
 // SetSetupToken 设置首次初始化使用的一次性令牌。初始化成功后调用方应清空。
 func (s *Server) SetSetupToken(token string) {

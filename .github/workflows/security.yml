@@ -97,10 +97,13 @@ jobs:
           GOBIN="$PWD/.bin" go install github.com/securego/gosec/v2/cmd/gosec@v2.30.0
 
       - name: Scan (SARIF)
-        # 先用报告模式观察存量告警（多为 TLS/证书路径等已评估的误报），
-        # 清理到基线后再去掉 `|| true` 启用门禁。
+        # .gosec.json 排除 G301/G302/G306（插件与目录权限）、G304（变量路径
+        # 读取）、G703（内部路径写入）等结构上必然误报的规则；新增用户路径
+        # 拼接仍需在入口单独校验。-nosec-require-* 要求源码标注必须写明规则
+        # ID 与理由。不要加 -quiet：0 条告警时 gosec 不会生成 SARIF 文件，
+        # 后续上传会失败。
         shell: bash
-        run: ./.bin/gosec -quiet -fmt sarif -out gosec.sarif ./... || true
+        run: ./.bin/gosec -conf .gosec.json -nosec-require-rules -nosec-require-justification -fmt sarif -out gosec.sarif ./... || true
 
       - name: Upload SARIF to code scanning
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

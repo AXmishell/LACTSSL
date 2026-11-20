@@ -23,5 +23,5 @@ func reexecProcess(executable string) error {
 	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
 		executable = resolved
 	}
-	return syscall.Exec(executable, os.Args, os.Environ())
+	return syscall.Exec(executable, os.Args, os.Environ()) // #nosec G204,G702 -- 可执行文件来自 os.Executable 或升级记录，不接收请求参数
 }

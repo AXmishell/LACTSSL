@@ -19,7 +19,7 @@ import (
 // API 密钥令牌使用固定前缀，便于认证中间件与普通会话 JWT 区分。
 const (
 	apiKeyTokenPrefix = "lactssl_"
-	apiKeyHeader      = "X-API-Key"
+	apiKeyHeader      = "X-API-Key" // #nosec G101 -- API 协议头名称，非凭据
 	apiKeyContextKey  = "api_key"
 	// apiKeyTouchWindow 限制最近使用时间的写库频率，避免每个请求都写 SQLite。
 	apiKeyTouchWindow = time.Minute
@@ -74,7 +74,7 @@ const (
 	apiScopeUpgradeRead     = "upgrade:read"
 	apiScopeUpgradeWrite    = "upgrade:write"
 	apiScopeSecurityWrite   = "security:write"
-	apiScopeAPIKeysRead     = "api_keys:read"
+	apiScopeAPIKeysRead     = "api_keys:read" // #nosec G101 -- 权限范围常量，非凭据
 	apiScopeAPIKeysWrite    = "api_keys:write"
 )
 

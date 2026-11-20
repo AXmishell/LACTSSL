@@ -8,7 +8,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- SHA1 仅用于 RFC 5280 SubjectKeyId，不用于签名
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -819,7 +819,7 @@ func subjectKeyID(privateKey crypto.PrivateKey) []byte {
 	if err != nil {
 		return nil
 	}
-	sum := sha1.Sum(der)
+	sum := sha1.Sum(der) // #nosec G401 -- SHA1 仅用于 RFC 5280 SubjectKeyId，不用于签名
 	return sum[:]
 }
 

@@ -371,6 +371,9 @@ func encryptFile(source, target, password string, salt []byte) error {
 			if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 				return err
 			}
+			if n > encryptionChunkSize {
+				return fmt.Errorf("备份分块大小异常: %d", n)
+			}
 			ciphertext := gcm.Seal(nil, nonce, buffer[:n], chunkAAD(index))
 			var length [4]byte
 			binary.BigEndian.PutUint32(length[:], uint32(n))
@@ -476,7 +479,7 @@ func (m *Manager) snapshot(target string) error {
 		if err != nil {
 			return err
 		}
-		cmd := exec.CommandContext(context.Background(), pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, m.DB.DSN())
+		cmd := exec.CommandContext(context.Background(), pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, m.DB.DSN()) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("pg_dump 失败: %w: %s", err, strings.TrimSpace(string(output)))
 		}
@@ -832,7 +835,7 @@ func validatePostgresDump(filePath string) error {
 	if err != nil {
 		return err
 	}
-	output, err := exec.Command(pgRestore, "--list", filePath).CombinedOutput()
+	output, err := exec.Command(pgRestore, "--list", filePath).CombinedOutput() // #nosec G204 -- pg_restore 从 PATH 解析，文件路径为服务端临时目录
 	if err != nil {
 		return fmt.Errorf("%w: pg_restore --list 失败: %v", ErrInvalidDatabase, err)
 	}
@@ -1097,15 +1100,15 @@ func ApplyPostgresDatabase(dsn, source string) error {
 	}
 	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	rollback := source + ".before-restore-" + suffix
-	dumpCmd := exec.Command(pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", rollback, dsn)
+	dumpCmd := exec.Command(pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", rollback, dsn) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
 	if output, err := dumpCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("恢复前备份当前 PostgreSQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	defer os.Remove(rollback)
-	restoreCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", dsn, source)
+	restoreCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", dsn, source) // #nosec G204 -- pg_restore 从 PATH 解析，参数由服务端生成
 	if output, err := restoreCmd.CombinedOutput(); err != nil {
 		// 尝试把恢复前的备份写回，降低半恢复状态的影响。
-		rollbackCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", dsn, rollback)
+		rollbackCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", dsn, rollback) // #nosec G204 -- pg_restore 从 PATH 解析，参数由服务端生成
 		_, _ = rollbackCmd.CombinedOutput()
 		return fmt.Errorf("pg_restore 失败: %w: %s", err, strings.TrimSpace(string(output)))
 	}

@@ -325,7 +325,11 @@ func (s *Server) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	}
 	// 同一订单只允许一个 finalize 在途：签名与写库之间没有原子占位，
 	// 并发请求会重复签发。按订单 ID 分片加锁，不同订单仍可并发。
-	lock := &s.finalizeLocks[uint64(order.ID)%uint64(len(s.finalizeLocks))]
+	index := order.ID % int64(len(s.finalizeLocks))
+	if index < 0 {
+		index = 0
+	}
+	lock := &s.finalizeLocks[index]
 	lock.Lock()
 	defer lock.Unlock()
 	// 等待锁期间订单可能已被另一个请求完成，重新读取后再判断状态。
@@ -466,7 +470,7 @@ func (s *Server) handleCertificate(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/pem-certificate-chain")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(certificate.FullchainPEM))
+	_, _ = w.Write([]byte(certificate.FullchainPEM)) // #nosec G705 -- 响应内容为 PEM 证书链，Content-Type 已固定为 application/pem-certificate-chain
 }
 
 func (s *Server) authenticateAccount(w http.ResponseWriter, r *http.Request, ep *model.ACMEEndpoint) (*model.ACMEAccount, *jwsEnvelope, bool) {

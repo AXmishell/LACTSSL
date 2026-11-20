@@ -550,7 +550,7 @@ func (c *acmeV1Client) nonce() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	nonce := strings.TrimSpace(resp.Header.Get("Replay-Nonce"))
 	if nonce == "" {
 		req, err = http.NewRequest(http.MethodGet, c.directoryURL, nil)
@@ -561,7 +561,7 @@ func (c *acmeV1Client) nonce() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		nonce = strings.TrimSpace(resp.Header.Get("Replay-Nonce"))
 	}
 	if nonce == "" {

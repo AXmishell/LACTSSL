@@ -10,7 +10,7 @@ import (
 
 // ---------------------------- API 密钥 ----------------------------
 
-const apiKeyColumns = `id,user_id,name,prefix,token_hash,scopes,enabled,expires_at,last_used_at,created_at,updated_at`
+const apiKeyColumns = `id,user_id,name,prefix,token_hash,scopes,enabled,expires_at,last_used_at,created_at,updated_at` // #nosec G101 -- SQL 列名列表，非凭据
 
 // ListAPIKeys 返回账户下的全部 API 密钥，不包含明文令牌。
 func (s *Store) ListAPIKeys(userID int64) ([]model.APIKey, error) {

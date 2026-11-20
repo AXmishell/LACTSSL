@@ -134,7 +134,7 @@ func NewClient(timeout time.Duration, skipVerify bool) *http.Client {
 		ExpectContinueTimeout: time.Second,
 		TLSClientConfig: &tls.Config{
 			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: skipVerify,
+			InsecureSkipVerify: skipVerify, // #nosec G402 -- 仅由调用方在管理员明确允许自签证书时开启
 		},
 	}
 	return &http.Client{

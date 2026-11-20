@@ -96,7 +96,7 @@ func (s *Server) setSessionCookie(c *gin.Context, token string, expire time.Time
 		// 服务端优先读取 __Host-，这里同步删除旧名称，避免两份会话并存。
 		s.expireLegacyCookie(c, sessionCookieName, true)
 	}
-	http.SetCookie(c.Writer, &http.Cookie{
+	http.SetCookie(c.Writer, &http.Cookie{ // #nosec G124 -- Secure 由 sessionCookieSecure 按 TLS/可信代理动态设置，HttpOnly 与 SameSite 已固定
 		Name:     s.cookieName(sessionCookieName, secure),
 		Value:    token,
 		Path:     "/",
@@ -112,7 +112,7 @@ func (s *Server) setSessionCookie(c *gin.Context, token string, expire time.Time
 // 只在写入 __Host- Cookie 时调用：旧名称不再有存在价值，留着会让前端
 // 的 document.cookie 顺序不可控。
 func (s *Server) expireLegacyCookie(c *gin.Context, base string, httpOnly bool) {
-	http.SetCookie(c.Writer, &http.Cookie{
+	http.SetCookie(c.Writer, &http.Cookie{ // #nosec G124 -- Secure 由 sessionCookieSecure 按 TLS/可信代理动态设置，HttpOnly 与 SameSite 已固定
 		Name:     base,
 		Value:    "",
 		Path:     "/",
@@ -139,7 +139,7 @@ func (s *Server) dropShadowedLegacyCookie(c *gin.Context, base string, httpOnly 
 // clearSessionCookie 清除会话 Cookie（同时清理带与不带 __Host- 前缀的名称）。
 func (s *Server) clearSessionCookie(c *gin.Context) {
 	for _, name := range []string{sessionCookieName, hostCookiePrefix + sessionCookieName} {
-		http.SetCookie(c.Writer, &http.Cookie{
+		http.SetCookie(c.Writer, &http.Cookie{ // #nosec G124 -- Secure 由 sessionCookieSecure 按 TLS/可信代理动态设置，HttpOnly 与 SameSite 已固定
 			Name:     name,
 			Value:    "",
 			Path:     "/",
@@ -159,7 +159,7 @@ func (s *Server) setCSRFCookie(c *gin.Context, token string, expire time.Time) {
 		// 新值写入 __Host- 后，旧名称的 CSRF Cookie 必须删除；否则前端可能读到旧值。
 		s.expireLegacyCookie(c, csrfCookieName, false)
 	}
-	http.SetCookie(c.Writer, &http.Cookie{
+	http.SetCookie(c.Writer, &http.Cookie{ // #nosec G124 -- Secure 由 sessionCookieSecure 按 TLS/可信代理动态设置，HttpOnly 与 SameSite 已固定
 		Name:     s.cookieName(csrfCookieName, secure),
 		Value:    s.Auth.SignValueLong(csrfTokenPurpose, token, csrfTokenLength),
 		Path:     "/",
@@ -181,7 +181,7 @@ func (s *Server) ensureDeviceCookie(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	http.SetCookie(c.Writer, &http.Cookie{
+	http.SetCookie(c.Writer, &http.Cookie{ // #nosec G124 -- Secure 由 sessionCookieSecure 按 TLS/可信代理动态设置，HttpOnly 与 SameSite 已固定
 		Name:     s.cookieName(deviceCookieName, s.sessionCookieSecure(c)),
 		Value:    value,
 		Path:     "/",
@@ -196,7 +196,7 @@ func (s *Server) ensureDeviceCookie(c *gin.Context) {
 // clearCSRFCookie 清除 CSRF Cookie（同时清理带与不带 __Host- 前缀的名称）。
 func (s *Server) clearCSRFCookie(c *gin.Context) {
 	for _, name := range []string{csrfCookieName, hostCookiePrefix + csrfCookieName} {
-		http.SetCookie(c.Writer, &http.Cookie{
+		http.SetCookie(c.Writer, &http.Cookie{ // #nosec G124 -- Secure 由 sessionCookieSecure 按 TLS/可信代理动态设置，HttpOnly 与 SameSite 已固定
 			Name:     name,
 			Value:    "",
 			Path:     "/",
@@ -232,7 +232,7 @@ func (s *Server) validCSRF(c *gin.Context) bool {
 // 签名绑定当前入口，入口变更后旧 Cookie 自动失效。
 func (s *Server) setEntryCookie(c *gin.Context) {
 	expires := time.Now().Add(entryCookieTTL)
-	http.SetCookie(c.Writer, &http.Cookie{
+	http.SetCookie(c.Writer, &http.Cookie{ // #nosec G124 -- Secure 由 sessionCookieSecure 按 TLS/可信代理动态设置，HttpOnly 与 SameSite 已固定
 		Name:     s.cookieName(entryCookieName, s.sessionCookieSecure(c)),
 		Value:    s.Auth.SignExpiringValue(entryGatePurpose, s.Entry(), expires),
 		Path:     "/",

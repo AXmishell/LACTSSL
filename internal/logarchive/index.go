@@ -26,7 +26,7 @@ func (s *Service) loadIndexLocked() error {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".manifest.json") {
 			return nil
 		}
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(path) // #nosec G122 -- 路径来自服务端数据目录的 WalkDir，非外部可控路径
 		if err != nil {
 			return nil
 		}

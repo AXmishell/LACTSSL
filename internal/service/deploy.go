@@ -183,7 +183,7 @@ func writeFileAtomic(target string, data []byte, mode os.FileMode) error {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -230,7 +230,7 @@ func runCommand(ctx context.Context, command string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd := exec.CommandContext(ctx, "sh", "-c", command) // #nosec G204 -- 命令为管理员配置的部署 reload_command，受 deploy:command 权限保护
 	// 子进程不继承完整环境，避免并发的 DNS 申请把 lego 注入的 API 密钥
 	// （如 CLOUDFLARE_DNS_API_TOKEN）泄露给部署命令。
 	cmd.Env = commandEnv()

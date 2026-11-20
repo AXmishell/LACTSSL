@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -207,6 +208,9 @@ func extractLogRef(fields map[string]any) (string, int64) {
 		case int64:
 			return candidate.kind, typed
 		case uint64:
+			if typed > math.MaxInt64 {
+				continue
+			}
 			return candidate.kind, int64(typed)
 		case float64:
 			return candidate.kind, int64(typed)

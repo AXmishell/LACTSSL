@@ -71,16 +71,16 @@ func (m *Manager) EnsureIndexes(ctx context.Context) ([]string, error) {
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		existing[name] = true
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return nil, err
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	created := make([]string, 0, len(hotIndexes))
 	for _, item := range hotIndexes {

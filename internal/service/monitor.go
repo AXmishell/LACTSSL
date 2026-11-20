@@ -121,7 +121,7 @@ func fetchCertificate(target string) (*x509.Certificate, []*x509.Certificate, er
 		ServerName: host,
 		// 这里仍跳过握手阶段的链校验，以便读取已过期/自签证书的到期时间；
 		// 调用方随后会单独执行 verifyPeerChain 并报告不受信任状态。
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: true, // #nosec G402 -- 先跳过链校验读取过期/自签证书，随后由 verifyPeerChain 单独校验
 		MinVersion:         tls.VersionTLS12,
 	})
 	if err := conn.HandshakeContext(ctx); err != nil {

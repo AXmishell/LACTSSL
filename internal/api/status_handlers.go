@@ -77,7 +77,12 @@ func parseProcessStats(status string) processStats {
 		case "VmSwap:":
 			stats.swap = value * 1024
 		case "Threads:":
-			stats.threads = int(value)
+			// 单独用 Atoi 解析，避免 uint64 -> int 的溢出风险。
+			threads, err := strconv.Atoi(fields[1])
+			if err != nil || threads < 0 {
+				continue
+			}
+			stats.threads = threads
 		}
 	}
 	return stats

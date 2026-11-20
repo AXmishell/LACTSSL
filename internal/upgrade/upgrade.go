@@ -496,7 +496,7 @@ func (m *Manager) createBackup(ctx context.Context) (string, error) {
 		if pgDump == "" {
 			return targetDir, fmt.Errorf("备份 PostgreSQL 失败: 未找到 pg_dump")
 		}
-		cmd := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, m.db.DSN())
+		cmd := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, m.db.DSN()) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return targetDir, fmt.Errorf("备份 PostgreSQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
 		}

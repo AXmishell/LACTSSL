@@ -216,7 +216,7 @@ func (s *Store) MigrateTOTPSecrets() error {
 	for rows.Next() {
 		var value item
 		if err := rows.Scan(&value.id, &value.secret); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		if !util.IsEncrypted(value.secret) {
@@ -224,10 +224,10 @@ func (s *Store) MigrateTOTPSecrets() error {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, value := range pending {
 		encrypted, err := s.Cipher.Encrypt(value.secret)
 		if err != nil {
@@ -986,7 +986,7 @@ func (s *Store) MigrateCertificateKeys() error {
 	for rows.Next() {
 		var value item
 		if err := rows.Scan(&value.id, &value.key); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		if !util.IsEncrypted(value.key) {
@@ -994,10 +994,10 @@ func (s *Store) MigrateCertificateKeys() error {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, value := range pending {
 		encrypted, err := s.Cipher.Encrypt(value.key)
 		if err != nil {
@@ -2120,7 +2120,7 @@ func (s *Store) Dashboard() (*model.Dashboard, error) {
 				trendMap[day] = count
 			}
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 	for i := 13; i >= 0; i-- {
 		day := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
