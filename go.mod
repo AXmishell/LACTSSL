@@ -16,6 +16,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
 	golang.org/x/crypto v0.59.0
+	golang.org/x/net v0.62.0
 	golang.org/x/sync v0.25.0
 	golang.org/x/sys v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -23,7 +24,7 @@ require (
 )
 
 require (
-	filippo.io/edwards25519 v1.1.0 // indirect
+	filippo.io/edwards25519 v1.1.1 // indirect
 	github.com/boombuler/barcode v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
@@ -73,7 +74,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/arch v0.22.0 // indirect
-	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	modernc.org/libc v1.80.1 // indirect
