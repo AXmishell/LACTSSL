@@ -392,6 +392,7 @@ python3 scripts/csr_client.py --renew-from ./certs/example.com.request.json
 # 状態確認 / キャンセル（--json はスクリプト向け）
 python3 scripts/csr_client.py --status csr_xxxxxxxx --json
 python3 scripts/csr_client.py --cancel csr_xxxxxxxx --yes
+python3 scripts/csr_client.py --list --json
 
 # バッチ: 順次実行し、既定では最初の失敗で停止
 python3 scripts/csr_client.py --manifest ./certs.json --json

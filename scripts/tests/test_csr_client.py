@@ -211,6 +211,20 @@ class MockCAServer:
                         return
                     self._send(200, outer.fullchains[request_id], "application/x-pem-file")
                     return
+                if parsed.path.rstrip("/").endswith("/certificate-requests"):
+                    self._send(
+                        200,
+                        json.dumps(
+                            {
+                                "success": True,
+                                "data": [
+                                    outer.request_view(request_id)
+                                    for request_id in outer.requests
+                                ],
+                            }
+                        ),
+                    )
+                    return
                 request_id = parsed.path.rstrip("/").split("/")[-1]
                 if request_id not in outer.requests:
                     self._send(404, json.dumps({"message": "not found", "code": "not_found"}))
@@ -495,6 +509,11 @@ class ApiBehaviorTests(BaseTestCase):
         code, stdout, _stderr = quiet_run(cc.command_cancel, cancel)
         self.assertEqual(code, 0)
         self.assertIn("cancelled", stdout.lower())
+        listing = self.args("--list", "--json")
+        code, stdout, _stderr = quiet_run(cc.command_list, listing)
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["requests"][0]["id"], "csr_test_1")
 
     def test_renew_and_reuse_key(self) -> None:
         out = self.tmp / "certs"
@@ -521,6 +540,31 @@ class ApiBehaviorTests(BaseTestCase):
         self.assertEqual(reused["status"], "issued")
         self.assertEqual(pathlib.Path(reused["paths"]["key"]).read_bytes(), old_key)
 
+    def test_existing_csr_flow_and_mismatch(self) -> None:
+        csr_dir = self.tmp / "csr"
+        csr_dir.mkdir()
+        key, csr = cc.generate_key_and_csr(["example.com"], "ecdsa", csr_dir)
+        out = self.tmp / "certs"
+        args = self.args(
+            "--csr", str(csr), "--key", str(key), "--domains", "example.com",
+            "--out-dir", str(out),
+        )
+        result, _stdout, _stderr = quiet_run(cc.execute, args)
+        self.assertEqual(result["status"], "issued")
+        self.assertTrue((out / "example.com.crt").is_file())
+        self.assertEqual(result["paths"]["key"], str(key))
+        self.assertEqual(result["paths"]["csr"], str(csr))
+
+        (self.tmp / "other").mkdir()
+        other_key, _other_csr = cc.generate_key_and_csr(
+            ["other.example.com"], "ecdsa", self.tmp / "other"
+        )
+        mismatch = self.args(
+            "--csr", str(csr), "--key", str(other_key), "--out-dir", str(self.tmp / "other-out")
+        )
+        with self.assertRaises(cc.ConfigError):
+            quiet_run(cc.execute, mismatch)
+
     def test_private_ca_payload(self) -> None:
         out = self.tmp / "certs"
         args = self.args(
@@ -532,6 +576,29 @@ class ApiBehaviorTests(BaseTestCase):
         self.assertEqual(self.server.last_payload["ca"], "private-ca:2")
         self.assertEqual(self.server.last_payload["challenge"], "private")
         self.assertNotIn("dns_account_id", self.server.last_payload)
+
+    def test_renew_from_legacy_state(self) -> None:
+        out = self.tmp / "certs"
+        first, _stdout, _stderr = quiet_run(
+            cc.execute, self.args("--domains", "example.com", "--out-dir", str(out))
+        )
+        meta_path = pathlib.Path(first["paths"]["metadata"])
+        old_key = (out / "example.com.key").read_bytes()
+        legacy = {
+            "request_id": first["request_id"],
+            "domains": ["example.com"],
+            "ca": "letsencrypt",
+            "private_ca_id": None,
+        }
+        meta_path.write_text(json.dumps(legacy), encoding="utf-8")
+        renewed, _stdout, _stderr = quiet_run(
+            cc.execute, self.args("--renew-from", str(meta_path))
+        )
+        self.assertEqual(renewed["status"], "issued")
+        self.assertEqual(
+            pathlib.Path(renewed["paths"]["key"]).read_bytes(),
+            old_key,
+        )
 
     def test_http_retry_and_retry_after(self) -> None:
         responses = [

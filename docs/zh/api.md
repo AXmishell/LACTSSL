@@ -430,6 +430,7 @@ python3 scripts/csr_client.py --renew-from ./certs/example.com.request.json
 # 查询 / 取消申请（--json 便于脚本处理）
 python3 scripts/csr_client.py --status csr_xxxxxxxx --json
 python3 scripts/csr_client.py --cancel csr_xxxxxxxx --yes
+python3 scripts/csr_client.py --list --json
 
 # 批量申请：顺序执行，失败时默认停止
 python3 scripts/csr_client.py --manifest ./certs.json --json

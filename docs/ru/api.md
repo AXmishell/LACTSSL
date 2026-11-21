@@ -392,6 +392,7 @@ python3 scripts/csr_client.py --renew-from ./certs/example.com.request.json
 # Состояние / отмена (--json удобен для скриптов)
 python3 scripts/csr_client.py --status csr_xxxxxxxx --json
 python3 scripts/csr_client.py --cancel csr_xxxxxxxx --yes
+python3 scripts/csr_client.py --list --json
 
 # Пакетный режим: последовательно, по умолчанию остановка на первой ошибке
 python3 scripts/csr_client.py --manifest ./certs.json --json
