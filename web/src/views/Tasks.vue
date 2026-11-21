@@ -42,6 +42,11 @@
               </div>
             </template>
           </el-table-column>
+          <el-table-column width="76" :label="t('tasks.id')">
+            <template #default="{ row }">
+              <span class="mono">{{ row.id }}</span>
+            </template>
+          </el-table-column>
           <el-table-column width="140" :label="t('tasks.challenge')">
             <template #default>
               <span class="tag-soft tag-blue">DNS-01</span>
@@ -121,10 +126,10 @@
     <el-dialog
       v-model="dialogVisible"
       :title="editingId ? t('tasks.editTitle') : t('tasks.createTitle')"
-      width="1080px"
+      width="min(1240px, 94vw)"
       top="4vh"
       destroy-on-close
-      class="task-pipeline-dialog"
+      :class="['task-pipeline-dialog', form.flow_mode === 'target_beta' ? 'is-beta' : '']"
     >
       <div class="dialog-head">
         <div class="dialog-head-main">
@@ -143,6 +148,16 @@
           <el-radio-button value="target_beta">{{ t('tasks.flowTargetBeta') }}</el-radio-button>
         </el-radio-group>
         <span class="muted">{{ form.flow_mode === 'target_beta' ? t('tasks.betaModeHint') : t('tasks.standardModeHint') }}</span>
+        <div v-if="!editingId && lastConfigApplied" class="last-config-hint">
+          <span>
+            {{ reusedDeployCount
+              ? t('tasks.lastConfigAppliedDeploy', { count: reusedDeployCount })
+              : t('tasks.lastConfigApplied') }}
+          </span>
+          <el-button link type="primary" size="small" @click="useDefaultCreateConfig">
+            {{ t('tasks.useDefaultConfig') }}
+          </el-button>
+        </div>
       </div>
 
       <div v-if="form.flow_mode === 'standard'" class="pipeline-editor">
@@ -255,10 +270,27 @@
                   <div class="form-help">{{ t('tasks.domainsHelp') }}</div>
                 </el-form-item>
                 <el-form-item v-if="!isPrivateCA" :label="t('tasks.dnsAccount')" required>
-                  <el-select v-model="form.dns_account_id" :placeholder="t('tasks.dnsPlaceholder')" style="width: 100%">
+                  <el-select
+                    v-model="form.dns_account_id"
+                    :placeholder="t('tasks.dnsPlaceholder')"
+                    style="width: 100%"
+                    @change="onDNSAccountChange"
+                  >
+                    <el-option :label="t('tasks.dnsAutoOption')" :value="0" />
                     <el-option v-for="item in dnsAccounts" :key="item.id" :label="`${item.name} · ${dnsLabel(item.provider)}`" :value="item.id" />
                   </el-select>
                   <div v-if="!dnsAccounts.length" class="form-help warn">{{ t('tasks.noDns') }}</div>
+                  <div v-else-if="dnsResolve.status === 'resolving'" class="form-help">{{ t('tasks.dnsAutoResolving') }}</div>
+                  <div v-else-if="dnsResolve.status === 'matched' && dnsResolve.routes.length > 1" class="form-help dns-auto-ok">
+                    <div>{{ t('tasks.dnsAutoMulti', { count: dnsResolve.routes.length }) }}</div>
+                    <div v-for="route in dnsResolve.routes" :key="route.domain">
+                      {{ route.domain }} → {{ dnsAccountName(route.dns_account_id) }}<span v-if="route.zone"> ({{ route.zone }})</span>
+                    </div>
+                  </div>
+                  <div v-else-if="dnsResolve.status === 'matched'" class="form-help dns-auto-ok">
+                    {{ t('tasks.dnsAutoMatched', { account: dnsResolve.account, zone: dnsResolve.zone }) }}
+                  </div>
+                  <div v-else-if="dnsResolve.status === 'failed'" class="form-help warn">{{ dnsResolve.message }}</div>
                 </el-form-item>
                 <div v-else class="config-tip" style="margin-bottom: 16px">{{ t('tasks.privateCADnsTip') }}</div>
                 <el-form-item :label="t('tasks.caMode')">
@@ -309,6 +341,12 @@
                     <el-input-number v-model="form.renew_days" :min="1" :max="60" style="width: 100%" />
                   </el-form-item>
                 </div>
+                <el-form-item>
+                  <div style="width: 100%">
+                    <el-checkbox v-model="form.no_key_storage">{{ t('tasks.noKeyStorage') }}</el-checkbox>
+                    <div class="form-help" :class="{ warn: form.no_key_storage }">{{ t('tasks.noKeyStorageHelp') }}</div>
+                  </div>
+                </el-form-item>
                 <div class="config-tip">{{ isPrivateCA ? t('tasks.privateConfigTip') : t('tasks.configTip') }}</div>
               </template>
 
@@ -428,20 +466,34 @@
       </div>
 
       <div v-else class="beta-editor">
-        <TargetFlowEditor
-          v-model="form.target_flow"
-          :deploy-accounts="deployAccounts"
-          :public-ca="!isPrivateCA"
-        />
+        <div class="beta-main">
+          <TargetFlowEditor
+            v-model="form.target_flow"
+            :deploy-accounts="deployAccounts"
+            :public-ca="!isPrivateCA"
+            :no-key-storage="form.no_key_storage"
+          />
+        </div>
 
-        <section class="beta-settings">
-          <div class="beta-settings-title">{{ t('tasks.betaApplySettings') }}</div>
+        <aside class="beta-side">
+          <div class="beta-side-head">
+            <span class="beta-side-step">5</span>
+            <div>
+              <div class="beta-side-title">{{ t('tasks.betaStepSettings') }}</div>
+              <div class="beta-side-sub">{{ t('tasks.betaStepSettingsHint') }}</div>
+            </div>
+          </div>
+
+          <section class="beta-settings">
+            <div class="beta-settings-title">{{ t('tasks.betaApplySettings') }}</div>
           <el-form label-position="top" class="config-form">
             <el-form-item v-if="!isPrivateCA" :label="t('tasks.dnsAccount')" required>
               <el-select v-model="form.dns_account_id" :placeholder="t('tasks.dnsPlaceholder')" style="width: 100%">
+                <el-option :label="t('tasks.dnsAutoOption')" :value="0" />
                 <el-option v-for="item in dnsAccounts" :key="item.id" :label="`${item.name} · ${dnsLabel(item.provider)}`" :value="item.id" />
               </el-select>
               <div v-if="!dnsAccounts.length" class="form-help warn">{{ t('tasks.noDns') }}</div>
+              <div v-else-if="!form.dns_account_id" class="form-help">{{ t('tasks.dnsAutoBetaHint') }}</div>
             </el-form-item>
             <div v-else class="config-tip" style="margin-bottom: 12px">{{ t('tasks.privateCADnsTip') }}</div>
             <el-form-item :label="t('tasks.caMode')">
@@ -492,6 +544,12 @@
                 <el-input-number v-model="form.renew_days" :min="1" :max="60" style="width: 100%" />
               </el-form-item>
             </div>
+            <el-form-item>
+              <div style="width: 100%">
+                <el-checkbox v-model="form.no_key_storage">{{ t('tasks.noKeyStorage') }}</el-checkbox>
+                <div class="form-help" :class="{ warn: form.no_key_storage }">{{ t('tasks.noKeyStorageHelp') }}</div>
+              </div>
+            </el-form-item>
             <div class="config-tip">{{ isPrivateCA ? t('tasks.privateConfigTip') : t('tasks.betaConfigTip') }}</div>
           </el-form>
         </section>
@@ -526,11 +584,12 @@
               </el-radio-group>
             </el-form-item>
           </el-form>
-          <div v-else class="tf-empty">
+          <div v-else class="beta-empty">
             {{ t('tasks.betaNotifyEmpty') }}
             <el-button link type="primary" size="small" @click="addBetaNotify">{{ t('tasks.betaAddNotify') }}</el-button>
           </div>
-        </section>
+          </section>
+        </aside>
       </div>
 
       <template #footer>
@@ -572,6 +631,13 @@ import DeployConfigFields from '../components/DeployConfigFields.vue'
 import ReauthFields from '../components/ReauthFields.vue'
 import TargetFlowEditor from '../components/TargetFlowEditor.vue'
 import {
+  buildCreateDefaults,
+  readLastTaskConfig,
+  writeLastTaskConfig,
+  type CreateDefaults,
+  type ReuseContext
+} from '../taskDefaults'
+import {
   fieldVisible,
   formatDate,
   fromNow,
@@ -582,6 +648,8 @@ import {
 } from '../utils'
 import type {
   DNSAccount,
+  DNSResolveResult,
+  DNSRoute,
   DeployAccount,
   LogEntry,
   MessageResult,
@@ -601,10 +669,12 @@ interface TaskForm {
   name: string
   domainsText: string
   dns_account_id: number | null
+  dns_routes: DNSRoute[]
   ca_mode: 'single' | 'pool'
   ca: string
   ca_pool_id: number | null
   key_type: string
+  no_key_storage: boolean
   auto_renew: boolean
   renew_days: number
   enabled: boolean
@@ -623,12 +693,31 @@ const showBatchBar = useDelayedBatchBar(() => selectedTasks.value.length > 0)
 const batchRunning = ref(false)
 const batchToggling = ref(false)
 const dnsAccounts = ref<DNSAccount[]>([])
+// 普通流程填写域名后，按「DNS 账户 → 域名绑定」自动选择账户。
+// 手动改过下拉框后取消在途请求，避免异步结果覆盖用户选择。
+const dnsResolve = reactive<{
+  status: 'idle' | 'resolving' | 'matched' | 'failed'
+  zone: string
+  account: string
+  message: string
+  routes: DNSRoute[]
+}>({ status: 'idle', zone: '', account: '', message: '', routes: [] })
+const dnsResolveEnabled = ref(false)
+// 只清理本功能自动选中的账户；默认值或用户手动选择在匹配失败时保留。
+const dnsAutoApplied = ref(false)
+// 手动选择后，保存时不再用自动匹配结果覆盖。
+const dnsManualSelected = ref(false)
+let dnsResolveTimer: ReturnType<typeof setTimeout> | null = null
+let dnsResolveSeq = 0
+const DNS_RESOLVE_DEBOUNCE_MS = 450
 const deployAccounts = ref<DeployAccount[]>([])
 const meta = ref<Meta | null>(null)
 const notifySettings = ref<Settings | null>(null)
 const availableNotifyChannels = computed(() => enabledNotifyChannels(notifySettings.value))
 const dialogVisible = ref(false)
 const editingId = ref(0)
+// 新建任务时是否已应用“上一次配置”快照；点击“使用默认配置”后隐藏提示。
+const lastConfigApplied = ref(false)
 const flowFilter = ref<'all' | FlowMode>('all')
 const selectedNodeId = ref('apply')
 const pipelineListRef = ref<HTMLElement | null>(null)
@@ -659,11 +748,13 @@ const TASK_POLL_MIN_TICKS = 3
 const form = reactive<TaskForm>({
   name: '',
   domainsText: '',
-  dns_account_id: null,
+  dns_account_id: 0,
+  dns_routes: [],
   ca_mode: 'single',
   ca: 'letsencrypt',
   ca_pool_id: null,
   key_type: 'ecdsa',
+  no_key_storage: false,
   auto_renew: true,
   renew_days: 30,
   enabled: true,
@@ -726,6 +817,145 @@ const flowCounts = computed(() => {
   return { standard, beta }
 })
 const betaNotifyNode = computed(() => form.pipeline.find((node) => node.type === 'notify') || null)
+const reusedDeployCount = computed(() =>
+  form.flow_mode === 'target_beta'
+    ? 0
+    : form.pipeline.filter((node) => node.type === 'deploy').length
+)
+
+function resetDNSResolve(): void {
+  if (dnsResolveTimer) {
+    clearTimeout(dnsResolveTimer)
+    dnsResolveTimer = null
+  }
+  dnsResolveSeq += 1
+  dnsResolve.status = 'idle'
+  dnsResolve.zone = ''
+  dnsResolve.account = ''
+  dnsResolve.message = ''
+  dnsResolve.routes = []
+}
+
+// 用户手动选择账户时取消在途匹配，避免异步结果把选择改回去。
+// 选择 0 表示自动按域名绑定解析，允许一张证书使用多个账户。
+function onDNSAccountChange(value: number | null): void {
+  form.dns_routes = []
+  dnsAutoApplied.value = false
+  if (!value) {
+    dnsManualSelected.value = false
+    resetDNSResolve()
+    scheduleDNSResolve()
+    return
+  }
+  dnsManualSelected.value = true
+  resetDNSResolve()
+}
+
+function scheduleDNSResolve(): void {
+  if (
+    !dialogVisible.value ||
+    form.flow_mode !== 'standard' ||
+    isPrivateCA.value ||
+    !dnsAccounts.value.length
+  ) {
+    resetDNSResolve()
+    return
+  }
+  if (dnsManualSelected.value) {
+    // 保留编辑多账户任务时已有的路由快照；手动切换账户时状态已被清空。
+    if (dnsResolve.status !== 'matched') resetDNSResolve()
+    return
+  }
+  const domains = splitLines(form.domainsText)
+  if (!domains.length || domains.length > 100) {
+    resetDNSResolve()
+    return
+  }
+  dnsResolveSeq += 1
+  const seq = dnsResolveSeq
+  if (dnsResolveTimer) clearTimeout(dnsResolveTimer)
+  dnsResolve.status = 'resolving'
+  dnsResolve.zone = ''
+  dnsResolve.account = ''
+  dnsResolve.message = ''
+  dnsResolve.routes = []
+  dnsResolveTimer = setTimeout(() => {
+    dnsResolveTimer = null
+    void resolveDNSAccount(domains, seq)
+  }, DNS_RESOLVE_DEBOUNCE_MS)
+}
+
+// 与 CSR 创建共用同一套最长后缀匹配规则，只读预览不会发起出站请求。
+async function resolveDNSAccount(domains: string[], seq: number): Promise<void> {
+  try {
+    const result = await api.post<DNSResolveResult>('/dns-accounts/resolve', { domains })
+    if (seq !== dnsResolveSeq || !result) return
+    const routes = (result.routes || []).filter((route) => route.dns_account_id > 0)
+    const accountIDs = result.account_ids?.length
+      ? result.account_ids
+      : [...new Set(routes.map((route) => route.dns_account_id))]
+    const knownAccounts = new Set(dnsAccounts.value.map((item) => item.id))
+    if (!accountIDs.length || accountIDs.some((id) => !knownAccounts.has(id))) {
+      dnsResolve.status = 'failed'
+      dnsResolve.message = t('tasks.dnsAutoFailed')
+      return
+    }
+    form.dns_routes = routes
+    form.dns_account_id = accountIDs.length === 1 ? accountIDs[0] : 0
+    dnsAutoApplied.value = true
+    dnsManualSelected.value = false
+    dnsResolve.status = 'matched'
+    dnsResolve.zone = result.zone || ''
+    dnsResolve.account = result.account_name || ''
+    dnsResolve.routes = routes
+    dnsResolve.message = ''
+  } catch (error: any) {
+    if (seq !== dnsResolveSeq) return
+    dnsResolve.status = 'failed'
+    dnsResolve.message = error?.message || t('tasks.dnsAutoFailed')
+    const code = String(error?.data?.code || '')
+    if (
+      dnsAutoApplied.value &&
+      (code === 'service.csr.dns_account_unresolved' || code === 'service.csr.dns_account_ambiguous')
+    ) {
+      form.dns_account_id = null
+      form.dns_routes = []
+      dnsAutoApplied.value = false
+    }
+  }
+}
+
+// 保存前把尚未完成的匹配立即跑完，避免用户在防抖窗口内直接提交时用到默认账户。
+async function ensureDNSAccountForSave(domains: string[]): Promise<void> {
+  if (form.flow_mode !== 'standard' || isPrivateCA.value) return
+  if (!domains.length || !dnsAccounts.value.length || dnsManualSelected.value) return
+  if (dnsResolve.status === 'matched' || dnsResolve.status === 'failed') return
+  if (dnsResolveTimer) {
+    clearTimeout(dnsResolveTimer)
+    dnsResolveTimer = null
+  }
+  dnsResolveSeq += 1
+  const seq = dnsResolveSeq
+  dnsResolve.status = 'resolving'
+  dnsResolve.zone = ''
+  dnsResolve.account = ''
+  dnsResolve.message = ''
+  await resolveDNSAccount(domains, seq)
+}
+
+watch(
+  () => [form.domainsText, form.flow_mode, isPrivateCA.value] as const,
+  () => {
+    if (dnsResolveEnabled.value) scheduleDNSResolve()
+  }
+)
+
+watch(dialogVisible, (open) => {
+  if (!open) {
+    dnsResolveEnabled.value = false
+    resetDNSResolve()
+  }
+})
 
 watch(flowFilter, () => {
   tableRef.value?.clearSelection()
@@ -799,6 +1029,10 @@ function caLabel(value?: string): string {
 }
 function dnsLabel(value?: string): string {
   return (meta.value?.dns_providers || []).find((item) => item.value === value)?.label || value || ''
+}
+function dnsAccountName(id?: number): string {
+  if (!id) return ''
+  return dnsAccounts.value.find((item) => item.id === id)?.name || String(id)
 }
 function deployLabel(value?: string): string {
   return deployLabelOf(value)
@@ -933,6 +1167,7 @@ function taskPipeline(row: Task): PipelineNode[] {
         ca: row.ca,
         ca_pool_id: row.ca_pool_id,
         key_type: row.key_type,
+        no_key_storage: !!row.no_key_storage,
         auto_renew: row.auto_renew,
         renew_days: row.renew_days
       }
@@ -982,7 +1217,8 @@ function nodeSummary(node: PipelineNode): string {
   if (node.type === 'apply') {
     const domains = splitLines(form.domainsText)
     const ca = form.ca_mode === 'pool' ? caPoolLabel(form.ca_pool_id) : caLabel(form.ca)
-    return `${domains.length ? shortDomains(domains, 2) : t('tasks.notSetDomains')} · ${ca}`
+    const keyMode = form.no_key_storage ? ` · ${t('tasks.noKeyStorageShort')}` : ''
+    return `${domains.length ? shortDomains(domains, 2) : t('tasks.notSetDomains')} · ${ca}${keyMode}`
   }
   if (node.type === 'deploy') {
     const account = deployAccounts.value.find((item) => item.id === node.config.deploy_account_id)
@@ -1057,38 +1293,99 @@ function onVisibilityChange(): void {
   if (document.visibilityState === 'visible') void pollTasks()
 }
 
-async function openCreate(): Promise<void> {
-  editingId.value = 0
-  const settings = await loadSettings(true).catch(() => null)
-  notifySettings.value = settings
+// 全局默认签发参数。优先使用设置页配置，缺少 DNS 账户时回退到私有 CA。
+function serverDefaults(settings: Settings | null): CreateDefaults {
   const defaultPoolID = dnsAccounts.value.length ? settings?.acme_ca_pool_id || 0 : 0
-  const usePool = !!defaultPoolID && (meta.value?.ca_pools || []).some((pool) => pool.id === defaultPoolID && pool.enabled)
+  const usePool =
+    !!defaultPoolID &&
+    (meta.value?.ca_pools || []).some((pool) => pool.id === defaultPoolID && pool.enabled)
   const defaultCA = dnsAccounts.value.length
     ? settings?.acme_ca || 'letsencrypt'
     : meta.value?.private_cas?.[0]?.value || settings?.acme_ca || 'letsencrypt'
-  Object.assign(form, {
-    name: '',
-    domainsText: '',
-    dns_account_id: dnsAccounts.value[0]?.id || null,
+  return {
+    flow_mode: 'standard',
     ca_mode: usePool ? 'pool' : 'single',
     ca: usePool ? '' : defaultCA,
     ca_pool_id: usePool ? defaultPoolID : null,
     key_type: settings?.acme_key_type || 'ecdsa',
+    no_key_storage: false,
     auto_renew: true,
     renew_days: settings?.acme_renew_days || 30,
+    dns_account_id: 0,
+    pipeline: defaultPipeline()
+  }
+}
+
+function reuseContext(): ReuseContext {
+  return {
+    dnsAccounts: dnsAccounts.value,
+    deployAccounts: deployAccounts.value,
+    meta: meta.value,
+    settings: notifySettings.value,
+    notifyChannels: availableNotifyChannels.value
+  }
+}
+
+async function openCreate(): Promise<void> {
+  editingId.value = 0
+  dnsResolveEnabled.value = false
+  dnsAutoApplied.value = false
+  dnsManualSelected.value = false
+  resetDNSResolve()
+  const settings = await loadSettings(true).catch(() => null)
+  notifySettings.value = settings
+  const base = serverDefaults(settings)
+  const last = readLastTaskConfig()
+  const resolved = buildCreateDefaults(base, last, reuseContext())
+  lastConfigApplied.value = !!last
+  Object.assign(form, resolved, {
+    // 一次性字段不进入快照，也不能被上次任务带进来。
+    name: '',
+    domainsText: '',
+    dns_routes: [],
     enabled: true,
-    pipeline: defaultPipeline(),
-    flow_mode: 'standard',
     target_flow: defaultTargetFlow()
   })
+  // 快照里的 DNS 账户只是软默认值：不标记为手动选择，域名自动匹配仍可覆盖。
+  dnsAutoApplied.value = false
+  dnsManualSelected.value = false
+  resetDNSResolve()
   selectedNodeId.value = 'apply'
   resetNodeVerify()
   dialogVisible.value = true
+  void nextTick(() => {
+    if (dialogVisible.value) dnsResolveEnabled.value = true
+  })
+}
+
+// 新建弹窗中的“使用默认配置”：只重置配置，不清空用户已输入的名称和域名。
+function useDefaultCreateConfig(): void {
+  const mode = form.flow_mode
+  Object.assign(form, serverDefaults(notifySettings.value), {
+    flow_mode: mode,
+    name: form.name,
+    domainsText: form.domainsText,
+    dns_routes: [],
+    enabled: form.enabled,
+    target_flow: defaultTargetFlow()
+  })
+  lastConfigApplied.value = false
+  dnsAutoApplied.value = false
+  dnsManualSelected.value = false
+  resetDNSResolve()
+  selectedNodeId.value = 'apply'
+  resetNodeVerify()
+  if (dialogVisible.value) scheduleDNSResolve()
 }
 
 async function openEdit(row: Task): Promise<void> {
   notifySettings.value = await loadSettings(true).catch(() => null)
   editingId.value = row.id
+  lastConfigApplied.value = false
+  dnsResolveEnabled.value = false
+  dnsAutoApplied.value = false
+  dnsManualSelected.value = false
+  resetDNSResolve()
   const pipeline = clonePipeline(taskPipeline(row))
   for (const node of pipeline) {
     if (node.type === 'notify' && !Array.isArray(node.config.notify_channels)) {
@@ -1105,14 +1402,17 @@ async function openEdit(row: Task): Promise<void> {
   const applyConfig = pipeline.find((node) => node.type === 'apply')?.config
   const poolID = applyConfig?.ca_pool_id || row.ca_pool_id || 0
   const caValue = applyConfig?.ca || row.ca
+  const savedRoutes = row.dns_routes || []
   Object.assign(form, {
     name: row.name,
     domainsText: (row.domains || []).join('\n'),
-    dns_account_id: row.dns_account_id || null,
+    dns_account_id: savedRoutes.length > 1 ? 0 : row.dns_account_id || 0,
+    dns_routes: savedRoutes,
     ca_mode: poolID ? 'pool' : 'single',
     ca: poolID ? '' : caValue,
     ca_pool_id: poolID || null,
     key_type: row.key_type,
+    no_key_storage: !!applyConfig?.no_key_storage || !!row.no_key_storage,
     auto_renew: row.auto_renew,
     renew_days: row.renew_days,
     enabled: row.enabled,
@@ -1120,9 +1420,20 @@ async function openEdit(row: Task): Promise<void> {
     flow_mode: row.flow_mode === 'target_beta' ? 'target_beta' : 'standard',
     target_flow: normalizeTargetFlowConfig(row.target_flow)
   })
+  if (savedRoutes.length) {
+    dnsResolve.status = 'matched'
+    dnsResolve.routes = savedRoutes
+    dnsResolve.zone = savedRoutes.map((route) => route.zone).filter(Boolean).sort((a, b) => (b || '').length - (a || '').length)[0] || ''
+    dnsResolve.account = savedRoutes.length === 1 ? dnsAccountName(savedRoutes[0].dns_account_id) : ''
+    // 多账户快照不应在打开编辑时被当前绑定静默覆盖。
+    dnsManualSelected.value = savedRoutes.length > 1
+  }
   selectedNodeId.value = 'apply'
   resetNodeVerify()
   dialogVisible.value = true
+  void nextTick(() => {
+    if (dialogVisible.value) dnsResolveEnabled.value = true
+  })
 }
 
 function selectNode(node: PipelineNode): void {
@@ -1460,6 +1771,7 @@ function buildPayload(): Record<string, unknown> {
             ca: form.ca_mode === 'pool' ? '' : form.ca,
             ca_pool_id: form.ca_mode === 'pool' ? form.ca_pool_id || 0 : 0,
             key_type: form.key_type,
+            no_key_storage: form.no_key_storage,
             auto_renew: form.auto_renew,
             renew_days: form.renew_days
           }
@@ -1471,10 +1783,11 @@ function buildPayload(): Record<string, unknown> {
     name: form.name.trim(),
     domains,
     challenge: 'dns01',
-    dns_account_id: form.dns_account_id,
+    dns_account_id: form.dns_account_id || 0,
     ca: form.ca_mode === 'pool' ? '' : form.ca,
     ca_pool_id: form.ca_mode === 'pool' ? form.ca_pool_id || 0 : 0,
     key_type: form.key_type,
+    no_key_storage: form.no_key_storage,
     auto_renew: form.auto_renew,
     renew_days: form.renew_days,
     deploy_ids: pipeline
@@ -1490,6 +1803,7 @@ function buildPayload(): Record<string, unknown> {
 
 async function save(): Promise<void> {
   const domains = splitLines(form.domainsText)
+  await ensureDNSAccountForSave(domains)
   if (form.flow_mode === 'target_beta') {
     if (!form.target_flow.sources?.length) {
       ElMessage.warning(t('tasks.betaTargetRequired'))
@@ -1504,7 +1818,7 @@ async function save(): Promise<void> {
     selectedNodeId.value = 'apply'
     return
   }
-  if (!isPrivateCA.value && !form.dns_account_id) {
+  if (!isPrivateCA.value && form.flow_mode !== 'target_beta' && !form.dns_account_id && !form.dns_routes.length) {
     ElMessage.warning(t('tasks.dnsRequired'))
     selectedNodeId.value = 'apply'
     return
@@ -1516,6 +1830,15 @@ async function save(): Promise<void> {
   }
   if (form.ca_mode === 'single' && !form.ca) {
     ElMessage.warning(t('tasks.caRequired'))
+    selectedNodeId.value = 'apply'
+    return
+  }
+  if (
+    form.no_key_storage &&
+    form.flow_mode === 'standard' &&
+    !form.pipeline.some((node) => node.type === 'deploy' && node.enabled)
+  ) {
+    ElMessage.warning(t('tasks.noKeyStorageDeployRequired'))
     selectedNodeId.value = 'apply'
     return
   }
@@ -1549,6 +1872,9 @@ async function save(): Promise<void> {
         ? api.put(`/tasks/${editingId.value}`, payload)
         : api.post('/tasks', payload))
     if (saved === null) return
+    // 只记录 API 保存成功的配置；取消、校验失败和接口报错都不会污染快照。
+    // 编辑同样更新快照：它代表用户刚刚确认过的“上一次配置”。
+    writeLastTaskConfig(form, reuseContext())
     ElMessage.success(t(editingId.value ? 'tasks.saved' : 'tasks.created'))
     dialogVisible.value = false
     await loadAll()
@@ -1649,6 +1975,7 @@ function taskPayload(row: Task, enabled: boolean): Record<string, unknown> {
     dns_account_id: row.dns_account_id,
     ca: row.ca,
     key_type: row.key_type,
+    no_key_storage: !!row.no_key_storage,
     auto_renew: row.auto_renew,
     renew_days: row.renew_days,
     deploy_ids: row.deploy_ids,
@@ -1747,6 +2074,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (logTimer) clearInterval(logTimer)
   stopTaskPolling()
+  resetDNSResolve()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   stopDrag()
 })
@@ -1797,6 +2125,9 @@ onUnmounted(() => {
 }
 .form-help.warn {
   color: #d97706;
+}
+.form-help.dns-auto-ok {
+  color: #059669;
 }
 .pipeline-summary {
   min-width: 0;
@@ -2192,7 +2523,6 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 0 14px;
   border-bottom: 1px solid var(--kp-border);
 }
 .filter-row .muted {
@@ -2207,10 +2537,64 @@ onUnmounted(() => {
   margin-bottom: 14px;
   border-bottom: 1px solid var(--kp-border);
 }
+.last-config-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: #64748b;
+}
+.last-config-hint .el-button {
+  font-size: 12px;
+}
+/* Beta 编辑器：左侧为目标/站点/分组主工作区，右侧固定签发与通知设置。 */
 .beta-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+  margin-top: 18px;
+}
+.beta-main {
+  min-width: 0;
+}
+.beta-side {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+}
+.beta-side-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 2px 0;
+}
+.beta-side-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1px solid #d7dfec;
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+.beta-side-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+}
+.beta-side-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.5;
 }
 .beta-settings {
   border: 1px solid var(--kp-border);
@@ -2223,6 +2607,63 @@ onUnmounted(() => {
   font-weight: 700;
   color: #0f172a;
   margin-bottom: 12px;
+}
+/* 侧栏宽度有限，双列表单改为单列，避免控件被挤成窄条。 */
+.beta-side .grid-2 {
+  grid-template-columns: 1fr;
+}
+.beta-side .config-form :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+.beta-empty {
+  padding: 14px 0;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+}
+/* Beta 弹窗固定为一屏：只滚动编辑器主体，底部保存按钮始终可见。 */
+:global(.task-pipeline-dialog.is-beta .el-dialog__body) {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 200px);
+  overflow: hidden;
+}
+.task-pipeline-dialog.is-beta .beta-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+@media (max-width: 1220px) {
+  .beta-editor {
+    grid-template-columns: 1fr;
+  }
+  .beta-side {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .beta-side-head {
+    grid-column: 1 / -1;
+  }
+  .beta-side .grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .beta-editor {
+    gap: 12px;
+  }
+  .beta-side {
+    grid-template-columns: 1fr;
+  }
+  .beta-side .grid-2 {
+    grid-template-columns: 1fr;
+  }
+  :global(.task-pipeline-dialog.is-beta .el-dialog__body) {
+    max-height: calc(100vh - 170px);
+  }
 }
 
 </style>

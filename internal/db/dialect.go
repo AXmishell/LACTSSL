@@ -1,6 +1,7 @@
 package db
 
 import (
+	"regexp"
 	"strings"
 )
 
@@ -12,6 +13,8 @@ const (
 	SQLite Dialect = "sqlite"
 	// Postgres 是 PostgreSQL 方言。
 	Postgres Dialect = "postgres"
+	// MySQL 是 MySQL 5.7+ 方言（同时兼容 MariaDB 10.2+ 的常用语法）。
+	MySQL Dialect = "mysql"
 )
 
 // String 返回配置中使用的方言名称。
@@ -25,6 +28,9 @@ func (d Dialect) String() string {
 // IsPostgres 判断是否为 PostgreSQL。
 func (d Dialect) IsPostgres() bool { return d == Postgres }
 
+// IsMySQL 判断是否为 MySQL / MariaDB。
+func (d Dialect) IsMySQL() bool { return d == MySQL }
+
 // ParseDialect 解析并规范化方言名称。
 func ParseDialect(value string) (Dialect, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
@@ -32,18 +38,74 @@ func ParseDialect(value string) (Dialect, bool) {
 		return SQLite, true
 	case "postgres", "postgresql", "pg":
 		return Postgres, true
+	case "mysql", "mariadb":
+		return MySQL, true
 	default:
 		return "", false
 	}
 }
 
 // Rebind 把 SQL 中的 ? 占位符转换为 Postgres 的 $1、$2……
-// SQLite 原样返回。字符串字面量、引号标识符、美元引号与注释内的 ? 不转换。
+// SQLite 与 MySQL 原样返回。MySQL 额外把 PostgreSQL 风格的
+// ON CONFLICT ... DO NOTHING / DO UPDATE SET 改写为 ON DUPLICATE KEY UPDATE，
+// 这样业务 SQL 可以只维护一份写法。
 func (d Dialect) Rebind(query string) string {
-	if d != Postgres {
+	switch d {
+	case Postgres:
+		return rebindDollar(query)
+	case MySQL:
+		return rebindMySQL(query)
+	default:
 		return query
 	}
-	return rebindDollar(query)
+}
+
+// QuoteIdent 按方言引用标识符。
+func (d Dialect) QuoteIdent(name string) string {
+	if d == MySQL {
+		return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+	}
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+var (
+	onConflictNothingPattern = regexp.MustCompile(`(?is)\s+ON\s+CONFLICT\s*\(([^)]*)\)\s+DO\s+NOTHING\s*$`)
+	onConflictUpdatePattern  = regexp.MustCompile(`(?is)\s+ON\s+CONFLICT\s*\(([^)]*)\)\s+DO\s+UPDATE\s+SET\s+(.+)$`)
+	excludedColumnPattern    = regexp.MustCompile(`(?i)\bexcluded\.([a-z_][a-z0-9_]*)`)
+)
+
+// rebindMySQL 把 PostgreSQL 的冲突处理语法转换为 MySQL 写法。
+// 只处理本项目实际使用的简单形式；其它语句保持原样。
+func rebindMySQL(query string) string {
+	if match := onConflictNothingPattern.FindStringSubmatchIndex(query); match != nil {
+		columns := query[match[2]:match[3]]
+		first := firstColumnName(columns)
+		if first == "" {
+			return query[:match[1]] + " ON DUPLICATE KEY UPDATE id=id"
+		}
+		quoted := MySQL.QuoteIdent(first)
+		return query[:match[0]] + " ON DUPLICATE KEY UPDATE " + quoted + "=" + quoted
+	}
+	if match := onConflictUpdatePattern.FindStringSubmatchIndex(query); match != nil {
+		assignments := query[match[4]:match[5]]
+		assignments = excludedColumnPattern.ReplaceAllStringFunc(assignments, func(value string) string {
+			parts := excludedColumnPattern.FindStringSubmatch(value)
+			if len(parts) < 2 {
+				return value
+			}
+			return "VALUES(" + MySQL.QuoteIdent(parts[1]) + ")"
+		})
+		return query[:match[0]] + " ON DUPLICATE KEY UPDATE " + assignments
+	}
+	return query
+}
+
+// firstColumnName 从 "a, b" 或 "a,b" 中取出第一列名。
+func firstColumnName(columns string) string {
+	if index := strings.IndexByte(columns, ','); index >= 0 {
+		columns = columns[:index]
+	}
+	return strings.TrimSpace(columns)
 }
 
 // rebindDollar 实现 ? -> $n 的词法安全转换。

@@ -9,10 +9,12 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
 	"lactssl/internal/model"
+	"lactssl/internal/service"
 )
 
 func testCSRPEM(t *testing.T, domains ...string) string {
@@ -107,6 +109,74 @@ func TestCSRRequestCreatesPendingRequest(t *testing.T) {
 	download := sessionRequest(t, router, http.MethodGet, "/api/certificate-requests/"+payload.Data.ID+"/certificate", "", []*http.Cookie{session}, nil)
 	if download.Code != http.StatusConflict {
 		t.Fatalf("未签发证书应返回 409: %d %s", download.Code, download.Body.String())
+	}
+}
+
+func TestCSRRequestPrivateCA(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	ca, err := service.GeneratePrivateCA(service.PrivateCARequest{
+		Name:      "Internal CA",
+		KeyType:   "ecdsa",
+		ValidDays: 365,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreatePrivateCA(ca); err != nil {
+		t.Fatal(err)
+	}
+
+	// 私有 CA 不使用 DNS-01，也不需要预先配置 ACME 邮箱和允许域名；
+	// 内网域名应可以直接申请。
+	body, _ := json.Marshal(map[string]any{
+		"csr":             testCSRPEM(t, "app.internal", "api.internal"),
+		"private_ca_id":   ca.ID,
+		"idempotency_key": "private-ca-test",
+	})
+	resp := sessionRequest(t, router, http.MethodPost, "/api/certificate-requests", string(body),
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if resp.Code != http.StatusAccepted {
+		t.Fatalf("私有 CA 申请应返回 202: %d %s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		Data csrRequestView `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.CA != service.PrivateCAValue(ca.ID) {
+		t.Fatalf("私有 CA 引用不正确: %+v", payload.Data)
+	}
+	if payload.Data.Challenge != "private" || payload.Data.DNSAccountID != 0 {
+		t.Fatalf("私有 CA 申请不应使用 DNS-01: %+v", payload.Data)
+	}
+	if len(payload.Data.Identifiers) != 2 || payload.Data.PrimaryDomain != "app.internal" {
+		t.Fatalf("私有 CA 申请域名不正确: %+v", payload.Data)
+	}
+
+	// 仅持有 certificates:request 的密钥不能借用私有 CA。
+	requestOnly, _ := createAPIKeyForTest(t, router, session, "csr-private-denied",
+		[]string{apiScopeCertificatesRequest})
+	deniedBody, _ := json.Marshal(map[string]any{
+		"csr":           testCSRPEM(t, "app.internal"),
+		"private_ca_id": ca.ID,
+	})
+	denied := apiKeyRequest(t, router, requestOnly, http.MethodPost, "/api/certificate-requests", string(deniedBody), "")
+	if denied.Code != http.StatusForbidden || !strings.Contains(denied.Body, apiScopePrivateCAWrite) {
+		t.Fatalf("私有 CA 申请应要求 private_cas:write: %d %s", denied.Code, denied.Body)
+	}
+
+	allowedKey, _ := createAPIKeyForTest(t, router, session, "csr-private-allowed",
+		[]string{apiScopeCertificatesRequest, apiScopePrivateCAWrite})
+	allowedBody, _ := json.Marshal(map[string]any{
+		"csr":           testCSRPEM(t, "app.internal"),
+		"ca":            service.PrivateCAValue(ca.ID),
+		"private_ca_id": ca.ID,
+	})
+	allowed := apiKeyRequest(t, router, allowedKey, http.MethodPost, "/api/certificate-requests", string(allowedBody), "")
+	if allowed.Code != http.StatusAccepted {
+		t.Fatalf("具备 private_cas:write 时应允许私有 CA 申请: %d %s", allowed.Code, allowed.Body)
 	}
 }
 
@@ -219,5 +289,143 @@ func TestCSRRequestAPIKeyRequiresDNSAccountScope(t *testing.T) {
 	resp := apiKeyRequest(t, router, token, http.MethodPost, "/api/certificate-requests", string(body), "")
 	if resp.Code != http.StatusForbidden || !strings.Contains(resp.Body, apiScopeDNSRead) {
 		t.Fatalf("仅 certificates:request 不应借用 DNS 账户: %d %s", resp.Code, resp.Body)
+	}
+}
+
+func TestCSRRequestResolvesDNSAccountFromBindings(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	if err := st.SetSetting("acme.email", "admin@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("csr.allowed_domains", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	account := &model.DNSAccount{Name: "resolved-dns", Provider: "test", Config: map[string]string{}}
+	if err := st.CreateDNSAccount(account); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceDNSZoneBindings(account.ID, []model.DNSZoneBinding{
+		{DNSAccountID: account.ID, Zone: "example.com", MatchMode: "suffix", Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"csr":             testCSRPEM(t, "example.com", "www.example.com"),
+		"ca":              "letsencrypt",
+		"idempotency_key": "auto-resolve",
+	})
+	resp := sessionRequest(t, router, http.MethodPost, "/api/certificate-requests", string(body),
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if resp.Code != http.StatusAccepted {
+		t.Fatalf("自动解析账户应创建申请: %d %s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		Data csrRequestView `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.DNSAccountID != account.ID || payload.Data.ResolvedBy != "binding" || payload.Data.ResolvedZone != "example.com" {
+		t.Fatalf("自动解析结果不正确: %+v", payload.Data)
+	}
+}
+
+func TestCSRRequestUnresolvedDNSAccountFailsClosed(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	if err := st.SetSetting("acme.email", "admin@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("csr.allowed_domains", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"csr": testCSRPEM(t, "example.com"),
+		"ca":  "letsencrypt",
+	})
+	resp := sessionRequest(t, router, http.MethodPost, "/api/certificate-requests", string(body),
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if resp.Code != http.StatusBadRequest || !containsCode(resp.Body.Bytes(), "service.csr.dns_account_unresolved") {
+		t.Fatalf("未绑定域名应默认拒绝: %d %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCSRRequestAcrossDNSAccountsUsesRoutes(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	if err := st.SetSetting("acme.email", "admin@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("csr.allowed_domains", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	first := &model.DNSAccount{Name: "first", Provider: "test", Config: map[string]string{}}
+	second := &model.DNSAccount{Name: "second", Provider: "test", Config: map[string]string{}}
+	if err := st.CreateDNSAccount(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateDNSAccount(second); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceDNSZoneBindings(first.ID, []model.DNSZoneBinding{
+		{DNSAccountID: first.ID, Zone: "example.com", MatchMode: "suffix", Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceDNSZoneBindings(second.ID, []model.DNSZoneBinding{
+		{DNSAccountID: second.ID, Zone: "sub.example.com", MatchMode: "suffix", Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"csr": testCSRPEM(t, "example.com", "a.sub.example.com"),
+		"ca":  "letsencrypt",
+	})
+	resp := sessionRequest(t, router, http.MethodPost, "/api/certificate-requests", string(body),
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if resp.Code != http.StatusAccepted {
+		t.Fatalf("跨账户 CSR 应接受并按域名路由: %d %s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		Data csrRequestView `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.DNSAccountID != 0 || len(payload.Data.DNSRoutes) != 2 {
+		t.Fatalf("跨账户 CSR 应保存两条路由: %+v", payload.Data)
+	}
+	if payload.Data.DNSRoutes[0].DNSAccountID != first.ID || payload.Data.DNSRoutes[1].DNSAccountID != second.ID {
+		t.Fatalf("DNS 路由账户不正确: %+v", payload.Data.DNSRoutes)
+	}
+}
+
+func TestDNSZoneEndpointsAndResolvePreview(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	account := &model.DNSAccount{Name: "preview-dns", Provider: "test", Config: map[string]string{}}
+	if err := st.CreateDNSAccount(account); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"zones":[{"zone":"Example.COM.","match_mode":"suffix"}]}`
+	resp := sessionRequest(t, router, http.MethodPut, "/api/dns-accounts/"+strconv.FormatInt(account.ID, 10)+"/zones", body,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("保存域名绑定失败: %d %s", resp.Code, resp.Body.String())
+	}
+
+	listResp := sessionRequest(t, router, http.MethodGet, "/api/dns-accounts/"+strconv.FormatInt(account.ID, 10)+"/zones", "",
+		[]*http.Cookie{session}, nil)
+	if listResp.Code != http.StatusOK || !strings.Contains(listResp.Body.String(), "example.com") {
+		t.Fatalf("读取域名绑定失败: %d %s", listResp.Code, listResp.Body.String())
+	}
+
+	resolveResp := sessionRequest(t, router, http.MethodPost, "/api/dns-accounts/resolve",
+		`{"domains":["a.example.com"]}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if resolveResp.Code != http.StatusOK || !strings.Contains(resolveResp.Body.String(), `"account_id":`+strconv.FormatInt(account.ID, 10)) {
+		t.Fatalf("解析预览失败: %d %s", resolveResp.Code, resolveResp.Body.String())
 	}
 }

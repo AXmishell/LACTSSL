@@ -1,18 +1,101 @@
 <template>
   <div class="target-flow-editor">
+    <div class="tf-flowbar">
+      <div class="tf-step" :class="{ 'is-done': sources.length > 0 }">
+        <span class="tf-step-index">1</span>
+        <span class="tf-step-main">
+          <span class="tf-step-label">{{ t('tasks.betaStepTargets') }}</span>
+          <span class="tf-step-meta">
+            {{ sources.length ? t('tasks.betaStepTargetsMeta', { count: sources.length }) : t('tasks.betaStepPending') }}
+          </span>
+        </span>
+      </div>
+      <span class="tf-step-line" aria-hidden="true"></span>
+      <div class="tf-step" :class="{ 'is-done': selectedCount > 0 }">
+        <span class="tf-step-index">2</span>
+        <span class="tf-step-main">
+          <span class="tf-step-label">{{ t('tasks.betaStepSites') }}</span>
+          <span class="tf-step-meta">
+            {{ sites.length ? t('tasks.betaStepSitesMeta', { selected: selectedCount, total: sites.length }) : t('tasks.betaStepPending') }}
+          </span>
+        </span>
+      </div>
+      <span class="tf-step-line" aria-hidden="true"></span>
+      <div class="tf-step" :class="{ 'is-done': sites.length > 0 }">
+        <span class="tf-step-index">3</span>
+        <span class="tf-step-main">
+          <span class="tf-step-label">{{ t('tasks.betaStepStrategy') }}</span>
+          <span class="tf-step-meta">
+            {{ sites.length ? strategyLabel(config.policy?.strategy || 'smart') : t('tasks.betaStepPending') }}
+          </span>
+        </span>
+      </div>
+      <span class="tf-step-line" aria-hidden="true"></span>
+      <div class="tf-step" :class="{ 'is-done': groups.length > 0 }">
+        <span class="tf-step-index">4</span>
+        <span class="tf-step-main">
+          <span class="tf-step-label">{{ t('tasks.betaStepGroups') }}</span>
+          <span class="tf-step-meta">
+            {{ groups.length ? t('tasks.betaStepGroupsMeta', { count: groups.length }) : t('tasks.betaStepPending') }}
+          </span>
+        </span>
+      </div>
+      <span class="tf-step-line" aria-hidden="true"></span>
+      <div class="tf-step" :class="{ 'is-done': groups.length > 0 }">
+        <span class="tf-step-index">5</span>
+        <span class="tf-step-main">
+          <span class="tf-step-label">{{ t('tasks.betaStepDeploy') }}</span>
+          <span class="tf-step-meta">
+            {{ groups.length ? t('tasks.betaStepDeployMeta', { count: groups.length }) : t('tasks.betaStepPending') }}
+          </span>
+        </span>
+      </div>
+    </div>
+
     <section class="tf-card">
       <div class="tf-card-head">
         <div>
-          <div class="tf-card-title">{{ t('tasks.betaTargets') }}</div>
+          <div class="tf-card-title">
+            <span class="tf-card-step">1</span>
+            {{ t('tasks.betaTargets') }}
+          </div>
           <div class="tf-card-sub">{{ t('tasks.betaTargetsHint') }}</div>
         </div>
-        <el-button size="small" type="primary" plain :icon="Plus" @click="addSource">
-          {{ t('tasks.betaAddTarget') }}
-        </el-button>
+        <el-tooltip
+          :disabled="availableTargetAccounts.length > 0"
+          :content="t('tasks.betaNoSupportedTargets')"
+          placement="top"
+        >
+          <span class="tf-add-target">
+            <el-dropdown
+              trigger="click"
+              :disabled="!availableTargetAccounts.length"
+              @command="addSource"
+            >
+              <el-button size="small" type="primary" plain :icon="Plus" :disabled="!availableTargetAccounts.length">
+                {{ t('tasks.betaAddTarget') }}
+                <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item v-for="account in availableTargetAccounts" :key="account.id" :command="account.id">
+                    {{ account.name }} · {{ deployLabel(account.type) }}
+                  </el-dropdown-item>
+                  <el-dropdown-item v-if="!availableTargetAccounts.length" disabled>
+                    {{ t('tasks.betaNoSupportedTargets') }}
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </span>
+        </el-tooltip>
       </div>
 
       <div v-if="!sources.length" class="tf-empty">
         {{ t('tasks.betaNoTargets') }}
+        <div v-if="!supportedTargetAccounts.length" class="tf-empty-hint">
+          {{ t('tasks.betaNoSupportedTargets') }}
+        </div>
       </div>
 
       <div v-for="(source, index) in sources" :key="source.deploy_account_id || index" class="tf-source">
@@ -25,23 +108,24 @@
             @update:model-value="(value: number) => changeSourceAccount(source, value)"
           >
             <el-option
-              v-for="account in deployAccounts"
+              v-for="account in sourceAccountOptions(source)"
               :key="account.id"
-              :label="`${account.name} · ${deployLabel(account.type)}`"
+              :label="sourceAccountLabel(account)"
               :value="account.id"
             />
           </el-select>
           <span class="muted">{{ sourceSummary(source) }}</span>
           <el-button text type="danger" :icon="Delete" @click="removeSource(index)">{{ t('common.delete') }}</el-button>
         </div>
-        <DeployConfigFields
-          v-if="source.deploy_account_id"
-          :account-type="accountTypeOf(source.deploy_account_id)"
-          :account-id="source.deploy_account_id"
-          :model-value="source.deploy_config || {}"
-          :exclude-keys="siteField(source) ? [siteField(source)] : []"
-          @update:model-value="(value: Record<string, string>) => updateSourceConfig(source, value)"
-        />
+        <div v-if="source.deploy_account_id" class="tf-source-fields">
+          <DeployConfigFields
+            :account-type="accountTypeOf(source.deploy_account_id)"
+            :account-id="source.deploy_account_id"
+            :model-value="source.deploy_config || {}"
+            :exclude-keys="siteField(source) ? [siteField(source)] : []"
+            @update:model-value="(value: Record<string, string>) => updateSourceConfig(source, value)"
+          />
+        </div>
         <div v-if="source.deploy_account_id && !siteField(source)" class="form-help warn">
           {{ t('tasks.betaTargetNotSite') }}
         </div>
@@ -51,7 +135,10 @@
     <section class="tf-card">
       <div class="tf-card-head">
         <div>
-          <div class="tf-card-title">{{ t('tasks.betaSites') }}</div>
+          <div class="tf-card-title">
+            <span class="tf-card-step">2</span>
+            {{ t('tasks.betaSites') }}
+          </div>
           <div class="tf-card-sub">{{ t('tasks.betaSitesHint') }}</div>
         </div>
         <div class="flex gap-10 wrap">
@@ -146,7 +233,10 @@
     <section class="tf-card">
       <div class="tf-card-head">
         <div>
-          <div class="tf-card-title">{{ t('tasks.betaStrategy') }}</div>
+          <div class="tf-card-title">
+            <span class="tf-card-step">3</span>
+            {{ t('tasks.betaStrategy') }}
+          </div>
           <div class="tf-card-sub">{{ t('tasks.betaStrategyHint') }}</div>
         </div>
         <div class="flex gap-10" style="align-items: center">
@@ -192,7 +282,10 @@
     <section v-if="groups.length || warnings.length" class="tf-card">
       <div class="tf-card-head">
         <div>
-          <div class="tf-card-title">{{ t('tasks.betaGroups') }}</div>
+          <div class="tf-card-title">
+            <span class="tf-card-step">4</span>
+            {{ t('tasks.betaGroups') }}
+          </div>
           <div class="tf-card-sub">
             {{ t('tasks.betaGroupSummary', { groups: groups.length, sites: selectedCount }) }}
             <span v-if="stale" class="tf-stale">{{ t('tasks.betaPreviewStale') }}</span>
@@ -251,10 +344,10 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Delete, Plus, Refresh } from '@element-plus/icons-vue'
+import { ArrowDown, Delete, Plus, Refresh } from '@element-plus/icons-vue'
 import { api, errorText } from '../api'
 import DeployConfigFields from './DeployConfigFields.vue'
-import { deployLabel, normalizeDeployConfig, siteFieldOf } from '../deployConfig'
+import { deployLabel, isTargetFlowSource, normalizeDeployConfig, siteFieldOf } from '../deployConfig'
 import type {
   CertGroup,
   CertPolicy,
@@ -271,11 +364,19 @@ const config = defineModel<TargetFlowConfig>({ required: true })
 const props = defineProps<{
   deployAccounts: DeployAccount[]
   publicCa: boolean
+  noKeyStorage?: boolean
 }>()
 
 const { t } = useI18n()
 
 const sources = computed(() => config.value.sources || [])
+// 支持清单完全来自部署插件 manifest 的 plan-v1 能力，并额外要求当前凭据确实
+// 暴露了站点字段（例如 1Panel/AcePanel 选择“面板自身”时不会出现在清单里）。
+const supportedTargetAccounts = computed(() => props.deployAccounts.filter(isTargetFlowSource))
+const availableTargetAccounts = computed(() => {
+  const used = new Set(sources.value.map((source) => source.deploy_account_id))
+  return supportedTargetAccounts.value.filter((account) => !used.has(account.id))
+})
 const sites = ref<TargetSite[]>([])
 const groups = ref<CertGroup[]>([])
 const recommendation = ref<StrategyRecommendation | null>(null)
@@ -322,6 +423,13 @@ watch(
   { deep: true }
 )
 
+watch(
+  () => props.noKeyStorage,
+  () => {
+    stale.value = true
+  }
+)
+
 // 自定义分组时，把站点与组名的映射同步回任务配置，保存时无需再刷新预览。
 watch(
   [selectedKeys, () => JSON.stringify(manualGroups), () => config.value.policy?.strategy],
@@ -350,9 +458,26 @@ function sourceSummary(source: { deploy_account_id: number; deploy_config?: Reco
   return field ? `${deployLabel(account.type)} · ${field}` : deployLabel(account.type)
 }
 
-function addSource(): void {
-  const used = new Set(sources.value.map((item) => item.deploy_account_id))
-  const account = props.deployAccounts.find((item) => !used.has(item.id))
+function sourceAccountOptions(source: { deploy_account_id: number }): DeployAccount[] {
+  const list = supportedTargetAccounts.value
+  if (source.deploy_account_id && !list.some((account) => account.id === source.deploy_account_id)) {
+    // 历史任务可能保存了不支持站点读取的目标，保留原选项以便用户查看并改选。
+    const current = accountOf(source.deploy_account_id)
+    if (current) return [...list, current]
+  }
+  return list
+}
+
+function sourceAccountLabel(account: DeployAccount): string {
+  const label = `${account.name} · ${deployLabel(account.type)}`
+  return isTargetFlowSource(account) ? label : `${label} · ${t('tasks.betaUnsupportedTarget')}`
+}
+
+function addSource(accountID?: number | string): void {
+  const id = typeof accountID === 'number' ? accountID : Number(accountID || 0)
+  const account = id
+    ? availableTargetAccounts.value.find((item) => item.id === id)
+    : availableTargetAccounts.value[0]
   if (!account) return
   const cfg = normalizeDeployConfig(account.type, account.config)
   const field = siteFieldOf(account, cfg)
@@ -518,7 +643,8 @@ async function refreshPreview(): Promise<void> {
         extra_domains: config.value.policy?.extra_domains || {}
       },
       group_overrides: isCustom.value ? buildOverrides() : undefined,
-      public_ca: props.publicCa
+      public_ca: props.publicCa,
+      no_key_storage: !!props.noKeyStorage
     }
     if (isCustom.value) {
       config.value.group_overrides = buildOverrides()
@@ -579,6 +705,75 @@ function onExtraChange(group: CertGroup): void {
   flex-direction: column;
   gap: 14px;
 }
+/* 顶部流程条：把「目标 → 网站 → 策略 → 分组 → 执行」串成一条可读的进度线。 */
+.tf-flowbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--kp-border);
+  background: #fff;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tf-flowbar::-webkit-scrollbar {
+  display: none;
+}
+.tf-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: max-content;
+  padding: 4px 6px;
+  color: #94a3b8;
+}
+.tf-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1px solid #d7dfec;
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+.tf-step-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.3;
+}
+.tf-step-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+.tf-step-meta {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.tf-step.is-done .tf-step-index {
+  border-color: #2563eb;
+  background: #eff5ff;
+  color: #2563eb;
+}
+.tf-step.is-done .tf-step-label {
+  color: #0f172a;
+}
+.tf-step-line {
+  flex: 1 1 16px;
+  min-width: 12px;
+  height: 1px;
+  background: #e2e8f2;
+}
 .tf-card {
   border: 1px solid var(--kp-border);
   border-radius: 12px;
@@ -594,12 +789,29 @@ function onExtraChange(group: CertGroup): void {
   margin-bottom: 12px;
 }
 .tf-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 700;
   color: #0f172a;
 }
+.tf-card-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 1px solid #d7dfec;
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
 .tf-card-sub {
   margin-top: 3px;
+  padding-left: 28px;
   font-size: 12px;
   color: #64748b;
 }
@@ -608,6 +820,14 @@ function onExtraChange(group: CertGroup): void {
   text-align: center;
   color: #94a3b8;
   font-size: 13px;
+}
+.tf-empty-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b45309;
+}
+.tf-add-target {
+  display: inline-flex;
 }
 .tf-source {
   border: 1px dashed #dbe4f0;
@@ -622,6 +842,23 @@ function onExtraChange(group: CertGroup): void {
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 8px;
+}
+/* 部署参数按两列排布，站点字段已在运行时自动填充，不再占用纵向空间。 */
+.tf-source-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.tf-source-fields :deep(.deploy-field) {
+  margin-bottom: 10px;
+}
+.tf-source-fields :deep(.deploy-field-textarea) {
+  grid-column: 1 / -1;
+}
+@media (max-width: 900px) {
+  .tf-source-fields {
+    grid-template-columns: 1fr;
+  }
 }
 .tf-filters {
   display: grid;
@@ -676,7 +913,7 @@ function onExtraChange(group: CertGroup): void {
 }
 .tf-strategies {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
 }
 .tf-strategy {
@@ -720,9 +957,13 @@ function onExtraChange(group: CertGroup): void {
   margin-bottom: 8px;
 }
 .tf-groups {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
   gap: 10px;
+  max-height: 460px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 .tf-group {
   border: 1px solid #dbe4f0;
@@ -765,7 +1006,43 @@ function onExtraChange(group: CertGroup): void {
   margin-top: 10px;
   font-size: 12px;
 }
+.tf-extra > .muted {
+  flex: none;
+  white-space: nowrap;
+}
 .tf-extra :deep(.el-input) {
+  flex: 1 1 auto;
+  min-width: 0;
   max-width: 420px;
+}
+@media (max-width: 760px) {
+  .tf-card {
+    padding: 12px;
+  }
+  .tf-card-sub {
+    padding-left: 0;
+  }
+  .tf-source-head :deep(.el-select) {
+    width: 100% !important;
+  }
+  .tf-strategies,
+  .tf-groups {
+    grid-template-columns: 1fr;
+  }
+  .tf-groups {
+    max-height: none;
+  }
+  .tf-site-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .tf-extra {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .tf-extra :deep(.el-input) {
+    max-width: none;
+  }
 }
 </style>

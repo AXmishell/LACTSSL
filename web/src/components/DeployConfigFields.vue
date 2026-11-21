@@ -1,6 +1,6 @@
 <template>
   <template v-for="field in visibleFields" :key="field.key">
-    <el-form-item :label="field.label" :required="field.required">
+    <el-form-item :label="field.label" :required="field.required" :class="['deploy-field', `deploy-field-${field.type}`]">
       <template v-if="field.options_source && accountId">
         <el-select
           :model-value="selectValue(field)"

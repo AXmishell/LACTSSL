@@ -31,7 +31,7 @@ RUN set -eu; \
 
 # 运行阶段
 FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
-RUN apk add --no-cache ca-certificates tzdata openssh-client su-exec postgresql-client \
+RUN apk add --no-cache ca-certificates tzdata openssh-client su-exec postgresql-client mariadb-client \
     && addgroup -S -g 10001 lactssl \
     && adduser -S -D -H -u 10001 -G lactssl lactssl \
     && mkdir -p /app/data /app/config \

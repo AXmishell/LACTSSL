@@ -94,6 +94,9 @@ type ProviderDef struct {
 	DescKey      string     `json:"-"`
 	Fields       []FieldDef `json:"fields"`
 	DeployFields []FieldDef `json:"deploy_fields,omitempty"`
+	// Capabilities 是插件 manifest 声明的能力位（例如 plan-v1）。
+	// 内置目标没有插件能力，字段为空。
+	Capabilities []string `json:"capabilities,omitempty"`
 	// Available 表示当前构建或已安装插件是否包含该服务商的实现。
 	// 目录中始终保留全部内置服务商，便于历史账号展示与切换构建后继续使用。
 	Available bool `json:"available"`
@@ -112,9 +115,12 @@ type CADef struct {
 	Label    string `json:"label"`
 	LabelKey string `json:"-"`
 	URL      string `json:"url"`
+	// RSAURL 是 RSA 私钥使用的独立 ACME 目录；为空时复用 URL。
+	// 部分 CA（如 SSL.com）为 ECDSA 与 RSA 提供不同端点。
+	RSAURL string `json:"-"`
 	// Protocol 是 ACME 协议版本：v2（RFC 8555）或 v1（旧版 ACME）。
 	Protocol string `json:"protocol"`
-	// Custom 表示该 CA 由用户在「权威CA」中配置，而不是内置 CA。
+	// Custom 表示该 CA 由用户在「公共CA」中配置，而不是内置 CA。
 	Custom  bool   `json:"custom,omitempty"`
 	EAB     bool   `json:"eab"`
 	Desc    string `json:"desc"`
@@ -370,6 +376,7 @@ func externalDeployerDef(external deployplugin.ExternalDeployer) ProviderDef {
 		Source:       string(deployplugin.SourceExec),
 		Fields:       externalManifestFields(external.Fields),
 		DeployFields: externalManifestFields(external.DeployFields),
+		Capabilities: append([]string(nil), external.Capabilities...),
 		labelI18n:    external.NameI18n,
 		descI18n:     external.DescriptionI18n,
 	}
@@ -386,6 +393,7 @@ func manifestDeployerDef(deployer pluginproto.Deployer) ProviderDef {
 		Aliases:         deployer.Aliases,
 		Fields:          deployer.Fields,
 		DeployFields:    deployer.DeployFields,
+		Capabilities:    deployer.Capabilities,
 		Enabled:         false,
 		FileEnabled:     false,
 	})
@@ -426,6 +434,9 @@ var CADefs = []CADef{
 	{Value: "zerossl", LabelKey: "meta.ca.zerossl.label", DescKey: "meta.ca.zerossl.desc", URL: "https://acme.zerossl.com/v2/DV90", EAB: true},
 	{Value: "google", LabelKey: "meta.ca.google.label", DescKey: "meta.ca.google.desc", URL: "https://dv.acme-v02.api.pki.goog/directory", EAB: true},
 	{Value: "litessl", LabelKey: "meta.ca.litessl.label", DescKey: "meta.ca.litessl.desc", URL: "https://acme.litessl.com/acme/v2/directory", EAB: true},
+	{Value: "zotrus", LabelKey: "meta.ca.zotrus.label", DescKey: "meta.ca.zotrus.desc", URL: "https://my.zotrus.com/cnacme", EAB: true},
+	{Value: "actalis", LabelKey: "meta.ca.actalis.label", DescKey: "meta.ca.actalis.desc", URL: "https://acme-api.actalis.com/acme/directory", EAB: true},
+	{Value: "sslcom", LabelKey: "meta.ca.sslcom.label", DescKey: "meta.ca.sslcom.desc", URL: "https://acme.ssl.com/sslcom-dv-ecc", RSAURL: "https://acme.ssl.com/sslcom-dv-rsa", EAB: true},
 }
 
 // DeployTypes 是内置目标凭据。

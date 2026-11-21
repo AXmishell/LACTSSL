@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 	"lactssl/internal/model"
+	"lactssl/internal/netutil"
 	"lactssl/internal/ratelimit"
 	"lactssl/internal/store"
 )
@@ -35,6 +36,10 @@ type Server struct {
 	requestLimiter *ipRateLimiter
 	// TrustedProxies 用于在反向代理后解析真实客户端 IP。
 	TrustedProxies []string
+	// ClientIPMode 为 auto（默认）或 cloudflare。
+	ClientIPMode string
+	trustedOnce  sync.Once
+	trustedSet   netutil.TrustedSet
 
 	crlMu    sync.Mutex
 	crlCache map[int64]crlCacheEntry

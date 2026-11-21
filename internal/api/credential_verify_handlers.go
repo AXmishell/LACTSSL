@@ -25,8 +25,6 @@ type verifyDNSBody struct {
 	Config   map[string]string `json:"config"`
 	Domain   string            `json:"domain"`
 	Mode     string            `json:"mode"`
-	Password string            `json:"password"`
-	TOTP     string            `json:"totp"`
 }
 
 type verifyDeployBody struct {
@@ -34,21 +32,13 @@ type verifyDeployBody struct {
 	Config       map[string]string `json:"config"`
 	DeployConfig map[string]string `json:"deploy_config"`
 	Mode         string            `json:"mode"`
-	Password     string            `json:"password"`
-	TOTP         string            `json:"totp"`
 }
 
-// verifyGuard 统一处理验证接口的权限：API Key 必须有对应写权限，
-// 浏览器会话必须再认证。验证会使用已保存的密钥发起出站请求，
-// 与 test-mail 属于同一类敏感操作。
-func (s *Server) verifyGuard(c *gin.Context, password, totp, scope string) bool {
-	if !s.requireAPIKeyScope(c, scope) {
-		return false
-	}
-	if apiKeyFromContext(c) != nil {
-		return true
-	}
-	return s.requireReauth(c, getUser(c), password, totp)
+// verifyWriteGuard 统一处理验证接口的权限：API Key 必须有对应写权限。
+// 浏览器会话不再要求密码/TOTP 再认证，验证只使用服务端已保存的凭据，
+// 不会把凭据转发到调用方指定的主机。
+func (s *Server) verifyWriteGuard(c *gin.Context, scope string) bool {
+	return s.requireAPIKeyScope(c, scope)
 }
 
 func (s *Server) verifyRateLimit(c *gin.Context, key string) bool {
@@ -56,7 +46,7 @@ func (s *Server) verifyRateLimit(c *gin.Context, key string) bool {
 		rateLimited(c, wait)
 		return false
 	}
-	if allowed, wait := s.allow(ratelimit.CredentialVerifyClient, "verify:client:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.CredentialVerifyClient, "verify:client:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return false
 	}
@@ -104,11 +94,16 @@ func (s *Server) defaultDNSVerifyDomain(accountID int64) string {
 		return ""
 	}
 	for _, task := range tasks {
-		if task.DNSAccountID != accountID {
+		if !taskUsesDNSAccount(&task, accountID) {
 			continue
 		}
 		if len(task.Domains) > 0 {
 			return task.Domains[0]
+		}
+		for _, route := range task.DNSRoutes {
+			if route.DNSAccountID == accountID && route.Domain != "" {
+				return route.Domain
+			}
 		}
 	}
 	return ""
@@ -124,7 +119,10 @@ func (s *Server) verifyDNSAccount(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.verifyGuard(c, body.Password, body.TOTP, apiScopeDNSWrite) {
+	if !s.verifyWriteGuard(c, apiScopeDNSWrite) {
+		return
+	}
+	if s.denyIfAPIKeyDNSAccountHidden(c, id) {
 		return
 	}
 	if !s.verifyRateLimit(c, "verify:dns:"+strconv.FormatInt(id, 10)) {
@@ -150,11 +148,11 @@ func (s *Server) verifyDNSAccountConfig(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.verifyGuard(c, body.Password, body.TOTP, apiScopeDNSWrite) {
+	if !s.verifyWriteGuard(c, apiScopeDNSWrite) {
 		return
 	}
 	provider := strings.TrimSpace(body.Provider)
-	if !s.verifyRateLimit(c, "verify:dns:new:"+provider+":"+clientRateKey(c)) {
+	if !s.verifyRateLimit(c, "verify:dns:new:"+provider+":"+s.clientRateKey(c)) {
 		return
 	}
 	def, found := service.DNSProviderInfo(provider)
@@ -208,7 +206,7 @@ func (s *Server) verifyDeployAccount(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.verifyGuard(c, body.Password, body.TOTP, apiScopeDeployAccountsWrite) {
+	if !s.verifyWriteGuard(c, apiScopeDeployAccountsWrite) {
 		return
 	}
 	if !s.verifyRateLimit(c, "verify:deploy:"+strconv.FormatInt(id, 10)) {
@@ -234,11 +232,11 @@ func (s *Server) verifyDeployAccountConfig(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.verifyGuard(c, body.Password, body.TOTP, apiScopeDeployAccountsWrite) {
+	if !s.verifyWriteGuard(c, apiScopeDeployAccountsWrite) {
 		return
 	}
 	accountType := strings.TrimSpace(body.Type)
-	if !s.verifyRateLimit(c, "verify:deploy:new:"+accountType+":"+clientRateKey(c)) {
+	if !s.verifyRateLimit(c, "verify:deploy:new:"+accountType+":"+s.clientRateKey(c)) {
 		return
 	}
 	def, found := service.DeployTypeInfo(accountType)

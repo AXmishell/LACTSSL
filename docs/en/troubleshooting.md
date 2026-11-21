@@ -90,13 +90,13 @@ After changing the entry, previous links stop working immediately. Record the ne
 
 **Symptom**: Sign-in loops, CSRF failures, or all requests sharing the same IP quota.
 
-**Cause**: No trusted proxy is configured, or the proxy does not pass `X-Forwarded-For` / `X-Forwarded-Proto`.
+**Cause**: No trusted proxy is configured, the proxy does not pass forwarding headers, or a multi-hop chain trusts only the nearest hop.
 
 **Resolution**:
 
 ```yaml
 server:
-  trusted_proxies: ["127.0.0.1", "10.0.0.0/8"]
+  trusted_proxies: ["127.0.0.1"]
 security:
   public_url: "https://ssl.example.com"
 ```
@@ -105,9 +105,22 @@ Confirm that the proxy sets:
 
 ```nginx
 proxy_set_header X-Real-IP $remote_addr;
-proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+# Recommended overwrite mode: trusting this proxy is sufficient
+proxy_set_header X-Forwarded-For $remote_addr;
 proxy_set_header X-Forwarded-Proto $scheme;
 ```
+
+If you use append mode (`$proxy_add_x_forwarded_for`), a multi-hop chain such as CDN → Nginx → LACTSSL must list every proxy that can appear in XFF under `trusted_proxies`; otherwise the client IP stops at the upstream proxy.
+
+Check the following under **Settings → Configuration file → Auto detect**:
+
+- `peer_ip`: the TCP peer;
+- `applied_trusted_proxies`: the currently applied trusted list;
+- `effective_client_ip` / `client_ip_source`: the final result and its source;
+- `trusted_skipped`: how many trusted entries were skipped from right to left;
+- `header_warnings`: invalid or oversized XFF and similar parsing issues.
+
+Access logs also include `ip_source`, `ip_skipped`, and `ip_warnings`. Restart after saving; before restart, `configured_trusted_proxies` and `applied_trusted_proxies` may differ.
 
 ### 2.5 429 Too Many Requests
 
@@ -147,7 +160,7 @@ Resolution:
 ### 3.2 CA rate limits / EAB errors
 
 - Public CAs such as Let's Encrypt impose rate limits on accounts, domains, and failed validations; check the CA status page and error details.
-- ZeroSSL, Google Trust Services, and LiteSSL require EAB; confirm that the EAB KID/HMAC is correct and has not expired.
+- ZeroSSL, Google Trust Services, LiteSSL, ZoTrus, Actalis, and SSL.com require EAB; confirm that the EAB KID/HMAC is correct and has not expired (for ZoTrus, the KID is the registered email).
 - Generic ACME upstream directories must use HTTPS; local loopback is exempt.
 - Prepare a backup CA for critical domains so that rate limits at a single CA do not cause total failure.
 
@@ -210,6 +223,7 @@ Resolution:
 - Does SMTP use implicit TLS? Sending is rejected when the server does not support STARTTLS.
 - Is the task notification node enabled, and does the trigger condition match?
 - Check operation logs and system logs for send errors; sensitive values are masked.
+- Security alerts not delivered: check the master switch, sign-in mode, failed sign-in aggregation, event toggles, and channels under "Notifications → Security alerts". Review the per-target status and errors in the "Recent security events" dialog. Beyond the hourly limit only a digest is sent; when SMTP or channels change, previous recipients receive the alert through the old SMTP configuration snapshot. Security alerts are independent of certificate notifications.
 
 ### 5.2 False positives in site monitoring
 

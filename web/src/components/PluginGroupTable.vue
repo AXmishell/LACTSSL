@@ -1,12 +1,13 @@
 <template>
-  <div>
+  <div class="plugin-group" :class="{ 'plugin-group-fill': fill }">
     <div class="table-scroll">
       <el-table
         ref="tableRef"
         :data="visibleGroups"
         row-key="key"
         size="small"
-        max-height="420"
+        :height="fill ? '100%' : undefined"
+        :max-height="fill ? undefined : 420"
         class="plugin-table"
         :empty-text="resolvedEmptyText"
         @selection-change="onSelectionChange"
@@ -297,6 +298,7 @@ const props = withDefaults(defineProps<{
   aggregateLoading?: Record<string, boolean>
   emptyText?: string
   batchAction?: '' | 'enable' | 'disable' | 'delete'
+  fill?: boolean
 }>(), {
   keyword: '',
   toggling: () => ({}),
@@ -304,7 +306,8 @@ const props = withDefaults(defineProps<{
   fileToggling: () => ({}),
   aggregateLoading: () => ({}),
   emptyText: '',
-  batchAction: ''
+  batchAction: '',
+  fill: false
 })
 
 const emit = defineEmits<{
@@ -530,6 +533,24 @@ function fileSourceType(source: PluginFile['source']): 'success' | 'warning' | '
 </script>
 
 <style scoped>
+/* 一屏布局：表格填满卡片剩余高度，批量条固定在表格下方。 */
+.plugin-group-fill {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.plugin-group-fill > .table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.plugin-group-fill > .plugin-batch-bar,
+.plugin-group-fill > .plugin-file-hint {
+  flex: none;
+}
+.plugin-group-fill .plugin-table {
+  margin-top: 0;
+}
 .plugin-table {
   margin-top: 10px;
 }

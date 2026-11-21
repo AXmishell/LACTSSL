@@ -57,7 +57,7 @@ Key points:
 
 - The main program does not provide TLS configuration for the admin port; production must terminate TLS at a reverse proxy.
 - The reverse proxy and LACTSSL should be on the same host or subnet; the backend port should listen only on loopback or the internal network.
-- The reverse proxy must pass `X-Forwarded-For` and `X-Forwarded-Proto`, and the proxy address must be registered in `server.trusted_proxies`.
+- The reverse proxy must overwrite or correctly append `X-Forwarded-For` and pass `X-Forwarded-Proto`, and its exact IP or smallest CIDR must be registered in `server.trusted_proxies`. In an append chain, register every proxy in the chain.
 - `security.public_url` must be set to the fixed external address; links such as password reset do not depend on the request Host.
 
 ### 2.2 DMZ proxy with internal application

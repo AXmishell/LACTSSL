@@ -107,6 +107,10 @@ func (m *Manager) executeTask(task *model.Task, pipeline []model.PipelineNode, o
 	}
 
 	deployErrors, deployedCount := m.runDeployNodes(task, cert, pipeline)
+	if applyNode.Config.NoKeyStorage || task.NoKeyStorage {
+		// 部署已经完成，及时丢弃内存中的明文私钥，缩短密钥驻留时间。
+		cert.KeyPEM = ""
+	}
 
 	status := "success"
 	message := i18n.Encode("task.message.success", nil)
@@ -205,6 +209,7 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 	if keyType == "" {
 		keyType = "ecdsa"
 	}
+	noKeyStorage := cfg.NoKeyStorage || task.NoKeyStorage
 
 	nodeName := node.Name
 	if nodeName == "" {
@@ -221,13 +226,17 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 			allowedCAs[candidate.Value] = true
 		}
 	}
-	if !opts.ForceIssue {
+	// 不存储私钥时不能复用历史证书：部署需要私钥，而复用不会重新生成，
+	// 因此每次执行都重新签发并在本次运行内临时使用私钥。
+	if !opts.ForceIssue && !noKeyStorage {
 		if cert, ok := m.findReusableCertificate(task, caValue, allowedCAs, keyType, domains); ok {
 			m.Store.AddLogKey("task", task.ID, "info", "log.task.reused", map[string]any{
 				"time": cert.NotAfter.Local().Format("2006-01-02 15:04:05"),
 			})
 			return cert, false, nil
 		}
+	} else if noKeyStorage {
+		m.Store.AddLogKey("task", task.ID, "info", "log.task.no_key_storage", nil)
 	} else {
 		m.Store.AddLogKey("task", task.ID, "info", "log.task.force_issue", nil)
 	}
@@ -262,16 +271,12 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 			return nil, false, i18n.E("task.error.acme_email_required")
 		}
 
-		dnsAccountID := cfg.DNSAccountID
-		if dnsAccountID == 0 {
-			dnsAccountID = task.DNSAccountID
-		}
-		if dnsAccountID == 0 {
-			return nil, false, i18n.E("task.error.dns_account_required")
-		}
-		dnsAccount, err := m.Store.GetDNSAccount(dnsAccountID)
+		dnsRoutes, err := m.resolveTaskDNSRoutes(task, cfg, domains)
 		if err != nil {
-			return nil, false, i18n.E("task.error.dns_account_not_found", "error", err.Error())
+			return nil, false, err
+		}
+		if len(dnsRoutes) == 0 {
+			return nil, false, i18n.E("task.error.dns_account_required")
 		}
 
 		if len(candidates) == 0 {
@@ -289,13 +294,13 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 			eabKid, eabHMAC := m.loadCAEABSettings(candidate.Value)
 			m.Store.AddLogKey("task", task.ID, "info", "log.task.applying_ca", map[string]any{"node": nodeName, "ca": candidate.Label})
 			current, obtainErr := m.Obtain(ACMERequest{
-				Domains:    domains,
-				DNSAccount: dnsAccount,
-				CA:         candidate.Value,
-				KeyType:    keyType,
-				Email:      email,
-				EABKid:     eabKid,
-				EABHMAC:    eabHMAC,
+				Domains:   domains,
+				DNSRoutes: dnsRoutes,
+				CA:        candidate.Value,
+				KeyType:   keyType,
+				Email:     email,
+				EABKid:    eabKid,
+				EABHMAC:   eabHMAC,
 			})
 			if obtainErr == nil {
 				result = current
@@ -329,6 +334,11 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 	}
 	m.Store.AddLogKey("task", task.ID, "success", "log.task.issued", map[string]any{"time": result.NotAfter.Local().Format("2006-01-02 15:04:05")})
 
+	storedKeyPEM := result.KeyPEM
+	if noKeyStorage {
+		// 私钥不落库：数据库中只保存证书链和元数据。
+		storedKeyPEM = ""
+	}
 	cert := &model.Certificate{
 		TaskID:        task.ID,
 		Domains:       domains,
@@ -336,7 +346,7 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 		Issuer:        result.Issuer,
 		CA:            usedCA,
 		CertPEM:       result.CertPEM,
-		KeyPEM:        result.KeyPEM,
+		KeyPEM:        storedKeyPEM,
 		FullchainPEM:  result.FullchainPEM,
 		Serial:        result.Serial,
 		NotBefore:     result.NotBefore,
@@ -345,6 +355,11 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 	}
 	if err := m.Store.CreateCertificate(cert); err != nil {
 		return nil, false, i18n.E("task.error.save_cert_failed", "error", err.Error())
+	}
+	if noKeyStorage {
+		// 落库后再把私钥挂到内存对象上，仅供本次任务流程的部署节点使用。
+		// 该对象不会再次写库；任务结束后私钥随对象回收。
+		cert.KeyPEM = result.KeyPEM
 	}
 	return cert, true, nil
 }
@@ -634,7 +649,7 @@ func (m *Manager) executeTargetFlow(task *model.Task, pipeline []model.PipelineN
 		return err
 	}
 	discovery.Warnings = append(discovery.Warnings, buildWarnings...)
-	m.assignReusableCertificates(groups, task.RenewDays, m.targetFlowAllowedCAs(task, applyNode))
+	m.assignReusableCertificates(groups, task.RenewDays, m.targetFlowAllowedCAs(task, applyNode), applyNode.Config.NoKeyStorage || task.NoKeyStorage)
 
 	m.Store.AddLogKey("task", task.ID, "info", "log.task.target_flow_discovered", map[string]any{
 		"sites":  countSelectedSites(discovery.Sites),
@@ -682,6 +697,10 @@ func (m *Manager) executeTargetFlow(task *model.Task, pipeline []model.PipelineN
 		certs = append(certs, cert)
 		uniqueCerts[cert.ID] = true
 		groupDeployed, groupFailed, groupErrors := m.deployTargetGroup(task, cert, group, cfg.Sources, locale)
+		if applyNode.Config.NoKeyStorage || task.NoKeyStorage {
+			// 该证书组部署结束，释放仅存在于内存中的私钥。
+			cert.KeyPEM = ""
+		}
 		deployed += groupDeployed
 		failedSites += groupFailed
 		deployErrors = append(deployErrors, groupErrors...)

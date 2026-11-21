@@ -8,6 +8,7 @@ DNS plugins provide domain provider API access for DNS-01 validation by public C
 - The DNS plugin and the specific provider have been installed and enabled on the **Plugins** page.
 - The zone containing the domain is visible to the credential and permits creating and deleting TXT records.
 - Outbound access to the provider API is available. If a proxy is used, confirm the Go HTTP client proxy configuration.
+- One certificate may span multiple DNS accounts. Declare each account's zones under **DNS accounts → Zone bindings** and select **Auto by domain binding** in the request task. The server routes TXT creation and cleanup per domain by longest suffix. Selecting a single explicit account still means that account covers every domain.
 
 If no DNS plugin is installed, the DNS provider list is empty. Existing DNS accounts are preserved, but issuance fails with an explicit error when the provider is unavailable.
 
@@ -17,9 +18,11 @@ The official [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) rep
 
 | Package | Coverage | Extracted size | Recommended for |
 | --- | --- | ---: | --- |
-| DNS common | 184 common providers | about 21 MiB | Most enterprises |
-| DNS heavy cloud providers | 10 providers with heavy SDKs | about 39 MiB | Google Cloud, Azure, Route 53, and similar |
-| DNS full (refactored) | 194 providers | about 18 MiB | A single package covering every provider |
+| DNS full (refactored) | 194 providers | about 18 MiB | Most enterprises; 21 native implementations, the rest use lego v4 |
+| DNS full (lego) | 194 providers | about 58 MiB | Full lego v4 capabilities (for example rfc2136 GSS-TSIG) |
+| DNS full (lego v5) | 235 entries (228 v5 providers + 7 compatibility placeholders) | about 37 MiB | Following lego v5 and new providers |
+
+The three packages are mutually exclusive and cannot be installed together.
 
 - Read-only verification (`verify-v1`) is provided by native implementations in the "DNS full (refactored)" package. Other packages fall back to the TXT write test in `auto` mode.
 - Each package shares one Go runtime, avoiding the disk and process overhead of packaging providers individually.

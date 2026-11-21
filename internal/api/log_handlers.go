@@ -123,9 +123,20 @@ func (s *Server) exportLogs(c *gin.Context) {
 // parseLogFilter 解析并校验列表与导出共用的筛选参数。
 func parseLogFilter(c *gin.Context) (store.LogFilter, error) {
 	filter := store.LogFilter{
-		Source: strings.TrimSpace(c.Query("source")),
-		Level:  strings.ToLower(strings.TrimSpace(c.Query("level"))),
-		Query:  strings.TrimSpace(c.Query("q")),
+		Source:  strings.TrimSpace(c.Query("source")),
+		RefType: strings.TrimSpace(c.Query("ref_type")),
+		Level:   strings.ToLower(strings.TrimSpace(c.Query("level"))),
+		Query:   strings.TrimSpace(c.Query("q")),
+	}
+	if len([]rune(filter.RefType)) > 32 {
+		return filter, i18n.E("api.error.invalid_params")
+	}
+	if raw := strings.TrimSpace(c.Query("ref_id")); raw != "" {
+		refID, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || refID < 0 {
+			return filter, i18n.E("api.error.invalid_params")
+		}
+		filter.RefID = refID
 	}
 	// 复用系统日志的级别词表时，把 warn 归一化为操作日志使用的 warning。
 	if filter.Level == "warn" {

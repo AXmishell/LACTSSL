@@ -51,6 +51,11 @@
               </div>
             </template>
           </el-table-column>
+          <el-table-column width="76" :label="t('privateCA.id')">
+            <template #default="{ row }">
+              <span class="mono">{{ row.id }}</span>
+            </template>
+          </el-table-column>
           <el-table-column width="140" :label="t('privateCA.keyType')">
             <template #default="{ row }">{{ keyTypeLabel(row.key_type) }}</template>
           </el-table-column>

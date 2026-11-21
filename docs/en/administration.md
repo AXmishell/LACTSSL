@@ -68,6 +68,9 @@ Do not send plaintext passwords, API keys, or backup passwords through chat tool
 - Setting `security.session_persistence: true` keeps sessions across backend restarts. This improves availability but extends session lifetime, so decide in line with enterprise policy.
 - Periodically review and revoke unknown devices under "Settings → Sessions".
 - A signed-in session is equivalent to administrator privileges; do not stay signed in on shared browsers or untrusted devices.
+- Keep core credential alerts enabled under "Notifications → Security alerts", and enable new-device sign-ins and failed sign-in aggregation as needed; the default threshold is 5 failures within 10 minutes. Changing the email notifies both the old and new addresses, and changing notification targets notifies the previous recipients and channels.
+- The default hourly limit is 10 alerts for high-frequency sign-in/failure alerts only; critical credential changes and new-device sign-ins bypass it. Beyond the limit events are combined into a digest. The "Recent security events" dialog shows per-target delivery status and errors and can export JSON.
+- Security alerts are independent of certificate notifications; do not disable them by turning off certificate email. If plugin channels are used, select only trusted channels because they receive the sign-in IP, device, and account email.
 
 ### 3.3 Recovery paths
 
@@ -106,7 +109,7 @@ API keys are suited to machine identities, not people. Manage them on a "one key
 
 - Do not place keys in logs, screenshots, tickets, or public repositories.
 - Transmit keys only over HTTPS and avoid untrusted proxies.
-- Apply source IP restrictions to keys (at the network or gateway layer).
+- Apply source IP restrictions to keys (prefer the built-in IP/CIDR allowlist, with the network or gateway layer as defense in depth).
 - Periodically review keys with the `api_keys:read` permission to prevent privilege creep.
 - If compromise is suspected, rotate or delete the key immediately and check operation logs for anomalous calls.
 

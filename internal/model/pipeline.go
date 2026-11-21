@@ -25,8 +25,11 @@ type PipelineConfig struct {
 	CA           string   `json:"ca,omitempty"`
 	CAPoolID     int64    `json:"ca_pool_id,omitempty"`
 	KeyType      string   `json:"key_type,omitempty"`
-	AutoRenew    bool     `json:"auto_renew,omitempty"`
-	RenewDays    int      `json:"renew_days,omitempty"`
+	// NoKeyStorage 表示签发后不把证书私钥写入数据库。
+	// 私钥只在当前任务执行期间保存在内存中，供本次部署使用。
+	NoKeyStorage bool `json:"no_key_storage,omitempty"`
+	AutoRenew    bool `json:"auto_renew,omitempty"`
+	RenewDays    int  `json:"renew_days,omitempty"`
 
 	// 部署证书节点
 	DeployAccountID int64             `json:"deploy_account_id,omitempty"`
@@ -67,6 +70,7 @@ func (t *Task) EffectivePipeline() []PipelineNode {
 			CA:           t.CA,
 			CAPoolID:     t.CAPoolID,
 			KeyType:      t.KeyType,
+			NoKeyStorage: t.NoKeyStorage,
 			AutoRenew:    t.AutoRenew,
 			RenewDays:    t.RenewDays,
 		},

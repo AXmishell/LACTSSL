@@ -105,6 +105,7 @@ func prepareConfigBytes(data []byte, patch SetupConfigPatch) ([]byte, []string, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrSetupConfigInvalid, err)
 	}
+	resetFields := presentResetFields(root, patch.Reset)
 	if err := applySetupPatch(root, patch); err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrSetupConfigInvalid, err)
 	}
@@ -135,6 +136,19 @@ func prepareConfigBytes(data []byte, patch SetupConfigPatch) ([]byte, []string, 
 		return nil, nil, fmt.Errorf("%w: %v", ErrSetupConfigInvalid, err)
 	}
 	changed := diffSetupConfig(setupConfigFromFile(before), setupConfigFromFile(fc))
+	for _, field := range resetFields {
+		found := false
+		for _, existing := range changed {
+			if existing == field {
+				found = true
+				break
+			}
+		}
+		if !found {
+			changed = append(changed, field)
+		}
+	}
+	sort.Strings(changed)
 	return buf.Bytes(), changed, nil
 }
 
@@ -145,6 +159,19 @@ func normalizeSetupPatch(patch SetupConfigPatch) (SetupConfigPatch, error) {
 			return patch, err
 		}
 		patch.TrustedProxies = &values
+	}
+	if len(patch.Reset) > 0 {
+		values := make([]string, 0, len(patch.Reset))
+		seen := make(map[string]bool, len(patch.Reset))
+		for _, item := range patch.Reset {
+			value := strings.TrimSpace(item)
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			values = append(values, value)
+		}
+		patch.Reset = values
 	}
 	return patch, nil
 }
@@ -181,6 +208,12 @@ func NormalizeTrustedProxy(value string) (string, error) {
 		}
 		if prefix.Addr().Zone() != "" {
 			return "", fmt.Errorf("server.trusted_proxies 不支持带网卡 zone 的地址: %s", value)
+		}
+		if prefix.Addr().Is4In6() {
+			if prefix.Bits() < 96 {
+				return "", fmt.Errorf("server.trusted_proxies 的 IPv4-mapped 网段前缀过短: %s", value)
+			}
+			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
 		}
 		if prefix.Bits() == 0 {
 			return "", fmt.Errorf("server.trusted_proxies 不允许使用 /0 网段: %s", value)
@@ -227,6 +260,8 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 	addr := cfg.Server.Addr
 	host := cfg.Server.Host
 	port := cfg.Server.Port
+	clientIPMode := cfg.Server.ClientIPMode
+	proxyProtocol := cfg.Server.ProxyProtocol
 	proxies := append([]string(nil), cfg.TrustedProxies...)
 	publicURL := cfg.PublicURL
 	sessionPersistence := cfg.SessionPersistence
@@ -258,6 +293,11 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 	logSystemAccess := cfg.Log.System.Access
 	logSystemRetentionDays := cfg.Log.System.RetentionDays
 	logSystemMaxRows := cfg.Log.System.MaxRows
+	logArchiveEnabled := cfg.Log.Archive.Enabled
+	logArchiveCompress := cfg.Log.Archive.Compress
+	logArchiveRetentionDays := cfg.Log.Archive.RetentionDays
+	logArchiveMaxTotalMB := cfg.Log.Archive.MaxTotalMB
+	logArchiveQuotaPolicy := cfg.Log.Archive.QuotaPolicy
 
 	upgradeAuto := cfg.Upgrade.Auto
 	upgradeAutoOptimize := cfg.Upgrade.AutoOptimize
@@ -266,6 +306,7 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 	programChannel := cfg.Upgrade.Program.Channel
 	programCheckInterval := cfg.Upgrade.Program.CheckIntervalHours
 	programMaxDownloadMB := cfg.Upgrade.Program.MaxDownloadMB
+	programAllowUnsigned := cfg.Upgrade.Program.AllowUnsigned
 
 	pluginsEnabled := cfg.Plugins.Enabled
 	pluginsMemoryLimitMB := cfg.Plugins.MemoryLimitMB
@@ -275,6 +316,7 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 	repoURL := cfg.Plugins.Repo.URL
 	repoChannel := cfg.Plugins.Repo.Channel
 	repoAutoUpdate := cfg.Plugins.Repo.AutoUpdate
+	repoProxy := strings.TrimSpace(cfg.Plugins.Repo.Proxy)
 	repoTimeoutSeconds := cfg.Plugins.Repo.TimeoutSeconds
 	repoMaxDownloadMB := cfg.Plugins.Repo.MaxDownloadMB
 	repoCheckIntervalHours := cfg.Plugins.Repo.CheckIntervalHours
@@ -291,9 +333,11 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 
 	return SetupConfigPatch{
 		Server: &SetupServerPatch{
-			Addr: &addr,
-			Host: &host,
-			Port: &port,
+			Addr:          &addr,
+			Host:          &host,
+			Port:          &port,
+			ClientIPMode:  &clientIPMode,
+			ProxyProtocol: &proxyProtocol,
 		},
 		TrustedProxies:     &proxies,
 		PublicURL:          &publicURL,
@@ -331,6 +375,13 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 				RetentionDays: &logSystemRetentionDays,
 				MaxRows:       &logSystemMaxRows,
 			},
+			Archive: &SetupLogArchivePatch{
+				Enabled:       &logArchiveEnabled,
+				Compress:      &logArchiveCompress,
+				RetentionDays: &logArchiveRetentionDays,
+				MaxTotalMB:    &logArchiveMaxTotalMB,
+				QuotaPolicy:   &logArchiveQuotaPolicy,
+			},
 		},
 		Upgrade: &SetupUpgradePatch{
 			Auto:         &upgradeAuto,
@@ -341,6 +392,7 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 				Channel:            &programChannel,
 				CheckIntervalHours: &programCheckInterval,
 				MaxDownloadMB:      &programMaxDownloadMB,
+				AllowUnsigned:      &programAllowUnsigned,
 			},
 		},
 		Plugins: &SetupPluginsPatch{
@@ -353,6 +405,7 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 				URL:                &repoURL,
 				Channel:            &repoChannel,
 				AutoUpdate:         &repoAutoUpdate,
+				Proxy:              &repoProxy,
 				TimeoutSeconds:     &repoTimeoutSeconds,
 				MaxDownloadMB:      &repoMaxDownloadMB,
 				CheckIntervalHours: &repoCheckIntervalHours,

@@ -118,6 +118,74 @@ func TestSettingsConfigSavesRateLimits(t *testing.T) {
 	}
 }
 
+func TestSettingsConfigSavesProxyAndArchiveFields(t *testing.T) {
+	s, router := newSettingsConfigTestServer(t)
+	session := loginSessionTest(t, router)
+	revision, _ := settingsConfigGet(t, router, session)
+
+	saved := sessionRequest(t, router, http.MethodPut, "/api/settings/config",
+		`{"revision":"`+revision+`","password":"password1234","config":{`+
+			`"server":{"client_ip_mode":"cloudflare","proxy_protocol":true},`+
+			`"log":{"archive":{"enabled":true,"compress":false,"retention_days":90,"max_total_mb":512,"quota_policy":"prune_oldest"}},`+
+			`"upgrade":{"program":{"allow_unsigned":true}}}}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if saved.Code != http.StatusOK {
+		t.Fatalf("保存代理与归档配置失败: %d %s", saved.Code, saved.Body.String())
+	}
+	cfg, err := config.LoadSetupConfig(s.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.ClientIPMode != "cloudflare" || !cfg.Server.ProxyProtocol {
+		t.Fatalf("代理识别配置未保存: %+v", cfg.Server)
+	}
+	if !cfg.Log.Archive.Enabled || cfg.Log.Archive.Compress ||
+		cfg.Log.Archive.RetentionDays != 90 || cfg.Log.Archive.MaxTotalMB != 512 ||
+		cfg.Log.Archive.QuotaPolicy != "prune_oldest" {
+		t.Fatalf("日志归档配置未保存: %+v", cfg.Log.Archive)
+	}
+	if !cfg.Upgrade.Program.AllowUnsigned {
+		t.Fatal("allow_unsigned 未保存")
+	}
+}
+
+func TestSettingsConfigResetsRateLimitRule(t *testing.T) {
+	s, router := newSettingsConfigTestServer(t)
+	session := loginSessionTest(t, router)
+	revision, _ := settingsConfigGet(t, router, session)
+
+	custom := sessionRequest(t, router, http.MethodPut, "/api/settings/config",
+		`{"revision":"`+revision+`","password":"password1234","config":{"rate_limit":{"rules":{"login_ip":{"max":3,"window_seconds":60}}}}}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if custom.Code != http.StatusOK {
+		t.Fatalf("保存自定义限流规则失败: %d %s", custom.Code, custom.Body.String())
+	}
+
+	revision, _ = settingsConfigGet(t, router, session)
+	reset := sessionRequest(t, router, http.MethodPut, "/api/settings/config",
+		`{"revision":"`+revision+`","password":"password1234","config":{"reset":["security.rate_limit.rules.login_ip"]}}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if reset.Code != http.StatusOK {
+		t.Fatalf("恢复默认限流规则失败: %d %s", reset.Code, reset.Body.String())
+	}
+	raw, err := os.ReadFile(s.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "login_ip:") {
+		t.Fatalf("恢复默认后应从 config.yaml 删除该规则:\n%s", raw)
+	}
+	cfg, err := config.LoadSetupConfig(s.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := cfg.RateLimit.Defaults[ratelimit.LoginIP]
+	rule := cfg.RateLimit.Rules[ratelimit.LoginIP]
+	if rule.Max != def.Max || rule.WindowSeconds != def.WindowSeconds {
+		t.Fatalf("规则未恢复默认: rule=%+v default=%+v", rule, def)
+	}
+}
+
 func TestSettingsConfigRevisionConflict(t *testing.T) {
 	s, router := newSettingsConfigTestServer(t)
 	session := loginSessionTest(t, router)
@@ -183,6 +251,96 @@ func TestSettingsConfigProxyHintsIgnoresForwardedHeadersForPeer(t *testing.T) {
 	}
 	if len(payload.Data.Forwarded.XForwardedFor) != 2 {
 		t.Fatalf("转发头应仅用于展示: %+v", payload.Data.Forwarded.XForwardedFor)
+	}
+}
+
+func TestSettingsConfigProxyHintsUsesAppliedConfig(t *testing.T) {
+	s, router := newSettingsConfigTestServer(t)
+	// 模拟“已保存但未重启”：运行配置已生效，磁盘配置仍为空。
+	s.TrustedProxies = []string{"192.0.2.30"}
+	session := loginSessionTest(t, router)
+
+	resp := sessionRequest(t, router, http.MethodGet, "/api/settings/config/proxy-hints", "",
+		[]*http.Cookie{session},
+		map[string]string{"X-Forwarded-For": "203.0.113.9"})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("代理检测失败: %d %s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		Data struct {
+			Effective  string   `json:"effective_client_ip"`
+			Source     string   `json:"client_ip_source"`
+			Applied    []string `json:"applied_trusted_proxies"`
+			Configured []string `json:"configured_trusted_proxies"`
+			Skipped    int      `json:"trusted_skipped"`
+			Warnings   []struct {
+				Code string `json:"code"`
+			} `json:"warnings"`
+			Suggestions []struct {
+				Confidence           string `json:"confidence"`
+				RequiresConfirmation bool   `json:"requires_confirmation"`
+			} `json:"suggestions"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.Effective != "203.0.113.9" || payload.Data.Source != "x-forwarded-for" {
+		t.Fatalf("应按生效配置解析客户端 IP: %s %s", payload.Data.Effective, payload.Data.Source)
+	}
+	if len(payload.Data.Applied) != 1 || payload.Data.Applied[0] != "192.0.2.30" {
+		t.Fatalf("applied_trusted_proxies 不正确: %v", payload.Data.Applied)
+	}
+	if len(payload.Data.Configured) != 0 {
+		t.Fatalf("configured_trusted_proxies 应来自磁盘配置: %v", payload.Data.Configured)
+	}
+	codes := map[string]bool{}
+	for _, warning := range payload.Data.Warnings {
+		codes[warning.Code] = true
+	}
+	for _, want := range []string{"unverified_forwarded_headers", "configured_differs_from_applied"} {
+		if !codes[want] {
+			t.Fatalf("缺少警告 %s: %+v", want, payload.Data.Warnings)
+		}
+	}
+	if len(payload.Data.Suggestions) != 1 || payload.Data.Suggestions[0].Confidence != "medium" ||
+		!payload.Data.Suggestions[0].RequiresConfirmation {
+		t.Fatalf("非回环代理候选应为中置信并要求确认: %+v", payload.Data.Suggestions)
+	}
+}
+
+func TestSettingsConfigProxyHintsReportsHeaderWarnings(t *testing.T) {
+	s, router := newSettingsConfigTestServer(t)
+	s.TrustedProxies = []string{"192.0.2.30"}
+	session := loginSessionTest(t, router)
+
+	resp := sessionRequest(t, router, http.MethodGet, "/api/settings/config/proxy-hints", "",
+		[]*http.Cookie{session},
+		map[string]string{"X-Forwarded-For": "203.0.113.9, bad"})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("代理检测失败: %d %s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		Data struct {
+			Effective      string   `json:"effective_client_ip"`
+			Source         string   `json:"client_ip_source"`
+			HeaderWarnings []string `json:"header_warnings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.Effective != "192.0.2.30" || payload.Data.Source != "remote" {
+		t.Fatalf("非法 XFF 应回退 peer: %s %s", payload.Data.Effective, payload.Data.Source)
+	}
+	found := false
+	for _, warning := range payload.Data.HeaderWarnings {
+		if warning == "x_forwarded_for_unusable" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("应返回 XFF 解析告警: %+v", payload.Data.HeaderWarnings)
 	}
 }
 

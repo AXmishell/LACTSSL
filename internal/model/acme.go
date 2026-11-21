@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// ACMECA 是「权威CA」中用户配置的通用 ACME 上游。
+// ACMECA 是「公共CA」中用户配置的通用 ACME 上游。
 // 一个系统可以配置多个上游，使用不同的目录地址或协议版本。
 type ACMECA struct {
 	ID int64 `json:"id"`

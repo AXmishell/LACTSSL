@@ -204,7 +204,7 @@ func (s *Server) deleteMonitor(c *gin.Context) {
 }
 
 func (s *Server) checkMonitor(c *gin.Context) {
-	if allowed, wait := s.allow(ratelimit.MonitorCheck, "monitor:check:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.MonitorCheck, "monitor:check:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

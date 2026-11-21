@@ -26,8 +26,8 @@ type Options struct {
 	ReadOnly        bool
 	QueryOnly       bool
 	Migrate         bool
-	// SingleInstance 为 true 时，PostgreSQL 后端会持有数据库级 advisory lock，
-	// 第二个实例启动会失败。默认不允许多实例共享同一个 PostgreSQL 数据库。
+	// SingleInstance 为 true 时，PostgreSQL/MySQL 后端会持有数据库级锁，
+	// 第二个实例启动会失败。默认不允许多实例共享同一个数据库。
 	SingleInstance bool
 }
 
@@ -114,10 +114,11 @@ func (g *Gate) Frozen() bool {
 // Handle 在 *sql.DB 外包一层方言重绑定与写门禁。
 type Handle struct {
 	*sql.DB
-	dialect  Dialect
-	gate     *Gate
-	dsn      string
-	lockConn *sql.Conn
+	dialect   Dialect
+	gate      *Gate
+	dsn       string
+	lockConn  *sql.Conn
+	lockMySQL bool
 }
 
 // Close 释放单实例锁并关闭连接池。
@@ -127,7 +128,11 @@ func (h *Handle) Close() error {
 	}
 	if h.lockConn != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, _ = h.lockConn.ExecContext(ctx, `SELECT pg_advisory_unlock($1, hashtext(current_database()))`, int32(0x4c414353))
+		if h.lockMySQL {
+			_, _ = h.lockConn.ExecContext(ctx, `SELECT RELEASE_LOCK(?)`, mysqlLockName)
+		} else {
+			_, _ = h.lockConn.ExecContext(ctx, `SELECT pg_advisory_unlock($1, hashtext(current_database()))`, int32(0x4c414353))
+		}
 		cancel()
 		_ = h.lockConn.Close()
 		h.lockConn = nil
@@ -154,6 +159,8 @@ func OpenWithOptions(opts Options) (*Handle, error) {
 		return openSQLite(opts)
 	case Postgres:
 		return openPostgres(opts)
+	case MySQL:
+		return openMySQL(opts)
 	default:
 		return nil, fmt.Errorf("不支持的数据库驱动: %s", driver)
 	}
@@ -266,6 +273,76 @@ func openPostgres(opts Options) (*Handle, error) {
 			return nil, errors.New("数据库已被另一个 LACTSSL 实例占用；默认不允许多实例共享 PostgreSQL")
 		}
 		h.lockConn = lockConn
+	}
+	if opts.Migrate {
+		if err := migrate(h); err != nil {
+			_ = h.Close()
+			return nil, err
+		}
+	}
+	return h, nil
+}
+
+// mysqlLockName 是 MySQL 单实例锁名称（GET_LOCK 上限 64 字符）。
+const mysqlLockName = "lactssl-single-instance"
+
+func openMySQL(opts Options) (*Handle, error) {
+	cfg, err := MySQLConfig(opts.DSN)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		return nil, fmt.Errorf("打开 MySQL 失败: %w", err)
+	}
+	maxOpen := opts.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 10
+	}
+	maxIdle := opts.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 5
+	}
+	conn.SetMaxOpenConns(maxOpen)
+	conn.SetMaxIdleConns(maxIdle)
+	if opts.ConnMaxLifetime > 0 {
+		conn.SetConnMaxLifetime(opts.ConnMaxLifetime)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := conn.PingContext(ctx); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("连接 MySQL 失败: %w", err)
+	}
+	var version string
+	if err := conn.QueryRowContext(ctx, `SELECT VERSION()`).Scan(&version); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("读取 MySQL 版本失败: %w", err)
+	}
+	if !SupportsMySQLVersion(version) {
+		_ = conn.Close()
+		return nil, fmt.Errorf("MySQL 版本过低（%s），需要 MySQL %s+ 或 MariaDB 10.2+", version, MinMySQLVersion)
+	}
+	h := &Handle{DB: conn, dialect: MySQL, gate: NewGate(), dsn: opts.DSN}
+	if opts.SingleInstance {
+		lockConn, err := conn.Conn(ctx)
+		if err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("获取单实例锁连接失败: %w", err)
+		}
+		var locked sql.NullInt64
+		if err := lockConn.QueryRowContext(ctx, `SELECT GET_LOCK(?, 0)`, mysqlLockName).Scan(&locked); err != nil {
+			_ = lockConn.Close()
+			_ = conn.Close()
+			return nil, fmt.Errorf("获取 MySQL 单实例锁失败: %w", err)
+		}
+		if !locked.Valid || locked.Int64 != 1 {
+			_ = lockConn.Close()
+			_ = conn.Close()
+			return nil, errors.New("数据库已被另一个 LACTSSL 实例占用；默认不允许多实例共享 MySQL")
+		}
+		h.lockConn = lockConn
+		h.lockMySQL = true
 	}
 	if opts.Migrate {
 		if err := migrate(h); err != nil {

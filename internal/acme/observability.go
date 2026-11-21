@@ -2,6 +2,7 @@ package acme
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"lactssl/internal/logging"
@@ -48,13 +49,25 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 		if status == 0 {
 			status = http.StatusOK
 		}
+		result := s.clientIPResult(r)
+		ip := ""
+		if result.IP.IsValid() {
+			ip = result.IP.String()
+		}
 		attrs := []any{
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", status,
 			"duration_ms", float64(time.Since(start).Microseconds()) / 1000,
 			"size", recorder.bytes,
-			"ip", s.clientIP(r),
+			"ip", ip,
+			"ip_source", string(result.Source),
+		}
+		if result.Skipped > 0 {
+			attrs = append(attrs, "ip_skipped", result.Skipped)
+		}
+		if len(result.Warnings) > 0 {
+			attrs = append(attrs, "ip_warnings", strings.Join(result.Warnings, ","))
 		}
 		switch {
 		case status >= http.StatusInternalServerError:

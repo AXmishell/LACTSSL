@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-acme/lego/v4/certcrypto"
 	"lactssl/internal/model"
 )
 
@@ -130,6 +131,67 @@ func TestCAInfoLitessl(t *testing.T) {
 	}
 	if !ca.EAB {
 		t.Fatal("LiteSSL 需要 EAB 凭据")
+	}
+}
+
+func TestCAInfoZoTrus(t *testing.T) {
+	ca, ok := CAInfo("zotrus")
+	if !ok {
+		t.Fatal("未找到零信 ZoTrus CA")
+	}
+	if ca.URL != "https://my.zotrus.com/cnacme" {
+		t.Fatalf("零信 ZoTrus ACME 地址不正确: %s", ca.URL)
+	}
+	if !ca.EAB {
+		t.Fatal("零信 ZoTrus 需要 EAB 凭据")
+	}
+}
+
+func TestCAInfoActalis(t *testing.T) {
+	ca, ok := CAInfo("actalis")
+	if !ok {
+		t.Fatal("未找到 Actalis CA")
+	}
+	if ca.URL != "https://acme-api.actalis.com/acme/directory" {
+		t.Fatalf("Actalis ACME 地址不正确: %s", ca.URL)
+	}
+	if !ca.EAB {
+		t.Fatal("Actalis 需要 EAB 凭据")
+	}
+}
+
+func TestCAInfoSSLCom(t *testing.T) {
+	ca, ok := CAInfo("sslcom")
+	if !ok {
+		t.Fatal("未找到 SSL.com CA")
+	}
+	if ca.URL != "https://acme.ssl.com/sslcom-dv-ecc" {
+		t.Fatalf("SSL.com ECDSA 地址不正确: %s", ca.URL)
+	}
+	if ca.RSAURL != "https://acme.ssl.com/sslcom-dv-rsa" {
+		t.Fatalf("SSL.com RSA 地址不正确: %s", ca.RSAURL)
+	}
+	if !ca.EAB {
+		t.Fatal("SSL.com 需要 EAB 凭据")
+	}
+}
+
+func TestCADirectoryURLByKeyType(t *testing.T) {
+	ca := CADef{URL: "https://example.com/ecc", RSAURL: "https://example.com/rsa"}
+	cases := map[certcrypto.KeyType]string{
+		certcrypto.EC256:   "https://example.com/ecc",
+		certcrypto.EC384:   "https://example.com/ecc",
+		certcrypto.RSA2048: "https://example.com/rsa",
+		certcrypto.RSA4096: "https://example.com/rsa",
+	}
+	for keyType, want := range cases {
+		if got := caDirectoryURL(ca, keyType); got != want {
+			t.Errorf("caDirectoryURL(%v) = %q, want %q", keyType, got, want)
+		}
+	}
+	// 未配置 RSA 端点时始终复用主地址。
+	if got := caDirectoryURL(CADef{URL: "https://example.com/dir"}, certcrypto.RSA2048); got != "https://example.com/dir" {
+		t.Errorf("无 RSA 端点时不应切换: %q", got)
 	}
 }
 

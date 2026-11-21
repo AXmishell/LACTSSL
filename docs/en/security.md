@@ -38,6 +38,10 @@ Key conclusions:
 - Sign-in with a passkey does not ask for TOTP again; the passkey itself performs device fingerprint, face, or system PIN verification.
 - Changing the password increments the token version and deletes all server-side sessions, API keys, and passkeys, immediately invalidating all sign-ins.
 - Resetting the password by email also disables TOTP and deletes passkeys and API keys; the recovery email itself must be secured.
+- Security alerts are sent for password, email, TOTP, passkey, API key, and notification target changes; email changes notify both the old and new addresses. New-device sign-ins are reminded at most once within the configured window (30 days by default); failed sign-ins are aggregated at 5 failures within 10 minutes, at most once per hour.
+- Alerts use email by default. Plugin channels must be explicitly selected, and selecting them sends the sign-in IP, device, and account email to the corresponding third party. Alerts do not replace MFA, strong passwords, or forwarding-rule checks on the mailbox itself.
+- Changing the security alert policy requires re-authentication and notifies the previous recipients and channels using the old SMTP configuration snapshot; a stolen session cannot silently disable alerts or redirect them to attacker-controlled channels.
+- Security alerts have an hourly limit (10 by default) for high-frequency sign-in/failure alerts only; critical credential changes and new-device sign-ins bypass it, preventing an attacker from drowning critical alerts in noise. The settings page shows per-target delivery status for recent events.
 
 ### 2.2 API keys
 
@@ -62,7 +66,7 @@ Key conclusions:
 - The administration console must be accessed through an HTTPS reverse proxy; the main program listens on HTTP only.
 - Backend ports must listen only on loopback or the internal network and must not be exposed directly to the internet.
 - Configure source IP allowlists, VPN, zero-trust policies, or a WAF at the proxy layer.
-- The proxy must pass `X-Forwarded-For` and `X-Forwarded-Proto`; LACTSSL trusts only proxies listed in `server.trusted_proxies`.
+- The proxy must overwrite or correctly append `X-Forwarded-For` and pass `X-Forwarded-Proto`; LACTSSL trusts only the exact IPs or smallest CIDRs in `server.trusted_proxies`. In an append chain, every proxy in the chain must be trusted.
 - When no trusted proxy is configured, all requests are treated as coming from the proxy IP, which breaks rate limiting and `Secure` cookie detection.
 - Configure HSTS, TLS 1.2+, disabled weak ciphers, and request body size limits at the proxy layer (backup restore and plugin uploads require larger limits).
 

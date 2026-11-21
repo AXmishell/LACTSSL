@@ -74,7 +74,7 @@ func TestCopyTableAcceptsDifferentColumnOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actual, err := scanTable(context.Background(), target, spec)
+	actual, err := scanTable(context.Background(), target, spec, result.columns)
 	if err != nil {
 		t.Fatal(err)
 	}

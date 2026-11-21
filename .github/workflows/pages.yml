@@ -7,8 +7,7 @@ on:
     branches: [main]
     paths:
       - "docs/**"
-      - "mkdocs.yml"
-      - "mkdocs.zh.yml"
+      - "mkdocs*.yml"
       - "requirements-docs.txt"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -47,9 +46,18 @@ jobs:
         # Zensical 仍处于快速迭代期，使用 --clean 避免旧构建缓存影响产物。
         run: zensical build --strict --clean
 
-      - name: Build site (Chinese)
-        # 中文站点使用独立配置，输出到 site/zh。
+      - name: Build site (Simplified Chinese)
+        # 每个语言使用独立配置，输出到 config 中指定的 site_dir。
         run: zensical build -f mkdocs.zh.yml --strict
+
+      - name: Build site (Traditional Chinese)
+        run: zensical build -f mkdocs.zh-hant.yml --strict
+
+      - name: Build site (Japanese)
+        run: zensical build -f mkdocs.ja.yml --strict
+
+      - name: Build site (Russian)
+        run: zensical build -f mkdocs.ru.yml --strict
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6

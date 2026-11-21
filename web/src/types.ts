@@ -37,9 +37,12 @@ export interface APIKey {
   name: string
   prefix: string
   scopes: string[]
+  allowed_ips: string[]
+  allowed_dns_account_ids: number[]
   enabled: boolean
   expires_at: string | null
   last_used_at: string | null
+  last_used_ip?: string
   created_at: string
   updated_at: string
 }
@@ -60,6 +63,15 @@ export interface APIKeyScopeGroup {
 export interface APIKeyScopeResponse {
   scopes: APIKeyScope[]
   groups: APIKeyScopeGroup[]
+  client_ip?: string
+  client_ip_source?: string
+  client_ip_warnings?: string[]
+  peer_ip?: string
+  peer_trusted?: boolean
+  forwarded_for?: string[]
+  x_real_ip?: string
+  forwarded_proto?: string
+  has_forwarded?: boolean
 }
 
 export interface APIKeyCreateResult {
@@ -101,6 +113,7 @@ export interface ProviderDef {
   desc?: string
   fields: FieldDef[]
   deploy_fields?: FieldDef[]
+  capabilities?: string[]
   available?: boolean
   source?: 'builtin' | 'exec' | string
   deprecated?: boolean
@@ -225,12 +238,45 @@ export interface Settings {
   notify_enabled?: boolean
   notify_to?: string
   notify_channels?: Record<string, Record<string, any>>
+  security_notify?: SecurityNotifySettings
   notify_channel_defs?: Array<{
     id: string
     name?: string
     description?: string
     fields?: NotifyChannelField[]
   }>
+}
+
+export interface SecurityNotifySettings {
+  enabled: boolean
+  events: string[]
+  to: string
+  retention_days: number
+  login: 'off' | 'new' | 'always'
+  failed_login: boolean
+  failed_threshold: number
+  failed_window: number
+  new_device_days: number
+  channels: string[]
+  max_per_hour: number
+  last_error?: string
+  last_delivered_at?: string | null
+}
+
+export interface SecurityEventView {
+  id: number
+  kind: string
+  notify: boolean
+  recipients: string[]
+  channels: string[]
+  deliveries: Record<string, string>
+  attempts: number
+  last_error: string
+  ip: string
+  user_agent: string
+  detail: Record<string, string>
+  created_at: string
+  delivered_at: string | null
 }
 
 export interface TrustedCA {
@@ -258,6 +304,43 @@ export interface DNSAccount {
   verified_at: string | null
   created_at: string
   updated_at: string
+}
+
+export interface DNSZoneBinding {
+  id: number
+  dns_account_id: number
+  zone: string
+  match_mode: 'suffix' | 'exact'
+  priority: number
+  source: 'manual' | 'verify' | 'import'
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface DNSRoute {
+  domain: string
+  zone?: string
+  dns_account_id: number
+  match_mode?: string
+  priority?: number
+  resolved_by?: string
+}
+
+export interface DNSResolveResult {
+  account_id: number
+  account_name: string
+  account_ids?: number[]
+  zone: string
+  resolved_by: string
+  routes?: DNSRoute[]
+  matches: Array<{
+    domain: string
+    zone: string
+    account_id: number
+    match_mode: string
+    priority: number
+  }>
 }
 
 export interface DeployAccount {
@@ -403,6 +486,8 @@ export interface PluginRepoStatus {
   url: string
   channel: string
   auto_update: boolean
+  proxy: string
+  proxy_set: boolean
   public_key_set: boolean
   public_key_valid: boolean
   public_key_fingerprint?: string
@@ -448,6 +533,32 @@ export interface PluginInstallation {
   updated_at?: string
 }
 
+export interface PluginConflictUsage {
+  accounts?: number
+  targets?: number
+  channels?: number
+}
+
+export interface PluginConflictExisting {
+  kind: string
+  file: string
+  plugin_id?: string
+  version?: string
+  source?: string
+  enabled?: boolean
+  covered?: boolean
+  uncovered?: string[]
+  usage?: PluginConflictUsage
+}
+
+export interface PluginConflict {
+  kind: string
+  id: string
+  type: 'id' | 'alias' | 'builtin'
+  existing?: PluginConflictExisting
+  actions?: string[]
+}
+
 export interface PluginRepoUpdateItem {
   kind: string
   id: string
@@ -456,6 +567,8 @@ export interface PluginRepoUpdateItem {
   updated?: boolean
   errors?: string[]
   error?: string
+  code?: string
+  conflicts?: PluginConflict[]
   plugin?: PluginInstallation
 }
 
@@ -495,6 +608,7 @@ export interface PipelineConfig {
   ca?: string
   ca_pool_id?: number
   key_type?: string
+  no_key_storage?: boolean
   auto_renew?: boolean
   renew_days?: number
   deploy_account_id?: number
@@ -612,9 +726,11 @@ export interface Task {
   domains: string[]
   challenge: string
   dns_account_id: number
+  dns_routes?: DNSRoute[]
   ca: string
   ca_pool_id: number
   key_type: string
+  no_key_storage: boolean
   auto_renew: boolean
   renew_days: number
   deploy_ids: number[]
@@ -879,13 +995,18 @@ export interface SetupRateLimitRule {
 export interface SetupRateLimitConfig {
   max_keys: number
   rules: Record<string, SetupRateLimitRule>
+  defaults: Record<string, SetupRateLimitRule>
 }
 
 export interface SetupConfig {
+  /** 仅用于提交“恢复默认”路径，后端读取配置时不会返回该字段。 */
+  reset?: string[]
   server: {
     addr: string
     host: string
     port: number
+    client_ip_mode: string
+    proxy_protocol: boolean
   }
   trusted_proxies: string[]
   public_url: string
@@ -920,6 +1041,13 @@ export interface SetupConfig {
       retention_days: number
       max_rows: number
     }
+    archive: {
+      enabled: boolean
+      compress: boolean
+      retention_days: number
+      max_total_mb: number
+      quota_policy: string
+    }
   }
   upgrade: {
     auto: boolean
@@ -930,6 +1058,7 @@ export interface SetupConfig {
       channel: string
       check_interval_hours: number
       max_download_mb: number
+      allow_unsigned: boolean
     }
   }
   plugins: SetupPluginRuntimeConfig & {
@@ -938,6 +1067,7 @@ export interface SetupConfig {
       url: string
       channel: string
       auto_update: boolean
+      proxy: string
       timeout_seconds: number
       max_download_mb: number
       check_interval_hours: number
@@ -1000,6 +1130,7 @@ export interface ConfigProxySuggestion {
   confidence: 'high' | 'medium' | 'low'
   reason: string
   already_trusted: boolean
+  requires_confirmation: boolean
 }
 
 export interface ConfigProxyWarning {
@@ -1021,7 +1152,12 @@ export interface ConfigProxyHints {
     cf_ray: string
   }
   trusted_proxies: string[]
+  configured_trusted_proxies: string[]
+  applied_trusted_proxies: string[]
   effective_client_ip: string
+  client_ip_source: string
+  trusted_skipped: number
+  header_warnings: string[]
   suggestions: ConfigProxySuggestion[]
   warnings: ConfigProxyWarning[]
 }

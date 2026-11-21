@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCompareVersion(t *testing.T) {
@@ -129,6 +130,27 @@ func TestFetchAndSignature(t *testing.T) {
 	index[0] = '['
 	if _, _, _, _, _, err := badClient.Fetch(context.Background(), ""); err == nil {
 		t.Fatal("signature mismatch should fail")
+	}
+}
+
+func TestFetchThroughExplicitProxy(t *testing.T) {
+	index := []byte(`{"schema":1,"channel":"stable","protocol":"v1","plugins":[]}`)
+	var seen string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.URL.String()
+		_, _ = w.Write(index)
+	}))
+	defer proxy.Close()
+
+	client, err := NewClientWithProxy("http://1.1.1.1/index.json", "stable", "", time.Second, 1, proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, _, err := client.Fetch(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if seen != "http://1.1.1.1/index.json" {
+		t.Fatalf("request did not go through proxy: %q", seen)
 	}
 }
 

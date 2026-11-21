@@ -1,20 +1,15 @@
-# 中文站点配置：构建到 /zh/，默认站点为英文（mkdocs.yml）。
-# 本地预览双语站点请使用 scripts/docs-serve.sh（或 make docs-serve），
+# 简体中文站点配置：构建到 /zh/，默认站点为英文（mkdocs.yml）。
+# 本地预览多语言站点请使用 scripts/docs-serve.sh（或 make docs-serve），
 # 因为 `zensical serve` 一次只能构建一种配置。
 site_name: LACTSSL
 site_url: https://lactssl.gpcn.cc/zh/
 site_description: 面向企业团队与个人 / 小团队的自托管 SSL 证书管理平台：ACME 申请与自动续期、证书部署、监控、私有 CA 与内部 ACME 服务。
 repo_url: https://github.com/AXmishell/LACTSSL
 repo_name: AXmishell/LACTSSL
-edit_uri: edit/main/docs/
+edit_uri: edit/main/docs/zh/
 copyright: Copyright &copy; LACTSSL · MIT License
 
-docs_dir: docs
-
-# 英文文档位于 docs/en，由默认配置 mkdocs.yml 构建。
-exclude_docs: |
-  en/
-
+docs_dir: docs/zh
 site_dir: site/zh
 
 theme:
@@ -74,7 +69,7 @@ nav:
       - 通知插件: notify-plugins.md
   - 扩展开发:
       - 源码与构建: development.md
-      - 插件协议: plugin-development.md
+      - 插件开发: plugin-development.md
 
 markdown_extensions:
   - admonition
@@ -106,14 +101,23 @@ extra_css:
   - stylesheets/extra.css
 
 extra:
-  # 语言切换器：英文为默认站点，中文站点构建到 /zh/。
+  # 语言切换器：英文为默认站点，其余语言构建到各自的语言前缀。
   alternate:
-    - name: 简体中文
-      link: /zh/
-      lang: zh
     - name: English
       link: /
       lang: en
+    - name: 简体中文
+      link: /zh/
+      lang: zh
+    - name: 繁體中文
+      link: /zh-hant/
+      lang: zh-Hant
+    - name: 日本語
+      link: /ja/
+      lang: ja
+    - name: Русский
+      link: /ru/
+      lang: ru
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/AXmishell/LACTSSL

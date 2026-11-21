@@ -109,7 +109,7 @@ func (m *Manager) obtainV1(ca CADef, user *acmeUser, req ACMERequest, provider c
 	if ca.EAB {
 		return nil, i18n.E("service.acme.v1_eab_unsupported")
 	}
-	client, err := newACMEV1Client(ca.URL, user.key)
+	client, err := newACMEV1Client(caDirectoryURL(ca, keyType), user.key)
 	if err != nil {
 		return nil, err
 	}

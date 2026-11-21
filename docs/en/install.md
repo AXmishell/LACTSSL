@@ -240,13 +240,14 @@ The main program listens on HTTP only; production terminates TLS at Nginx, Caddy
 server:
   host: "127.0.0.1"
   port: 8080
-  trusted_proxies: ["127.0.0.1", "10.0.0.0/8"]
+  trusted_proxies: ["127.0.0.1"]
 
 security:
   public_url: "https://ssl.example.com"
 ```
 
 - `trusted_proxies` must include the proxy addresses; otherwise client IP identification and rate limiting are inaccurate, and the `Secure` cookie decision may also be wrong.
+- List the exact proxy IP. If a range is required, use the smallest CIDR; avoid broad ranges such as `10.0.0.0/8`.
 - `public_url` is used for links such as password reset and must not depend on the request Host.
 - If TLS terminates at the proxy, ensure the proxy passes `X-Forwarded-Proto: https`.
 
@@ -267,13 +268,16 @@ server {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Overwrite mode: discard any client-supplied XFF and keep only the real client
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
     }
 }
 ```
+
+This is the recommended **overwrite mode**: LACTSSL only needs to trust this Nginx. If you switch to `$proxy_add_x_forwarded_for` (append mode), single-proxy deployments still work; with multiple proxies, `trusted_proxies` must include every proxy that can appear in XFF, otherwise the client IP stops at the upstream proxy. See section 11 of [Configuration](configuration.md) for CDN, Docker/Kubernetes, and L4 load balancer differences.
 
 We recommend adding a source IP allowlist, VPN, zero-trust access policy, or WAF at the proxy layer. Reverse proxy access logs can serve as an independent audit source, but do not log cookies or the `Authorization` header.
 

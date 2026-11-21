@@ -1,5 +1,5 @@
 <template>
-  <div class="page" :class="{ 'database-active': tab === 'database' }">
+  <div class="page upgrade-page">
     <div class="page-head">
       <div>
         <h1>{{ t('upgrade.title') }}</h1>
@@ -12,126 +12,134 @@
 
     <el-tabs v-model="tab" v-loading="loading" class="upgrade-tabs">
       <el-tab-pane :label="t('upgrade.tabs.program')" name="program">
-        <div v-if="program" class="k-card" style="margin-bottom: 16px">
+        <div class="k-card upgrade-card">
           <div class="card-head">
             <div>
               <h3>{{ t('upgrade.program.title') }}</h3>
-              <div class="sub">
+              <div v-if="program" class="sub">
                 {{ t('upgrade.program.subtitle', { repo: program.repo, channel: program.channel }) }}
               </div>
+              <div v-else class="sub">{{ t('upgrade.program.unavailable') }}</div>
             </div>
-            <div class="flex gap-10 wrap" style="align-items: center">
-              <el-tag effect="plain" round size="small">{{ program.platform }}</el-tag>
-              <el-button
-                :icon="RefreshRight"
-                :loading="programChecking"
-                :disabled="!program.enabled"
-                @click="checkProgram"
-              >
-                {{ t('upgrade.program.check') }}
-              </el-button>
-              <el-button
-                v-if="program.restart_pending"
-                type="success"
-                :icon="SwitchButton"
-                :loading="programRestarting"
-                @click="restartProgram"
-              >
-                {{ t('upgrade.program.restartNow') }}
-              </el-button>
-              <el-button
-                v-else-if="program.can_update"
-                type="primary"
-                :icon="Download"
-                :loading="programApplying"
-                @click="applyProgram"
-              >
-                {{ t('upgrade.program.updateTo', { version: program.latest?.version }) }}
-              </el-button>
-            </div>
+            <el-tag v-if="program" effect="plain" round size="small">{{ program.platform }}</el-tag>
           </div>
 
-          <div class="program-grid">
-            <div>
-              <div class="stat-label">{{ t('upgrade.program.current') }}</div>
-              <div class="program-value mono">{{ program.current_version }}</div>
-            </div>
-            <div>
-              <div class="stat-label">{{ t('upgrade.program.latest') }}</div>
-              <div class="program-value mono">{{ program.latest ? `v${program.latest.version}` : t('common.none') }}</div>
-            </div>
-            <div>
-              <div class="stat-label">{{ t('upgrade.program.published') }}</div>
-              <div class="program-value">
-                {{ program.latest?.published_at ? formatDate(program.latest.published_at) : t('common.none') }}
+          <template v-if="program">
+            <div class="program-grid upgrade-summary">
+              <div>
+                <div class="stat-label">{{ t('upgrade.program.current') }}</div>
+                <div class="program-value mono">{{ program.current_version }}</div>
+              </div>
+              <div>
+                <div class="stat-label">{{ t('upgrade.program.latest') }}</div>
+                <div class="program-value mono">{{ program.latest ? `v${program.latest.version}` : t('common.none') }}</div>
+              </div>
+              <div>
+                <div class="stat-label">{{ t('upgrade.program.published') }}</div>
+                <div class="program-value">
+                  {{ program.latest?.published_at ? formatDate(program.latest.published_at) : t('common.none') }}
+                </div>
+              </div>
+              <div>
+                <div class="stat-label">{{ t('upgrade.program.checked') }}</div>
+                <div class="program-value">{{ program.checked_at ? formatDate(program.checked_at) : t('common.none') }}</div>
               </div>
             </div>
-            <div>
-              <div class="stat-label">{{ t('upgrade.program.checked') }}</div>
-              <div class="program-value">{{ program.checked_at ? formatDate(program.checked_at) : t('common.none') }}</div>
+
+            <div class="upgrade-scroll program-detail">
+              <el-alert
+                v-if="program.restart_pending"
+                type="success"
+                :closable="false"
+                show-icon
+                :title="t('upgrade.program.restartPending', { version: program.last_run?.to_version || program.latest?.version })"
+                :description="program.restart_mode === 'exit' ? t('upgrade.program.restartExitHint') : t('upgrade.program.restartHint')"
+              />
+
+              <el-collapse v-if="program.latest?.notes">
+                <el-collapse-item :title="t('upgrade.program.releaseNotes')" name="notes">
+                  <pre class="release-notes">{{ program.latest.notes }}</pre>
+                </el-collapse-item>
+              </el-collapse>
+
+              <el-alert
+                v-if="program.last_run?.error"
+                type="error"
+                :closable="false"
+                show-icon
+                :title="program.last_run.error"
+                style="margin-top: 12px"
+              />
+              <div v-if="program.last_run" class="muted program-last-run">
+                {{ t('upgrade.program.lastRun', {
+                  from: program.last_run.from_version,
+                  to: program.last_run.to_version,
+                  time: formatDate(program.last_run.finished_at)
+                }) }}
+                <span v-if="program.last_run.backup_path" class="mono break-all"> · {{ program.last_run.backup_path }}</span>
+              </div>
             </div>
-          </div>
 
-          <el-alert
-            v-if="program.check_error"
-            type="error"
-            :closable="false"
-            show-icon
-            :title="t('upgrade.program.checkFailed', { error: program.check_error })"
-            style="margin-top: 12px"
-          />
-          <el-alert
-            v-else-if="program.restart_pending"
-            type="success"
-            :closable="false"
-            show-icon
-            :title="t('upgrade.program.restartPending', { version: program.last_run?.to_version || program.latest?.version })"
-            :description="program.restart_mode === 'exit' ? t('upgrade.program.restartExitHint') : t('upgrade.program.restartHint')"
-            style="margin-top: 12px"
-          />
-          <el-alert
-            v-else-if="program.reason && !program.can_update"
-            :type="program.update_available ? 'warning' : 'info'"
-            :closable="false"
-            show-icon
-            :title="program.reason"
-            style="margin-top: 12px"
-          />
+            <div class="upgrade-footer">
+              <div class="upgrade-status">
+                <el-tooltip :content="programStatusLine.text" placement="top" :show-after="300">
+                  <el-alert
+                    :type="programStatusLine.type"
+                    :title="programStatusLine.text"
+                    :closable="false"
+                    show-icon
+                    class="status-line-alert"
+                  />
+                </el-tooltip>
+              </div>
+              <div class="footer-actions is-auto">
+                <div class="footer-action-group">
+                  <el-button
+                    :icon="RefreshRight"
+                    :loading="programChecking"
+                    :disabled="!program.enabled"
+                    @click="checkProgram"
+                  >
+                    {{ t('upgrade.program.check') }}
+                  </el-button>
+                </div>
+                <div v-if="program.restart_pending || program.can_update" class="footer-action-group">
+                  <el-button
+                    v-if="program.restart_pending"
+                    type="success"
+                    :icon="SwitchButton"
+                    :loading="programRestarting"
+                    @click="restartProgram"
+                  >
+                    {{ t('upgrade.program.restartNow') }}
+                  </el-button>
+                  <el-button
+                    v-else
+                    type="primary"
+                    :icon="Download"
+                    :loading="programApplying"
+                    @click="applyProgram"
+                  >
+                    {{ t('upgrade.program.updateTo', { version: program.latest?.version }) }}
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </template>
 
-          <el-collapse v-if="program.latest?.notes" style="margin-top: 12px">
-            <el-collapse-item :title="t('upgrade.program.releaseNotes')" name="notes">
-              <pre class="release-notes">{{ program.latest.notes }}</pre>
-            </el-collapse-item>
-          </el-collapse>
-
-          <el-alert
-            v-if="program.last_run?.error"
-            type="error"
-            :closable="false"
-            show-icon
-            :title="program.last_run.error"
-            style="margin-top: 12px"
-          />
-          <div v-if="program.last_run" class="muted" style="margin-top: 12px">
-            {{ t('upgrade.program.lastRun', {
-              from: program.last_run.from_version,
-              to: program.last_run.to_version,
-              time: formatDate(program.last_run.finished_at)
-            }) }}
-            <span v-if="program.last_run.backup_path" class="mono break-all"> · {{ program.last_run.backup_path }}</span>
+          <div v-else class="upgrade-scroll">
+            <el-alert
+              type="info"
+              :closable="false"
+              show-icon
+              :title="t('upgrade.program.unavailable')"
+            />
           </div>
         </div>
-        <el-alert
-          v-else
-          type="info"
-          :closable="false"
-          show-icon
-          :title="t('upgrade.program.unavailable')"
-        />
       </el-tab-pane>
 
       <el-tab-pane :label="t('upgrade.tabs.database')" name="database">
-        <div class="k-card database-card">
+        <div class="k-card upgrade-card">
           <div class="card-head">
             <div>
               <h3>{{ t('upgrade.database.title') }}</h3>
@@ -152,10 +160,11 @@
               <div class="stat-label">{{ t('upgrade.database.targetDriver') }}</div>
               <el-select v-model="dbTargetDriver" style="width: 100%" :disabled="dbStatus?.running">
                 <el-option value="postgres" label="PostgreSQL 18" />
+                <el-option value="mysql" label="MySQL 5.7+" />
                 <el-option value="sqlite" label="SQLite" />
               </el-select>
             </div>
-            <div v-if="dbTargetDriver === 'postgres'">
+            <div v-if="dbTargetDriver !== 'sqlite'">
               <div class="stat-label">{{ t('upgrade.database.dsn') }}</div>
               <el-radio-group v-model="dbDSNMode" size="small" :disabled="dbStatus?.running">
                 <el-radio-button value="form">{{ t('upgrade.database.modeForm') }}</el-radio-button>
@@ -174,8 +183,8 @@
             </div>
           </div>
 
-          <div class="database-scroll">
-            <div v-if="dbTargetDriver === 'postgres'" class="dsn-block">
+          <div class="upgrade-scroll">
+            <div v-if="dbTargetDriver !== 'sqlite'" class="dsn-block">
             <el-form
               v-if="dbDSNMode === 'form'"
               ref="dsnFormRef"
@@ -195,7 +204,7 @@
                   <el-input-number v-model="dbDSNForm.port" :min="1" :max="65535" controls-position="right" align="left" style="width: 100%" />
                 </el-form-item>
                 <el-form-item :label="t('upgrade.database.username')" prop="username">
-                  <el-input v-model="dbDSNForm.username" placeholder="postgres" autocomplete="off" />
+                  <el-input v-model="dbDSNForm.username" :placeholder="dbTargetDriver === 'mysql' ? 'root' : 'postgres'" autocomplete="off" />
                 </el-form-item>
                 <el-form-item :label="t('upgrade.database.dbPassword')">
                   <el-input v-model="dbDSNForm.password" type="password" show-password autocomplete="new-password" />
@@ -205,7 +214,7 @@
                 </el-form-item>
                 <el-form-item :label="t('upgrade.database.sslMode')" prop="sslmode">
                   <el-select v-model="dbDSNForm.sslmode" style="width: 100%">
-                    <el-option v-for="mode in sslModes" :key="mode" :value="mode" :label="mode" />
+                    <el-option v-for="mode in tlsModes" :key="mode" :value="mode" :label="mode" />
                   </el-select>
                 </el-form-item>
               </div>
@@ -229,7 +238,7 @@
                 type="textarea"
                 :rows="2"
                 :disabled="dbStatus?.running"
-                placeholder="postgres://user:pass@host:5432/db?sslmode=disable"
+                :placeholder="rawDSNPlaceholder"
               />
               <div class="flex gap-10 wrap" style="margin-top: 10px">
                 <el-button size="small" :disabled="dbStatus?.running || !dbRawDSN.trim()" @click="parseRawDSN">
@@ -241,8 +250,8 @@
             </div>
           </div>
 
-          <div class="database-footer">
-            <div class="database-status">
+          <div class="upgrade-footer">
+            <div class="upgrade-status">
             <div class="flex gap-10 wrap" style="margin-bottom: 8px">
               <el-button :loading="dbTesting" :disabled="dbStatus?.running" @click="testDatabaseTarget">
                 {{ t('upgrade.database.test') }}
@@ -263,7 +272,7 @@
             </el-tooltip>
             </div>
 
-            <div class="database-progress">
+            <div class="upgrade-progress">
               <div class="progress-meta">
                 <span class="stat-label">{{ t('upgrade.database.progress') }}</span>
                 <span class="muted">
@@ -348,143 +357,162 @@
       </el-tab-pane>
 
       <el-tab-pane :label="t('upgrade.tabs.maintenance')" name="maintenance">
-        <el-alert
-          v-if="status && status.needs_upgrade"
-          type="warning"
-          :closable="false"
-          show-icon
-          :title="t('upgrade.pendingTitle')"
-          :description="t('upgrade.pendingDesc', { stored: status.stored_version, current: status.current_version })"
-          style="margin-bottom: 16px"
-        />
-        <el-alert
-          v-else-if="status"
-          type="success"
-          :closable="false"
-          show-icon
-          :title="t('upgrade.upToDateTitle')"
-          :description="t('upgrade.upToDateDesc', { version: status.current_version })"
-          style="margin-bottom: 16px"
-        />
-
-        <div v-if="status" class="upgrade-grid">
-          <div class="k-card stat-card">
-            <div class="stat-label">{{ t('upgrade.appVersion') }}</div>
-            <div class="stat-value">{{ status.app_version || t('common.none') }}</div>
-            <div class="muted">{{ t('upgrade.checkedAt', { time: formatDate(status.checked_at) }) }}</div>
-          </div>
-          <div class="k-card stat-card">
-            <div class="stat-label">{{ t('upgrade.dataVersion') }}</div>
-            <div class="stat-value">v{{ status.stored_version }} → v{{ status.current_version }}</div>
-            <div class="muted">{{ status.version_label }}</div>
-          </div>
-          <div class="k-card stat-card">
-            <div class="stat-label">{{ t('upgrade.databaseSize') }}</div>
-            <div class="stat-value">{{ formatBytes(status.database.file_size + status.database.wal_size) }}</div>
-            <div class="muted">{{ t('upgrade.freePages', { size: formatBytes(status.database.free_bytes) }) }}</div>
-          </div>
-          <div class="k-card stat-card">
-            <div class="stat-label">{{ t('upgrade.integrity') }}</div>
-            <div class="stat-value" :class="status.database.integrity === 'ok' ? 'text-green' : 'text-red'">
-              {{ status.database.integrity }}
-            </div>
-            <div class="muted">
-              {{ t('upgrade.dbMeta', { tables: status.database.tables, indexes: status.database.indexes, mode: status.database.journal_mode }) }}
-            </div>
-          </div>
-        </div>
-
-        <div v-if="status" class="k-card" style="margin-top: 16px">
+        <div v-if="status" class="k-card upgrade-card">
           <div class="card-head">
             <div>
               <h3>{{ t('upgrade.actionsTitle') }}</h3>
               <div class="sub">{{ t('upgrade.actionsSub') }}</div>
             </div>
-            <div class="flex gap-10 wrap" style="align-items: center">
-              <el-switch v-model="vacuum" :disabled="!status.vacuum_allowed" :active-text="t('upgrade.vacuum')" />
-              <el-button :icon="Refresh" :loading="optimizing" @click="optimize">{{ t('upgrade.optimizeOnly') }}</el-button>
-              <el-button type="primary" :icon="MagicStick" :loading="running" @click="runAll">{{ t('upgrade.runAll') }}</el-button>
+            <div class="form-help upgrade-head-state">
+              {{ t('upgrade.autoState', { state: status.auto_enabled ? t('common.enabled') : t('common.disabled') }) }}
+              · {{ t('upgrade.vacuumState', { state: status.vacuum_allowed ? t('common.enabled') : t('common.disabled') }) }}
             </div>
           </div>
-          <div class="form-help">
-            {{ t('upgrade.autoState', { state: status.auto_enabled ? t('common.enabled') : t('common.disabled') }) }}
-            · {{ t('upgrade.vacuumState', { state: status.vacuum_allowed ? t('common.enabled') : t('common.disabled') }) }}
-          </div>
-          <el-alert
-            v-for="warning in status.warnings"
-            :key="warning"
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="warning"
-            style="margin-top: 8px"
-          />
-        </div>
 
-        <div v-if="report" class="k-card" style="margin-top: 16px">
-          <div class="card-head">
+          <div class="upgrade-summary maintenance-summary">
             <div>
-              <h3>{{ t('upgrade.lastResult') }}</h3>
-              <div class="sub">
-                {{ t('upgrade.resultSummary', {
-                  from: report.from_version,
-                  to: report.to_version,
-                  changes: report.config.changes.length,
-                  reclaimed: formatBytes(report.database.reclaimed_bytes)
-                }) }}
+              <div class="stat-label">{{ t('upgrade.appVersion') }}</div>
+              <div class="stat-value">{{ status.app_version || t('common.none') }}</div>
+              <div class="muted">{{ t('upgrade.checkedAt', { time: formatDate(status.checked_at) }) }}</div>
+            </div>
+            <div>
+              <div class="stat-label">{{ t('upgrade.dataVersion') }}</div>
+              <div class="stat-value">v{{ status.stored_version }} → v{{ status.current_version }}</div>
+              <div class="muted">{{ status.version_label }}</div>
+            </div>
+            <div>
+              <div class="stat-label">{{ t('upgrade.databaseSize') }}</div>
+              <div class="stat-value">{{ formatBytes(status.database.file_size + status.database.wal_size) }}</div>
+              <div class="muted">{{ t('upgrade.freePages', { size: formatBytes(status.database.free_bytes) }) }}</div>
+            </div>
+            <div>
+              <div class="stat-label">{{ t('upgrade.integrity') }}</div>
+              <div class="stat-value" :class="status.database.integrity === 'ok' ? 'text-green' : 'text-red'">
+                {{ status.database.integrity }}
+              </div>
+              <div class="muted">
+                {{ t('upgrade.dbMeta', { tables: status.database.tables, indexes: status.database.indexes, mode: status.database.journal_mode }) }}
               </div>
             </div>
           </div>
-          <div v-if="report.backup_dir" class="muted mono break-all">{{ t('upgrade.backupDir') }}: {{ report.backup_dir }}</div>
-          <el-alert
-            v-for="warning in report.warnings"
-            :key="warning"
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="warning"
-            style="margin-top: 8px"
-          />
-          <ul v-if="report.database.actions.length" class="action-list">
-            <li v-for="action in report.database.actions" :key="action">{{ action }}</li>
-          </ul>
+
+          <div class="upgrade-scroll">
+            <div v-if="report" class="result-block">
+              <div class="result-head">
+                <h3>{{ t('upgrade.lastResult') }}</h3>
+                <div class="sub">
+                  {{ t('upgrade.resultSummary', {
+                    from: report.from_version,
+                    to: report.to_version,
+                    changes: report.config.changes.length,
+                    reclaimed: formatBytes(report.database.reclaimed_bytes)
+                  }) }}
+                </div>
+              </div>
+              <div v-if="report.backup_dir" class="muted mono break-all">{{ t('upgrade.backupDir') }}: {{ report.backup_dir }}</div>
+              <el-alert
+                v-for="warning in report.warnings"
+                :key="warning"
+                type="warning"
+                :closable="false"
+                show-icon
+                :title="warning"
+                style="margin-top: 8px"
+              />
+              <ul v-if="report.database.actions.length" class="action-list">
+                <li v-for="action in report.database.actions" :key="action">{{ action }}</li>
+              </ul>
+            </div>
+          </div>
+
+          <div v-if="status.warnings.length" class="upgrade-warnings">
+            <el-alert
+              v-for="warning in status.warnings"
+              :key="warning"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="warning"
+            />
+          </div>
+
+          <div class="upgrade-footer">
+            <div class="upgrade-status">
+              <el-tooltip :content="maintenanceStatusLine.text" placement="top" :show-after="300">
+                <el-alert
+                  :type="maintenanceStatusLine.type"
+                  :title="maintenanceStatusLine.text"
+                  :closable="false"
+                  show-icon
+                  class="status-line-alert"
+                />
+              </el-tooltip>
+            </div>
+            <div class="footer-actions is-auto">
+              <div class="footer-action-group">
+                <el-switch v-model="vacuum" :disabled="!status.vacuum_allowed" :active-text="t('upgrade.vacuum')" />
+              </div>
+              <div class="footer-action-group">
+                <el-button :icon="Refresh" :loading="optimizing" @click="optimize">{{ t('upgrade.optimizeOnly') }}</el-button>
+              </div>
+              <div class="footer-action-group">
+                <el-button type="primary" :icon="MagicStick" :loading="running" @click="runAll">{{ t('upgrade.runAll') }}</el-button>
+              </div>
+            </div>
+          </div>
         </div>
+        <el-alert
+          v-else
+          type="info"
+          :closable="false"
+          show-icon
+          :title="t('common.loading')"
+        />
       </el-tab-pane>
 
       <el-tab-pane :label="t('upgrade.tabs.config')" name="config">
-        <div v-if="status" class="k-card" style="padding: 24px">
+        <div v-if="status" class="k-card upgrade-card upgrade-table-card">
           <div class="card-head">
             <div>
               <h3>{{ t('upgrade.configTitle') }}</h3>
               <div class="sub">{{ t('upgrade.configSub', { path: status.config.path || t('common.none'), count: status.config.changes.length }) }}</div>
             </div>
           </div>
-          <div class="table-scroll">
-            <el-table :data="status.config.changes" style="width: 100%">
-              <el-table-column min-width="220" prop="key" :label="t('upgrade.configKey')" />
-              <el-table-column width="110" :label="t('upgrade.actionLabel')">
-                <template #default="{ row }">
-                  <el-tag :type="row.action === 'added' ? 'success' : 'info'" effect="light" round size="small">
-                    {{ t(`upgrade.action.${row.action}`) }}
-                  </el-tag>
+          <div class="upgrade-scroll">
+            <div class="table-scroll">
+              <el-table :data="status.config.changes" height="100%" style="width: 100%">
+                <el-table-column min-width="220" prop="key" :label="t('upgrade.configKey')" />
+                <el-table-column width="110" :label="t('upgrade.actionLabel')">
+                  <template #default="{ row }">
+                    <el-tag :type="row.action === 'added' ? 'success' : 'info'" effect="light" round size="small">
+                      {{ t(`upgrade.action.${row.action}`) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column min-width="160" :label="t('upgrade.before')">
+                  <template #default="{ row }"><span class="mono break-all">{{ row.before || t('common.none') }}</span></template>
+                </el-table-column>
+                <el-table-column min-width="160" :label="t('upgrade.after')">
+                  <template #default="{ row }"><span class="mono break-all">{{ row.after || t('common.none') }}</span></template>
+                </el-table-column>
+                <template #empty>
+                  <div style="padding: 36px 0; color: #94a3b8">{{ t('upgrade.noConfigChanges') }}</div>
                 </template>
-              </el-table-column>
-              <el-table-column min-width="160" :label="t('upgrade.before')">
-                <template #default="{ row }"><span class="mono break-all">{{ row.before || t('common.none') }}</span></template>
-              </el-table-column>
-              <el-table-column min-width="160" :label="t('upgrade.after')">
-                <template #default="{ row }"><span class="mono break-all">{{ row.after || t('common.none') }}</span></template>
-              </el-table-column>
-              <template #empty>
-                <div style="padding: 36px 0; color: #94a3b8">{{ t('upgrade.noConfigChanges') }}</div>
-              </template>
-            </el-table>
+              </el-table>
+            </div>
           </div>
         </div>
+        <el-alert
+          v-else
+          type="info"
+          :closable="false"
+          show-icon
+          :title="t('common.loading')"
+        />
       </el-tab-pane>
 
       <el-tab-pane :label="t('upgrade.tabs.history')" name="history">
-        <div v-if="status?.last_run" class="k-card">
+        <div v-if="status?.last_run" class="k-card upgrade-card">
           <div class="card-head">
             <div>
               <h3>{{ t('upgrade.lastRunTitle') }}</h3>
@@ -499,7 +527,18 @@
               </div>
             </div>
           </div>
-          <el-alert v-if="status.last_run.error" type="error" :closable="false" show-icon :title="status.last_run.error" />
+          <div class="upgrade-scroll">
+            <el-alert v-if="status.last_run.error" type="error" :closable="false" show-icon :title="status.last_run.error" />
+            <el-alert
+              v-for="warning in status.last_run.warnings"
+              :key="warning"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="warning"
+              style="margin-top: 8px"
+            />
+          </div>
         </div>
         <el-alert
           v-else
@@ -560,6 +599,14 @@ const dbDSNForm = reactive({
 const dsnFormRef = ref<FormInstance>()
 const dsnRevealed = ref(false)
 const sslModes = ['disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full']
+// go-sql-driver/mysql 使用 tls 参数，取值集合与 PostgreSQL 的 sslmode 不同。
+const mysqlTLSModes = ['disable', 'preferred', 'require', 'skip-verify']
+const tlsModes = computed(() => (dbTargetDriver.value === 'mysql' ? mysqlTLSModes : sslModes))
+const rawDSNPlaceholder = computed(() =>
+  dbTargetDriver.value === 'mysql'
+    ? 'mysql://user:pass@host:3306/db?tls=preferred'
+    : 'postgres://user:pass@host:5432/db?sslmode=disable'
+)
 const dbTesting = ref(false)
 const dbPreflighting = ref(false)
 const dbStarting = ref(false)
@@ -588,6 +635,46 @@ const sameDriver = computed(() => !!dbStatus.value && dbTargetDriver.value === d
 const rollbackVisible = computed(() => {
   const state = dbStatus.value?.state
   return state?.phase === 'completed' && state.from_driver !== state.to_driver
+})
+// 程序升级与数据库切换共用同一条底部状态栏：只显示当前最关键的一条状态。
+const programStatusLine = computed<{ text: string; type: 'error' | 'warning' | 'success' | 'info' }>(() => {
+  const p = program.value
+  if (!p) return { text: t('upgrade.program.unavailable'), type: 'info' }
+  if (p.check_error) {
+    return { text: t('upgrade.program.checkFailed', { error: p.check_error }), type: 'error' }
+  }
+  if (p.restart_pending) {
+    return {
+      text: t('upgrade.program.restartPending', {
+        version: p.last_run?.to_version || p.latest?.version || ''
+      }),
+      type: 'success'
+    }
+  }
+  if (p.last_run?.error) return { text: p.last_run.error, type: 'error' }
+  if (p.can_update) {
+    return { text: t('upgrade.program.found', { version: p.latest?.version || '' }), type: 'info' }
+  }
+  if (p.reason) return { text: p.reason, type: p.update_available ? 'warning' : 'info' }
+  return { text: t('upgrade.program.latestMessage'), type: 'success' }
+})
+// 升级与优化标签页把原顶部的迁移提示收敛到底部状态栏，避免内容区上下各占一块。
+const maintenanceStatusLine = computed<{ text: string; type: 'warning' | 'success' | 'info' }>(() => {
+  const s = status.value
+  if (!s) return { text: t('common.loading'), type: 'info' }
+  if (s.needs_upgrade) {
+    return {
+      text: `${t('upgrade.pendingTitle')} · ${t('upgrade.pendingDesc', {
+        stored: s.stored_version,
+        current: s.current_version
+      })}`,
+      type: 'warning'
+    }
+  }
+  return {
+    text: `${t('upgrade.upToDateTitle')} · ${t('upgrade.upToDateDesc', { version: s.current_version })}`,
+    type: 'success'
+  }
 })
 // 底部状态栏一次只显示一条提示，长文本用 tooltip 查看完整内容。
 const dbStatusLine = computed<{ text: string; type: 'error' | 'warning' | 'success' | 'info' }>(() => {
@@ -623,6 +710,16 @@ const dbStatusLine = computed<{ text: string; type: 'error' | 'warning' | 'succe
 watch(sameDriver, (value) => {
   if (value) dbForce.value = false
 })
+// 切换驱动时同步默认端口和 TLS 选项，避免把 PostgreSQL 的 sslmode 带到 MySQL。
+watch(dbTargetDriver, (driver) => {
+  if (driver === 'mysql') {
+    if (!dbDSNForm.port || dbDSNForm.port === 5432) dbDSNForm.port = 3306
+    if (!mysqlTLSModes.includes(dbDSNForm.sslmode)) dbDSNForm.sslmode = 'preferred'
+  } else if (driver === 'postgres') {
+    if (!dbDSNForm.port || dbDSNForm.port === 3306) dbDSNForm.port = 5432
+    if (!sslModes.includes(dbDSNForm.sslmode)) dbDSNForm.sslmode = 'disable'
+  }
+})
 const dbProgressLabel = computed(() => t(`upgrade.database.phase.${dbStatus.value?.state?.phase || dbStatus.value?.progress.phase || 'idle'}`))
 const dbPercent = computed(() => {
   const progress = dbStatus.value?.progress
@@ -634,17 +731,21 @@ const dbPercent = computed(() => {
 
 // 表单只是输入层：提交前统一拼成标准 URL DSN，后端、CLI 与配置文件格式保持不变。
 const targetDSN = computed(() => {
-  if (dbTargetDriver.value !== 'postgres') return ''
+  if (dbTargetDriver.value === 'sqlite') return ''
   if (dbDSNMode.value === 'raw') return dbRawDSN.value.trim()
   const host = dbDSNForm.host.trim()
   const username = dbDSNForm.username.trim()
   const database = dbDSNForm.database.trim()
   if (!host || !username || !database) return ''
-  const port = Number(dbDSNForm.port) || 5432
+  const mysql = dbTargetDriver.value === 'mysql'
+  const port = Number(dbDSNForm.port) || (mysql ? 3306 : 5432)
   const hostPart = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
   const auth = `${encodeURIComponent(username)}${dbDSNForm.password ? `:${encodeURIComponent(dbDSNForm.password)}` : ''}@`
-  const params = new URLSearchParams({ sslmode: dbDSNForm.sslmode || 'disable' })
-  return `postgres://${auth}${hostPart}:${port}/${encodeURIComponent(database)}?${params.toString()}`
+  const params = new URLSearchParams(
+    mysql ? { tls: dbDSNForm.sslmode || 'preferred' } : { sslmode: dbDSNForm.sslmode || 'disable' }
+  )
+  const scheme = mysql ? 'mysql' : 'postgres'
+  return `${scheme}://${auth}${hostPart}:${port}/${encodeURIComponent(database)}?${params.toString()}`
 })
 
 const maskedTargetDSN = computed(() => {
@@ -742,7 +843,7 @@ async function validateDatabaseTarget(): Promise<boolean> {
     ElMessage.warning(t('upgrade.database.pathRequired'))
     return false
   }
-  if (dbTargetDriver.value !== 'postgres') return true
+  if (dbTargetDriver.value === 'sqlite') return true
   if (dbDSNMode.value === 'raw') {
     if (!dbRawDSN.value.trim()) {
       dbTargetError.value = true
@@ -771,17 +872,23 @@ function parseRawDSN(): void {
     return
   }
   // Unix socket、多主机等无法用固定字段表达的 DSN 保留在原生模式。
-  if ((parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') || !parsed.hostname) {
+  const protocol = parsed.protocol.toLowerCase()
+  const mysql = protocol === 'mysql:' || protocol === 'mariadb:'
+  if ((!mysql && protocol !== 'postgres:' && protocol !== 'postgresql:') || !parsed.hostname) {
     ElMessage.error(t('upgrade.database.parseFailed'))
     return
   }
+  dbTargetDriver.value = mysql ? 'mysql' : 'postgres'
   dbDSNForm.host = parsed.hostname.replace(/^\[(.*)\]$/, '$1')
-  dbDSNForm.port = parsed.port ? Number(parsed.port) : 5432
+  dbDSNForm.port = parsed.port ? Number(parsed.port) : mysql ? 3306 : 5432
   dbDSNForm.username = decodeURIComponent(parsed.username)
   dbDSNForm.password = decodeURIComponent(parsed.password)
   dbDSNForm.database = decodeURIComponent(parsed.pathname.replace(/^\//, ''))
-  const sslmode = parsed.searchParams.get('sslmode') || ''
-  if (sslModes.includes(sslmode)) dbDSNForm.sslmode = sslmode
+  const mode = mysql
+    ? parsed.searchParams.get('tls') || parsed.searchParams.get('sslmode') || ''
+    : parsed.searchParams.get('sslmode') || ''
+  const modes = mysql ? mysqlTLSModes : sslModes
+  if (modes.includes(mode)) dbDSNForm.sslmode = mode
   dbDSNMode.value = 'form'
   ElMessage.success(t('upgrade.database.parseOk'))
 }
@@ -796,7 +903,7 @@ async function copyTargetDSN(): Promise<void> {
 async function loadDatabaseStatus(): Promise<void> {
   try {
     dbStatus.value = await api.get<DatabaseConvertStatus>('/upgrade/database')
-    if (dbStatus.value.source.driver === 'postgres') {
+    if (dbStatus.value.source.driver !== 'sqlite') {
       dbTargetDriver.value = 'sqlite'
     }
     if (dbStatus.value.running) {
@@ -1161,10 +1268,15 @@ onUnmounted(stopDatabasePolling)
   margin-bottom: 20px;
 }
 
-.upgrade-grid {
+/* 五个标签页共用同一套结构：卡片固定高度，头部与汇总区固定，内容区滚动，操作区固定。 */
+.upgrade-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
+}
+
+.maintenance-summary {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .database-grid {
@@ -1178,31 +1290,66 @@ onUnmounted(stopDatabasePolling)
   padding-bottom: 6px;
 }
 
-/* 切换数据库：卡片固定高度，表单区滚动，进度与操作区固定在底部。 */
-.database-card {
+.upgrade-card {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.database-card > .card-head,
-.database-card > .database-grid {
+/* 配置项表格卡片去掉下、左、右内边距，表格铺满卡片宽度并贴住底边。 */
+.upgrade-table-card {
+  padding: 22px 0 0;
+  overflow: hidden;
+}
+
+/* 标题区单独保留左右内边距，保持与其他标签页的标题对齐。 */
+.upgrade-table-card > .card-head {
+  padding: 0 20px;
+}
+
+/* 配置项表格单元格左右内边距与其它配置表格保持一致。 */
+.upgrade-table-card :deep(.el-table .cell) {
+  padding: 0 20px;
+}
+
+.upgrade-card > .card-head,
+.upgrade-card > .upgrade-summary,
+.upgrade-card > .database-grid {
   flex: none;
 }
 
-.database-scroll {
+.upgrade-scroll {
   min-height: 0;
 }
 
-.database-footer {
+.upgrade-warnings {
+  flex: none;
+  margin-top: 12px;
+}
+
+.upgrade-warnings :deep(.el-alert + .el-alert) {
+  margin-top: 8px;
+}
+
+.upgrade-warnings :deep(.el-alert) {
+  margin-bottom: 0;
+}
+
+.upgrade-footer {
   flex: none;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--kp-border);
 }
 
-.database-status {
+.upgrade-status {
   margin-bottom: 12px;
+}
+
+.upgrade-head-state {
+  margin: 0;
+  max-width: 420px;
+  text-align: right;
 }
 
 .status-line-alert {
@@ -1225,7 +1372,7 @@ onUnmounted(stopDatabasePolling)
   margin-right: 6px;
 }
 
-.database-progress .progress-meta {
+.upgrade-progress .progress-meta {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1271,6 +1418,16 @@ onUnmounted(stopDatabasePolling)
   min-width: 0;
 }
 
+/* 程序升级、升级优化等操作组不需要与认证输入框对齐，按内容宽度排列即可。 */
+.footer-actions.is-auto {
+  --footer-cell-width: auto;
+}
+
+.footer-actions.is-auto .footer-action-group {
+  flex: 0 0 auto;
+  width: auto;
+}
+
 .footer-auth-pair :deep(.el-input) {
   width: 100%;
   max-width: none;
@@ -1289,6 +1446,11 @@ onUnmounted(stopDatabasePolling)
   }
 
   .footer-action-group {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .footer-actions.is-auto .footer-action-group {
     flex: 1 1 100%;
     width: 100%;
   }
@@ -1402,40 +1564,47 @@ onUnmounted(stopDatabasePolling)
 }
 
 @media (min-width: 861px) {
-  /* 数据库标签页占满主内容区高度：中间表单滚动，底部操作栏固定。 */
-  .page.database-active {
+  /* 所有标签页占满主内容区高度：头部固定，中间内容滚动，底部操作栏固定。 */
+  .page.upgrade-page {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - var(--kp-topbar-h) - 72px);
+    height: calc(100vh - var(--kp-topbar-h) - 41px);
     min-height: 460px;
   }
 
-  .database-active .upgrade-tabs {
+  .upgrade-page .upgrade-tabs {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
   }
 
-  .database-active .upgrade-tabs :deep(.el-tabs__content) {
+  .upgrade-page .upgrade-tabs :deep(.el-tabs__content) {
     flex: 1 1 auto;
     min-height: 0;
+    overflow: hidden;
   }
 
-  .database-active .upgrade-tabs :deep(.el-tab-pane) {
+  .upgrade-page .upgrade-tabs :deep(.el-tab-pane) {
     height: 100%;
     min-height: 0;
+    overflow: hidden;
   }
 
-  .database-card {
+  .upgrade-card {
     height: 100%;
     margin-bottom: 0;
   }
 
-  .database-scroll {
+  .upgrade-scroll {
     flex: 1 1 auto;
     overflow-y: auto;
     padding-right: 4px;
+  }
+
+  /* 配置项表格铺满内容区，横向滚动条贴在内容区底部，而不是紧跟最后一行。 */
+  .upgrade-scroll > .table-scroll {
+    height: 100%;
   }
 }
 
@@ -1443,13 +1612,46 @@ onUnmounted(stopDatabasePolling)
   .database-grid {
     grid-template-columns: 1fr;
   }
+
+  .card-head {
+    flex-wrap: wrap;
+  }
+
+  .upgrade-head-state {
+    max-width: none;
+    text-align: left;
+  }
 }
 
 .program-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
   margin-top: 18px;
+}
+
+/* 程序升级详情区与汇总区之间留出统一间距，内容过长时只在详情区滚动。 */
+.program-detail > * + * {
+  margin-top: 12px;
+}
+
+.result-block {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--kp-border);
+}
+
+.result-head {
+  margin-bottom: 10px;
+}
+
+.result-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.result-head .sub {
+  color: var(--kp-muted);
+  font-size: 12px;
+  margin-top: 4px;
 }
 
 .program-value {
@@ -1471,10 +1673,6 @@ onUnmounted(stopDatabasePolling)
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.stat-card {
-  padding: 20px 22px;
 }
 
 .stat-label {

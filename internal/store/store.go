@@ -2,6 +2,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -135,8 +136,30 @@ func (s *Store) CreateFirstUser(email, hash string) (*model.User, error) {
 			return nil, err
 		}
 	}
-	res, err := tx.Exec(`INSERT INTO users(email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at)
-		SELECT ?,?,'',0,1,?,? WHERE NOT EXISTS (SELECT 1 FROM users)`, email, hash, now, now)
+	if s.DB.Dialect().IsMySQL() {
+		lockConn, err := s.DB.Conn(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		defer lockConn.Close()
+		var locked sql.NullInt64
+		if err := lockConn.QueryRowContext(context.Background(), `SELECT GET_LOCK(?, 5)`, "lactssl-first-user").Scan(&locked); err != nil {
+			return nil, err
+		}
+		defer func() {
+			_, _ = lockConn.ExecContext(context.Background(), `SELECT RELEASE_LOCK(?)`, "lactssl-first-user")
+		}()
+		if !locked.Valid || locked.Int64 != 1 {
+			return nil, i18n.E("api.error.already_initialized")
+		}
+	}
+	insertSQL := `INSERT INTO users(email,password_hash,totp_secret,totp_enabled,token_version,created_at,updated_at)
+		SELECT ?,?,'',0,1,?,?`
+	if s.DB.Dialect().IsMySQL() {
+		insertSQL += ` FROM DUAL`
+	}
+	insertSQL += ` WHERE NOT EXISTS (SELECT 1 FROM users)`
+	res, err := tx.Exec(insertSQL, email, hash, now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +355,10 @@ func (s *Store) GetSetting(key string) (string, error) {
 // 用于需要区分“未设置”与“显式设置为空”的配置项（例如插件仓库公钥）。
 func (s *Store) LookupSetting(key string) (string, bool, error) {
 	var v string
-	err := s.DB.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&v)
+	// key/value 在 MySQL 中是关键字，统一按方言引用。
+	keyColumn := s.DB.Dialect().QuoteIdent("key")
+	valueColumn := s.DB.Dialect().QuoteIdent("value")
+	err := s.DB.QueryRow(`SELECT `+valueColumn+` FROM settings WHERE `+keyColumn+`=?`, key).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -350,7 +376,15 @@ func (s *Store) GetSecret(key string) (string, error) {
 
 // SetSetting 写入设置。
 func (s *Store) SetSetting(key, value string) error {
-	_, err := s.DB.Exec(`INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	keyColumn := s.DB.Dialect().QuoteIdent("key")
+	valueColumn := s.DB.Dialect().QuoteIdent("value")
+	query := `INSERT INTO settings(` + keyColumn + `,` + valueColumn + `) VALUES(?,?)
+		ON CONFLICT(` + keyColumn + `) DO UPDATE SET ` + valueColumn + `=excluded.` + valueColumn
+	if s.DB.Dialect().IsMySQL() {
+		query = `INSERT INTO settings(` + keyColumn + `,` + valueColumn + `) VALUES(?,?)
+			ON DUPLICATE KEY UPDATE ` + valueColumn + `=VALUES(` + valueColumn + `)`
+	}
+	_, err := s.DB.Exec(query, key, value)
 	return err
 }
 
@@ -365,13 +399,13 @@ func (s *Store) SetSecret(key, value string) error {
 
 // DeleteSetting 删除设置。
 func (s *Store) DeleteSetting(key string) error {
-	_, err := s.DB.Exec(`DELETE FROM settings WHERE key=?`, key)
+	_, err := s.DB.Exec(`DELETE FROM settings WHERE `+s.DB.Dialect().QuoteIdent("key")+`=?`, key)
 	return err
 }
 
 // AllSettings 返回全部设置键值。
 func (s *Store) AllSettings() (map[string]string, error) {
-	rows, err := s.DB.Query(`SELECT key,value FROM settings`)
+	rows, err := s.DB.Query(`SELECT ` + s.DB.Dialect().QuoteIdent("key") + `,` + s.DB.Dialect().QuoteIdent("value") + ` FROM settings`)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +563,8 @@ func (s *Store) CreateDNSAccount(a *model.DNSAccount) error {
 		return err
 	}
 	now := nowUTC()
-	id, err := s.DB.InsertID(`INSERT INTO dns_accounts(name,provider,config,remark,created_at,updated_at) VALUES(?,?,?,?,?,?)`, a.Name, a.Provider, cfg, a.Remark, now, now)
+	id, err := s.DB.InsertID(`INSERT INTO dns_accounts(name,provider,config,remark,verify_status,verify_message,verify_mode,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+		a.Name, a.Provider, cfg, a.Remark, "", "", "", now, now)
 	if err != nil {
 		return err
 	}
@@ -557,10 +592,20 @@ func (s *Store) SetDNSAccountVerification(id int64, status, message, mode string
 	return err
 }
 
-// DeleteDNSAccount 删除 DNS 账户。
+// DeleteDNSAccount 删除 DNS 账户及其域名绑定。
 func (s *Store) DeleteDNSAccount(id int64) error {
-	_, err := s.DB.Exec(`DELETE FROM dns_accounts WHERE id=?`, id)
-	return err
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DELETE FROM dns_zone_bindings WHERE dns_account_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM dns_accounts WHERE id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ---------------------------- 目标凭据 ----------------------------
@@ -609,7 +654,8 @@ func (s *Store) CreateDeployAccount(a *model.DeployAccount) error {
 		return err
 	}
 	now := nowUTC()
-	id, err := s.DB.InsertID(`INSERT INTO deploy_accounts(name,type,config,remark,created_at,updated_at) VALUES(?,?,?,?,?,?)`, a.Name, a.Type, cfg, a.Remark, now, now)
+	id, err := s.DB.InsertID(`INSERT INTO deploy_accounts(name,type,config,remark,verify_status,verify_message,verify_mode,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+		a.Name, a.Type, cfg, a.Remark, "", "", "", now, now)
 	if err != nil {
 		return err
 	}
@@ -761,7 +807,7 @@ func (s *Store) DeletePrivateCA(id int64) error {
 
 // ListTasks 返回全部任务。
 func (s *Store) ListTasks() ([]model.Task, error) {
-	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks ORDER BY id DESC`)
+	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,dns_routes,ca,ca_pool_id,key_type,no_key_storage,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -779,20 +825,21 @@ func (s *Store) ListTasks() ([]model.Task, error) {
 
 // GetTask 查询单个任务。
 func (s *Store) GetTask(id int64) (*model.Task, error) {
-	row := s.DB.QueryRow(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks WHERE id=?`, id)
+	row := s.DB.QueryRow(`SELECT id,name,domains,challenge,dns_account_id,dns_routes,ca,ca_pool_id,key_type,no_key_storage,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at FROM tasks WHERE id=?`, id)
 	return scanTask(row)
 }
 
 // CreateTask 新建任务。
 func (s *Store) CreateTask(t *model.Task) error {
 	domains, _ := json.Marshal(t.Domains)
+	dnsRoutes, _ := json.Marshal(t.DNSRoutes)
 	deployIDs, _ := json.Marshal(t.DeployIDs)
 	pipeline, _ := json.Marshal(t.Pipeline)
 	targetFlow, _ := json.Marshal(t.TargetFlow)
 	now := nowUTC()
-	id, err := s.DB.InsertID(`INSERT INTO tasks(name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,0,?,?)`,
-		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.CAPoolID, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), normalizeFlowMode(t.FlowMode), string(targetFlow), boolInt(t.Enabled), t.Status, t.Message, now, now, now)
+	id, err := s.DB.InsertID(`INSERT INTO tasks(name,domains,challenge,dns_account_id,dns_routes,ca,ca_pool_id,key_type,no_key_storage,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,0,?,?)`,
+		t.Name, string(domains), t.Challenge, t.DNSAccountID, string(dnsRoutes), t.CA, t.CAPoolID, t.KeyType, boolInt(t.NoKeyStorage), boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), normalizeFlowMode(t.FlowMode), string(targetFlow), boolInt(t.Enabled), t.Status, t.Message, now, now, now)
 	if err != nil {
 		return err
 	}
@@ -804,11 +851,12 @@ func (s *Store) CreateTask(t *model.Task) error {
 // UpdateTask 更新任务基础配置。
 func (s *Store) UpdateTask(t *model.Task) error {
 	domains, _ := json.Marshal(t.Domains)
+	dnsRoutes, _ := json.Marshal(t.DNSRoutes)
 	deployIDs, _ := json.Marshal(t.DeployIDs)
 	pipeline, _ := json.Marshal(t.Pipeline)
 	targetFlow, _ := json.Marshal(t.TargetFlow)
-	_, err := s.DB.Exec(`UPDATE tasks SET name=?,domains=?,challenge=?,dns_account_id=?,ca=?,ca_pool_id=?,key_type=?,auto_renew=?,renew_days=?,deploy_ids=?,pipeline=?,flow_mode=?,target_flow=?,enabled=?,updated_at=? WHERE id=?`,
-		t.Name, string(domains), t.Challenge, t.DNSAccountID, t.CA, t.CAPoolID, t.KeyType, boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), normalizeFlowMode(t.FlowMode), string(targetFlow), boolInt(t.Enabled), nowUTC(), t.ID)
+	_, err := s.DB.Exec(`UPDATE tasks SET name=?,domains=?,challenge=?,dns_account_id=?,dns_routes=?,ca=?,ca_pool_id=?,key_type=?,no_key_storage=?,auto_renew=?,renew_days=?,deploy_ids=?,pipeline=?,flow_mode=?,target_flow=?,enabled=?,updated_at=? WHERE id=?`,
+		t.Name, string(domains), t.Challenge, t.DNSAccountID, string(dnsRoutes), t.CA, t.CAPoolID, t.KeyType, boolInt(t.NoKeyStorage), boolInt(t.AutoRenew), t.RenewDays, string(deployIDs), string(pipeline), normalizeFlowMode(t.FlowMode), string(targetFlow), boolInt(t.Enabled), nowUTC(), t.ID)
 	return err
 }
 
@@ -877,7 +925,7 @@ func (s *Store) SetTasksEnabled(ids []int64, enabled bool, nextRuns map[int64]*t
 
 // DueTasks 返回到达执行时间的任务。
 func (s *Store) DueTasks(now time.Time) ([]model.Task, error) {
-	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,ca,ca_pool_id,key_type,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at
+	rows, err := s.DB.Query(`SELECT id,name,domains,challenge,dns_account_id,dns_routes,ca,ca_pool_id,key_type,no_key_storage,auto_renew,renew_days,deploy_ids,pipeline,flow_mode,target_flow,enabled,status,message,last_run_at,next_run_at,cert_id,created_at,updated_at
 		FROM tasks WHERE enabled=1 AND status<>'running' AND next_run_at IS NOT NULL AND next_run_at<=? ORDER BY next_run_at LIMIT 10`, now)
 	if err != nil {
 		return nil, err
@@ -903,19 +951,23 @@ func normalizeFlowMode(value string) string {
 
 func scanTask(row interface{ Scan(...any) error }) (*model.Task, error) {
 	var t model.Task
-	var domainsJSON, deployJSON, pipelineJSON, targetFlowJSON string
-	var autoRenew, enabled int
+	var domainsJSON, dnsRoutesJSON, deployJSON, pipelineJSON, targetFlowJSON string
+	var autoRenew, enabled, noKeyStorage int
 	var lastRun, nextRun sql.NullTime
-	err := row.Scan(&t.ID, &t.Name, &domainsJSON, &t.Challenge, &t.DNSAccountID, &t.CA, &t.CAPoolID, &t.KeyType, &autoRenew, &t.RenewDays, &deployJSON, &pipelineJSON, &t.FlowMode, &targetFlowJSON, &enabled, &t.Status, &t.Message, &lastRun, &nextRun, &t.CertID, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.Name, &domainsJSON, &t.Challenge, &t.DNSAccountID, &dnsRoutesJSON, &t.CA, &t.CAPoolID, &t.KeyType, &noKeyStorage, &autoRenew, &t.RenewDays, &deployJSON, &pipelineJSON, &t.FlowMode, &targetFlowJSON, &enabled, &t.Status, &t.Message, &lastRun, &nextRun, &t.CertID, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(domainsJSON), &t.Domains)
+	_ = json.Unmarshal([]byte(dnsRoutesJSON), &t.DNSRoutes)
 	_ = json.Unmarshal([]byte(deployJSON), &t.DeployIDs)
 	_ = json.Unmarshal([]byte(pipelineJSON), &t.Pipeline)
 	_ = json.Unmarshal([]byte(targetFlowJSON), &t.TargetFlow)
 	if t.Domains == nil {
 		t.Domains = []string{}
+	}
+	if t.DNSRoutes == nil {
+		t.DNSRoutes = []model.DNSRoute{}
 	}
 	if t.DeployIDs == nil {
 		t.DeployIDs = []int64{}
@@ -924,6 +976,7 @@ func scanTask(row interface{ Scan(...any) error }) (*model.Task, error) {
 		t.Pipeline = []model.PipelineNode{}
 	}
 	t.FlowMode = normalizeFlowMode(t.FlowMode)
+	t.NoKeyStorage = noKeyStorage == 1
 	t.AutoRenew = autoRenew == 1
 	t.Enabled = enabled == 1
 	if lastRun.Valid {
@@ -1577,6 +1630,15 @@ type LogFilter struct {
 	To       *time.Time
 }
 
+// likeEscapeClause 返回 LIKE 的转义字符声明。MySQL 默认把反斜杠作为
+// 字符串转义符，SQL 字面量需要写成 '\\'；SQLite/PostgreSQL 使用 '\'。
+func (s *Store) likeEscapeClause() string {
+	if s.DB != nil && s.DB.Dialect().IsMySQL() {
+		return `ESCAPE '\\'`
+	}
+	return `ESCAPE '\'`
+}
+
 func (s *Store) likeOperator() string {
 	if s.DB != nil && s.DB.Dialect().IsPostgres() {
 		// SQLite 的 LIKE 默认对 ASCII 大小写不敏感，PG 用 ILIKE 保持搜索体验一致。
@@ -1588,7 +1650,7 @@ func (s *Store) likeOperator() string {
 // logFilterWhere 构造过滤条件，供列表与导出复用。
 // Category 为空时按操作日志处理，保持旧接口只返回业务日志的行为；
 // 系统日志的调用方会显式传入 runtime。
-func logFilterWhere(filter LogFilter, likeOp string) (string, []any) {
+func logFilterWhere(filter LogFilter, likeOp, escapeClause string) (string, []any) {
 	if likeOp == "" {
 		likeOp = "LIKE"
 	}
@@ -1620,7 +1682,7 @@ func logFilterWhere(filter LogFilter, likeOp string) (string, []any) {
 		// 两类日志都同时匹配正文与附加字段：操作日志的 message 是 i18n 信封，
 		// 参数值（任务名、域名等）也存放在其中，可以直接被搜索到。
 		pattern := "%" + escapeLike(filter.Query) + "%"
-		clauses = append(clauses, `(message `+likeOp+` ? ESCAPE '\' OR fields `+likeOp+` ? ESCAPE '\')`)
+		clauses = append(clauses, `(message `+likeOp+` ? `+escapeClause+` OR fields `+likeOp+` ? `+escapeClause+`)`)
 		args = append(args, pattern, pattern)
 	}
 	if filter.From != nil {
@@ -1639,7 +1701,7 @@ func (s *Store) ListLogsFiltered(filter LogFilter, limit, offset int) ([]model.L
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	where, whereArgs := logFilterWhere(filter, s.likeOperator())
+	where, whereArgs := logFilterWhere(filter, s.likeOperator(), s.likeEscapeClause())
 	var total int64
 	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM logs`+where, whereArgs...).Scan(&total); err != nil {
 		return nil, 0, err
@@ -1794,7 +1856,7 @@ func (s *Store) ExportLogs(filter LogFilter, maxID, beforeID int64, limit int) (
 	if limit <= 0 || limit > 2000 {
 		limit = 1000
 	}
-	where, whereArgs := logFilterWhere(filter, s.likeOperator())
+	where, whereArgs := logFilterWhere(filter, s.likeOperator(), s.likeEscapeClause())
 	clauses := []string{"id<=?"}
 	args := []any{maxID}
 	if beforeID > 0 {

@@ -33,6 +33,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Check CSR client
+        run: |
+          python -m py_compile scripts/csr_client.py scripts/check-csr-client-i18n.py scripts/tests/test_csr_client.py
+          python scripts/check-csr-client-i18n.py
+          python -m unittest discover -s scripts/tests -v
+
       - name: Check gofmt
         shell: bash
         run: |

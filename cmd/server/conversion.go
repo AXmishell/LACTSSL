@@ -23,7 +23,7 @@ func openConfiguredDB(cfg *config.Config) (*db.Handle, error) {
 		MaxIdleConns:    cfg.DBMaxIdle,
 		ConnMaxLifetime: cfg.DBConnMaxLife,
 		Migrate:         true,
-		SingleInstance:  cfg.DBDriver == "postgres" && !cfg.DBAllowMulti,
+		SingleInstance:  (cfg.DBDriver == "postgres" || cfg.DBDriver == "mysql") && !cfg.DBAllowMulti,
 	})
 }
 
@@ -84,10 +84,10 @@ func finalizeConversion(cfg *config.Config, conn *db.Handle, state *dbconvert.St
 }
 
 // cleanupConvertedSource 删除已完成切换的旧 SQLite 文件。清理失败只记录日志，
-// 不阻止服务启动；下次启动会重试。只有当前确实运行在目标 PostgreSQL 上才删除，
+// 不阻止服务启动；下次启动会重试。只有当前确实运行在目标后端上才删除，
 // 避免配置被手工改回 SQLite 后误删正在使用的库文件。
 func cleanupConvertedSource(dataDir, currentDriver string, state *dbconvert.State) {
-	// 只清理 SQLite 源库；PostgreSQL → PostgreSQL 保留原库，供管理员确认后手工清理。
+	// 只清理 SQLite 源库；PostgreSQL/MySQL 源库保留，供管理员确认后手工清理。
 	if state.SourceRemoved || state.FromDriver != db.SQLite.String() || currentDriver != state.ToDriver {
 		return
 	}

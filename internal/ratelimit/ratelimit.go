@@ -39,6 +39,8 @@ const (
 	Reauth                 = "reauth"
 	APIIP                  = "api_ip"
 	APIAnonymous           = "api_anonymous"
+	APIKeyIPDenied         = "api_key_ip_denied"
+	APIKeyDNSDenied        = "api_key_dns_denied"
 	Entry                  = "entry"
 	SetupConfig            = "setup_config"
 	SetupRestart           = "setup_restart"
@@ -75,17 +77,20 @@ const (
 )
 
 var defaultRules = map[string]Rule{
-	Setup:                  {Max: 5, Window: time.Minute},
-	LoginIP:                {Max: 10, Window: 5 * time.Minute},
-	LoginAccount:           {Max: 20, Window: 15 * time.Minute},
-	LoginTOTP:              {Max: 5, Window: 10 * time.Minute},
-	ForgotIP:               {Max: 5, Window: 10 * time.Minute},
-	ForgotAccount:          {Max: 3, Window: time.Hour},
-	PasskeyLoginBegin:      {Max: 20, Window: 5 * time.Minute},
-	PasskeyLoginFail:       {Max: 10, Window: 5 * time.Minute},
-	Reauth:                 {Max: 10, Window: 10 * time.Minute},
-	APIIP:                  {Max: 600, Window: time.Minute},
-	APIAnonymous:           {Max: 120, Window: time.Minute},
+	Setup:             {Max: 5, Window: time.Minute},
+	LoginIP:           {Max: 10, Window: 5 * time.Minute},
+	LoginAccount:      {Max: 20, Window: 15 * time.Minute},
+	LoginTOTP:         {Max: 5, Window: 10 * time.Minute},
+	ForgotIP:          {Max: 5, Window: 10 * time.Minute},
+	ForgotAccount:     {Max: 3, Window: time.Hour},
+	PasskeyLoginBegin: {Max: 20, Window: 5 * time.Minute},
+	PasskeyLoginFail:  {Max: 10, Window: 5 * time.Minute},
+	Reauth:            {Max: 10, Window: 10 * time.Minute},
+	APIIP:             {Max: 600, Window: time.Minute},
+	APIAnonymous:      {Max: 120, Window: time.Minute},
+	// API 密钥 IP 拒绝日志限频：同一密钥 10 分钟内最多写 10 条，避免日志洪水。
+	APIKeyIPDenied:         {Max: 10, Window: 10 * time.Minute},
+	APIKeyDNSDenied:        {Max: 10, Window: 10 * time.Minute},
 	Entry:                  {Max: 60, Window: time.Minute},
 	SetupConfig:            {Max: 10, Window: time.Minute},
 	SetupRestart:           {Max: 3, Window: time.Minute},

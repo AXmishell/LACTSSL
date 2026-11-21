@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -60,7 +61,7 @@ func (s *Server) passkeyOrigin(c *gin.Context) (origin, rpID string, err error) 
 			return "", "", i18n.E("api.error.passkey_origin_invalid")
 		}
 		scheme := "http"
-		if c.Request.TLS != nil || (s.isTrustedProxy(c.Request.RemoteAddr) &&
+		if c.Request.TLS != nil || (s.isTrustedRequest(c) &&
 			strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")) {
 			scheme = "https"
 		}
@@ -198,7 +199,7 @@ func (s *Server) handlePasskeyAvailability(c *gin.Context) {
 }
 
 func (s *Server) handlePasskeyLoginBegin(c *gin.Context) {
-	if allowed, wait := s.allow(ratelimit.PasskeyLoginBegin, "passkey:login:begin:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.PasskeyLoginBegin, "passkey:login:begin:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -248,8 +249,9 @@ func (s *Server) handlePasskeyLoginFinish(c *gin.Context) {
 	}
 	webauthnUser, credential, err := instance.ValidatePasskeyLogin(s.findPasskeyUser, ceremony.Session, parsed)
 	if err != nil {
-		s.Store.AddLogKey("auth", 0, "warning", "log.auth.passkey_login_failed", map[string]any{"ip": c.ClientIP()})
-		if allowed, wait := s.allow(ratelimit.PasskeyLoginFail, "passkey:login:fail:"+clientRateKey(c)); !allowed {
+		s.Store.AddLogKey("auth", 0, "warning", "log.auth.passkey_login_failed", map[string]any{"ip": s.clientIP(c)})
+		s.notifyLoginFailure(c, 0, "passkey")
+		if allowed, wait := s.allow(ratelimit.PasskeyLoginFail, "passkey:login:fail:"+s.clientRateKey(c)); !allowed {
 			rateLimited(c, wait)
 			return
 		}
@@ -271,10 +273,12 @@ func (s *Server) handlePasskeyLoginFinish(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.token_failed")
 		return
 	}
-	s.limiter.Reset("passkey:login:begin:" + clientRateKey(c))
-	s.limiter.Reset("passkey:login:fail:" + clientRateKey(c))
+	s.limiter.Reset("passkey:login:begin:" + s.clientRateKey(c))
+	s.limiter.Reset("passkey:login:fail:" + s.clientRateKey(c))
 	user.StrongAuth = true
-	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.passkey_login_success", map[string]any{"ip": c.ClientIP()})
+	s.resetLoginFailures(c, user.ID)
+	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.passkey_login_success", map[string]any{"ip": s.clientIP(c)})
+	s.notifyLogin(c, user, model.SecurityEventLoginPasskey, "passkey", false)
 	ok(c, gin.H{"expire_at": expire, "user": user})
 }
 
@@ -421,6 +425,11 @@ func (s *Server) handlePasskeyRegisterFinish(c *gin.Context) {
 		return
 	}
 	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.passkey_added", map[string]any{"name": item.Name})
+	remaining, _ := s.Store.CountPasskeys(user.ID)
+	s.notifySecurityEvent(c, user.ID, model.SecurityEventPasskeyAdded, map[string]string{
+		"name":      item.Name,
+		"remaining": fmt.Sprint(remaining),
+	})
 	ok(c, item)
 }
 
@@ -452,5 +461,8 @@ func (s *Server) handlePasskeyDelete(c *gin.Context) {
 	}
 	count, _ := s.Store.CountPasskeys(user.ID)
 	s.Store.AddLogKey("auth", user.ID, "warning", "log.auth.passkey_deleted", nil)
+	s.notifySecurityEvent(c, user.ID, model.SecurityEventPasskeyDeleted, map[string]string{
+		"remaining": fmt.Sprint(count),
+	})
 	ok(c, gin.H{"deleted": true, "remaining": count})
 }

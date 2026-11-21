@@ -24,7 +24,7 @@ func (s *Server) issueSessionStrong(c *gin.Context, user *model.User, strong boo
 	session := &model.Session{
 		ID:         id,
 		UserID:     user.ID,
-		IP:         c.ClientIP(),
+		IP:         s.clientIP(c),
 		UserAgent:  c.Request.UserAgent(),
 		StrongAuth: strong,
 		CreatedAt:  now,

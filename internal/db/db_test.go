@@ -55,6 +55,70 @@ func TestOpenMigratesTasksPipelineColumn(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesAPIKeyIPColumns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-api-keys.db")
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`CREATE TABLE api_keys (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		prefix TEXT NOT NULL,
+		token_hash TEXT NOT NULL UNIQUE,
+		scopes TEXT NOT NULL DEFAULT '[]',
+		enabled INTEGER NOT NULL DEFAULT 1,
+		expires_at DATETIME,
+		last_used_at DATETIME,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`PRAGMA user_version = 13`); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	conn, err := Open(path)
+	if err != nil {
+		t.Fatalf("打开旧数据库失败: %v", err)
+	}
+	defer conn.Close()
+
+	rows, err := conn.Query(`PRAGMA table_info(api_keys)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	found := map[string]bool{}
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			colType    string
+			notNull    int
+			defaultVal any
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultVal, &primaryKey); err != nil {
+			t.Fatal(err)
+		}
+		found[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"allowed_ips", "last_used_ip"} {
+		if !found[column] {
+			t.Fatalf("旧数据库未补充 api_keys.%s 字段", column)
+		}
+	}
+}
+
 func TestOpenCreatesACMETables(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "acme.db")
 	conn, err := Open(path)

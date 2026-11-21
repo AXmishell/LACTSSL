@@ -146,7 +146,7 @@ func (m *Manager) DiscoverTargetSites(ctx context.Context, sources []model.Targe
 }
 
 // PreviewTargetFlow 读取站点、应用选取规则并生成证书分组预览。
-func (m *Manager) PreviewTargetFlow(ctx context.Context, cfg model.TargetFlowConfig, locale i18n.Locale, publicCA bool) (model.TargetFlowPreview, error) {
+func (m *Manager) PreviewTargetFlow(ctx context.Context, cfg model.TargetFlowConfig, locale i18n.Locale, publicCA bool, noKeyStorage bool) (model.TargetFlowPreview, error) {
 	discovery, err := m.DiscoverTargetSites(ctx, cfg.Sources, string(locale))
 	if err != nil {
 		return model.TargetFlowPreview{}, err
@@ -166,7 +166,7 @@ func (m *Manager) PreviewTargetFlow(ctx context.Context, cfg model.TargetFlowCon
 		return model.TargetFlowPreview{}, err
 	}
 	discovery.Warnings = append(discovery.Warnings, warnings...)
-	m.assignReusableCertificates(groups, 0, nil)
+	m.assignReusableCertificates(groups, 0, nil, noKeyStorage)
 	covered := make(map[string]bool)
 	for index := range groups {
 		if groups[index].ReuseCertID > 0 {
@@ -558,7 +558,12 @@ func duplicateGroupWarnings(groups []model.CertGroup, locale i18n.Locale) []stri
 
 // assignReusableCertificates 为目标组查找覆盖其全部域名且仍可复用的证书。
 // 泛域名证书可以覆盖同一主域名下的子域名，从而避免因新增站点重签整张证书。
-func (m *Manager) assignReusableCertificates(groups []model.CertGroup, renewDays int, allowedCAs map[string]bool) {
+func (m *Manager) assignReusableCertificates(groups []model.CertGroup, renewDays int, allowedCAs map[string]bool, noKeyStorage bool) {
+	if noKeyStorage {
+		// 未保存私钥的证书无法再次用于部署；而本次签发后私钥不会落库，
+		// 复用旧证书也无法完成后续部署，直接跳过复用。
+		return
+	}
 	certs, err := m.Store.ListCertificates()
 	if err != nil || len(certs) == 0 {
 		return

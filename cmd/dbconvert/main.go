@@ -1,4 +1,4 @@
-// Command dbconvert 在服务停止时执行 SQLite 与 PostgreSQL 之间的逻辑切换。
+// Command dbconvert 在服务停止时执行 SQLite、PostgreSQL 与 MySQL 之间的逻辑切换。
 // Web 管理端的“在线切换”复用 internal/dbconvert 的同一套核心实现。
 package main
 
@@ -20,10 +20,10 @@ import (
 func main() {
 	var (
 		configPath      = flag.String("config", config.DefaultPath, "config.yaml 路径，用于读取 data_dir 与 encryption salt")
-		sourceDriver    = flag.String("source-driver", "sqlite", "源数据库驱动：sqlite 或 postgres")
-		source          = flag.String("source", "", "源 SQLite 路径或 PostgreSQL DSN")
-		targetDriver    = flag.String("target-driver", "postgres", "目标数据库驱动：sqlite 或 postgres")
-		target          = flag.String("target", "", "目标 SQLite 路径或 PostgreSQL DSN")
+		sourceDriver    = flag.String("source-driver", "sqlite", "源数据库驱动：sqlite、postgres 或 mysql")
+		source          = flag.String("source", "", "源 SQLite 路径或 PostgreSQL/MySQL DSN")
+		targetDriver    = flag.String("target-driver", "postgres", "目标数据库驱动：sqlite、postgres 或 mysql")
+		target          = flag.String("target", "", "目标 SQLite 路径或 PostgreSQL/MySQL DSN")
 		dataDir         = flag.String("data-dir", "", "数据目录；留空使用配置中的 data_dir")
 		force           = flag.Bool("force", false, "目标库非空时清空当前 schema（危险）")
 		allowSameDriver = flag.Bool("allow-same-driver", false, "允许同构迁移（SQLite→SQLite、PostgreSQL→PostgreSQL），目标必须为空")

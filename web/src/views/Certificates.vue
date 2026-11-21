@@ -18,12 +18,19 @@
       <div class="k-card table-fill" style="padding: 0; overflow: hidden">
         <div class="filter-row">
           <el-radio-group v-model="filter" size="default">
-            <el-radio-button value="all">{{ t('certs.all', { count: certs.length }) }}</el-radio-button>
+            <el-radio-button value="all">{{ t('certs.all', { count: sourceCerts.length }) }}</el-radio-button>
             <el-radio-button value="valid">{{ t('certs.valid', { count: counts.valid }) }}</el-radio-button>
             <el-radio-button value="expiring">{{ t('certs.expiring30', { count: counts.expiring }) }}</el-radio-button>
             <el-radio-button value="expired">{{ t('certs.expired', { count: counts.expired }) }}</el-radio-button>
           </el-radio-group>
-          <span class="muted">{{ t('certs.count', { count: filtered.length }) }}</span>
+          <div class="filter-meta">
+            <el-select v-model="sourceFilter" clearable :placeholder="t('certs.allSources')" style="width: 150px">
+              <el-option :label="t('certs.sourceTask')" value="task" />
+              <el-option :label="t('certs.sourceACME')" value="acme" />
+              <el-option :label="t('certs.sourceCSR')" value="csr" />
+            </el-select>
+            <span class="muted">{{ t('certs.count', { count: filtered.length }) }}</span>
+          </div>
         </div>
 
         <div class="table-scroll">
@@ -45,9 +52,19 @@
                 </div>
               </template>
             </el-table-column>
+            <el-table-column width="76" :label="t('certs.id')">
+              <template #default="{ row }">
+                <span class="mono">{{ row.id }}</span>
+              </template>
+            </el-table-column>
             <el-table-column width="140" :label="t('certs.issuer')">
               <template #default="{ row }">
                 <span class="tag-soft tag-gray">{{ caLabel(row.ca) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column width="120" :label="t('certs.source')">
+              <template #default="{ row }">
+                <el-tag :type="sourceTagType(row.source)" effect="plain" round size="small">{{ sourceLabel(row.source) }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column width="190" :label="t('certs.expiresAt')">
@@ -146,7 +163,8 @@
               <el-descriptions-item :label="t('certs.notAfter')">{{ formatDate(detail?.not_after) }}</el-descriptions-item>
               <el-descriptions-item :label="t('certs.issuer')">{{ detail?.issuer }}</el-descriptions-item>
               <el-descriptions-item :label="t('certs.caId')">{{ caLabel(detail?.ca) }}</el-descriptions-item>
-              <el-descriptions-item :label="t('certs.savedAt')" :span="2">{{ formatDate(detail?.created_at) }}</el-descriptions-item>
+              <el-descriptions-item :label="t('certs.source')">{{ sourceLabel(detail?.source) }}</el-descriptions-item>
+              <el-descriptions-item :label="t('certs.savedAt')">{{ formatDate(detail?.created_at) }}</el-descriptions-item>
             </el-descriptions>
 
             <div class="analysis-box mt-20" v-if="analysis">
@@ -363,6 +381,7 @@ const { t } = useI18n()
 const loading = ref(false)
 const certs = ref<Certificate[]>([])
 const filter = ref('all')
+const sourceFilter = ref('')
 const keyword = ref('')
 const deployAccounts = ref<DeployAccount[]>([])
 
@@ -406,9 +425,15 @@ const cleanupForm = reactive<CleanupForm>({
   keep_latest_per_task: false
 })
 
+// 来源筛选独立于状态筛选，先应用来源条件，让状态计数与列表保持一致。
+const sourceCerts = computed(() => {
+  if (!sourceFilter.value) return certs.value
+  return certs.value.filter((cert) => sourceOf(cert) === sourceFilter.value)
+})
+
 const counts = computed(() => {
   let valid = 0, expiring = 0, expired = 0
-  for (const cert of certs.value) {
+  for (const cert of sourceCerts.value) {
     if (isExpired(cert.not_after)) expired++
     else if (daysLeft(cert.not_after) <= 30) expiring++
     else valid++
@@ -418,7 +443,7 @@ const counts = computed(() => {
 
 const filtered = computed(() => {
   const key = keyword.value.trim().toLowerCase()
-  return certs.value.filter((cert) => {
+  return sourceCerts.value.filter((cert) => {
     const expired = isExpired(cert.not_after)
     const left = daysLeft(cert.not_after)
     if (filter.value === 'valid' && (expired || left <= 30)) return false
@@ -508,6 +533,32 @@ function caLabel(value?: string): string {
   const publicCA = (state.meta?.cas || []).find((item) => item.value === value)
   if (publicCA) return publicCA.label
   return (state.meta?.private_cas || []).find((item) => item.value === value)?.label || value
+}
+// 旧证书没有 source 时按任务签发处理，与后端落库默认值保持一致。
+function sourceOf(cert: Certificate): string {
+  return cert.source || 'task'
+}
+function sourceLabel(value?: string): string {
+  switch (value || 'task') {
+    case 'acme':
+      return t('certs.sourceACME')
+    case 'csr':
+      return t('certs.sourceCSR')
+    case 'task':
+      return t('certs.sourceTask')
+    default:
+      return value || t('certs.sourceTask')
+  }
+}
+function sourceTagType(value?: string): 'success' | 'warning' | 'info' {
+  switch (value || 'task') {
+    case 'acme':
+      return 'warning'
+    case 'csr':
+      return 'info'
+    default:
+      return 'success'
+  }
 }
 function deployLabel(value?: string): string {
   return (state.meta?.deploy_types || []).find((item) => item.value === value)?.label || value || ''
@@ -915,6 +966,15 @@ onMounted(load)
 }
 .filter-row .muted {
   margin-right: 12px;
+}
+.filter-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.filter-meta .muted {
+  margin-right: 0;
 }
 /* 分段按钮自身已有描边，不再叠加一条底线 */
 .filter-row :deep(.el-radio-group) {

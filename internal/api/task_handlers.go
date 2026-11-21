@@ -15,20 +15,24 @@ import (
 )
 
 type taskBody struct {
-	Name         string                 `json:"name"`
-	Domains      []string               `json:"domains"`
-	Challenge    string                 `json:"challenge"`
-	DNSAccountID int64                  `json:"dns_account_id"`
-	CA           string                 `json:"ca"`
-	CAPoolID     int64                  `json:"ca_pool_id"`
-	KeyType      string                 `json:"key_type"`
-	AutoRenew    bool                   `json:"auto_renew"`
-	RenewDays    int                    `json:"renew_days"`
-	DeployIDs    []int64                `json:"deploy_ids"`
-	Pipeline     []model.PipelineNode   `json:"pipeline"`
-	FlowMode     string                 `json:"flow_mode"`
-	TargetFlow   model.TargetFlowConfig `json:"target_flow"`
-	Enabled      bool                   `json:"enabled"`
+	Name         string           `json:"name"`
+	Domains      []string         `json:"domains"`
+	Challenge    string           `json:"challenge"`
+	DNSAccountID int64            `json:"dns_account_id"`
+	DNSRoutes    []model.DNSRoute `json:"dns_routes"`
+	// preservedDNSRoutes 仅供更新任务时沿用已保存的多账户快照，不来自客户端 JSON。
+	preservedDNSRoutes []model.DNSRoute
+	CA                 string                 `json:"ca"`
+	CAPoolID           int64                  `json:"ca_pool_id"`
+	KeyType            string                 `json:"key_type"`
+	NoKeyStorage       bool                   `json:"no_key_storage"`
+	AutoRenew          bool                   `json:"auto_renew"`
+	RenewDays          int                    `json:"renew_days"`
+	DeployIDs          []int64                `json:"deploy_ids"`
+	Pipeline           []model.PipelineNode   `json:"pipeline"`
+	FlowMode           string                 `json:"flow_mode"`
+	TargetFlow         model.TargetFlowConfig `json:"target_flow"`
+	Enabled            bool                   `json:"enabled"`
 }
 
 // applyNodeConfig 返回任务流程中申请证书节点的配置。
@@ -39,6 +43,91 @@ func applyNodeConfig(nodes []model.PipelineNode) (model.PipelineConfig, bool) {
 		}
 	}
 	return model.PipelineConfig{}, false
+}
+
+// taskBodyDNSAccountID 提取请求实际引用的 DNS 账户。
+// 顶层字段为空时兼容只提交任务流程的客户端，从申请节点读取。
+func taskBodyDNSAccountID(body *taskBody) int64 {
+	if body.DNSAccountID > 0 {
+		return body.DNSAccountID
+	}
+	if cfg, found := applyNodeConfig(body.Pipeline); found {
+		return cfg.DNSAccountID
+	}
+	return 0
+}
+
+// taskBodyDNSAccountIDs 提取任务实际会使用的全部 DNS 账户。
+func taskBodyDNSAccountIDs(body *taskBody) []int64 {
+	ids := service.DNSRouteAccountIDs(body.DNSRoutes)
+	if len(ids) == 0 && body.DNSAccountID > 0 {
+		ids = []int64{body.DNSAccountID}
+	}
+	return ids
+}
+
+// taskBodyDNSAccountIDs 返回本次请求涉及的全部账户；目标流程自动路由时
+// 使用当前绑定账户集合做密钥范围校验。
+func (s *Server) taskBodyDNSAccountIDs(body *taskBody) []int64 {
+	ids := taskBodyDNSAccountIDs(body)
+	if len(ids) > 0 || body.FlowMode != model.FlowTargetBeta {
+		return ids
+	}
+	bindings, err := s.Store.ListEnabledDNSZoneBindings()
+	if err != nil {
+		return nil
+	}
+	return service.DNSRouteAccountIDs(bindingsToRoutes(bindings))
+}
+
+// taskUsesDNSAccount 判断任务是否引用指定 DNS 账户。
+func taskUsesDNSAccount(task *model.Task, id int64) bool {
+	if task == nil || id <= 0 {
+		return false
+	}
+	if task.DNSAccountID == id {
+		return true
+	}
+	for _, route := range task.DNSRoutes {
+		if route.DNSAccountID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// taskDNSAccountIDs 提取已保存任务实际会使用的全部 DNS 账户。
+// 目标流程 Beta 自动路由时返回当前全部绑定账户，避免受限密钥在运行时绕过白名单。
+func (s *Server) taskDNSAccountIDs(task *model.Task) []int64 {
+	if task == nil {
+		return nil
+	}
+	ids := service.DNSRouteAccountIDs(task.DNSRoutes)
+	if len(ids) > 0 {
+		return ids
+	}
+	if task.DNSAccountID > 0 {
+		return []int64{task.DNSAccountID}
+	}
+	if task.FlowMode == model.FlowTargetBeta {
+		bindings, err := s.Store.ListEnabledDNSZoneBindings()
+		if err != nil {
+			return nil
+		}
+		return service.DNSRouteAccountIDs(bindingsToRoutes(bindings))
+	}
+	return nil
+}
+
+func bindingsToRoutes(bindings []model.DNSZoneBinding) []model.DNSRoute {
+	routes := make([]model.DNSRoute, 0, len(bindings))
+	for _, binding := range bindings {
+		if !binding.Enabled || binding.DNSAccountID <= 0 {
+			continue
+		}
+		routes = append(routes, model.DNSRoute{DNSAccountID: binding.DNSAccountID})
+	}
+	return routes
 }
 
 // requiresDeployExecution 判断任务流程是否会实际执行部署节点。
@@ -98,6 +187,9 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		if body.KeyType == "" {
 			body.KeyType = cfg.KeyType
 		}
+		if cfg.NoKeyStorage {
+			body.NoKeyStorage = true
+		}
 		if body.RenewDays <= 0 {
 			body.RenewDays = cfg.RenewDays
 		}
@@ -106,6 +198,9 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		}
 	}
 	body.Domains = util.NormalizeDomains(body.Domains)
+	// 路由必须由服务端按绑定解析，忽略客户端提交的快照，避免绕过账户白名单。
+	preservedRoutes := body.preservedDNSRoutes
+	body.DNSRoutes = nil
 	body.FlowMode = normalizeFlowMode(body.FlowMode)
 	if body.FlowMode != model.FlowStandard && body.FlowMode != model.FlowTargetBeta {
 		return i18n.E("task.error.flow_mode_unsupported", "mode", body.FlowMode)
@@ -171,8 +266,34 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		}
 	}
 	if !isPrivateCA {
-		if _, err := s.Store.GetDNSAccount(body.DNSAccountID); err != nil {
-			return i18n.E("task.error.dns_account_required")
+		if body.FlowMode == model.FlowTargetBeta && len(body.Domains) == 0 {
+			// 目标流程的域名在运行时由站点发现结果决定，保存时只校验显式账户。
+			if body.DNSAccountID > 0 {
+				if _, err := s.Store.GetDNSAccount(body.DNSAccountID); err != nil {
+					return i18n.E("task.error.dns_account_required")
+				}
+			}
+		} else {
+			routes := preservedRoutes
+			if body.DNSAccountID > 0 || !service.DNSRoutesCoverDomains(routes, body.Domains) {
+				var err error
+				routes, err = s.resolveTaskDNSRoutes(body.Domains, body.DNSAccountID)
+				if err != nil {
+					return err
+				}
+			}
+			body.DNSRoutes = routes
+			accountIDs := service.DNSRouteAccountIDs(routes)
+			if len(accountIDs) == 1 {
+				body.DNSAccountID = accountIDs[0]
+			} else {
+				body.DNSAccountID = 0
+			}
+			for _, accountID := range accountIDs {
+				if _, err := s.Store.GetDNSAccount(accountID); err != nil {
+					return i18n.E("task.error.dns_account_required")
+				}
+			}
 		}
 		if body.CAPoolID == 0 {
 			if _, err := s.Manager.ResolveCA(body.CA); err != nil {
@@ -218,6 +339,19 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 		}
 	}
 	return nil
+}
+
+// resolveTaskDNSRoutes 为任务域名生成 DNS 路由。
+// 显式账户保持旧语义；未指定账户时按管理员维护的域名绑定逐域名解析。
+func (s *Server) resolveTaskDNSRoutes(domains []string, explicitID int64) ([]model.DNSRoute, error) {
+	if explicitID > 0 {
+		return service.ExplicitDNSRoutesForDomains(domains, explicitID)
+	}
+	bindings, err := s.Store.ListEnabledDNSZoneBindings()
+	if err != nil {
+		return nil, err
+	}
+	return service.ResolveDNSRoutesForDomains(domains, bindings)
 }
 
 func normalizeFlowMode(value string) string {
@@ -372,6 +506,27 @@ func validateFieldsExcept(fields []service.FieldDef, config map[string]string, s
 	return nil
 }
 
+// sameDomainSet 比较两组域名在规范化后是否完全一致（顺序无关）。
+func sameDomainSet(left, right []string) bool {
+	leftSet := make(map[string]bool)
+	for _, domain := range util.NormalizeDomains(left) {
+		leftSet[domain] = true
+	}
+	rightSet := make(map[string]bool)
+	for _, domain := range util.NormalizeDomains(right) {
+		rightSet[domain] = true
+	}
+	if len(leftSet) != len(rightSet) {
+		return false
+	}
+	for domain := range leftSet {
+		if !rightSet[domain] {
+			return false
+		}
+	}
+	return true
+}
+
 func normalizeStringList(values []string) []string {
 	out := make([]string, 0, len(values))
 	seen := make(map[string]bool, len(values))
@@ -417,6 +572,7 @@ func (s *Server) normalizePipeline(body *taskBody) ([]model.PipelineNode, error)
 			CA:           body.CA,
 			CAPoolID:     body.CAPoolID,
 			KeyType:      body.KeyType,
+			NoKeyStorage: body.NoKeyStorage,
 			AutoRenew:    body.AutoRenew,
 			RenewDays:    body.RenewDays,
 		},
@@ -554,8 +710,16 @@ func (s *Server) createTask(c *gin.Context) {
 		return
 	}
 	// 任务流程可以包含本地部署命令与部署路径。
+	// 在 fillTaskBody 校验账户存在性之前先做授权，避免受限密钥通过
+	// “账户不存在/无权使用”的不同响应枚举管理员保存的账户。
+	if !s.requireAPIKeyDNSAccountUse(c, taskBodyDNSAccountID(&body)) {
+		return
+	}
 	if err := s.fillTaskBody(&body); err != nil {
 		failErr(c, http.StatusBadRequest, err)
+		return
+	}
+	if !s.requireAPIKeyDNSAccountsUse(c, s.taskBodyDNSAccountIDs(&body)) {
 		return
 	}
 	if requiresDeployExecutionFor(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
@@ -575,9 +739,11 @@ func (s *Server) createTask(c *gin.Context) {
 		Domains:      body.Domains,
 		Challenge:    body.Challenge,
 		DNSAccountID: body.DNSAccountID,
+		DNSRoutes:    body.DNSRoutes,
 		CA:           body.CA,
 		CAPoolID:     body.CAPoolID,
 		KeyType:      body.KeyType,
+		NoKeyStorage: body.NoKeyStorage,
 		AutoRenew:    body.AutoRenew,
 		RenewDays:    body.RenewDays,
 		DeployIDs:    body.DeployIDs,
@@ -655,8 +821,19 @@ func (s *Server) updateTask(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
+	if !s.requireAPIKeyDNSAccountUse(c, taskBodyDNSAccountID(&body)) {
+		return
+	}
+	// 域名未变化的更新（例如暂停/启用）沿用已保存的多账户快照，
+	// 避免绑定关系后来调整导致任务被静默改路由。
+	if taskBodyDNSAccountID(&body) == 0 && len(task.DNSRoutes) > 0 && sameDomainSet(body.Domains, task.Domains) {
+		body.preservedDNSRoutes = task.DNSRoutes
+	}
 	if err := s.fillTaskBody(&body); err != nil {
 		failErr(c, http.StatusBadRequest, err)
+		return
+	}
+	if !s.requireAPIKeyDNSAccountsUse(c, s.taskBodyDNSAccountIDs(&body)) {
 		return
 	}
 	// 修改任务本身不会立即执行；只有把含部署节点的任务设为启用时，
@@ -677,9 +854,11 @@ func (s *Server) updateTask(c *gin.Context) {
 	task.Domains = body.Domains
 	task.Challenge = body.Challenge
 	task.DNSAccountID = body.DNSAccountID
+	task.DNSRoutes = body.DNSRoutes
 	task.CA = body.CA
 	task.CAPoolID = body.CAPoolID
 	task.KeyType = body.KeyType
+	task.NoKeyStorage = body.NoKeyStorage
 	task.AutoRenew = body.AutoRenew
 	task.RenewDays = body.RenewDays
 	task.DeployIDs = body.DeployIDs
@@ -728,6 +907,9 @@ func (s *Server) runTask(c *gin.Context) {
 	}
 	if task.Status == "running" {
 		failKey(c, http.StatusBadRequest, "api.error.task_running")
+		return
+	}
+	if !s.requireAPIKeyDNSAccountsUse(c, s.taskDNSAccountIDs(task)) {
 		return
 	}
 	if pipelineUsesPrivateCA(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
@@ -808,6 +990,9 @@ func (s *Server) batchRunTasks(c *gin.Context) {
 			if err != nil {
 				continue
 			}
+			if !s.requireAPIKeyDNSAccountsUse(c, s.taskDNSAccountIDs(task)) {
+				return
+			}
 			pipeline := task.EffectivePipeline()
 			if requiresDeployExecutionFor(task.FlowMode, pipeline, task.TargetFlow) {
 				needsExecute = true
@@ -878,6 +1063,9 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 			task, err := s.Store.GetTask(id)
 			if err != nil {
 				continue
+			}
+			if !s.requireAPIKeyDNSAccountsUse(c, s.taskDNSAccountIDs(task)) {
+				return
 			}
 			pipeline := task.EffectivePipeline()
 			if requiresDeployExecutionFor(task.FlowMode, pipeline, task.TargetFlow) {

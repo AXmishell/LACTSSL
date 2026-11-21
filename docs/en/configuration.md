@@ -56,20 +56,22 @@ log:
 | --- | --- | --- |
 | Listen address, logging, secrets, ACME | `config.yaml` | Restart required after changes |
 | Secure entry | Database; `config.yaml` can override | UI changes take effect immediately; a non-empty `security.entry` overrides at startup |
-| Plugin repository URL/channel/auto-update/public key | Database takes precedence; `config.yaml` provides defaults | Saving on the Plugins page does not write back to the configuration file |
+| Plugin repository URL/channel/auto-update/public key/download proxy | Database takes precedence; `config.yaml` provides defaults | Saving on the Plugins page does not write back to the configuration file |
 | Plugin enablement state | Database allowlist | Preserved after restarts and rescans |
 | System language, notification channels, etc. | Database | Changed in the UI |
 
 ### 1.3 Web configuration editor
 
-After signing in, open **Settings → Configuration file** to edit whitelisted `config.yaml` fields, including the listen address, trusted reverse proxies, `security.public_url`, session persistence, rate limits, ACME, logging, upgrade and plugin runtime settings.
+After signing in, open **Settings → Configuration file** to edit whitelisted `config.yaml` fields, including the listen address, client IP mode, PROXY protocol, trusted reverse proxies, `security.public_url`, session persistence, rate limits, ACME, logging and log archives, upgrade and plugin runtime settings.
 
 - The rate limit tab shows effective rules after merging built-in defaults; saving writes them back to `config.yaml` and takes effect after a restart.
+- Rate limit rules support **Reset to default**: after saving, the corresponding `security.rate_limit.rules.<name>` key is removed from `config.yaml` and the built-in default is restored.
+- `upgrade.program.allow_unsigned` can be enabled in the form, but it skips release signature verification and should only be used in controlled environments.
 - `jwt_secret`, `salt`, `data_dir`, `database.path`, the log file, plugin directories and repository trust roots remain server-side only.
 - A snapshot is created under `<data_dir>/config-backups/` before every save; you can also create one manually. Snapshots contain only `config.yaml`, unlike the encrypted full backup that includes the database.
 - Restoring a snapshot only rewrites whitelisted fields. The current `jwt_secret`, `salt`, `data_dir` and `database.path` remain unchanged, so database decryption is not broken.
 - Restart the service to apply changes. When the listen port changes, the server performs a port preflight; if the new address is unavailable the service may not recover automatically, so keep SSH or console access available.
-- **Trusted reverse proxies** supports auto-detection. Detection only uses the TCP peer address of the current request; headers such as `X-Forwarded-For` are shown for reference and are never added automatically. Configure `security.public_url` when running behind a proxy.
+- **Trusted reverse proxies** supports auto-detection. Detection only uses the TCP peer address of the current request; headers such as `X-Forwarded-For` are shown for reference and are never added automatically. The result distinguishes the saved and currently applied trusted lists and shows the client IP source, skipped trusted entries, and forwarding-header parsing warnings. Configure `security.public_url` when running behind a proxy.
 
 ## 2. Full field example
 
@@ -79,6 +81,12 @@ server:
   host: ""              # Network interface to bind; empty means all interfaces
   port: 8080            # Listen port
   trusted_proxies: []   # Trusted reverse proxy CIDRs
+  client_ip_mode: "auto"  # auto or cloudflare
+  proxy_protocol: false   # Accept PROXY protocol v1/v2 from trusted proxies
+  tls:                    # Main listener TLS; leave empty when the proxy terminates TLS
+    cert: ""
+    key: ""
+    proxy_client_ca: ""   # Optional: client CA for mTLS proxy identity
 
 data_dir: "data"        # Data directory containing the SQLite database
 
@@ -123,6 +131,8 @@ security:
       login_ip: {max: 10, window_seconds: 300}
       login_account: {max: 20, window_seconds: 900}
       api_ip: {max: 600, window_seconds: 60}
+      api_key_ip_denied: {max: 10, window_seconds: 600}
+      api_key_dns_denied: {max: 10, window_seconds: 600}
       acme_request: {max: 1200, window_seconds: 60}
       acme_order: {max: 60, window_seconds: 3600}
 
@@ -149,6 +159,8 @@ plugins:
     channel: stable
     auto_update: false
     public_key: "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
+    # Explicit proxy for index fetches and plugin downloads; empty uses HTTP_PROXY/HTTPS_PROXY/ALL_PROXY
+    proxy: "socks5://127.0.0.1:1080"
     timeout_seconds: 30
     max_download_mb: 256
     check_interval_hours: 24
@@ -253,6 +265,8 @@ Common rules and defaults:
 | `passkey_login_begin` / `passkey_login_fail` | 20/5 min, 10/5 min | Passkey sign-in |
 | `reauth` | 10/10 min | Reauthentication failures for sensitive actions |
 | `api_ip` / `api_anonymous` / `entry` | 600/min, 120/min, 60/min | `/api` total, anonymous requests, and entry probing |
+| `api_key_ip_denied` | 10/10 min | Audit log throttling for API key requests rejected by source IP |
+| `api_key_dns_denied` | 10/10 min | Audit log throttling for API key attempts to use an unauthorized DNS account |
 | `csr_create` | 20/hour | ACME client CSR submissions |
 | `acme_request` / `acme_account` / `acme_pki` | 1200/min, 30/hour, 600/min | ACME protocol entry, account creation, CRL/OCSP |
 | `acme_order` | 60/hour | Order limit when an ACME endpoint does not set its own |
@@ -303,10 +317,14 @@ plugins:
     channel: stable
     auto_update: false
     public_key: "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
+    # Explicit proxy for index fetches and plugin downloads; empty uses HTTP_PROXY/HTTPS_PROXY/ALL_PROXY
+    proxy: "socks5://127.0.0.1:1080"
     timeout_seconds: 30
     max_download_mb: 256
     check_interval_hours: 24
 ```
+
+`repo.proxy` applies to index fetches and plugin package downloads. It supports `http://`, `https://`, `socks5://`, and `socks5h://`; when empty, `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` environment variables are used. You can also edit it in the repository settings on the Plugins page; the saved value is stored in the database and takes precedence over the configuration file.
 
 ### 8.2 Deployment plugins
 
@@ -374,14 +392,86 @@ The secure entry can also be changed after startup under Settings → Secure ent
 
 ## 11. Reverse proxy requirements
 
-When a reverse proxy such as Nginx, Caddy, or Traefik terminates TLS:
+### 11.1 Trust boundary
 
-1. Add the proxy addresses to `server.trusted_proxies`.
-2. Ensure the proxy forwards standard headers such as `X-Forwarded-For` and `X-Forwarded-Proto`.
-3. Configure `security.public_url` as the fixed public address behind the proxy.
-4. Always use HTTPS in production.
-5. Backup restore and plugin uploads require a larger request body limit (for example, Nginx `client_max_body_size 256m`).
-6. Proxy read timeouts must cover backup restore, plugin downloads, and deployment operations (for example, 600 seconds).
+- Only the TCP peer addresses listed in `server.trusted_proxies` are trusted proxies. An empty list disables trust in all forwarding headers and is appropriate for direct deployments.
+- `X-Forwarded-For`, `X-Real-IP`, `Forwarded`, and `CF-Connecting-IP` are client-controlled claims until the proxy is trusted. Auto-detection in Settings only provides hints; it never adds an address automatically.
+- Do not configure `0.0.0.0/0`, `::/0`, or broad internal ranges. Any host inside a trusted range can claim to speak for clients.
+
+### 11.2 Overwrite mode (recommended)
+
+Have the proxy closest to LACTSSL replace the forwarding headers with the real client address:
+
+```nginx
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+In this mode `trusted_proxies` only needs the nearest proxy address, and one resolution step yields the client IP. In multi-hop deployments, let the edge proxy recover the real client first and then have the nearest hop overwrite the headers; do not let an intermediate proxy overwrite XFF with its upstream proxy address.
+
+### 11.3 Append mode
+
+Nginx `$proxy_add_x_forwarded_for` preserves any client-supplied XFF and appends the current peer. LACTSSL walks the chain from right to left, skipping trusted entries:
+
+- Single proxy: trusting only the Nginx address is sufficient.
+- Multiple proxies: every proxy that can appear in XFF must be listed in `trusted_proxies`. If only the nearest hop is trusted, resolution stops at the upstream proxy IP.
+- Never add the leftmost client address to the trusted list.
+
+For example, with `client → CDN → Nginx → LACTSSL`, append mode produces `client, CDN edge IP`. Trusting only Nginx yields the CDN edge IP; trust the official CDN ranges as well, or make Nginx overwrite XFF.
+
+### 11.4 CDN and cloud load balancers
+
+- Trust `CF-Connecting-IP` only when the TCP peer belongs to Cloudflare's official ranges. Trusting the header merely because it exists allows direct clients to spoof it.
+- Recommended: enable `real_ip` on your own Nginx with the official ranges, then overwrite XFF with `$remote_addr`. LACTSSL trusts only that Nginx.
+- CDN edge IPs change; do not add them one by one. Use the official ranges or add your own proxy behind the CDN.
+- An L4/TCP load balancer exposes no HTTP headers, so only the LB address is visible. Use PROXY protocol or place an HTTP-aware proxy behind it.
+
+### 11.5 Docker and Kubernetes
+
+- The peer seen inside a container is often a bridge gateway or Service forwarding address, not the real client.
+- Prefer the exact proxy container/node IP. If it is dynamic, use a dedicated network and trust only the proxy address or the smallest possible CIDR.
+- Do not trust `172.16.0.0/12` merely because it is private; other containers in the same network can forge forwarding headers.
+- Verify whether the Ingress Controller sanitizes XFF; do not assume every Ingress behaves the same.
+
+### 11.6 Apply and verify
+
+1. Add proxy addresses to `trusted_proxies` and configure `security.public_url`.
+2. When TLS terminates at the proxy, pass `X-Forwarded-Proto: https`.
+3. Backup restore and plugin uploads need a larger body limit (for example, Nginx `client_max_body_size 256m`); proxy read timeouts must cover restore, plugin downloads, and deployments (for example, 600 seconds).
+4. Restart after saving, then check `peer_ip`, `applied_trusted_proxies`, `effective_client_ip`, and `client_ip_source` under **Settings → Configuration file → Auto detect**. Before restart, `configured_trusted_proxies` and `applied_trusted_proxies` may differ.
+5. Spoof test: send `X-Forwarded-For: 203.0.113.9` from an untrusted address; the server must still use the TCP peer. Access logs include `ip_source`, `ip_skipped`, and `ip_warnings` for troubleshooting.
+
+### 11.7 Advanced proxy identity
+
+Resolution order: trusted peer identity → optional Cloudflare header → `X-Forwarded-For` → `X-Real-IP` → RFC 7239 `Forwarded` → TCP peer. No mode allows forwarding headers from an untrusted source.
+
+- **RFC 7239 `Forwarded`**: parsed automatically when earlier headers are unavailable. Supports `for=203.0.113.9`, `for=203.0.113.9:4711`, and `for="[2001:db8::1]:4711"`; obfuscated values such as `unknown` or `_hidden` are rejected.
+- **Cloudflare mode**:
+  ```yaml
+  server:
+    client_ip_mode: cloudflare
+    trusted_proxies:
+      - "173.245.48.0/20"
+      - "103.21.244.0/22"
+      # ... other official Cloudflare ranges
+  ```
+  `CF-Connecting-IP` is honored only when the peer is in `trusted_proxies`. Do not combine this mode with a local Nginx that merely overwrites headers; restrict the origin to Cloudflare.
+- **PROXY protocol**:
+  ```yaml
+  server:
+    proxy_protocol: true
+  ```
+  Accepts v1/v2 headers only from peers in `trusted_proxies`; a PROXY header from an untrusted source closes the connection. Normal HTTP without a PROXY header still works. An L4 load balancer must be configured to send it.
+- **mTLS proxy identity**:
+  ```yaml
+  server:
+    tls:
+      cert: "/etc/lactssl/server.crt"
+      key: "/etc/lactssl/server.key"
+      proxy_client_ca: "/etc/lactssl/proxy-ca.pem"
+  ```
+  The main listener serves HTTPS; set `security.public_url` to an `https://` URL. A connection presenting a client certificate signed by `proxy_client_ca` is treated as a trusted proxy regardless of IP. Browsers without a client certificate still work. This mode is only for proxies that connect to LACTSSL directly over TLS; when TLS terminates at the proxy, keep IP/CIDR trust or PROXY protocol. Use a CA dedicated to proxies, not a browser client CA.
 
 For a complete example, see [Installation](install.md).
 

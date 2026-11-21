@@ -36,17 +36,24 @@ type Passkey struct {
 // APIKey 是供程序调用的长期访问密钥。
 // TokenHash 只保存密钥摘要，明文仅在创建或轮换时返回一次。
 type APIKey struct {
-	ID         int64      `json:"id"`
-	UserID     int64      `json:"-"`
-	Name       string     `json:"name"`
-	Prefix     string     `json:"prefix"`
-	TokenHash  string     `json:"-"`
-	Scopes     []string   `json:"scopes"`
-	Enabled    bool       `json:"enabled"`
-	ExpiresAt  *time.Time `json:"expires_at"`
-	LastUsedAt *time.Time `json:"last_used_at"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ID        int64    `json:"id"`
+	UserID    int64    `json:"-"`
+	Name      string   `json:"name"`
+	Prefix    string   `json:"prefix"`
+	TokenHash string   `json:"-"`
+	Scopes    []string `json:"scopes"`
+	// AllowedIPs 是允许使用该密钥的来源 IP/CIDR 白名单；空数组表示不限制。
+	AllowedIPs []string `json:"allowed_ips"`
+	// AllowedDNSAccountIDs 限制该密钥可以使用的 DNS 账户；空数组表示不限制。
+	// 该限制同时约束 CSR 自动解析、任务创建/运行以及 DNS 账户管理接口。
+	AllowedDNSAccountIDs []int64    `json:"allowed_dns_account_ids"`
+	Enabled              bool       `json:"enabled"`
+	ExpiresAt            *time.Time `json:"expires_at"`
+	LastUsedAt           *time.Time `json:"last_used_at"`
+	// LastUsedIP 是最近一次成功认证时的来源 IP，用于辅助配置白名单。
+	LastUsedIP string    `json:"last_used_ip"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // HasScope 判断密钥是否拥有指定权限。支持 "*" 与 "resource:*" 通配。
@@ -60,6 +67,25 @@ func (k *APIKey) HasScope(scope string) bool {
 			return true
 		}
 		if strings.HasSuffix(value, ":*") && strings.HasPrefix(scope, strings.TrimSuffix(value, "*")) {
+			return true
+		}
+	}
+	return false
+}
+
+// DNSAccountRestricted 表示该密钥只能使用 AllowedDNSAccountIDs 中的账户。
+func (k *APIKey) DNSAccountRestricted() bool {
+	return k != nil && len(k.AllowedDNSAccountIDs) > 0
+}
+
+// AllowsDNSAccount 判断密钥是否可以使用指定 DNS 账户。
+// 未配置允许列表（或非 API 密钥身份）时返回 true。
+func (k *APIKey) AllowsDNSAccount(id int64) bool {
+	if k == nil || len(k.AllowedDNSAccountIDs) == 0 {
+		return true
+	}
+	for _, allowed := range k.AllowedDNSAccountIDs {
+		if allowed == id {
 			return true
 		}
 	}
@@ -95,6 +121,24 @@ type DNSAccount struct {
 	VerifiedAt    *time.Time `json:"verified_at"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// DNSZoneBinding 声明一个 DNS 账户负责管理的域名后缀或精确域名。
+// 服务端据此把 CSR/Task 中的域名解析到唯一 DNS 账户，避免调用方猜 ID。
+type DNSZoneBinding struct {
+	ID           int64 `json:"id"`
+	DNSAccountID int64 `json:"dns_account_id"`
+	// Zone 是规范化后的域名：小写、无尾点、不含通配符。
+	Zone string `json:"zone"`
+	// MatchMode 为 suffix 时覆盖该 zone 及其子域；exact 时只匹配该域名。
+	MatchMode string `json:"match_mode"`
+	// Priority 在 zone 长度相同时决定优先级，数值越大越优先。
+	Priority int `json:"priority"`
+	// Source 记录绑定来源：manual、verify（探测回填）或 import。
+	Source    string    `json:"source"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // PrivateCA 是本地生成或导入的私有证书颁发机构。
@@ -155,14 +199,19 @@ type DeployAccount struct {
 
 // Task 表示一个证书申请/续期任务。
 type Task struct {
-	ID           int64          `json:"id"`
-	Name         string         `json:"name"`
-	Domains      []string       `json:"domains"`
-	Challenge    string         `json:"challenge"`
-	DNSAccountID int64          `json:"dns_account_id"`
-	CA           string         `json:"ca"`
-	CAPoolID     int64          `json:"ca_pool_id"`
-	KeyType      string         `json:"key_type"`
+	ID           int64    `json:"id"`
+	Name         string   `json:"name"`
+	Domains      []string `json:"domains"`
+	Challenge    string   `json:"challenge"`
+	DNSAccountID int64    `json:"dns_account_id"`
+	// DNSRoutes 是申请时按域名解析出的 DNS 账户快照。
+	// 单账户任务可以只依赖 DNSAccountID；跨账户任务使用该字段。
+	DNSRoutes []DNSRoute `json:"dns_routes,omitempty"`
+	CA        string     `json:"ca"`
+	CAPoolID  int64      `json:"ca_pool_id"`
+	KeyType   string     `json:"key_type"`
+	// NoKeyStorage 表示任务签发后不保存证书私钥；私钥仅在本次执行期间驻留内存。
+	NoKeyStorage bool           `json:"no_key_storage"`
 	AutoRenew    bool           `json:"auto_renew"`
 	RenewDays    int            `json:"renew_days"`
 	DeployIDs    []int64        `json:"deploy_ids"`

@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,11 +29,12 @@ type configPendingRestart struct {
 }
 
 type configProxySuggestion struct {
-	Value          string `json:"value"`
-	Kind           string `json:"kind"`
-	Confidence     string `json:"confidence"`
-	Reason         string `json:"reason"`
-	AlreadyTrusted bool   `json:"already_trusted"`
+	Value                string `json:"value"`
+	Kind                 string `json:"kind"`
+	Confidence           string `json:"confidence"`
+	Reason               string `json:"reason"`
+	AlreadyTrusted       bool   `json:"already_trusted"`
+	RequiresConfirmation bool   `json:"requires_confirmation"`
 }
 
 type configProxyWarning struct {
@@ -170,7 +172,15 @@ func (s *Server) updateSettingsConfig(c *gin.Context) {
 // 只信任 TCP 对端地址；转发头仅作为“未验证”的信息展示。
 func (s *Server) settingsConfigProxyHints(c *gin.Context) {
 	peer := requestPeerIP(c.Request.RemoteAddr)
-	trusted := s.trustedProxiesFromConfig()
+	configured := s.trustedProxiesFromConfig()
+	if normalized, err := config.NormalizeTrustedProxies(configured); err == nil {
+		configured = normalized
+	}
+	applied := append([]string(nil), s.TrustedProxies...)
+	if normalized, err := config.NormalizeTrustedProxies(applied); err == nil {
+		applied = normalized
+	}
+
 	xff := splitHeaderList(c.GetHeader("X-Forwarded-For"), 8, 64)
 	xRealIP := truncateHeader(c.GetHeader("X-Real-IP"), 64)
 	forwarded := truncateHeader(c.GetHeader("Forwarded"), 512)
@@ -179,15 +189,25 @@ func (s *Server) settingsConfigProxyHints(c *gin.Context) {
 	cfRay := truncateHeader(c.GetHeader("CF-Ray"), 64)
 	hasForwarded := len(xff) > 0 || xRealIP != "" || forwarded != ""
 
+	result := s.clientIPResult(c)
+	effective := ""
+	if result.IP.IsValid() {
+		effective = result.IP.String()
+	}
+	headerWarnings := result.Warnings
+	if headerWarnings == nil {
+		headerWarnings = []string{}
+	}
+
 	suggestions := make([]configProxySuggestion, 0, 1)
-	warnings := make([]configProxyWarning, 0, 2)
+	warnings := make([]configProxyWarning, 0, 6)
 	rightmost := ""
 	if len(xff) > 0 {
 		rightmost = xff[len(xff)-1]
 	}
 	peerIsRightmost := rightmost != "" && samePeerAddress(peer, rightmost)
 	if peer.IsValid() {
-		already := config.TrustedProxyContains(trusted, peer)
+		already := config.TrustedProxyContains(configured, peer)
 		switch {
 		case peer.IsLoopback():
 			suggestions = append(suggestions, configProxySuggestion{
@@ -198,28 +218,37 @@ func (s *Server) settingsConfigProxyHints(c *gin.Context) {
 				AlreadyTrusted: already,
 			})
 		case hasForwarded && !peerIsRightmost:
+			// 转发头只能说明“看起来像代理”，不能证明 peer 有资格代表客户端。
 			suggestions = append(suggestions, configProxySuggestion{
-				Value:          peer.String(),
-				Kind:           "ip",
-				Confidence:     "high",
-				Reason:         "forwarded_headers",
-				AlreadyTrusted: already,
+				Value:                peer.String(),
+				Kind:                 "ip",
+				Confidence:           "medium",
+				Reason:               "forwarded_headers",
+				AlreadyTrusted:       already,
+				RequiresConfirmation: true,
 			})
 		default:
 			suggestions = append(suggestions, configProxySuggestion{
-				Value:          peer.String(),
-				Kind:           "ip",
-				Confidence:     "low",
-				Reason:         "direct_connection",
-				AlreadyTrusted: already,
+				Value:                peer.String(),
+				Kind:                 "ip",
+				Confidence:           "low",
+				Reason:               "direct_connection",
+				AlreadyTrusted:       already,
+				RequiresConfirmation: true,
 			})
 			warnings = append(warnings, configProxyWarning{Code: "direct_connection"})
+		}
+		if hasForwarded && !peer.IsLoopback() {
+			warnings = append(warnings, configProxyWarning{Code: "unverified_forwarded_headers"})
+		}
+		if hasForwarded && !peer.IsLoopback() && !peer.IsPrivate() {
+			warnings = append(warnings, configProxyWarning{Code: "public_peer_forwarded"})
 		}
 	}
 	if cfConnecting != "" || cfRay != "" {
 		warnings = append(warnings, configProxyWarning{Code: "cdn_detected"})
 	}
-	for _, item := range trusted {
+	for _, item := range configured {
 		prefix, err := netip.ParsePrefix(item)
 		if err != nil {
 			continue
@@ -230,6 +259,13 @@ func (s *Server) settingsConfigProxyHints(c *gin.Context) {
 			break
 		}
 	}
+	if !slices.Equal(configured, applied) {
+		warnings = append(warnings, configProxyWarning{Code: "configured_differs_from_applied"})
+	}
+	if s.trustedErr != nil {
+		warnings = append(warnings, configProxyWarning{Code: "trusted_config_invalid"})
+	}
+
 	peerValue := ""
 	if peer.IsValid() {
 		peerValue = peer.String()
@@ -247,10 +283,15 @@ func (s *Server) settingsConfigProxyHints(c *gin.Context) {
 			"cf_connecting_ip":  cfConnecting,
 			"cf_ray":            cfRay,
 		},
-		"trusted_proxies":     trusted,
-		"effective_client_ip": c.ClientIP(),
-		"suggestions":         suggestions,
-		"warnings":            warnings,
+		"trusted_proxies":            configured,
+		"configured_trusted_proxies": configured,
+		"applied_trusted_proxies":    applied,
+		"effective_client_ip":        effective,
+		"client_ip_source":           string(result.Source),
+		"trusted_skipped":            result.Skipped,
+		"header_warnings":            headerWarnings,
+		"suggestions":                suggestions,
+		"warnings":                   warnings,
 	})
 }
 

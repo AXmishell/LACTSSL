@@ -1,4 +1,4 @@
-// Package dbconvert 实现 SQLite 与 PostgreSQL 之间的逻辑数据库切换。
+// Package dbconvert 实现 SQLite、PostgreSQL 与 MySQL 之间的逻辑数据库切换。
 package dbconvert
 
 import (
@@ -76,6 +76,8 @@ type TableProgress struct {
 	Hash   string `json:"hash,omitempty"`
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
+	// columns 记录源表实际参与校验的列，供跨方言复核跳过目标库的生成列。
+	columns []string
 }
 
 // Report 是切换结果。

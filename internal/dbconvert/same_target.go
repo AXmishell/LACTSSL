@@ -90,6 +90,39 @@ func ensureDistinctTarget(ctx context.Context, source, target *db.Handle, source
 		if sourceID == targetID {
 			return errors.New("目标 PostgreSQL 与当前数据库是同一实例和数据库，不能作为同构迁移目标")
 		}
+	case db.MySQL:
+		if source == nil || target == nil {
+			return errors.New("无法校验 MySQL 源/目标连接")
+		}
+		sourceID, err := mysqlIdentity(ctx, source)
+		if err != nil {
+			return fmt.Errorf("读取源 MySQL 标识失败: %w", err)
+		}
+		targetID, err := mysqlIdentity(ctx, target)
+		if err != nil {
+			return fmt.Errorf("读取目标 MySQL 标识失败: %w", err)
+		}
+		if sourceID == targetID {
+			return errors.New("目标 MySQL 与当前数据库是同一实例和数据库，不能作为同构迁移目标")
+		}
 	}
 	return nil
+}
+
+// mysqlIdentity 用服务端 UUID 与当前数据库名标识实例，避免把同一数据库
+// 通过不同主机名或地址重复当作迁移目标。
+func mysqlIdentity(ctx context.Context, conn *db.Handle) (string, error) {
+	if conn == nil {
+		return "", errors.New("MySQL 连接为空")
+	}
+	var database, identity string
+	if err := conn.QueryRowContext(ctx, `SELECT DATABASE(), @@server_uuid`).Scan(&database, &identity); err == nil {
+		return database + "|" + identity, nil
+	}
+	// MariaDB 没有 @@server_uuid，退化为数据目录 + server_id 组合。
+	if err := conn.QueryRowContext(ctx,
+		`SELECT DATABASE(), CONCAT_WS('|', @@datadir, @@server_id, @@hostname, @@port)`).Scan(&database, &identity); err != nil {
+		return "", err
+	}
+	return database + "|" + identity, nil
 }

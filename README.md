@@ -4,6 +4,8 @@
 
 完整文档：<https://lactssl.gpcn.cc/>
 
+文档提供以下语言版本：简体中文（`/zh/`）、English（`/`）、繁體中文（`/zh-hant/`）、日本語（`/ja/`）、Русский（`/ru/`）。
+
 ## 适用场景
 
 - 个人站点、博客、副业项目和家庭实验室的证书自动续期与部署。
@@ -16,19 +18,19 @@
 
 - 自托管单实例、单租户、单管理员账户；个人场景一台 1 vCPU / 1 GB 的小主机或 NAS 即可运行。
 - API 密钥按 `资源:动作` 分权，适合机器身份；不提供多用户 RBAC、SSO、多租户。
-- SQLite 单写，不提供内置双活集群；生产建议单活 + 加密备份 + 恢复演练。
+- 数据库支持 SQLite（默认）、PostgreSQL 18 与 MySQL 5.7+；SQLite 单写，不提供内置双活集群，生产建议单活 + 加密备份 + 恢复演练。
 - 私钥在本地数据库加密存储；不提供 HSM/KMS 托管。
 - 不附带等保、ISO 27001 等认证证书。
 
 ## 文档入口
 
-- [快速上手与上线](docs/getting-started.md)：个人快速上手，企业试点、验收与生产切换。
-- [部署架构](docs/architecture.md)：拓扑、端口、容量、可用性。
-- [管理工作台](docs/administration.md)：账户、API 密钥、审计和职责。
-- [安全基线](docs/security.md)：身份、加密、审计、供应链和控制项映射。
-- [运维手册](docs/operations.md)：备份恢复、监控、变更和演练。
-- [API 集成](docs/api.md)：密钥权限和自动化示例。
-- [监控与排障](docs/troubleshooting.md)：常见故障和应急处理。
+- [快速上手与上线](docs/zh/getting-started.md)：个人快速上手，企业试点、验收与生产切换。
+- [部署架构](docs/zh/architecture.md)：拓扑、端口、容量、可用性。
+- [管理工作台](docs/zh/administration.md)：账户、API 密钥、审计和职责。
+- [安全基线](docs/zh/security.md)：身份、加密、审计、供应链和控制项映射。
+- [运维手册](docs/zh/operations.md)：备份恢复、监控、变更和演练。
+- [API 集成](docs/zh/api.md)：密钥权限和自动化示例。
+- [监控与排障](docs/zh/troubleshooting.md)：常见故障和应急处理。
 
 ## 仓库结构
 

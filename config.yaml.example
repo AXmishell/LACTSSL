@@ -13,25 +13,38 @@ server:
   host: ""
   port: 8080
   # 可信反向代理 CIDR；留空表示不信任任何代理头（直连部署推荐）
-  # 例如：["127.0.0.1", "10.0.0.0/8"]
+  # 例如：["127.0.0.1", "::1"]；确需网段时使用最小 CIDR
   trusted_proxies: []
+  # 客户端 IP 模式：auto（默认）或 cloudflare。
+  # cloudflare 模式会在 peer 属于 trusted_proxies 时优先采信 CF-Connecting-IP。
+  client_ip_mode: "auto"
+  # 是否接受可信代理发送的 PROXY protocol v1/v2；非可信来源发送的 PROXY 头会被拒绝。
+  proxy_protocol: false
+  # 主监听 TLS；反向代理终止 TLS 时留空。
+  # proxy_client_ca 非空时，持有该 CA 签发客户端证书的连接会被视为可信代理。
+  tls:
+    cert: ""
+    key: ""
+    proxy_client_ca: ""
 
 # 数据目录：存放插件、日志与升级备份
 data_dir: "data"
 
 database:
-  # sqlite（默认）或 postgres
+  # sqlite（默认）、postgres 或 mysql（MySQL 5.7+ / MariaDB 10.2+）
   driver: "sqlite"
   # SQLite 文件路径；留空表示 <data_dir>/lactssl.db
   path: ""
-  # PostgreSQL 连接串；driver=postgres 时必填
-  # 生产环境建议使用 sslmode=verify-full，也可用 LACTSSL_DATABASE_DSN 覆盖
+  # PostgreSQL/MySQL 连接串；driver 非 sqlite 时必填
+  # PostgreSQL：postgres://user:pass@host:5432/lactssl?sslmode=verify-full
+  # MySQL：mysql://user:pass@host:3306/lactssl?tls=preferred
+  # 也可用 LACTSSL_DATABASE_DSN 覆盖；MySQL 还需同时设置 LACTSSL_DATABASE_DRIVER=mysql
   dsn: ""
-  # PostgreSQL 连接池；SQLite 固定为 1
+  # PostgreSQL/MySQL 连接池；SQLite 固定为 1
   max_open_conns: 10
   max_idle_conns: 5
   conn_max_lifetime_minutes: 30
-  # 是否允许多个实例共享同一个 PostgreSQL 数据库；默认 false
+  # 是否允许多个实例共享同一个 PostgreSQL/MySQL 数据库；默认 false
   allow_multi_instance: false
 
 log:
@@ -135,6 +148,8 @@ security:
       acme_request: {max: 1200, window_seconds: 60}
       api_anonymous: {max: 120, window_seconds: 60}
       api_ip: {max: 600, window_seconds: 60}
+      api_key_ip_denied: {max: 10, window_seconds: 600}
+      api_key_dns_denied: {max: 10, window_seconds: 600}
       backup_download: {max: 5, window_seconds: 600}
       cert_key_export: {max: 30, window_seconds: 60}
       cert_key_view: {max: 30, window_seconds: 60}
@@ -214,6 +229,9 @@ plugins:
     # 索引签名公钥（base64 Ed25519）；默认内置官方仓库公钥。
     # 清空后只校验 HTTPS 与 asset sha256，生产环境不建议关闭。
     public_key: "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
+    # 拉取索引/下载插件的显式代理；留空沿用 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY 环境变量。
+    # 支持 http、https、socks5、socks5h，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
+    proxy: ""
     # 拉取索引/下载插件超时（秒）
     timeout_seconds: 30
     # 单个插件包大小上限（MB）

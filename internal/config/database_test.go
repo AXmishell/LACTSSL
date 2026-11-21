@@ -44,6 +44,30 @@ func TestRewriteDatabasePreservesComments(t *testing.T) {
 	}
 }
 
+func TestRewriteDatabaseMySQL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "data_dir: " + dir + "\n" +
+		"database:\n" +
+		"  driver: sqlite\n" +
+		"  path: " + filepath.Join(dir, "old.db") + "\n" +
+		"security:\n  salt: \"" + strings.Repeat("a", 64) + "\"\n  jwt_secret: \"" + strings.Repeat("b", 64) + "\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dsn := "mysql://user:pass@127.0.0.1:3306/lactssl?tls=preferred"
+	if _, err := RewriteDatabase(path, "mysql", dsn, ""); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := DatabaseFromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Driver != "mysql" || settings.DSN != dsn {
+		t.Fatalf("MySQL 配置解析异常: %+v", settings)
+	}
+}
+
 func TestRewriteDatabaseRejectsInvalidCombination(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

@@ -2,6 +2,7 @@ package outbound
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +27,60 @@ func TestSanitizeErrorTextRedactsSecrets(t *testing.T) {
 				t.Fatalf("secret %q not redacted in %q", secret, got)
 			}
 		}
+	}
+}
+
+func TestParseProxyURL(t *testing.T) {
+	for _, raw := range []string{
+		"http://127.0.0.1:7890",
+		"https://proxy.example.com:443",
+		"socks5://user:pass@127.0.0.1:1080",
+		"socks5h://[::1]:1080",
+	} {
+		if _, err := ParseProxyURL(raw); err != nil {
+			t.Fatalf("ParseProxyURL(%q): %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		"127.0.0.1:7890",
+		"ftp://127.0.0.1:2121",
+		"http://",
+		"http://127.0.0.1:7890/path",
+		"http://127.0.0.1:7890?x=1",
+		"http://127.0.0.1:0",
+		"http://169.254.169.254:80",
+	} {
+		if _, err := ParseProxyURL(raw); err == nil {
+			t.Fatalf("ParseProxyURL(%q) should fail", raw)
+		}
+	}
+}
+
+func TestClientWithExplicitProxy(t *testing.T) {
+	var seen string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.URL.String()
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer proxy.Close()
+
+	client, err := NewClientWithProxy(3*time.Second, false, proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const target = "http://1.1.1.1/index.json"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "ok" || seen != target {
+		t.Fatalf("explicit proxy not used: body=%q seen=%q", body, seen)
 	}
 }
 

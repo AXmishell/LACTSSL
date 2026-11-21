@@ -168,16 +168,76 @@ func DialPublic(ctx context.Context, network, address string) (net.Conn, error) 
 	return nil, i18n.E("service.url_blocked", "url", address)
 }
 
+// ParseProxyURL 解析并校验显式配置的下载代理。
+// 支持 http、https、socks5 与 socks5h；空字符串表示不启用显式代理。
+// 代理地址允许包含 userinfo（用于 HTTP 代理认证），但不允许路径、查询参数或片段。
+func ParseProxyURL(raw string) (*url.URL, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.Hostname() == "" {
+		return nil, i18n.E("service.proxy_invalid", "proxy", value)
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	switch parsed.Scheme {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		return nil, i18n.E("service.proxy_invalid", "proxy", value)
+	}
+	if parsed.Fragment != "" || parsed.RawQuery != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return nil, i18n.E("service.proxy_invalid", "proxy", value)
+	}
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return nil, i18n.E("service.proxy_invalid", "proxy", value)
+		}
+	}
+	// 代理本身也是出站目标：至少拦截云元数据、链路本地等保留地址。
+	if ip := net.ParseIP(strings.Trim(parsed.Hostname(), "[]")); ip != nil && isBlockedIP(ip) {
+		return nil, i18n.E("service.url_blocked", "url", value)
+	}
+	parsed.Path = ""
+	return parsed, nil
+}
+
+// ValidateProxyURL 校验显式配置的下载代理地址。
+func ValidateProxyURL(raw string) error {
+	_, err := ParseProxyURL(raw)
+	return err
+}
+
 // NewClient 返回带安全拨号器的 HTTP 客户端。
 // skipVerify 仅用于用户明确允许的自签证书场景。
+// 默认沿用 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY 环境变量。
 func NewClient(timeout time.Duration, skipVerify bool) *http.Client {
+	// 空代理不会解析失败；这里忽略错误以保持既有调用方无需处理。
+	client, _ := NewClientWithProxy(timeout, skipVerify, "")
+	return client
+}
+
+// NewClientWithProxy 返回带安全拨号器与显式代理的 HTTP 客户端。
+// proxy 为空时使用环境变量；非空时只使用该代理，不再读取环境变量或 NO_PROXY。
+func NewClientWithProxy(timeout time.Duration, skipVerify bool, proxy string) (*http.Client, error) {
 	if timeout <= 0 {
 		timeout = 15 * time.Second
+	}
+	explicitProxy, err := ParseProxyURL(proxy)
+	if err != nil {
+		return nil, err
 	}
 	transport := &http.Transport{
 		// 使用代理时，真正解析目标的是代理，DialSafe 只能看到代理地址。
 		// 这里在交给代理前先校验目标域名解析结果，避免绕过元数据/保留网段拦截。
 		Proxy: func(req *http.Request) (*url.URL, error) {
+			if explicitProxy != nil {
+				if err := validateResolvedTarget(req); err != nil {
+					return nil, err
+				}
+				return explicitProxy, nil
+			}
 			proxyURL, err := http.ProxyFromEnvironment(req)
 			if err != nil || proxyURL == nil {
 				return proxyURL, err
@@ -212,7 +272,7 @@ func NewClient(timeout time.Duration, skipVerify bool) *http.Client {
 			}
 			return validateResolvedTarget(req)
 		},
-	}
+	}, nil
 }
 
 // validateResolvedTarget 校验请求目标（含重定向后的地址）解析到允许的 IP。

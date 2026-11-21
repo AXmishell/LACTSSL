@@ -109,12 +109,12 @@ func (s *Server) csrfGuard() gin.HandlerFunc {
 // 裸 /api 会直接面对扫描器；登录接口在处理器内还有更严格的 IP 与账户维度限流。
 func (s *Server) apiRateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if allowed, wait := s.allow(ratelimit.APIIP, "api-ip:"+clientRateKey(c)); !allowed {
+		if allowed, wait := s.allow(ratelimit.APIIP, "api-ip:"+s.clientRateKey(c)); !allowed {
 			rateLimited(c, wait)
 			return
 		}
 		if token, _ := s.sessionToken(c); token == "" && strings.TrimSpace(c.GetHeader(apiKeyHeader)) == "" {
-			if allowed, wait := s.allow(ratelimit.APIAnonymous, "anon-api:"+clientRateKey(c)); !allowed {
+			if allowed, wait := s.allow(ratelimit.APIAnonymous, "anon-api:"+s.clientRateKey(c)); !allowed {
 				rateLimited(c, wait)
 				return
 			}
@@ -137,7 +137,7 @@ func (s *Server) entryMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if allowed, wait := s.allow(ratelimit.Entry, "entry:"+clientRateKey(c)); !allowed {
+		if allowed, wait := s.allow(ratelimit.Entry, "entry:"+s.clientRateKey(c)); !allowed {
 			rateLimited(c, wait)
 			return
 		}

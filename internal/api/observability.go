@@ -51,6 +51,11 @@ func (s *Server) accessLog() gin.HandlerFunc {
 		case status == http.StatusUnauthorized, status == http.StatusForbidden, status == http.StatusTooManyRequests:
 			level = slog.LevelWarn
 		}
+		result := s.clientIPResult(c)
+		ip := ""
+		if result.IP.IsValid() {
+			ip = result.IP.String()
+		}
 		attrs := []any{
 			"request_id", c.GetString(requestIDKey),
 			"method", c.Request.Method,
@@ -58,7 +63,14 @@ func (s *Server) accessLog() gin.HandlerFunc {
 			"status", status,
 			"duration_ms", float64(time.Since(start).Microseconds()) / 1000,
 			"size", max(c.Writer.Size(), 0),
-			"ip", c.ClientIP(),
+			"ip", ip,
+			"ip_source", string(result.Source),
+		}
+		if result.Skipped > 0 {
+			attrs = append(attrs, "ip_skipped", result.Skipped)
+		}
+		if len(result.Warnings) > 0 {
+			attrs = append(attrs, "ip_warnings", strings.Join(result.Warnings, ","))
 		}
 		if value, exists := c.Get("user"); exists {
 			if user, ok := value.(*model.User); ok && user != nil {

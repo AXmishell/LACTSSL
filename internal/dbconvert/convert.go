@@ -37,14 +37,20 @@ func (r *Runner) Preflight(ctx context.Context) (*PreflightReport, error) {
 	if opts.SourceDriver == db.SQLite && strings.TrimSpace(opts.SourcePath) == "" {
 		return nil, errors.New("缺少 SQLite 源数据库路径")
 	}
-	if opts.SourceDriver == db.Postgres && strings.TrimSpace(opts.SourceDSN) == "" {
+	if !opts.SourceDriver.IsMySQL() && opts.SourceDriver != db.SQLite && strings.TrimSpace(opts.SourceDSN) == "" {
 		return nil, errors.New("缺少 PostgreSQL 源 DSN")
+	}
+	if opts.SourceDriver.IsMySQL() && strings.TrimSpace(opts.SourceDSN) == "" {
+		return nil, errors.New("缺少 MySQL 源 DSN")
 	}
 	if opts.TargetDriver == db.SQLite && strings.TrimSpace(opts.TargetPath) == "" {
 		return nil, errors.New("缺少 SQLite 目标数据库路径")
 	}
-	if opts.TargetDriver == db.Postgres && strings.TrimSpace(opts.TargetDSN) == "" {
+	if !opts.TargetDriver.IsMySQL() && opts.TargetDriver != db.SQLite && strings.TrimSpace(opts.TargetDSN) == "" {
 		return nil, errors.New("缺少 PostgreSQL 目标 DSN")
+	}
+	if opts.TargetDriver.IsMySQL() && strings.TrimSpace(opts.TargetDSN) == "" {
+		return nil, errors.New("缺少 MySQL 目标 DSN")
 	}
 
 	source, closeSource, err := r.openSource(ctx)
@@ -107,17 +113,27 @@ func (r *Runner) Preflight(ctx context.Context) (*PreflightReport, error) {
 		report.Tables = append(report.Tables, TableProgress{Name: spec.Name, Rows: count})
 	}
 	report.SourceTables = len(report.Tables)
-	if opts.SourceDriver == db.SQLite {
+	switch {
+	case opts.SourceDriver == db.SQLite:
 		if info, err := os.Stat(opts.SourcePath); err == nil {
 			report.SourceBytes = info.Size()
 		}
-	} else {
+	case opts.SourceDriver.IsMySQL():
+		_ = source.QueryRowContext(ctx, `SELECT COALESCE(SUM(data_length+index_length),0)
+			FROM information_schema.tables WHERE table_schema=DATABASE()`).Scan(&report.SourceBytes)
+	default:
 		_ = source.QueryRowContext(ctx, `SELECT pg_database_size(current_database())`).Scan(&report.SourceBytes)
 	}
 	if opts.TargetDriver == db.Postgres {
 		var targetVersion int
 		if err := target.QueryRowContext(ctx, `SHOW server_version_num`).Scan(&targetVersion); err == nil && targetVersion < 180000 {
 			report.Warnings = append(report.Warnings, fmt.Sprintf("目标 PostgreSQL 版本为 %d，建议使用 18", targetVersion))
+		}
+	}
+	if opts.TargetDriver.IsMySQL() {
+		var targetVersion string
+		if err := target.QueryRowContext(ctx, `SELECT VERSION()`).Scan(&targetVersion); err == nil && !db.SupportsMySQLVersion(targetVersion) {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("目标 MySQL 版本为 %s，建议使用 5.7+", targetVersion))
 		}
 	}
 	return report, nil
@@ -245,7 +261,7 @@ func (r *Runner) Run(ctx context.Context) (*Report, error) {
 			StartedAt:  started,
 		})
 		expected := report.Tables[index]
-		actual, err := scanTable(ctx, target, spec)
+		actual, err := scanTable(ctx, target, spec, expected.columns)
 		if err != nil {
 			report.Phase = PhaseFailed
 			report.Error = err.Error()
@@ -325,9 +341,9 @@ func (r *Runner) openSource(ctx context.Context) (*db.Handle, func(), error) {
 			Migrate:   false,
 			QueryOnly: true,
 		})
-	case db.Postgres:
+	case db.Postgres, db.MySQL:
 		conn, err = db.OpenWithOptions(db.Options{
-			Driver:       db.Postgres,
+			Driver:       driver,
 			DSN:          r.opts.SourceDSN,
 			Migrate:      false,
 			MaxOpenConns: 2,
@@ -351,9 +367,9 @@ func (r *Runner) openTarget(ctx context.Context, migrate bool) (*db.Handle, func
 	switch driver {
 	case db.SQLite:
 		conn, err = db.OpenWithOptions(db.Options{Driver: db.SQLite, Path: r.opts.TargetPath, Migrate: false})
-	case db.Postgres:
+	case db.Postgres, db.MySQL:
 		conn, err = db.OpenWithOptions(db.Options{
-			Driver: db.Postgres, DSN: r.opts.TargetDSN, Migrate: false,
+			Driver: driver, DSN: r.opts.TargetDSN, Migrate: false,
 			MaxOpenConns: 4, MaxIdleConns: 2,
 		})
 	default:
@@ -384,6 +400,12 @@ func (r *Runner) openTarget(ctx context.Context, migrate bool) (*db.Handle, func
 
 // targetEmpty 判断目标 schema 是否没有用户表。
 func targetEmpty(ctx context.Context, conn *db.Handle) (bool, error) {
+	if conn.Dialect().IsMySQL() {
+		var count int64
+		err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables
+			WHERE table_schema=DATABASE() AND table_type='BASE TABLE'`).Scan(&count)
+		return count == 0, err
+	}
 	if conn.Dialect().IsPostgres() {
 		var count int64
 		err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.tables
@@ -397,6 +419,39 @@ func targetEmpty(ctx context.Context, conn *db.Handle) (bool, error) {
 
 // clearTarget 清空当前 schema 的用户表。调用方必须已获得用户明确确认。
 func clearTarget(ctx context.Context, conn *db.Handle) error {
+	if conn.Dialect().IsMySQL() {
+		// 固定使用同一个连接，确保 FOREIGN_KEY_CHECKS 对后续 DROP 生效。
+		pinned, err := conn.Conn(ctx)
+		if err != nil {
+			return err
+		}
+		defer pinned.Close()
+		if _, err := pinned.ExecContext(ctx, `SET FOREIGN_KEY_CHECKS=0`); err != nil {
+			return err
+		}
+		defer func() { _, _ = pinned.ExecContext(ctx, `SET FOREIGN_KEY_CHECKS=1`) }()
+		rows, err := pinned.QueryContext(ctx, `SELECT table_name FROM information_schema.tables
+			WHERE table_schema=DATABASE() AND table_type='BASE TABLE'`)
+		if err != nil {
+			return err
+		}
+		var names []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			names = append(names, name)
+		}
+		_ = rows.Close()
+		for _, name := range names {
+			if _, err := pinned.ExecContext(ctx, `DROP TABLE IF EXISTS `+quoteIdent(conn.Dialect(), name)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if conn.Dialect().IsPostgres() {
 		rows, err := conn.QueryContext(ctx, `SELECT table_name FROM information_schema.tables
 			WHERE table_schema=current_schema() AND table_type='BASE TABLE'`)
@@ -414,7 +469,7 @@ func clearTarget(ctx context.Context, conn *db.Handle) error {
 		}
 		_ = rows.Close()
 		for _, name := range names {
-			if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS `+quoteIdent(name)+` CASCADE`); err != nil {
+			if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS `+quoteIdent(conn.Dialect(), name)+` CASCADE`); err != nil {
 				return err
 			}
 		}
@@ -439,7 +494,7 @@ func clearTarget(ctx context.Context, conn *db.Handle) error {
 	}
 	_ = rows.Close()
 	for _, name := range names {
-		if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS `+quoteIdent(name)); err != nil {
+		if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS `+quoteIdent(conn.Dialect(), name)); err != nil {
 			return err
 		}
 	}
@@ -465,7 +520,7 @@ func (r *Runner) verifyEncrypted(ctx context.Context, target *db.Handle) error {
 	for _, check := range checks {
 		var value string
 		query := fmt.Sprintf(`SELECT %s FROM %s WHERE %s LIKE 'enc:v1:%%' LIMIT 1`,
-			quoteIdent(check.column), quoteIdent(check.table), quoteIdent(check.column))
+			quoteIdent(target.Dialect(), check.column), quoteIdent(target.Dialect(), check.table), quoteIdent(target.Dialect(), check.column))
 		err := target.QueryRowContext(ctx, query).Scan(&value)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
@@ -486,7 +541,8 @@ func (r *Runner) backupSource(ctx context.Context) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("创建切换前备份目录失败: %w", err)
 	}
-	if r.opts.SourceDriver == db.SQLite {
+	switch {
+	case r.opts.SourceDriver == db.SQLite:
 		target := filepath.Join(dir, "source.db")
 		conn, err := db.OpenWithOptions(db.Options{Driver: db.SQLite, Path: r.opts.SourcePath, Migrate: false})
 		if err != nil {
@@ -497,7 +553,25 @@ func (r *Runner) backupSource(ctx context.Context) (string, error) {
 			return dir, fmt.Errorf("备份 SQLite 源库失败: %w", err)
 		}
 		_ = os.Chmod(target, 0o600)
-	} else {
+	case r.opts.SourceDriver.IsMySQL():
+		target := filepath.Join(dir, "source.sql")
+		mysqlDump, err := findMySQLDump()
+		if err != nil {
+			return dir, err
+		}
+		connection, err := db.MySQLCLI(r.opts.SourceDSN)
+		if err != nil {
+			return dir, err
+		}
+		args := db.MySQLDumpArgs(mysqlDump, connection, target)
+		env := []string{"MYSQL_PWD=" + connection.Password}
+		cmd := exec.CommandContext(ctx, mysqlDump, args...) // #nosec G204 -- mysqldump 从 PATH 解析，参数由服务端生成
+		cmd.Env = append(os.Environ(), env...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return dir, fmt.Errorf("mysqldump 备份失败: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		_ = os.Chmod(target, 0o600)
+	default:
 		target := filepath.Join(dir, "source.dump")
 		pgDump, err := findPgDump()
 		if err != nil {
@@ -527,4 +601,16 @@ func findPgDump() (string, error) {
 		}
 	}
 	return "", errors.New("未找到 pg_dump；请安装 PostgreSQL 18 客户端或改用逻辑备份")
+}
+
+func findMySQLDump() (string, error) {
+	if path, err := exec.LookPath("mysqldump"); err == nil {
+		return path, nil
+	}
+	for _, candidate := range []string{"/usr/bin/mysqldump", "/usr/local/bin/mysqldump", "/usr/local/mysql/bin/mysqldump"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", errors.New("未找到 mysqldump；请安装 MySQL 客户端")
 }

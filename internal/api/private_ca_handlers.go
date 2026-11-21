@@ -23,7 +23,7 @@ func (s *Server) listPrivateCAs(c *gin.Context) {
 
 func (s *Server) createPrivateCA(c *gin.Context) {
 	// RSA 4096 生成开销较大，限制同一客户端的高频创建。
-	if allowed, wait := s.allow(ratelimit.PrivateCACreate, "privateca:create:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.PrivateCACreate, "privateca:create:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

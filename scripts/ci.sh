@@ -83,10 +83,21 @@ start_time=$SECONDS
 
 if [ "$RUN_BACKEND" -eq 1 ]; then
   require go
+  require python3
+
+  step "CSR 客户端检查 (py_compile / i18n / unittest)"
+  python3 -m py_compile scripts/csr_client.py scripts/check-csr-client-i18n.py scripts/tests/test_csr_client.py
+  python3 scripts/check-csr-client-i18n.py
+  python3 -m unittest discover -s scripts/tests -v
 
   step "检查 gofmt"
+  # 与 GitHub CI 保持一致：只检查 git 跟踪的文件；
+  # 同时纳入未跟踪但未被忽略的新文件，便于提交前发现问题。
   mapfile -t unformatted < <(
-    find . -path ./web/node_modules -prune -o -name '*.go' -type f -print0 | xargs -0 -r gofmt -l
+    {
+      git ls-files -z '*.go'
+      git ls-files -z --others --exclude-standard '*.go'
+    } | xargs -0 -r gofmt -l
   )
   if [ "${#unformatted[@]}" -gt 0 ]; then
     echo "以下文件未通过 gofmt，请运行 gofmt -w 后重新提交："

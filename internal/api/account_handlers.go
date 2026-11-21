@@ -41,6 +41,7 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}
+	list = filterDNSAccountsForAPIKey(c, list)
 	for i := range list {
 		maskDNSAccount(&list[i])
 	}
@@ -50,6 +51,9 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 func (s *Server) getDNSAccount(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if s.denyIfAPIKeyDNSAccountHidden(c, id) {
 		return
 	}
 	item, err := s.Store.GetDNSAccount(id)
@@ -103,6 +107,12 @@ func (b *dnsAccountBody) validate(current i18n.Locale, base map[string]string) e
 }
 
 func (s *Server) createDNSAccount(c *gin.Context) {
+	// 受限密钥的允许集合是固定白名单，新建账户不可能落在集合内，
+	// 直接拒绝可避免创建出自己也无法使用的孤儿账户。
+	if key := apiKeyFromContext(c); key != nil && key.DNSAccountRestricted() {
+		failKey(c, http.StatusForbidden, "api.error.api_key_dns_create_forbidden")
+		return
+	}
 	var body dnsAccountBody
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -125,6 +135,9 @@ func (s *Server) createDNSAccount(c *gin.Context) {
 func (s *Server) updateDNSAccount(c *gin.Context) {
 	id, okID := parseID(c)
 	if !okID {
+		return
+	}
+	if s.denyIfAPIKeyDNSAccountHidden(c, id) {
 		return
 	}
 	var body dnsAccountBody
@@ -173,9 +186,12 @@ func (s *Server) deleteDNSAccount(c *gin.Context) {
 	if !okID {
 		return
 	}
+	if s.denyIfAPIKeyDNSAccountHidden(c, id) {
+		return
+	}
 	tasks, _ := s.Store.ListTasks()
 	for _, t := range tasks {
-		if t.DNSAccountID == id {
+		if taskUsesDNSAccount(&t, id) {
 			failKey(c, http.StatusBadRequest, "api.error.dns_in_use", "name", t.Name)
 			return
 		}

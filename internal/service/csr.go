@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,11 +37,11 @@ type CSRInfo struct {
 	PrimaryDomain string
 }
 
-// CSRACMERequest 描述一次使用客户端 CSR 向权威 ACME CA 签发的请求。
+// CSRACMERequest 描述一次使用客户端 CSR 向公共 ACME CA 签发的请求。
 type CSRACMERequest struct {
 	CSR            *x509.CertificateRequest
 	CA             string
-	DNSAccount     *model.DNSAccount
+	DNSRoutes      []model.DNSRoute
 	Email          string
 	EABKid         string
 	EABHMAC        string
@@ -50,9 +49,25 @@ type CSRACMERequest struct {
 	Profile        string
 }
 
+// csrParseOptions 控制 CSR 解析时的校验策略。
+type csrParseOptions struct {
+	// allowInternal 允许私有 CA 签发 .internal、.local 等内部域名。
+	allowInternal bool
+}
+
 // ParseCSRInfo 解析 PEM 或 base64 DER 格式的 CSR，并执行公共 CA 签发前的
 // 严格校验。服务端没有私钥，无法修正 CSR，因此不合规的 CSR 必须直接拒绝。
 func ParseCSRInfo(value string) (*CSRInfo, error) {
+	return parseCSRInfo(value, csrParseOptions{})
+}
+
+// ParseCSRInfoForPrivateCA 解析客户端 CSR，允许私有 CA 签发内部域名。
+// 其余签名、密钥强度和 SAN 规范化校验与公共 CA 路径保持一致。
+func ParseCSRInfoForPrivateCA(value string) (*CSRInfo, error) {
+	return parseCSRInfo(value, csrParseOptions{allowInternal: true})
+}
+
+func parseCSRInfo(value string, opts csrParseOptions) (*CSRInfo, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, i18n.E("service.csr.required")
@@ -105,7 +120,7 @@ func ParseCSRInfo(value string) (*CSRInfo, error) {
 		if !validDNSName(name) {
 			return nil, i18n.E("service.csr.dns_invalid", "domain", raw)
 		}
-		if isInternalDNSName(name) {
+		if !opts.allowInternal && isInternalDNSName(name) {
 			return nil, i18n.E("service.csr.dns_internal", "domain", raw)
 		}
 		if seen[name] {
@@ -123,7 +138,7 @@ func ParseCSRInfo(value string) (*CSRInfo, error) {
 		if cn != strings.ToLower(cn) || strings.HasSuffix(cn, ".") || !validDNSName(cn) {
 			return nil, i18n.E("service.csr.cn_invalid", "domain", cn)
 		}
-		if isInternalDNSName(cn) {
+		if !opts.allowInternal && isInternalDNSName(cn) {
 			return nil, i18n.E("service.csr.dns_internal", "domain", cn)
 		}
 		if !seen[cn] {
@@ -261,6 +276,17 @@ func ValidateCSRDomains(domains, allowed []string, allowAll bool) error {
 	return nil
 }
 
+// ValidatePrivateCSRDomains 校验私有 CA 申请的域名。
+// 私有 CA 通常用于内网域名，csr.allowed_domains 未配置时默认放行，
+// 由私有 CA 自身的 NameConstraints 与 private_cas:write 权限共同约束；
+// 管理员一旦配置了允许列表，仍按列表严格校验。
+func ValidatePrivateCSRDomains(domains, allowed []string, allowAll bool) error {
+	if len(allowed) == 0 && !allowAll {
+		return nil
+	}
+	return ValidateCSRDomains(domains, allowed, allowAll)
+}
+
 // ParseAllowedDomains 解析设置中的逗号/空白分隔域名列表。
 func ParseAllowedDomains(value string) []string {
 	out := make([]string, 0)
@@ -278,7 +304,7 @@ func ParseAllowedDomains(value string) []string {
 	return out
 }
 
-// ObtainForCSR 使用客户端 CSR 向权威 ACME CA 申请证书。CSR 中的公钥由客户端
+// ObtainForCSR 使用客户端 CSR 向公共 ACME CA 申请证书。CSR 中的公钥由客户端
 // 持有，服务端只完成域名验证和 finalize，不生成也不保存私钥。
 func (m *Manager) ObtainForCSR(req CSRACMERequest) (*ACMEResult, error) {
 	if req.CSR == nil {
@@ -291,10 +317,15 @@ func (m *Manager) ObtainForCSR(req CSRACMERequest) (*ACMEResult, error) {
 	if strings.EqualFold(ca.Protocol, "v1") {
 		return nil, i18n.E("service.csr.v1_unsupported")
 	}
-	if req.DNSAccount == nil {
-		return nil, i18n.E("service.csr.dns_account_required")
+	domains := certcrypto.ExtractDomainsCSR(req.CSR)
+	if len(domains) == 0 {
+		return nil, i18n.E("service.csr.dns_required")
 	}
-	provider, undo, err := newDNSProvider(req.DNSAccount.Provider, req.DNSAccount.Config)
+	routes, accounts, err := m.resolveACMEDNSRoutes(ACMERequest{Domains: domains, DNSRoutes: req.DNSRoutes})
+	if err != nil {
+		return nil, err
+	}
+	provider, undo, err := newRoutedDNSProvider(routes, accounts)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +346,6 @@ func (m *Manager) ObtainForCSR(req CSRACMERequest) (*ACMEResult, error) {
 		return nil, i18n.E("service.csr.issue_failed", "error", SanitizeErrorText(err.Error()))
 	}
 
-	domains := certcrypto.ExtractDomainsCSR(req.CSR)
 	leaf, err := pickLeaf(resource.Certificate, domains)
 	if err != nil {
 		return nil, err
@@ -465,22 +495,46 @@ func (m *Manager) runCSRRequest(ctx context.Context, id int64) error {
 		return nil
 	}
 
-	info, err := ParseCSRInfo(req.CSRPEM)
+	caID, isPrivateCA := ParsePrivateCAValue(req.CA)
+	var info *CSRInfo
+	if isPrivateCA {
+		info, err = ParseCSRInfoForPrivateCA(req.CSRPEM)
+	} else {
+		info, err = ParseCSRInfo(req.CSRPEM)
+	}
 	if err != nil {
 		m.failCSR(req, err, false)
 		return nil
 	}
 	allowed := ParseAllowedDomains(m.mustSetting("csr.allowed_domains"))
 	allowAll := strings.EqualFold(strings.TrimSpace(m.mustSetting("csr.allow_all_domains")), "true")
-	if err := ValidateCSRDomains(info.DNSNames, allowed, allowAll); err != nil {
+	if isPrivateCA {
+		err = ValidatePrivateCSRDomains(info.DNSNames, allowed, allowAll)
+	} else {
+		err = ValidateCSRDomains(info.DNSNames, allowed, allowAll)
+	}
+	if err != nil {
 		m.failCSR(req, err, false)
 		return nil
 	}
-
-	dnsAccount, err := m.Store.GetDNSAccount(req.DNSAccountID)
-	if err != nil {
-		m.failCSR(req, i18n.E("service.csr.dns_account_not_found"), false)
+	if isPrivateCA {
+		m.issuePrivateCSR(req, info, caID)
 		return nil
+	}
+
+	routes := req.DNSRoutes
+	if len(routes) == 0 {
+		routes, err = ExplicitDNSRoutesForDomains(info.DNSNames, req.DNSAccountID)
+		if err != nil {
+			m.failCSR(req, err, false)
+			return nil
+		}
+	}
+	for _, accountID := range DNSRouteAccountIDs(routes) {
+		if _, err := m.Store.GetDNSAccount(accountID); err != nil {
+			m.failCSR(req, i18n.E("service.csr.dns_account_not_found"), false)
+			return nil
+		}
 	}
 	email := strings.TrimSpace(m.mustSetting("acme.email"))
 	if email == "" {
@@ -490,16 +544,16 @@ func (m *Manager) runCSRRequest(ctx context.Context, id int64) error {
 	eabKid, eabHMAC := m.loadCAEABSettings(req.CA)
 
 	m.Store.AddLogKey("csr", req.ID, "info", "log.csr.started", map[string]any{"domains": strings.Join(info.DNSNames, ", "), "ca": req.CA})
-	unlock := m.dnsLocks.Lock(strconv.FormatInt(req.DNSAccountID, 10))
+	unlock := m.lockDNSAccounts(DNSRouteAccountIDs(routes))
 	defer unlock()
 
 	result, err := m.ObtainForCSR(CSRACMERequest{
-		CSR:        info.CSR,
-		CA:         req.CA,
-		DNSAccount: dnsAccount,
-		Email:      email,
-		EABKid:     eabKid,
-		EABHMAC:    eabHMAC,
+		CSR:       info.CSR,
+		CA:        req.CA,
+		DNSRoutes: routes,
+		Email:     email,
+		EABKid:    eabKid,
+		EABHMAC:   eabHMAC,
 	})
 	if err != nil {
 		m.failCSR(req, err, csrRetryable(err))
@@ -529,6 +583,61 @@ func (m *Manager) runCSRRequest(ctx context.Context, id int64) error {
 	m.Store.AddLogKey("csr", req.ID, "success", "log.csr.issued", map[string]any{"domain": cert.PrimaryDomain, "issuer": cert.Issuer})
 	logger().Info("CSR 申请签发完成", "request_id", req.ID, "cert_id", cert.ID, "domains", strings.Join(cert.Domains, ","))
 	return nil
+}
+
+// issuePrivateCSR 使用服务端保存的私有 CA 为客户端 CSR 签发证书。
+// 私钥仍由客户端持有，服务端只保存证书链和元数据。
+func (m *Manager) issuePrivateCSR(req *model.CSRRequest, info *CSRInfo, caID int64) {
+	ca, err := m.Store.GetPrivateCA(caID)
+	if err != nil {
+		m.failCSR(req, i18n.E("service.csr.private_ca_not_found"), false)
+		return
+	}
+	if err := ValidateIssuingCA(ca); err != nil {
+		m.failCSR(req, err, false)
+		return
+	}
+	chain, err := BuildCAChainPEM(m.Store, ca)
+	if err != nil {
+		m.failCSR(req, err, false)
+		return
+	}
+	identifiers := make([]CertificateIdentifier, 0, len(info.DNSNames))
+	for _, domain := range info.DNSNames {
+		identifiers = append(identifiers, CertificateIdentifier{Type: "dns", Value: domain})
+	}
+	m.Store.AddLogKey("csr", req.ID, "info", "log.csr.started", map[string]any{
+		"domains": strings.Join(info.DNSNames, ", "),
+		"ca":      req.CA,
+	})
+	issued, err := SignCSR(ca, info.CSR, identifiers, SignCSROptions{ChainPEM: chain})
+	if err != nil {
+		m.failCSR(req, err, false)
+		return
+	}
+	cert := &model.Certificate{
+		TaskID:        0,
+		Domains:       info.DNSNames,
+		PrimaryDomain: info.PrimaryDomain,
+		Issuer:        issued.Issuer,
+		CA:            req.CA,
+		Source:        "csr",
+		PrivateCAID:   caID,
+		CSRRequestID:  req.ID,
+		CertPEM:       issued.CertPEM,
+		KeyPEM:        "",
+		FullchainPEM:  issued.FullchainPEM,
+		Serial:        issued.Serial,
+		NotBefore:     issued.NotBefore,
+		NotAfter:      issued.NotAfter,
+		Status:        "valid",
+	}
+	if err := m.Store.CompleteCSRRequest(req.ID, cert); err != nil {
+		m.failCSR(req, i18n.E("service.csr.save_failed", "error", SanitizeErrorText(err.Error())), true)
+		return
+	}
+	m.Store.AddLogKey("csr", req.ID, "success", "log.csr.issued", map[string]any{"domain": cert.PrimaryDomain, "issuer": cert.Issuer})
+	logger().Info("私有 CA CSR 申请签发完成", "request_id", req.ID, "cert_id", cert.ID, "ca_id", caID, "domains", strings.Join(cert.Domains, ","))
 }
 
 func (m *Manager) failCSR(req *model.CSRRequest, err error, retryable bool) {

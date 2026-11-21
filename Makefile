@@ -12,7 +12,7 @@ BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_ARCH := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
 LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)'
 TAGS := embed
-.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve
+.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test csr-client-check typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve
 
 all: build
 
@@ -66,6 +66,11 @@ dev-web:
 test:
 	$(GO) test ./...
 
+csr-client-check:
+	python3 -m py_compile scripts/csr_client.py scripts/check-csr-client-i18n.py scripts/tests/test_csr_client.py
+	python3 scripts/check-csr-client-i18n.py
+	python3 -m unittest discover -s scripts/tests -v
+
 typecheck:
 	cd web && $(NPM) run typecheck
 	cd web && ./node_modules/.bin/tsc -p ../scripts/tsconfig.json
@@ -85,6 +90,9 @@ i18n-check-all:
 docs-build:
 	zensical build --strict --clean
 	zensical build -f mkdocs.zh.yml --strict
+	zensical build -f mkdocs.zh-hant.yml --strict
+	zensical build -f mkdocs.ja.yml --strict
+	zensical build -f mkdocs.ru.yml --strict
 
 docs-serve:
 	./scripts/docs-serve.sh $(PORT)

@@ -250,7 +250,7 @@ func lookup(locale Locale, key string) string {
 	return ""
 }
 
-// fallbackChain 为不参与中英一致性校验的语言指定回退顺序。
+// fallbackChain 为非默认回退语言指定回退顺序。
 // 例如俄语、日语缺译时先显示英文，再回退默认语言；繁体中文缺译时直接回退默认语言。
 var fallbackChain = map[Locale][]Locale{
 	ZhTW: {Default},

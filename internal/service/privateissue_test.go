@@ -15,6 +15,9 @@ func TestPrivateCAValueRoundTrip(t *testing.T) {
 	if !ok || id != 42 {
 		t.Fatalf("解析私有 CA 引用失败: %d %v", id, ok)
 	}
+	if id, ok := ParsePrivateCAValue("PRIVATE-CA:42"); !ok || id != 42 {
+		t.Fatalf("私有 CA 引用应不区分大小写: %d %v", id, ok)
+	}
 	if _, ok := ParsePrivateCAValue("letsencrypt"); ok {
 		t.Fatal("公共 CA 不应被识别为私有 CA")
 	}

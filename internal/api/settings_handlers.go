@@ -2,12 +2,14 @@ package api
 
 import (
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
+	"lactssl/internal/model"
 	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 	"lactssl/internal/util"
@@ -133,6 +135,7 @@ func (s *Server) getSettings(c *gin.Context) {
 		"notify_to":             s.setting("notify.to", ""),
 		"notify_channels":       s.Manager.NotifyChannelsForUI(),
 		"notify_channel_defs":   s.Manager.NotifyChannelDefinitions(),
+		"security_notify":       s.Manager.LoadSecurityNotifyPolicy(user.ID),
 	}
 	// 门禁入口只返回给浏览器会话；API 密钥不应借此获知入口。
 	if apiKeyFromContext(c) != nil {
@@ -168,6 +171,7 @@ func (s *Server) updateSettings(c *gin.Context) {
 		NotifyEnable       *bool                                  `json:"notify_enabled"`
 		NotifyTo           *string                                `json:"notify_to"`
 		NotifyChannels     map[string]service.NotifyChannelConfig `json:"notify_channels"`
+		SecurityNotify     *service.SecurityNotifyPolicy          `json:"security_notify"`
 		// 出站目标（SMTP/通知）可能携带已存储的密钥，变更时必须再认证。
 		Password string `json:"password"`
 		TOTP     string `json:"totp"`
@@ -178,11 +182,25 @@ func (s *Server) updateSettings(c *gin.Context) {
 	}
 	if body.SMTPHost != nil || body.SMTPPort != nil || body.SMTPUsername != nil ||
 		body.SMTPPassword != nil || body.SMTPFrom != nil || body.SMTPSSL != nil ||
-		body.NotifyEnable != nil || body.NotifyTo != nil || body.NotifyChannels != nil {
-		// 修改 SMTP/通知目标等于改变敏感凭据的去向，必须证明当前身份。
+		body.NotifyEnable != nil || body.NotifyTo != nil || body.NotifyChannels != nil ||
+		body.SecurityNotify != nil {
+		// 修改 SMTP/通知目标/安全提醒策略等于改变敏感凭据或告警的去向，必须证明当前身份。
 		if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
 			return
 		}
+	}
+	if body.SecurityNotify != nil {
+		if err := service.ValidateSecurityNotifyPolicy(*body.SecurityNotify); err != nil {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+	}
+	user := getUser(c)
+	oldPolicy := service.DefaultSecurityNotifyPolicy()
+	oldSMTP := s.Manager.LoadSMTPConfig()
+	oldChannels := s.Manager.LoadNotifyChannels()
+	if user != nil {
+		oldPolicy = s.Manager.LoadSecurityNotifyPolicy(user.ID)
 	}
 	if body.Language != nil {
 		value := i18n.Normalize(*body.Language)
@@ -281,7 +299,38 @@ func (s *Server) updateSettings(c *gin.Context) {
 			return
 		}
 	}
+	if body.SecurityNotify != nil {
+		if err := s.Manager.SaveSecurityNotifyPolicy(*body.SecurityNotify); err != nil {
+			failErr(c, http.StatusInternalServerError, err)
+			return
+		}
+	}
 	s.Store.AddLogKey("settings", 0, "info", "log.settings.updated", nil)
+	if user != nil {
+		changes := make([]string, 0, 3)
+		if body.SecurityNotify != nil && !oldPolicy.Equal(s.Manager.LoadSecurityNotifyPolicy(user.ID)) {
+			changes = append(changes, "security_notify")
+		}
+		if oldSMTP != s.Manager.LoadSMTPConfig() {
+			changes = append(changes, "smtp")
+		}
+		if body.NotifyChannels != nil && !reflect.DeepEqual(oldChannels, s.Manager.LoadNotifyChannels()) {
+			changes = append(changes, "notify_channels")
+		}
+		if len(changes) > 0 && oldPolicy.Enabled {
+			event := s.securityEvent(c, user.ID, model.SecurityEventNotifyChanged, map[string]string{
+				"changes": strings.Join(changes, ", "),
+			})
+			event.AccountEmail = user.Email
+			event.Recipients = service.SecurityPolicyRecipients(oldPolicy, user.Email)
+			// 使用旧策略的渠道和旧 SMTP 配置快照，避免攻击者先把告警切到自己的渠道。
+			event.Channels = oldPolicy.Channels
+			event.SMTP = service.SnapshotSMTPConfig(oldSMTP)
+			event.Force = true
+			event.BypassRateLimit = true
+			s.notifySecurity(event)
+		}
+	}
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.settings_saved", nil)})
 }
 
@@ -297,7 +346,7 @@ func (s *Server) testMail(c *gin.Context) {
 	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
 		return
 	}
-	if allowed, wait := s.allow(ratelimit.NotifyTest, "notifytest:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.NotifyTest, "notifytest:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -341,7 +390,7 @@ func (s *Server) testChannel(c *gin.Context) {
 	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
 		return
 	}
-	if allowed, wait := s.allow(ratelimit.NotifyTest, "notifytest:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.NotifyTest, "notifytest:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -366,8 +415,37 @@ func (s *Server) testChannel(c *gin.Context) {
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.test_channel_sent", nil)})
 }
 
+func (s *Server) testSecurityNotify(c *gin.Context) {
+	var body struct {
+		Channels []string `json:"channels"`
+		To       string   `json:"to"`
+		Password string   `json:"password"`
+		TOTP     string   `json:"totp"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	user := getUser(c)
+	if user == nil {
+		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
+		return
+	}
+	// 测试提醒会使用当前 SMTP/渠道配置向外部发送消息，必须再认证。
+	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+		return
+	}
+	if allowed, wait := s.allow(ratelimit.NotifyTest, "securitytest:"+s.clientRateKey(c)); !allowed {
+		rateLimited(c, wait)
+		return
+	}
+	if err := s.Manager.SendSecurityTest(user.ID, body.Channels, body.To); err != nil {
+		failErr(c, http.StatusBadRequest, err)
+		return
+	}
+	s.Store.AddLogKey("settings", user.ID, "info", "log.settings.test_security_notify_sent", nil)
+	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.security_test_queued", nil)})
+}
+
 func (s *Server) changeEntry(c *gin.Context) {
-	if allowed, wait := s.allow(ratelimit.EntryChange, "entry-change:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.EntryChange, "entry-change:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

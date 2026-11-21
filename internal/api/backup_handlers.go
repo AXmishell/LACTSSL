@@ -159,7 +159,7 @@ func (s *Server) handleSetupRestore(c *gin.Context) {
 		failKey(c, http.StatusServiceUnavailable, "api.error.backup_unavailable")
 		return
 	}
-	if allowed, wait := s.allow(ratelimit.SetupRestore, "setup-restore:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.SetupRestore, "setup-restore:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

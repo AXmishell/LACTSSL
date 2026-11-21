@@ -100,67 +100,74 @@
     </div>
 
     <!-- 端点配置 -->
-    <el-dialog v-model="dialogVisible" :title="editing ? t('acmeServer.editTitle') : t('acmeServer.addTitle')" width="760px" destroy-on-close>
-      <el-form :model="form" label-position="top">
-        <div class="grid grid-2" style="gap: 0 18px">
-          <el-form-item :label="t('acmeServer.name')" required>
-            <el-input v-model="form.name" :placeholder="t('acmeServer.namePlaceholder')" maxlength="100" />
-          </el-form-item>
-          <el-form-item :label="t('acmeServer.slug')" required>
-            <el-input v-model="form.slug" :placeholder="t('acmeServer.slugPlaceholder')" maxlength="64" />
-            <div class="form-help">{{ t('acmeServer.slugHelp', { url: directoryPreview }) }}</div>
-          </el-form-item>
-        </div>
-        <el-form-item :label="t('acmeServer.ca')" required>
-          <el-select v-model="form.ca_id" style="width: 100%" :placeholder="t('acmeServer.caPlaceholder')">
-            <el-option
-              v-for="ca in privateCAs"
-              :key="ca.id"
-              :value="ca.id"
-              :label="`${ca.name} (${ca.common_name})`"
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editing ? t('acmeServer.editTitle') : t('acmeServer.addTitle')"
+      class="acme-endpoint-dialog"
+      width="min(840px, 94vw)"
+      top="5vh"
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent>
+        <section class="form-section">
+          <h3 class="form-section-title">{{ t('acmeServer.sectionBasic') }}</h3>
+          <div class="grid grid-2" style="gap: 0 18px">
+            <el-form-item :label="t('acmeServer.name')" prop="name">
+              <el-input v-model="form.name" :placeholder="t('acmeServer.namePlaceholder')" maxlength="100" />
+            </el-form-item>
+            <el-form-item :label="t('acmeServer.slug')">
+              <el-input :model-value="directoryPath" readonly class="path-fixed" />
+              <div class="form-help">{{ t('acmeServer.slugFixedHelp', { url: directoryPreview }) }}</div>
+            </el-form-item>
+          </div>
+          <div class="grid grid-2" style="gap: 0 18px">
+            <el-form-item :label="t('acmeServer.ca')" prop="ca_id">
+              <el-select v-model="form.ca_id" style="width: 100%" :placeholder="t('acmeServer.caPlaceholder')">
+                <el-option
+                  v-for="ca in privateCAs"
+                  :key="ca.id"
+                  :value="ca.id"
+                  :label="`${ca.name} (${ca.common_name})`"
+                />
+              </el-select>
+              <div class="form-help">{{ t('acmeServer.caHelp') }}</div>
+            </el-form-item>
+            <el-form-item :label="t('acmeServer.enabled')">
+              <el-switch v-model="form.enabled" />
+              <div class="form-help">{{ t('acmeServer.enabledHelp') }}</div>
+            </el-form-item>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h3 class="form-section-title">{{ t('acmeServer.sectionAccess') }}</h3>
+          <div class="grid grid-3" style="gap: 0 18px">
+            <el-form-item :label="t('acmeServer.eabRequired')">
+              <el-switch v-model="form.eab_required" />
+              <div class="form-help" :class="{ 'acme-danger': !form.eab_required }">
+                {{ form.eab_required ? t('acmeServer.eabRequiredHelp') : t('acmeServer.eabOptionalHelp') }}
+              </div>
+            </el-form-item>
+            <el-form-item :label="t('acmeServer.wildcard')">
+              <el-switch v-model="form.allow_wildcard" @change="onWildcardChange" />
+              <div class="form-help">{{ t('acmeServer.wildcardHelp') }}</div>
+            </el-form-item>
+            <el-form-item :label="t('acmeServer.allowIP')">
+              <el-switch v-model="form.allow_ip" />
+              <div class="form-help">{{ t('acmeServer.allowIPHelp') }}</div>
+            </el-form-item>
+          </div>
+          <el-form-item :label="t('acmeServer.allowedDomains')" prop="allowed_domains">
+            <el-input
+              v-model="form.allowed_domains"
+              type="textarea"
+              :rows="3"
+              :placeholder="t('acmeServer.allowedDomainsPlaceholder')"
             />
-          </el-select>
-          <div class="form-help">{{ t('acmeServer.caHelp') }}</div>
-        </el-form-item>
-        <div class="grid grid-2 field-group" style="gap: 0 18px">
-          <el-form-item :label="t('acmeServer.enabled')">
-            <el-switch v-model="form.enabled" />
-            <div class="form-help">{{ t('acmeServer.enabledHelp') }}</div>
+            <div class="form-help">{{ t('acmeServer.allowedDomainsHelp') }}</div>
           </el-form-item>
-          <el-form-item :label="t('acmeServer.eabRequired')">
-            <el-switch v-model="form.eab_required" />
-            <div class="form-help" :class="{ 'acme-danger': !form.eab_required }">
-              {{ form.eab_required ? t('acmeServer.eabRequiredHelp') : t('acmeServer.eabOptionalHelp') }}
-            </div>
-          </el-form-item>
-        </div>
-        <el-form-item :label="t('acmeServer.allowedDomains')">
-          <el-input
-            v-model="form.allowed_domains"
-            type="textarea"
-            :rows="3"
-            :placeholder="t('acmeServer.allowedDomainsPlaceholder')"
-          />
-          <div class="form-help">{{ t('acmeServer.allowedDomainsHelp') }}</div>
-        </el-form-item>
-        <div class="grid grid-2 field-group" style="gap: 0 18px">
-          <el-form-item :label="t('acmeServer.challengeTypes')">
-            <el-checkbox v-model="form.http01_enabled">HTTP-01</el-checkbox>
-            <el-checkbox v-model="form.dns01_enabled">DNS-01</el-checkbox>
-            <el-checkbox v-model="form.tls_alpn_01_enabled">TLS-ALPN-01</el-checkbox>
-            <div class="form-help">{{ t('acmeServer.challengeHelp') }}</div>
-          </el-form-item>
-          <el-form-item :label="t('acmeServer.wildcard')">
-            <el-switch v-model="form.allow_wildcard" />
-            <div class="form-help">{{ t('acmeServer.wildcardHelp') }}</div>
-          </el-form-item>
-        </div>
-        <div class="grid grid-2 field-group" style="gap: 0 18px">
-          <el-form-item :label="t('acmeServer.allowIP')">
-            <el-switch v-model="form.allow_ip" />
-            <div class="form-help">{{ t('acmeServer.allowIPHelp') }}</div>
-          </el-form-item>
-          <el-form-item :label="t('acmeServer.allowedIPCIDRs')">
+          <el-form-item v-if="form.allow_ip" :label="t('acmeServer.allowedIPCIDRs')" prop="allowed_ip_cidrs">
             <el-input
               v-model="form.allowed_ip_cidrs"
               type="textarea"
@@ -169,43 +176,71 @@
             />
             <div class="form-help">{{ t('acmeServer.allowedIPCIDRsHelp') }}</div>
           </el-form-item>
-        </div>
-        <div class="grid grid-2 field-group" style="gap: 0 18px">
-          <el-form-item :label="t('acmeServer.allowPrivateHTTP01')">
-            <el-switch v-model="form.allow_private_http01" />
-            <div class="form-help">{{ t('acmeServer.allowPrivateHTTP01Help') }}</div>
+        </section>
+
+        <section class="form-section">
+          <h3 class="form-section-title">{{ t('acmeServer.sectionChallenges') }}</h3>
+          <el-form-item :label="t('acmeServer.challengeTypes')">
+            <div class="challenge-row">
+              <el-checkbox v-model="form.http01_enabled">HTTP-01</el-checkbox>
+              <el-checkbox v-model="form.dns01_enabled" @change="onDNS01Change">DNS-01</el-checkbox>
+              <el-checkbox v-model="form.tls_alpn_01_enabled">TLS-ALPN-01</el-checkbox>
+            </div>
+            <div class="form-help">{{ t('acmeServer.challengeHelp') }}</div>
           </el-form-item>
-          <el-form-item :label="t('acmeServer.http01AllowedCIDRs')">
-            <el-input
-              v-model="form.http01_allowed_cidrs"
-              type="textarea"
-              :rows="2"
-              :placeholder="t('acmeServer.http01AllowedCIDRsPlaceholder')"
-            />
-            <div class="form-help">{{ t('acmeServer.http01AllowedCIDRsHelp') }}</div>
-          </el-form-item>
-          <el-form-item :label="t('acmeServer.allowPrivateTLSALPN01')">
-            <el-switch v-model="form.allow_private_tls_alpn_01" />
-            <div class="form-help">{{ t('acmeServer.allowPrivateTLSALPN01Help') }}</div>
-          </el-form-item>
-          <el-form-item :label="t('acmeServer.tlsALPN01AllowedCIDRs')">
-            <el-input
-              v-model="form.tls_alpn_01_allowed_cidrs"
-              type="textarea"
-              :rows="2"
-              :placeholder="t('acmeServer.tlsALPN01AllowedCIDRsPlaceholder')"
-            />
-            <div class="form-help">{{ t('acmeServer.tlsALPN01AllowedCIDRsHelp') }}</div>
-          </el-form-item>
-        </div>
-        <div class="grid grid-2" style="gap: 0 18px">
-          <el-form-item :label="t('acmeServer.validityDays')">
-            <el-input-number v-model="form.validity_days" :min="1" :max="3650" style="width: 100%" />
-          </el-form-item>
-          <el-form-item :label="t('acmeServer.maxOrdersPerHour')">
-            <el-input-number v-model="form.max_orders_per_hour" :min="1" :max="10000" style="width: 100%" />
-          </el-form-item>
-        </div>
+
+          <div v-if="form.http01_enabled" class="challenge-panel">
+            <div class="challenge-panel-head">
+              <span class="challenge-panel-title">HTTP-01</span>
+              <div class="challenge-switch">
+                <el-switch v-model="form.allow_private_http01" />
+                <span>{{ t('acmeServer.allowPrivateAccess') }}</span>
+              </div>
+            </div>
+            <div class="form-help challenge-panel-help">{{ t('acmeServer.allowPrivateHTTP01Help') }}</div>
+            <el-form-item :label="t('acmeServer.http01AllowedCIDRs')">
+              <el-input
+                v-model="form.http01_allowed_cidrs"
+                type="textarea"
+                :rows="2"
+                :placeholder="t('acmeServer.http01AllowedCIDRsPlaceholder')"
+              />
+              <div class="form-help">{{ t('acmeServer.http01AllowedCIDRsHelp') }}</div>
+            </el-form-item>
+          </div>
+
+          <div v-if="form.tls_alpn_01_enabled" class="challenge-panel">
+            <div class="challenge-panel-head">
+              <span class="challenge-panel-title">TLS-ALPN-01</span>
+              <div class="challenge-switch">
+                <el-switch v-model="form.allow_private_tls_alpn_01" />
+                <span>{{ t('acmeServer.allowPrivateAccess') }}</span>
+              </div>
+            </div>
+            <div class="form-help challenge-panel-help">{{ t('acmeServer.allowPrivateTLSALPN01Help') }}</div>
+            <el-form-item :label="t('acmeServer.tlsALPN01AllowedCIDRs')">
+              <el-input
+                v-model="form.tls_alpn_01_allowed_cidrs"
+                type="textarea"
+                :rows="2"
+                :placeholder="t('acmeServer.tlsALPN01AllowedCIDRsPlaceholder')"
+              />
+              <div class="form-help">{{ t('acmeServer.tlsALPN01AllowedCIDRsHelp') }}</div>
+            </el-form-item>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h3 class="form-section-title">{{ t('acmeServer.sectionIssuance') }}</h3>
+          <div class="grid grid-2" style="gap: 0 18px">
+            <el-form-item :label="t('acmeServer.validityDays')">
+              <el-input-number v-model="form.validity_days" :min="1" :max="3650" style="width: 100%" />
+            </el-form-item>
+            <el-form-item :label="t('acmeServer.maxOrdersPerHour')">
+              <el-input-number v-model="form.max_orders_per_hour" :min="1" :max="10000" style="width: 100%" />
+            </el-form-item>
+          </div>
+        </section>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
@@ -282,6 +317,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
 import { Close, Connection, CopyDocument, DataAnalysis, Delete, Key, Plus, Refresh } from '@element-plus/icons-vue'
 import { api, copyText } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
@@ -320,17 +356,57 @@ const selectedEndpoints = ref<ACMEEndpoint[]>([])
 const showBatchBar = useDelayedBatchBar(() => selectedEndpoints.value.length > 0)
 const batchDeleting = ref(false)
 
+// 新端点固定使用 v2 路径；编辑时保留原端点路径，避免改变客户端已配置的地址。
+const FIXED_SLUG = 'v2'
+
 const dialogVisible = ref(false)
 const editing = ref<ACMEEndpoint | null>(null)
+const formRef = ref<FormInstance>()
 const form = reactive<EndpointForm>(emptyForm())
 
-const directoryPreview = computed(() => {
-  const value = form.slug.trim()
-  if (!value) return `${window.location.origin}/acme/v2/directory`
-  if (/^https?:\/\//i.test(value)) return value
-  if (value.startsWith('/')) return `${window.location.origin}${value}`
-  return `${window.location.origin}/acme/${value}/directory`
-})
+const rules = computed<FormRules>(() => ({
+  name: [
+    {
+      validator: (_rule, value, callback) => {
+        if (!String(value || '').trim()) callback(new Error(t('acmeServer.nameRequired')))
+        else callback()
+      },
+      trigger: 'blur'
+    }
+  ],
+  ca_id: [
+    {
+      validator: (_rule, value, callback) => {
+        if (!Number(value)) callback(new Error(t('acmeServer.caRequired')))
+        else callback()
+      },
+      trigger: 'change'
+    }
+  ],
+  allowed_domains: [
+    {
+      validator: (_rule, value, callback) => {
+        if (form.enabled && !form.allow_ip && splitList(String(value || '')).length === 0) {
+          callback(new Error(t('acmeServer.domainsRequired')))
+        } else callback()
+      },
+      trigger: 'blur'
+    }
+  ],
+  allowed_ip_cidrs: [
+    {
+      validator: (_rule, value, callback) => {
+        if (form.allow_ip && splitList(String(value || '')).length === 0) {
+          callback(new Error(t('acmeServer.ipCIDRsRequired')))
+        } else callback()
+      },
+      trigger: 'blur'
+    }
+  ]
+}))
+
+const directoryPath = computed(() => `/acme/${form.slug}/directory`)
+const directoryPreview = computed(() => `${window.location.origin}${directoryPath.value}`)
 
 // displayDirectoryURL 统一使用当前浏览器地址拼接端点地址，
 // 避免开发代理与后端推导出的 Host 不一致。
@@ -349,7 +425,7 @@ const eabForm = reactive({ label: '', expires_days: 0 })
 function emptyForm(): EndpointForm {
   return {
     name: '',
-    slug: '/acme/v2/directory',
+    slug: FIXED_SLUG,
     ca_id: 0,
     enabled: false,
     eab_required: true,
@@ -374,15 +450,6 @@ function splitList(value: string): string[] {
     .split(/[\n,;]+/)
     .map((item) => item.trim())
     .filter(Boolean)
-}
-
-// slugFromPath 从完整路径（如 /acme/v2/directory）中提取端点 slug。
-function slugFromPath(value: string): string {
-  const trimmed = value.trim()
-  const match = trimmed.match(/\/acme\/([a-z0-9-]+)(?:\/directory)?\/?$/i)
-  if (match) return match[1].toLowerCase()
-  if (/^[a-z0-9-]+$/i.test(trimmed)) return trimmed.toLowerCase()
-  return ''
 }
 
 async function load(): Promise<void> {
@@ -413,7 +480,7 @@ function openEdit(row: ACMEEndpoint): void {
   editing.value = row
   Object.assign(form, {
     name: row.name,
-    slug: `/acme/${row.slug}/directory`,
+    slug: row.slug,
     ca_id: row.ca_id,
     enabled: row.enabled,
     eab_required: row.eab_required,
@@ -434,26 +501,29 @@ function openEdit(row: ACMEEndpoint): void {
   dialogVisible.value = true
 }
 
+// 通配符证书只能使用 DNS-01，开启通配符时自动勾选 DNS-01。
+function onWildcardChange(value: boolean): void {
+  if (value) form.dns01_enabled = true
+}
+
+// 取消 DNS-01 时同步关闭通配符，避免保存无效组合。
+function onDNS01Change(value: boolean): void {
+  if (!value) form.allow_wildcard = false
+}
+
 async function submitEndpoint(): Promise<void> {
-  const slug = slugFromPath(form.slug)
-  if (!form.name.trim() || !slug) {
-    ElMessage.warning(!form.name.trim() ? t('acmeServer.nameRequired') : t('acmeServer.slugInvalid'))
+  const formEl = formRef.value
+  if (!formEl) return
+  try {
+    await formEl.validate()
+  } catch (fields) {
+    const first = fields && typeof fields === 'object' ? Object.keys(fields as Record<string, unknown>)[0] : ''
+    if (first) formEl.scrollToField(first)
     return
   }
-  if (!form.ca_id) {
-    ElMessage.warning(t('acmeServer.caRequired'))
-    return
-  }
+  const slug = form.slug
   const domains = splitList(form.allowed_domains)
   const ipCIDRs = splitList(form.allowed_ip_cidrs)
-  if (form.enabled && domains.length === 0 && !form.allow_ip) {
-    ElMessage.warning(t('acmeServer.domainsRequired'))
-    return
-  }
-  if (form.allow_ip && ipCIDRs.length === 0) {
-    ElMessage.warning(t('acmeServer.ipCIDRsRequired'))
-    return
-  }
   saving.value = true
   try {
     const payload = {
@@ -622,18 +692,98 @@ onMounted(load)
 </script>
 
 <style scoped>
-/* 开关右侧统一留出 12px 外边距，避免与相邻说明文字贴在一起 */
-:deep(.el-switch) {
-  margin-right: 12px;
+/* 内容区独立滚动，标题和底部按钮始终可见。 */
+:global(.acme-endpoint-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  margin-bottom: 0;
 }
-/* 开关相关的字段成组显示，加浅色边框便于区分 */
-.field-group {
-  border: 1px solid var(--kp-border);
-  padding: 16px 16px 0;
-  margin-bottom: 18px;
+:global(.acme-endpoint-dialog .el-dialog__header) {
+  flex: none;
 }
-.field-group :deep(.el-form-item) {
+:global(.acme-endpoint-dialog .el-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+:global(.acme-endpoint-dialog .el-dialog__footer) {
+  flex: none;
+  padding-top: 12px;
+  border-top: 1px solid var(--kp-border);
+}
+/* 按任务分区，用分隔线代替包围式边框，避免视觉噪音。 */
+.form-section + .form-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--kp-border);
+}
+.form-section-title {
+  margin: 0 0 14px;
+  color: var(--kp-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.form-help {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.path-fixed :deep(.el-input__wrapper) {
+  background: #f8fafc;
+}
+.path-fixed :deep(.el-input__inner) {
+  color: var(--kp-muted);
+}
+.challenge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+}
+.challenge-row :deep(.el-checkbox) {
+  margin-right: 0;
+}
+/* 每个启用的验证方式对应一个独立配置块，关闭时整块隐藏。 */
+.challenge-panel {
   margin-bottom: 16px;
+  padding: 12px 14px 0;
+  border: 1px solid var(--kp-border);
+}
+.challenge-panel:last-child {
+  margin-bottom: 0;
+}
+.challenge-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+}
+.challenge-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.challenge-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--kp-muted);
+  font-size: 12px;
+}
+.challenge-panel-help {
+  margin: 4px 0 12px;
+}
+.challenge-panel :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+@media (max-width: 640px) {
+  .challenge-panel-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 .acme-name {
   font-weight: 600;

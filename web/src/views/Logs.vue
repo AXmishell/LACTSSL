@@ -8,6 +8,7 @@
       <el-tabs v-model="tab" class="logs-tabs" @tab-change="onTabChange">
         <el-tab-pane :label="t('logs.tabOperation')" name="operation" />
         <el-tab-pane :label="t('logs.tabSystem')" name="system" />
+        <el-tab-pane :label="t('logs.tabNotify')" name="notify" />
         <el-tab-pane :label="t('logs.tabArchive')" name="archive" />
       </el-tabs>
     </div>
@@ -27,6 +28,11 @@
         </el-select>
         <el-select v-model="component" clearable :placeholder="t('systemLogs.allComponents')" style="width: 140px" @change="reload">
           <el-option v-for="item in components" :key="item" :label="componentLabel(item)" :value="item" />
+        </el-select>
+      </template>
+      <template v-else-if="tab === 'notify'">
+        <el-select v-model="notifyLevel" :placeholder="t('logs.allLevels')" style="width: 140px" @change="reload">
+          <el-option v-for="item in levels" :key="item.value" :label="t(item.label)" :value="item.value" />
         </el-select>
       </template>
       <template v-else>
@@ -78,7 +84,7 @@
       </el-dropdown>
       <el-button :icon="Refresh" circle @click="load()" />
       <el-button
-        v-if="tab !== 'archive'"
+        v-if="tab !== 'archive' && tab !== 'notify'"
         type="danger"
         plain
         :icon="Delete"
@@ -137,14 +143,14 @@
               <span class="muted">{{ sourceLabel(row.source) }}</span>
             </template>
           </el-table-column>
-          <el-table-column v-else width="130" :label="t('systemLogs.component')">
+          <el-table-column v-else-if="tab === 'system'" width="130" :label="t('systemLogs.component')">
             <template #default="{ row }">
               <span class="muted">{{ componentLabel(row.component) }}</span>
             </template>
           </el-table-column>
           <el-table-column
             min-width="380"
-            :label="tab === 'operation' ? t('logs.content') : t('systemLogs.message')"
+            :label="tab === 'system' ? t('systemLogs.message') : t('logs.content')"
           >
             <template #default="{ row }">
               <span class="log-message">{{ row.message }}</span>
@@ -157,7 +163,13 @@
           </el-table-column>
           <template #empty>
             <div style="padding: 40px 0; color: #94a3b8">
-              {{ tab === 'operation' ? t('logs.empty') : t('systemLogs.empty') }}
+              {{
+                tab === 'operation'
+                  ? t('logs.empty')
+                  : tab === 'system'
+                    ? t('systemLogs.empty')
+                    : t('logs.notifyEmpty')
+              }}
             </div>
           </template>
         </el-table>
@@ -267,7 +279,7 @@ interface LogRow {
 
 const route = useRoute()
 const { t } = useI18n()
-const tab = ref(route.meta.logTab === 'system' ? 'system' : 'operation')
+const tab = ref(route.meta.logTab === 'system' ? 'system' : route.meta.logTab === 'notify' ? 'notify' : 'operation')
 const loading = ref(false)
 const clearing = ref(false)
 const exporting = ref(false)
@@ -292,7 +304,12 @@ const retentionDays = ref(7)
 const enabled = ref(true)
 const autoRefresh = ref(true)
 
-// 归档筛选与分页独立，避免和操作/系统日志的状态互相影响。
+// 通知日志复用操作日志中 source=notify 的记录，独立保存筛选状态。
+const notifyLevel = ref('')
+const notifyQuery = ref('')
+const notifyRange = ref<[Date, Date] | null>(null)
+
+// 归档筛选与分页独立，避免和操作/系统/通知日志的状态互相影响。
 const archiveItems = ref<LogArchiveEntry[]>([])
 const archiveTotal = ref(0)
 const archivePage = ref(1)
@@ -350,6 +367,7 @@ const componentKeys: Record<string, string> = {
 
 const subtitle = computed(() => {
   if (tab.value === 'archive') return t('logs.archiveSubtitle')
+  if (tab.value === 'notify') return t('logs.notifySubtitle')
   return tab.value === 'operation'
     ? t('logs.subtitle')
     : t('systemLogs.subtitle', { days: retentionDays.value })
@@ -358,30 +376,38 @@ const subtitle = computed(() => {
 const activeRange = computed({
   get: () => {
     if (tab.value === 'archive') return archiveRange.value
-    return tab.value === 'operation' ? operationRange.value : systemRange.value
+    if (tab.value === 'operation') return operationRange.value
+    if (tab.value === 'notify') return notifyRange.value
+    return systemRange.value
   },
   set: (value: [Date, Date] | null) => {
     if (tab.value === 'archive') {
       archiveRange.value = value
     } else if (tab.value === 'operation') {
       operationRange.value = value
+    } else if (tab.value === 'notify') {
+      notifyRange.value = value
     } else {
       systemRange.value = value
     }
   }
 })
 
-// 关键字搜索三个页签共用控件，但各自保留筛选状态。
+// 关键字搜索各页签共用控件，但各自保留筛选状态。
 const activeQuery = computed({
   get: () => {
     if (tab.value === 'archive') return archiveQuery.value
-    return tab.value === 'operation' ? operationQuery.value : systemQuery.value
+    if (tab.value === 'operation') return operationQuery.value
+    if (tab.value === 'notify') return notifyQuery.value
+    return systemQuery.value
   },
   set: (value: string) => {
     if (tab.value === 'archive') {
       archiveQuery.value = value
     } else if (tab.value === 'operation') {
       operationQuery.value = value
+    } else if (tab.value === 'notify') {
+      notifyQuery.value = value
     } else {
       systemQuery.value = value
     }
@@ -390,7 +416,9 @@ const activeQuery = computed({
 
 const searchPlaceholder = computed(() => {
   if (tab.value === 'archive') return t('logs.archiveSearchPlaceholder')
-  return tab.value === 'operation' ? t('logs.searchPlaceholder') : t('systemLogs.searchPlaceholder')
+  if (tab.value === 'operation') return t('logs.searchPlaceholder')
+  if (tab.value === 'notify') return t('logs.notifySearchPlaceholder')
+  return t('systemLogs.searchPlaceholder')
 })
 
 function sourceLabel(value?: string): string {
@@ -446,6 +474,10 @@ function filterParams(): Record<string, string> {
   } else if (tab.value === 'operation') {
     if (source.value) params.source = source.value
     if (level.value) params.level = level.value
+  } else if (tab.value === 'notify') {
+    // 通知日志是操作日志中固定来源为 notify 的视图，避免维护第二套存储。
+    params.source = 'notify'
+    if (notifyLevel.value) params.level = notifyLevel.value
   } else {
     if (systemLevel.value) params.level = systemLevel.value
     if (component.value) params.component = component.value
@@ -458,7 +490,7 @@ async function load(silent = false): Promise<void> {
   const seq = ++loadSeq
   if (!silent) loading.value = true
   try {
-    if (tab.value === 'operation') {
+    if (tab.value === 'operation' || tab.value === 'notify') {
       const data = await api.get<LogPage>('/logs', { page: page.value, size, ...filterParams() })
       if (seq !== loadSeq) return
       items.value = data.items || []
@@ -524,7 +556,11 @@ async function exportLogs(format: string): Promise<void> {
   if (exporting.value) return
   if (total.value === 0) {
     ElMessage.warning(
-      tab.value === 'operation' ? t('logs.exportEmpty') : t('systemLogs.exportEmpty')
+      tab.value === 'operation'
+        ? t('logs.exportEmpty')
+        : tab.value === 'notify'
+          ? t('logs.notifyExportEmpty')
+          : t('systemLogs.exportEmpty')
     )
     return
   }
@@ -534,8 +570,13 @@ async function exportLogs(format: string): Promise<void> {
     params.set('format', format)
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
     if (timezone) params.set('tz', timezone)
-    const endpoint = tab.value === 'operation' ? '/logs/export' : '/system-logs/export'
-    const prefix = tab.value === 'operation' ? 'lactssl-logs' : 'lactssl-system-logs'
+    const isSystem = tab.value === 'system'
+    const endpoint = isSystem ? '/system-logs/export' : '/logs/export'
+    const prefix = isSystem
+      ? 'lactssl-system-logs'
+      : tab.value === 'notify'
+        ? 'lactssl-notify-logs'
+        : 'lactssl-logs'
     await downloadFile(`${endpoint}?${params.toString()}`, `${prefix}-${fileStamp()}.${format}`)
   } catch (error: any) {
     ElMessage.error(error.message)

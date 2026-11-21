@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/outbound"
 	"lactssl/internal/plugin/deploy"
 	"lactssl/internal/plugin/dns"
 	"lactssl/internal/plugin/install"
@@ -35,6 +36,7 @@ const (
 	repoChannelSetting     = "plugins.repo.channel"
 	repoAutoUpdateSetting  = "plugins.repo.auto_update"
 	repoPublicKeySetting   = "plugins.repo.public_key"
+	repoProxySetting       = "plugins.repo.proxy"
 	repoIndexSetting       = "plugins.repo.index"
 	repoIndexMACSetting    = "plugins.repo.index_mac"
 	repoIndexSigSetting    = "plugins.repo.index_sig"
@@ -146,8 +148,24 @@ func (s *Server) repoPublicKey() string {
 	return strings.TrimSpace(s.PluginRepoPublicKey)
 }
 
+// repoProxy 返回插件仓库下载代理。
+// 与公钥相同，必须区分“设置不存在”（回退到配置文件默认值）与
+// “显式设置为空”（用户主动关闭代理，即使配置文件配置了代理）。
+func (s *Server) repoProxy() string {
+	if s.Store != nil {
+		if _, found, err := s.Store.LookupSetting(repoProxySetting); err == nil && found {
+			value, err := s.Store.GetSecret(repoProxySetting)
+			if err != nil {
+				return ""
+			}
+			return strings.TrimSpace(value)
+		}
+	}
+	return strings.TrimSpace(s.PluginRepoProxy)
+}
+
 func (s *Server) repoClient() (*pluginrepo.Client, error) {
-	return pluginrepo.NewClient(s.repoURL(), s.repoChannel(), s.repoPublicKey(), s.PluginRepoTimeout, s.PluginRepoMaxDownloadMB)
+	return pluginrepo.NewClientWithProxy(s.repoURL(), s.repoChannel(), s.repoPublicKey(), s.PluginRepoTimeout, s.PluginRepoMaxDownloadMB, s.repoProxy())
 }
 
 // repoKeyFingerprint 返回当前配置公钥的指纹；未配置或格式非法时返回空/占位。
@@ -181,9 +199,22 @@ func (s *Server) requireSignedRepoIndex() error {
 
 func (s *Server) repoStatus() gin.H {
 	s.pluginRepoMu.Lock()
+	hasMemoryIndex := len(s.pluginRepoIndexRaw) > 0
+	lastErr := s.pluginRepoErr
+	s.pluginRepoMu.Unlock()
+	// 进程刚启动且后台刷新失败时，内存里还没有索引；先尝试恢复本地已验签
+	// 缓存，避免状态接口把“暂时无法访问仓库”误报成“签名校验失败”。
+	if !hasMemoryIndex {
+		if _, ok := s.loadCachedRepoIndex(); ok && lastErr != "" {
+			s.pluginRepoMu.Lock()
+			s.pluginRepoErr = lastErr
+			s.pluginRepoMu.Unlock()
+		}
+	}
+	s.pluginRepoMu.Lock()
 	index := s.pluginRepoIndex
 	checkedAt := s.pluginRepoCheckedAt
-	lastErr := s.pluginRepoErr
+	lastErr = s.pluginRepoErr
 	verified := s.pluginRepoVerified
 	s.pluginRepoMu.Unlock()
 	checked := ""
@@ -200,11 +231,14 @@ func (s *Server) repoStatus() gin.H {
 			fingerprint = pluginrepo.PublicKeyFingerprint(parsed)
 		}
 	}
+	proxy := s.repoProxy()
 	return gin.H{
 		"enabled":                s.repoEnabled(),
 		"url":                    s.repoURL(),
 		"channel":                s.repoChannel(),
 		"auto_update":            s.repoAutoUpdate(),
+		"proxy":                  proxy,
+		"proxy_set":              proxy != "",
 		"public_key_set":         publicKey != "",
 		"public_key_valid":       publicKeyValid,
 		"public_key_fingerprint": fingerprint,
@@ -543,6 +577,7 @@ func (s *Server) updatePluginRepo(c *gin.Context) {
 		Channel    *string `json:"channel"`
 		AutoUpdate *bool   `json:"auto_update"`
 		PublicKey  *string `json:"public_key"`
+		Proxy      *string `json:"proxy"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -589,6 +624,21 @@ func (s *Server) updatePluginRepo(c *gin.Context) {
 			changedSource = true
 		}
 		if err := s.Store.SetSetting(repoPublicKeySetting, value); err != nil {
+			failErr(c, http.StatusInternalServerError, err)
+			return
+		}
+	}
+	if body.Proxy != nil {
+		value := strings.TrimSpace(*body.Proxy)
+		if err := outbound.ValidateProxyURL(value); err != nil {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+		if value != s.repoProxy() {
+			changedSource = true
+		}
+		// 代理地址可能包含认证信息，与 SMTP 密码一样加密保存。
+		if err := s.Store.SetSecret(repoProxySetting, value); err != nil {
 			failErr(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -720,6 +770,7 @@ func (s *Server) findRepoPlugin(index pluginrepo.Index, kind, id, version string
 
 type inspectResult struct {
 	IDs     []string
+	Aliases []string
 	Version string
 	Digest  string
 }
@@ -734,10 +785,12 @@ func (s *Server) inspectPluginBinary(kind, path string) (inspectResult, error) {
 			return inspectResult{}, err
 		}
 		ids := make([]string, 0, len(manifest.Providers))
+		aliases := make([]string, 0)
 		for _, item := range manifest.Providers {
 			ids = append(ids, item.ID)
+			aliases = append(aliases, item.Aliases...)
 		}
-		return inspectResult{IDs: ids, Version: manifest.Version, Digest: digest}, nil
+		return inspectResult{IDs: ids, Aliases: aliases, Version: manifest.Version, Digest: digest}, nil
 	case pluginKindDeploy:
 		manifest, digest, err := deployplugin.InspectHelper(path, deployplugin.DiscoverConfig{
 			MemoryLimitMB: s.DeployPluginMemoryLimitMB, Timeout: s.DeployPluginTimeout, MaxOutputKB: s.DeployPluginMaxOutputKB,
@@ -747,10 +800,12 @@ func (s *Server) inspectPluginBinary(kind, path string) (inspectResult, error) {
 			return inspectResult{}, err
 		}
 		ids := make([]string, 0, len(manifest.Deployers))
+		aliases := make([]string, 0)
 		for _, item := range manifest.Deployers {
 			ids = append(ids, item.ID)
+			aliases = append(aliases, item.Aliases...)
 		}
-		return inspectResult{IDs: ids, Version: manifest.Version, Digest: digest}, nil
+		return inspectResult{IDs: ids, Aliases: aliases, Version: manifest.Version, Digest: digest}, nil
 	case pluginKindNotify:
 		manifest, digest, err := notifyplugin.InspectHelper(path, notifyplugin.DiscoverConfig{
 			MemoryLimitMB: s.NotifyPluginMemoryLimitMB, Timeout: s.NotifyPluginTimeout, MaxOutputKB: s.NotifyPluginMaxOutputKB,
@@ -760,10 +815,12 @@ func (s *Server) inspectPluginBinary(kind, path string) (inspectResult, error) {
 			return inspectResult{}, err
 		}
 		ids := make([]string, 0, len(manifest.Channels))
+		aliases := make([]string, 0)
 		for _, item := range manifest.Channels {
 			ids = append(ids, item.ID)
+			aliases = append(aliases, item.Aliases...)
 		}
-		return inspectResult{IDs: ids, Version: manifest.Version, Digest: digest}, nil
+		return inspectResult{IDs: ids, Aliases: aliases, Version: manifest.Version, Digest: digest}, nil
 	default:
 		return inspectResult{}, fmt.Errorf("不支持的插件类型: %s", kind)
 	}
@@ -780,28 +837,6 @@ func (s *Server) pluginKindDir(kind string) (string, bool) {
 	default:
 		return "", false
 	}
-}
-
-func (s *Server) pluginIDConflict(kind, id, target string) error {
-	var helper string
-	switch kind {
-	case pluginKindDNS:
-		if info, ok := dnsplugin.ExternalProviderInfo(id); ok {
-			helper = info.Helper
-		}
-	case pluginKindDeploy:
-		if info, ok := deployplugin.ExternalDeployerInfo(id); ok {
-			helper = info.Helper
-		}
-	case pluginKindNotify:
-		if info, ok := notifyplugin.ExternalChannelInfo(id); ok {
-			helper = info.Helper
-		}
-	}
-	if helper != "" && filepath.Clean(helper) != filepath.Clean(target) {
-		return fmt.Errorf("插件 %s/%s 已由 %s 提供，请先卸载旧插件或完成迁移", kind, id, filepath.Base(helper))
-	}
-	return nil
 }
 
 func (s *Server) rescanPluginKind(kind string) []string {
@@ -834,9 +869,6 @@ func (s *Server) installRepoPlugin(kind string, plugin pluginrepo.Plugin, asset 
 	filename := plugininstall.Filename(kind, plugin.ID, runtime.GOOS)
 	target, err := plugininstall.SafePath(dir, filename)
 	if err != nil {
-		return model.PluginInstallation{}, nil, err
-	}
-	if err := s.pluginIDConflict(kind, plugin.ID, target); err != nil {
 		return model.PluginInstallation{}, nil, err
 	}
 	client, err := s.repoClient()
@@ -885,6 +917,17 @@ func (s *Server) installRepoPlugin(kind string, plugin pluginrepo.Plugin, asset 
 	if inspect.Version != plugin.Version {
 		return model.PluginInstallation{}, nil, fmt.Errorf("插件版本 %s 与索引 %s 不一致", inspect.Version, plugin.Version)
 	}
+	// 写入目录前统一检查 ID 与别名冲突；完全被合并包覆盖的旧文件由
+	// cleanupSupersededHelpers 在安装后清理，不要求管理员手动卸载。
+	// 升级时安装记录里的旧文件名也要排除，避免把即将被替换的文件当成冲突源。
+	oldRecord, hadOld, _ := s.Store.GetPluginInstallation(kind, plugin.ID)
+	ignoredFiles := []string{filename}
+	if hadOld && oldRecord.Filename != "" {
+		ignoredFiles = append(ignoredFiles, oldRecord.Filename)
+	}
+	if conflict := s.detectPluginConflicts(kind, inspect.IDs, inspect.Aliases, plugin.Bundle, plugin.ID, plugin.Name, ignoredFiles...); conflict != nil {
+		return model.PluginInstallation{}, nil, conflict
+	}
 	// 记录安装前文件是否已存在：只有全新的 helper 才默认停用文件级加载。
 	_, statErr := os.Lstat(target)
 	fileExisted := statErr == nil
@@ -892,7 +935,6 @@ func (s *Server) installRepoPlugin(kind string, plugin pluginrepo.Plugin, asset 
 	if err != nil {
 		return model.PluginInstallation{}, nil, err
 	}
-	oldRecord, hadOld, _ := s.Store.GetPluginInstallation(kind, plugin.ID)
 	record := model.PluginInstallation{
 		Kind: kind, ID: plugin.ID, Version: plugin.Version, Filename: filename,
 		SHA256: inspect.Digest, AssetSHA256: assetDigest, Source: "repo", RepoURL: s.repoURL(),
@@ -1108,6 +1150,9 @@ func (s *Server) installPluginFromRepo(c *gin.Context) {
 	defer s.pluginUploadMu.Unlock()
 	record, scanErrors, err := s.installRepoPlugin(kind, plugin, asset)
 	if err != nil {
+		if failPluginConflict(c, err) {
+			return
+		}
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
@@ -1185,6 +1230,11 @@ func (s *Server) updatePluginFromRepo(c *gin.Context) {
 		}
 		if err != nil {
 			item["error"] = err.Error()
+			var conflictErr *pluginConflictError
+			if errors.As(err, &conflictErr) {
+				item["code"] = "api.error.plugin_conflict"
+				item["conflicts"] = conflictErr.Conflicts
+			}
 		} else {
 			// 直接返回更新后的安装记录，前端可立即刷新该行状态，无需等待二次列表请求。
 			item["plugin"] = updatedRecord
@@ -1444,6 +1494,9 @@ func (s *Server) migrateLegacyPlugins(c *gin.Context) {
 				}
 				_ = os.Rename(hidden, legacyPath)
 				s.rescanPluginKind(kind)
+				if failPluginConflict(c, err) {
+					return
+				}
 				failErr(c, http.StatusBadRequest, err)
 				return
 			}
@@ -1507,6 +1560,9 @@ func (s *Server) migrateLegacyPlugins(c *gin.Context) {
 		}
 		if _, _, err := s.installRepoPlugin(kind, plugin, asset); err != nil {
 			rollback()
+			if failPluginConflict(c, err) {
+				return
+			}
 			failErr(c, http.StatusBadRequest, err)
 			return
 		}

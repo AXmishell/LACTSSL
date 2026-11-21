@@ -213,6 +213,55 @@ func TestListLogsSearch(t *testing.T) {
 	}
 }
 
+func TestListLogsFilterByRef(t *testing.T) {
+	router, st, session := setupLogTestServer(t)
+	st.AddLogKey("apikey", 1, "info", "log.api_key.created", map[string]any{"name": "one"})
+	st.AddLogKey("apikey", 2, "info", "log.api_key.created", map[string]any{"name": "two"})
+	st.AddLogKey("apikey", 2, "warning", "log.api_key.ip_denied", map[string]any{"ip": "203.0.113.10"})
+
+	w := sessionRequest(t, router, http.MethodGet,
+		"/api/logs?source=apikey&ref_type=apikey&ref_id=2", "", []*http.Cookie{session}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("按资源过滤日志失败: %d %s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Items []struct {
+				Source string `json:"source"`
+			} `json:"items"`
+			Total int64 `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.Total != 2 || len(envelope.Data.Items) != 2 {
+		t.Fatalf("按 ref_id 过滤结果不正确: total=%d items=%+v", envelope.Data.Total, envelope.Data.Items)
+	}
+
+	denied := sessionRequest(t, router, http.MethodGet,
+		"/api/logs?source=apikey&ref_type=apikey&ref_id=2&q=ip_denied", "", []*http.Cookie{session}, nil)
+	if denied.Code != http.StatusOK {
+		t.Fatalf("按 IP 拒绝过滤失败: %d %s", denied.Code, denied.Body.String())
+	}
+	var deniedEnvelope struct {
+		Data struct {
+			Total int64 `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(denied.Body.Bytes(), &deniedEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if deniedEnvelope.Data.Total != 1 {
+		t.Fatalf("IP 拒绝过滤结果不正确: %d", deniedEnvelope.Data.Total)
+	}
+
+	bad := sessionRequest(t, router, http.MethodGet, "/api/logs?ref_id=not-a-number", "", []*http.Cookie{session}, nil)
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("非法 ref_id 应返回 400，实际 %d %s", bad.Code, bad.Body.String())
+	}
+}
+
 func TestClearLogs(t *testing.T) {
 	router, st, session := setupLogTestServer(t)
 	_, before, err := st.ListLogs("", 1000, 0)

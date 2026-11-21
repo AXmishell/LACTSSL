@@ -21,8 +21,11 @@ internal/util/       Encryption, validation, and other utilities
 internal/webui/      Embedded frontend build output
 web/                 Vue 3 + Element Plus frontend
 scripts/             Development scripts and CI (TypeScript, run directly by Node)
-docs/                Chinese documentation
+docs/                Simplified Chinese documentation
 docs/en/             English documentation
+docs/zh-hant/        Traditional Chinese documentation
+docs/ja/             Japanese documentation
+docs/ru/             Russian documentation
 ```
 
 Plugin implementations, official helpers, the plugin protocol, and plugin metadata live in the separate [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) repository. The host implements protocol v1 manifest decoding locally; the repositories integrate at runtime through the signed index and `min_host`, not through a shared Go module.
@@ -50,8 +53,8 @@ make run          # Run go run ./cmd/server directly
 make test         # go test ./...
 make typecheck    # Frontend vue-tsc + tsc for scripts
 make ci           # Full local CI
-make i18n-check   # Verify translation keys (Chinese/English by default)
-make i18n-check-all # Check all languages except zh-TW (including Russian and Japanese)
+make i18n-check   # Verify translation keys (Chinese, English and Traditional Chinese by default)
+make i18n-check-all # Check every language (including Russian and Japanese)
 make tidy         # go mod tidy + install frontend dependencies
 make clean        # Remove build artifacts
 make docs-build   # Build Chinese and English documentation (strict)
@@ -130,8 +133,8 @@ CI also runs `gofmt` checks, `go vet`, tests with `-race` and coverage reporting
 
 - Backend language resources live in `internal/i18n/locales/`.
 - Frontend language resources live in `web/src/i18n/locales/`.
-- When adding text, update both `zh-CN` and `en-US`, then run `make i18n-check`.
-- Traditional Chinese (`zh-TW`) is bundled but always excluded from the key check and falls back directly to `zh-CN`. Russian (`ru-RU`) and Japanese (`ja-JP`) are excluded from the default Chinese/English check; missing strings fall back `language → en-US → zh-CN`. After syncing translations, run `make i18n-check-all` (or `I18N_CHECK_ALL=1`) for a full check of the remaining languages.
+- When adding text, update `zh-CN`, `en-US` and `zh-TW`, then run `make i18n-check`.
+- Traditional Chinese (`zh-TW`) is bundled and included in the default check; missing strings fall back directly to `zh-CN`. Russian (`ru-RU`) and Japanese (`ja-JP`) are excluded from the default check; missing strings fall back `language → en-US → zh-CN`. After syncing translations, run `make i18n-check-all` (or `I18N_CHECK_ALL=1`) for a full check of the remaining languages.
 - The check script is TypeScript (`scripts/check-i18n.ts`), run directly by Node's native type stripping and requiring Node 22.18+.
 - The script's own type check is included in `make typecheck` (configuration in `scripts/tsconfig.json`).
 
@@ -140,14 +143,17 @@ CI also runs `gofmt` checks, `go vet`, tests with `-race` and coverage reporting
 The documentation uses Zensical/MkDocs:
 
 ```bash
-make docs-build   # Build Chinese and English in strict mode
-make docs-serve   # Preview locally (default port 8000)
+make docs-build   # Build every language in strict mode
+make docs-serve   # Preview in the background (port 8000; -l picks a language; ./scripts/docs-serve.sh stop to stop)
 ```
 
-- Chinese configuration: `mkdocs.zh.yml`, output to `site/zh`.
-- English configuration: `mkdocs.yml`, output to `site`.
+- English: `mkdocs.yml` → `site` (default site).
+- Simplified Chinese: `mkdocs.zh.yml` → `site/zh`.
+- Traditional Chinese: `mkdocs.zh-hant.yml` → `site/zh-hant`.
+- Japanese: `mkdocs.ja.yml` → `site/ja`.
+- Russian: `mkdocs.ru.yml` → `site/ru`.
 - `docs-internal/` holds internal design records and is not published to the site.
-- New pages must be added to both navigation files and mirrored under `docs/en/`.
+- New pages must be mirrored under `docs/<language>/` and added to each language's nav.
 
 ## 7. Release process
 

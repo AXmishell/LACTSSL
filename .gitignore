@@ -60,6 +60,7 @@ __pycache__/
 
 # 临时文件
 /tmp/
+/.tmp-*/
 *.tmp
 *.bak
 *.orig

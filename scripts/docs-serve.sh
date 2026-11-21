@@ -1,37 +1,40 @@
 #!/usr/bin/env bash
-# 构建中英文文档站点并启动静态预览服务器（默认开启局域网访问）。
+# 构建多语言文档站点并启动静态预览服务器（默认开启局域网访问）。
 #
 # `zensical serve` 一次只能构建一种配置，而且会清理 site 目录，
-# 因此双语预览需要先分别构建（英文到根目录、中文到 /zh/），
+# 因此多语言预览需要先分别构建（英文到根目录、其他语言到各自前缀），
 # 再用静态服务器托管合并后的 site。
 #
 # 用法：
 #   ./scripts/docs-serve.sh [命令] [选项] [端口]
 #
 # 命令：
-#   （省略）            前台运行，Ctrl+C 停止
-#   start               后台常驻运行（日志与 PID 记录在 .cache/）
+#   （省略）            后台值守运行：构建后常驻并监听变更（推荐）
+#   start               后台常驻运行（等同于省略命令）
 #   stop                停止后台服务
 #   restart             重启后台服务
 #
 # 选项：
+#   -f, --foreground    前台运行，Ctrl+C 停止（默认后台值守）
 #   -p, --port PORT     监听端口（默认 8000，或环境变量 DOCS_PORT）
 #   -H, --host HOST     监听地址（默认 0.0.0.0，即局域网可访问；
 #                       只允许本机访问可设为 127.0.0.1，或环境变量 DOCS_HOST）
-#   -l, --lang LANG     构建语言：all|en|zh（默认 all，或 DOCS_LANG）
+#   -l, --lang LANG     构建语言：all|en|zh|zh-hant|ja|ru（默认 all，或 DOCS_LANG）
 #       --no-build      跳过构建，直接托管已有的 site 目录
 #       --no-clean      构建前不清理旧的站点产物（增量构建，更快）
-#   -w, --watch         监听文档与配置变更并自动重新构建
+#   -w, --watch         监听文档与配置变更并自动重新构建（默认开启）
+#       --no-watch      关闭文件监听（仅在需要固定产物时使用）
 #   -o, --open          启动后尝试用浏览器打开预览地址（仅前台模式）
 #   -h, --help          显示本帮助
 #
 # 示例：
-#   ./scripts/docs-serve.sh                 # 前台运行，局域网可访问
-#   ./scripts/docs-serve.sh start           # 后台常驻，局域网可访问
-#   ./scripts/docs-serve.sh restart -w      # 后台重启并监听变更
+#   ./scripts/docs-serve.sh                 # 后台值守：构建+监听，局域网可访问
+#   ./scripts/docs-serve.sh -f              # 前台运行，Ctrl+C 停止
+#   ./scripts/docs-serve.sh start           # 后台值守（显式写法）
+#   ./scripts/docs-serve.sh restart         # 后台重启并继续监听变更
 #   ./scripts/docs-serve.sh stop            # 停止后台服务
 #   ./scripts/docs-serve.sh 8080            # 兼容旧用法：指定端口
-#   ./scripts/docs-serve.sh -l zh -w        # 只预览中文并自动重建
+#   ./scripts/docs-serve.sh -l ja --no-watch  # 只预览日语，关闭自动重建
 #   ./scripts/docs-serve.sh --no-build      # 直接查看上次构建结果
 #
 # 环境变量：
@@ -56,50 +59,83 @@ LOG_FILE="$CACHE_DIR/docs-serve.log"
 PORT="${DOCS_PORT:-8000}"
 HOST="${DOCS_HOST:-0.0.0.0}"
 LANG_OPT="${DOCS_LANG:-all}"
-ACTION="run"
+ACTION="auto"
 DO_BUILD=1
 DO_CLEAN=1
-WATCH=0
+WATCH=1
+WATCH_SET=0
+FOREGROUND=0
 OPEN=0
 PORT_FROM_ARG=0
 WATCH_PID=""
 SERVER_PID=""
 
+# 站点语言及其构建产物路径（英文为默认站点，构建到根目录）。
+SUPPORTED_LANGS=(en zh zh-hant ja ru)
+
+lang_config() {
+  case "$1" in
+    en) printf 'mkdocs.yml' ;;
+    *) printf 'mkdocs.%s.yml' "$1" ;;
+  esac
+}
+
+lang_path() {
+  case "$1" in
+    en) printf '' ;;
+    *) printf '%s/' "$1" ;;
+  esac
+}
+
+lang_label() {
+  case "$1" in
+    en) printf '英文' ;;
+    zh) printf '简体中文' ;;
+    zh-hant) printf '繁体中文' ;;
+    ja) printf '日语' ;;
+    ru) printf '俄语' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 usage() {
   cat <<'EOF'
-构建中英文文档站点并启动静态预览服务器（默认开启局域网访问）。
+构建多语言文档站点并启动静态预览服务器（默认开启局域网访问）。
 
 `zensical serve` 一次只能构建一种配置，而且会清理 site 目录，
-因此双语预览需要先分别构建（英文到根目录、中文到 /zh/），
+因此多语言预览需要先分别构建（英文到根目录、其他语言到各自前缀），
 再用静态服务器托管合并后的 site。
 
 用法：
   ./scripts/docs-serve.sh [命令] [选项] [端口]
 
 命令：
-  （省略）            前台运行，Ctrl+C 停止
-  start               后台常驻运行（日志与 PID 记录在 .cache/）
+  （省略）            后台值守运行：构建后常驻并监听变更（推荐）
+  start               后台常驻运行（等同于省略命令）
   stop                停止后台服务
   restart             重启后台服务
 
 选项：
+  -f, --foreground    前台运行，Ctrl+C 停止（默认后台值守）
   -p, --port PORT     监听端口（默认 8000，或环境变量 DOCS_PORT）
   -H, --host HOST     监听地址（默认 0.0.0.0，即局域网可访问；
                       只允许本机访问可设为 127.0.0.1，或环境变量 DOCS_HOST）
-  -l, --lang LANG     构建语言：all|en|zh（默认 all，或 DOCS_LANG）
+  -l, --lang LANG     构建语言：all|en|zh|zh-hant|ja|ru（默认 all，或 DOCS_LANG）
       --no-build      跳过构建，直接托管已有的 site 目录
       --no-clean      构建前不清理旧的站点产物（增量构建，更快）
-  -w, --watch         监听文档与配置变更并自动重新构建
+  -w, --watch         监听文档与配置变更并自动重新构建（默认开启）
+      --no-watch      关闭文件监听（仅在需要固定产物时使用）
   -o, --open          启动后尝试用浏览器打开预览地址（仅前台模式）
   -h, --help          显示本帮助
 
 示例：
-  ./scripts/docs-serve.sh                 # 前台运行，局域网可访问
-  ./scripts/docs-serve.sh start           # 后台常驻，局域网可访问
-  ./scripts/docs-serve.sh restart -w      # 后台重启并监听变更
+  ./scripts/docs-serve.sh                 # 后台值守：构建+监听，局域网可访问
+  ./scripts/docs-serve.sh -f              # 前台运行，Ctrl+C 停止
+  ./scripts/docs-serve.sh start           # 后台值守（显式写法）
+  ./scripts/docs-serve.sh restart         # 后台重启并继续监听变更
   ./scripts/docs-serve.sh stop            # 停止后台服务
   ./scripts/docs-serve.sh 8080            # 兼容旧用法：指定端口
-  ./scripts/docs-serve.sh -l zh -w        # 只预览中文并自动重建
+  ./scripts/docs-serve.sh -l ja --no-watch  # 只预览日语，关闭自动重建
   ./scripts/docs-serve.sh --no-build      # 直接查看上次构建结果
 
 环境变量：
@@ -215,7 +251,7 @@ start_server() {
     print_endpoints
     echo "    日志: $LOG_FILE"
     if [ "$WATCH" = 1 ]; then
-      echo "    注意: 已在运行的实例不会应用本次的 --watch 参数，请先 stop 再 start"
+      echo "    注意: 已在运行的实例不会应用本次的端口、语言或监听参数，请先 stop 再 start"
     fi
     return 0
   fi
@@ -228,9 +264,13 @@ start_server() {
   mkdir -p "$CACHE_DIR"
   : >"$LOG_FILE"
 
-  local forward_args=(-p "$PORT" -H "$HOST" -l "$LANG_OPT")
+  local forward_args=(-f -p "$PORT" -H "$HOST" -l "$LANG_OPT")
   [ "$DO_CLEAN" = 0 ] && forward_args+=(--no-clean)
-  [ "$WATCH" = 1 ] && forward_args+=(--watch)
+  if [ "$WATCH" = 1 ]; then
+    forward_args+=(--watch)
+  else
+    forward_args+=(--no-watch)
+  fi
   [ "$DO_BUILD" = 0 ] && forward_args+=(--no-build)
 
   echo "==> 启动后台服务（日志: $LOG_FILE）"
@@ -243,7 +283,7 @@ start_server() {
   pid=$!
 
   waited=0
-  while [ "$waited" -lt 300 ]; do
+  while [ "$waited" -lt 900 ]; do
     if port_ready; then
       echo "==> 后台服务已启动（PID $(cat "$PID_FILE" 2>/dev/null || echo "$pid")）"
       print_endpoints
@@ -321,6 +361,16 @@ while [ "$#" -gt 0 ]; do
       ;;
     -w|--watch)
       WATCH=1
+      WATCH_SET=1
+      shift
+      ;;
+    --no-watch)
+      WATCH=0
+      WATCH_SET=1
+      shift
+      ;;
+    -f|--foreground)
+      FOREGROUND=1
       shift
       ;;
     -o|--open)
@@ -354,8 +404,15 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$LANG_OPT" in
-  all|en|zh) ;;
-  *) die "无效语言: $LANG_OPT（可选 all、en、zh）" ;;
+  all) LANGS_TO_BUILD=("${SUPPORTED_LANGS[@]}") ;;
+  *)
+    valid_lang=0
+    for l in "${SUPPORTED_LANGS[@]}"; do
+      [ "$LANG_OPT" = "$l" ] && valid_lang=1
+    done
+    [ "$valid_lang" = 1 ] || die "无效语言: $LANG_OPT（可选 all、${SUPPORTED_LANGS[*]}）"
+    LANGS_TO_BUILD=("$LANG_OPT")
+    ;;
 esac
 
 case "$PORT" in
@@ -370,8 +427,21 @@ case "$HOST" in
   \[*\]) HOST="${HOST#[}"; HOST="${HOST%]}" ;;
 esac
 
+# 默认后台值守，-f/--foreground 显式切回前台。
+if [ "$FOREGROUND" = 1 ]; then
+  case "$ACTION" in
+    auto|start) ACTION=run ;;
+    restart) ACTION="restart-fg" ;;
+  esac
+fi
+[ "$ACTION" = auto ] && ACTION=start
+
+# 监听默认开启；--no-build 时如果未显式指定 -w，则自动关闭监听。
 if [ "$WATCH" = 1 ] && [ "$DO_BUILD" = 0 ]; then
-  die "--watch 与 --no-build 不能同时使用"
+  if [ "$WATCH_SET" = 1 ]; then
+    die "--watch 与 --no-build 不能同时使用"
+  fi
+  WATCH=0
 fi
 
 # ---- 地址展示 --------------------------------------------------------------
@@ -397,17 +467,12 @@ BASE_URL="http://${DISPLAY_HOST}:${PORT}"
 
 # 输出预览地址（前台启动与后台启动共用）。
 print_endpoints() {
-  local ip ipv4
+  local ip ipv4 l
   echo
   echo "==> 文档预览地址："
-  case "$LANG_OPT" in
-    all)
-      echo "    本机英文: ${BASE_URL}/"
-      echo "    本机中文: ${BASE_URL}/zh/"
-      ;;
-    en) echo "    本机英文: ${BASE_URL}/" ;;
-    zh) echo "    本机中文: ${BASE_URL}/zh/" ;;
-  esac
+  for l in "${LANGS_TO_BUILD[@]}"; do
+    echo "    本机$(lang_label "$l"): ${BASE_URL}/$(lang_path "$l")"
+  done
 
   case "$HOST" in
     0.0.0.0|::|'')
@@ -416,14 +481,9 @@ print_endpoints() {
           *:*) ipv4="[$ip]" ;;
           *) ipv4="$ip" ;;
         esac
-        case "$LANG_OPT" in
-          all)
-            echo "    局域网英文: http://${ipv4}:${PORT}/"
-            echo "    局域网中文: http://${ipv4}:${PORT}/zh/"
-            ;;
-          en) echo "    局域网英文: http://${ipv4}:${PORT}/" ;;
-          zh) echo "    局域网中文: http://${ipv4}:${PORT}/zh/" ;;
-        esac
+        for l in "${LANGS_TO_BUILD[@]}"; do
+          echo "    局域网$(lang_label "$l"): http://${ipv4}:${PORT}/$(lang_path "$l")"
+        done
       done
       ;;
     127.0.0.1|::1)
@@ -454,6 +514,11 @@ case "$ACTION" in
     stop_server
     run_start
     exit $?
+    ;;
+  restart-fg)
+    # 先停掉后台实例，随后走前台流程。
+    stop_server
+    ACTION=run
     ;;
 esac
 
@@ -503,32 +568,28 @@ echo "$$" >"$PID_FILE"
 # ---- 构建 ------------------------------------------------------------------
 
 build_once() {
-  local clean_args=()
-  [ "$DO_CLEAN" = 1 ] && clean_args+=(--clean)
+  local base_clean=() l cfg first=1
+  [ "$DO_CLEAN" = 1 ] && base_clean+=(--clean)
 
-  case "$LANG_OPT" in
-    all)
-      "${ZENSICAL_CMD[@]}" build --strict ${clean_args[@]+"${clean_args[@]}"}
-      "${ZENSICAL_CMD[@]}" build -f mkdocs.zh.yml --strict
-      ;;
-    en)
-      "${ZENSICAL_CMD[@]}" build --strict ${clean_args[@]+"${clean_args[@]}"}
-      ;;
-    zh)
-      "${ZENSICAL_CMD[@]}" build -f mkdocs.zh.yml --strict ${clean_args[@]+"${clean_args[@]}"}
-      ;;
-  esac
+  for l in "${LANGS_TO_BUILD[@]}"; do
+    cfg="$(lang_config "$l")"
+    echo "--> $(lang_label "$l") ($cfg)"
+    if [ "$first" = 1 ]; then
+      # 只在第一次构建时清理，避免后续语言删除前面语言的产物。
+      "${ZENSICAL_CMD[@]}" build -f "$cfg" --strict ${base_clean[@]+"${base_clean[@]}"}
+      first=0
+    else
+      "${ZENSICAL_CMD[@]}" build -f "$cfg" --strict
+    fi
+  done
 }
 
 check_output() {
-  case "$LANG_OPT" in
-    all)
-      [ -f "$SITE_DIR/index.html" ] || die "未生成英文站点: $SITE_DIR/index.html"
-      [ -f "$SITE_DIR/zh/index.html" ] || die "未生成中文站点: $SITE_DIR/zh/index.html"
-      ;;
-    en) [ -f "$SITE_DIR/index.html" ] || die "未生成英文站点: $SITE_DIR/index.html" ;;
-    zh) [ -f "$SITE_DIR/zh/index.html" ] || die "未生成中文站点: $SITE_DIR/zh/index.html" ;;
-  esac
+  local l
+  for l in "${LANGS_TO_BUILD[@]}"; do
+    [ -f "$SITE_DIR/$(lang_path "$l")index.html" ] \
+      || die "未生成$(lang_label "$l")站点: $SITE_DIR/$(lang_path "$l")index.html"
+  done
 }
 
 if [ "$DO_BUILD" = 1 ]; then
@@ -550,7 +611,7 @@ if [ "$WATCH" = 1 ]; then
   watch_loop() {
     while :; do
       sleep 1
-      if find docs mkdocs.yml mkdocs.zh.yml -newer "$STAMP_FILE" -print -quit 2>/dev/null | grep -q .; then
+      if find docs mkdocs.yml mkdocs.*.yml -newer "$STAMP_FILE" -print -quit 2>/dev/null | grep -q .; then
         # 先更新时间戳，避免构建过程中反复触发。
         touch "$STAMP_FILE"
         echo
@@ -567,7 +628,7 @@ if [ "$WATCH" = 1 ]; then
 
   watch_loop &
   WATCH_PID=$!
-  echo "==> 已开启文件监听（docs/、mkdocs.yml、mkdocs.zh.yml）"
+  echo "==> 已开启文件监听（docs/、mkdocs*.yml）"
 fi
 
 # ---- 端口检查 --------------------------------------------------------------
@@ -606,8 +667,8 @@ esac
 echo
 
 if [ "$OPEN" = 1 ]; then
-  OPEN_URL="$BASE_URL/"
-  [ "$LANG_OPT" = "zh" ] && OPEN_URL="$BASE_URL/zh/"
+  OPEN_URL="$BASE_URL/$(lang_path "$LANG_OPT")"
+  [ "$LANG_OPT" = "all" ] && OPEN_URL="$BASE_URL/"
   if command -v xdg-open >/dev/null 2>&1; then
     xdg-open "$OPEN_URL" >/dev/null 2>&1 || true
   elif command -v open >/dev/null 2>&1; then

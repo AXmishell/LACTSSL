@@ -1,5 +1,6 @@
-# 默认站点配置（英文）：构建到根目录；中文站点由 mkdocs.zh.yml 构建到 /zh/。
-# 本地预览双语站点请使用 scripts/docs-serve.sh（或 make docs-serve），
+# 默认站点配置（英文）：构建到根目录。
+# 其他语言站点由独立配置构建：简体中文 /zh/、繁体中文 /zh-hant/、日语 /ja/、俄语 /ru/。
+# 本地预览多语言站点请使用 scripts/docs-serve.sh（或 make docs-serve），
 # 因为 `zensical serve` 一次只能构建一种配置。
 site_name: LACTSSL
 site_url: https://lactssl.gpcn.cc/
@@ -68,7 +69,7 @@ nav:
       - Notification plugins: notify-plugins.md
   - Extension development:
       - Source and build: development.md
-      - Plugin protocol: plugin-development.md
+      - Plugin development: plugin-development.md
 
 markdown_extensions:
   - admonition
@@ -100,12 +101,21 @@ extra_css:
 
 extra:
   alternate:
-    - name: 简体中文
-      link: /zh/
-      lang: zh
     - name: English
       link: /
       lang: en
+    - name: 简体中文
+      link: /zh/
+      lang: zh
+    - name: 繁體中文
+      link: /zh-hant/
+      lang: zh-Hant
+    - name: 日本語
+      link: /ja/
+      lang: ja
+    - name: Русский
+      link: /ru/
+      lang: ru
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/AXmishell/LACTSSL

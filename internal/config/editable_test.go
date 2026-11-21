@@ -88,11 +88,17 @@ func TestPrepareConfigUpdateRejectsRevisionConflict(t *testing.T) {
 }
 
 func TestNormalizeTrustedProxies(t *testing.T) {
-	values, err := NormalizeTrustedProxies([]string{" 127.0.0.1 ", "10.0.0.1/8", "::ffff:192.0.2.1", "127.0.0.1"})
+	values, err := NormalizeTrustedProxies([]string{
+		" 127.0.0.1 ",
+		"10.0.0.1/8",
+		"::ffff:192.0.2.1",
+		"::ffff:172.16.0.0/108",
+		"127.0.0.1",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"127.0.0.1", "10.0.0.0/8", "192.0.2.1"}
+	want := []string{"127.0.0.1", "10.0.0.0/8", "192.0.2.1", "172.16.0.0/12"}
 	if len(values) != len(want) {
 		t.Fatalf("规范化结果不正确: %v", values)
 	}
@@ -101,7 +107,7 @@ func TestNormalizeTrustedProxies(t *testing.T) {
 			t.Fatalf("第 %d 项应为 %s，实际 %s", index, want[index], values[index])
 		}
 	}
-	for _, invalid := range []string{"", "0.0.0.0/0", "::/0", "not-an-ip", "10.0.0.0/33"} {
+	for _, invalid := range []string{"", "0.0.0.0/0", "::/0", "not-an-ip", "10.0.0.0/33", "::ffff:0:0/95"} {
 		if _, err := NormalizeTrustedProxy(invalid); err == nil {
 			t.Fatalf("应拒绝非法可信代理 %q", invalid)
 		}
@@ -208,5 +214,45 @@ security:
 `)
 	if err := ValidateFile(path); err == nil {
 		t.Fatal("ValidateFile 应拒绝 /0 可信代理")
+	}
+}
+
+func TestRestoreConfigBackupRestoresAllowUnsigned(t *testing.T) {
+	path := writeEditableTestConfig(t, `security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+upgrade:
+  program:
+    allow_unsigned: true
+`)
+	dataDir := filepath.Dir(path)
+	backup, err := CreateConfigBackup(path, dataDir, "manual", "before allow_unsigned change", "admin@example.com", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	allowUnsigned := false
+	if _, err := UpdateEditableConfig(path, dataDir, SetupConfigPatch{
+		Upgrade: &SetupUpgradePatch{Program: &SetupProgramPatch{AllowUnsigned: &allowUnsigned}},
+	}, "", "before-save", "", "admin@example.com", "test"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadSetupConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Upgrade.Program.AllowUnsigned {
+		t.Fatal("allow_unsigned 应已被关闭")
+	}
+
+	if _, err := RestoreConfigBackup(path, dataDir, backup.ID, "admin@example.com", "test"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadSetupConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Upgrade.Program.AllowUnsigned {
+		t.Fatal("恢复快照时 allow_unsigned 应被恢复")
 	}
 }

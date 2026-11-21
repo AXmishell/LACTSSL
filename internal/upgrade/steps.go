@@ -485,10 +485,15 @@ func stepLogsUnified(ctx context.Context, m *Manager) (StepResult, error) {
 		return StepResult{}, fmt.Errorf("复制系统日志失败: %w", err)
 	}
 	copied, _ := result.RowsAffected()
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO settings(key,value) VALUES(?,?)
-		 ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-		logsUnifiedSetting, "done"); err != nil {
+	keyColumn := m.db.Dialect().QuoteIdent("key")
+	valueColumn := m.db.Dialect().QuoteIdent("value")
+	settingsQuery := `INSERT INTO settings(` + keyColumn + `,` + valueColumn + `) VALUES(?,?)
+		ON CONFLICT(` + keyColumn + `) DO UPDATE SET ` + valueColumn + `=excluded.` + valueColumn
+	if m.db.Dialect().IsMySQL() {
+		settingsQuery = `INSERT INTO settings(` + keyColumn + `,` + valueColumn + `) VALUES(?,?)
+			ON DUPLICATE KEY UPDATE ` + valueColumn + `=VALUES(` + valueColumn + `)`
+	}
+	if _, err := tx.ExecContext(ctx, settingsQuery, logsUnifiedSetting, "done"); err != nil {
 		return StepResult{}, fmt.Errorf("写入日志合并标记失败: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -32,6 +32,8 @@ Note: the ZIP produced by **Download backup** in the UI **does not include** `da
 
 Backing up only the database loses the `salt`, leaving encrypted credentials undecryptable; backing up only the configuration loses business data. The two must be kept together.
 
+The `security_events` table stores security alert events, recipients, and source information (IP/UA) and is included in database backups and restores. Events are retained for 90 days by default and can be adjusted under "Notifications → Security alerts". The old SMTP configuration snapshot (including the password) used by notification-target change events is encrypted with the database key and cleared as soon as delivery succeeds or finally fails. Protect backup files as both personal information and credentials.
+
 ### 2.2 Encrypted Backup in the UI (Recommended)
 
 **System Settings → Backup and Restore** provides online operations:

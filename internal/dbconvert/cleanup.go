@@ -12,13 +12,13 @@ import (
 
 const sqliteFileMagic = "SQLite format 3\x00"
 
-// CleanupSource 在 SQLite → PostgreSQL 或 SQLite → SQLite 切换成功并通过
+// CleanupSource 在 SQLite → PostgreSQL/MySQL/SQLite 切换成功并通过
 // 新进程自检后，删除旧的 SQLite 数据库文件及其 WAL/SHM/JOURNAL 边车文件。
-// PostgreSQL → PostgreSQL 不会删除源数据库；切换前的备份目录不会被删除。
+// PostgreSQL/MySQL → 其它后端不会删除源数据库；切换前的备份目录不会被删除。
 func CleanupSource(dataDir string, state *State) error {
 	if state == nil ||
 		state.FromDriver != db.SQLite.String() ||
-		(state.ToDriver != db.Postgres.String() && state.ToDriver != db.SQLite.String()) {
+		(state.ToDriver != db.Postgres.String() && state.ToDriver != db.MySQL.String() && state.ToDriver != db.SQLite.String()) {
 		return nil
 	}
 	if state.ToDriver == db.SQLite.String() {

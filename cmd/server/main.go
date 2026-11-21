@@ -28,6 +28,7 @@ import (
 	"lactssl/internal/i18n"
 	"lactssl/internal/logarchive"
 	"lactssl/internal/logging"
+	"lactssl/internal/netutil"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
 	"lactssl/internal/truststore"
@@ -268,6 +269,7 @@ func main() {
 	server.Logger = logging.Component("http")
 	server.SystemLogEnabled = cfg.Log.SystemEnabled
 	server.PublicURL = cfg.PublicURL
+	server.ClientIPMode = cfg.ClientIPMode
 	server.PluginsEnabled = cfg.Plugins.Enabled
 	server.PluginDir = cfg.Plugins.Dir
 	server.PluginMemoryLimitMB = cfg.Plugins.MemoryLimitMB
@@ -288,6 +290,7 @@ func main() {
 	server.PluginRepoChannel = cfg.PluginRepo.Channel
 	server.PluginRepoAutoUpdate = cfg.PluginRepo.AutoUpdate
 	server.PluginRepoPublicKey = cfg.PluginRepo.PublicKey
+	server.PluginRepoProxy = cfg.PluginRepo.Proxy
 	server.PluginRepoTimeout = cfg.PluginRepo.Timeout
 	server.PluginRepoMaxDownloadMB = cfg.PluginRepo.MaxDownloadMB
 	server.PluginRepoCheckInterval = cfg.PluginRepo.CheckInterval
@@ -386,9 +389,29 @@ func main() {
 
 	var mainHandler http.Handler = server.Router()
 	var acmeHTTPServer *http.Server
+	trustedProxies, err := netutil.CompileTrusted(cfg.TrustedProxies)
+	if err != nil {
+		log.Fatalf("可信代理配置无效: %v", err)
+	}
+	serve := func(srv *http.Server, addr string, tlsConfig *tls.Config, certFile, keyFile string) error {
+		listener, err := net.Listen("tcp", addr)
+		if err != nil {
+			return err
+		}
+		if cfg.ProxyProtocol {
+			listener = netutil.NewProxyProtoListener(listener, trustedProxies)
+		}
+		if tlsConfig != nil && certFile != "" {
+			srv.TLSConfig = tlsConfig
+			return srv.ServeTLS(listener, certFile, keyFile)
+		}
+		return srv.Serve(listener)
+	}
+
 	if cfg.ACME.Enabled {
 		acmeServer := acme.NewServer(st, cfg.ACME.BaseURL, cfg.RateLimit)
 		acmeServer.TrustedProxies = cfg.TrustedProxies
+		acmeServer.ClientIPMode = cfg.ClientIPMode
 		acmeHandler := acmeServer.Handler()
 		if cfg.ACME.Addr == "" {
 			// 未配置独立端口时，把 ACME 协议挂到主端口的 /acme 前缀。
@@ -422,13 +445,7 @@ func main() {
 				}
 			}
 			go func() {
-				var err error
-				if cfg.ACME.TLSCert != "" {
-					err = acmeHTTPServer.ListenAndServeTLS(cfg.ACME.TLSCert, cfg.ACME.TLSKey)
-				} else {
-					err = acmeHTTPServer.ListenAndServe()
-				}
-				if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				if err := serve(acmeHTTPServer, cfg.ACME.Addr, acmeHTTPServer.TLSConfig, cfg.ACME.TLSCert, cfg.ACME.TLSKey); err != nil && !errors.Is(err, http.ErrServerClosed) {
 					log.Fatalf("ACME HTTP 服务启动失败: %v", err)
 				}
 			}()
@@ -446,10 +463,32 @@ func main() {
 		MaxHeaderBytes:    1 << 20,
 	}
 
+	var mainTLSConfig *tls.Config
+	if cfg.ServerTLS.Cert != "" {
+		mainTLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		if cfg.ServerTLS.ProxyClientCA != "" {
+			pool := x509.NewCertPool()
+			data, err := os.ReadFile(cfg.ServerTLS.ProxyClientCA)
+			if err != nil {
+				log.Fatalf("读取 mTLS 代理客户端 CA 失败: %v", err)
+			}
+			if !pool.AppendCertsFromPEM(data) {
+				log.Fatalf("mTLS 代理客户端 CA 中没有有效证书")
+			}
+			mainTLSConfig.ClientCAs = pool
+			mainTLSConfig.ClientAuth = tls.VerifyClientCertIfGiven
+		}
+	}
+
 	go func() {
 		printStartup(cfg, entry, st, setupToken)
-		logger.Info("HTTP 服务监听", "addr", cfg.Addr, "acme_enabled", cfg.ACME.Enabled)
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Info("HTTP 服务监听",
+			"addr", cfg.Addr,
+			"acme_enabled", cfg.ACME.Enabled,
+			"tls", cfg.ServerTLS.Cert != "",
+			"proxy_protocol", cfg.ProxyProtocol,
+		)
+		if err := serve(httpServer, cfg.Addr, mainTLSConfig, cfg.ServerTLS.Cert, cfg.ServerTLS.Key); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("%s: %v", cliText("cli.error.http_start"), err)
 		}
 	}()
@@ -566,9 +605,12 @@ func applyPendingRestore(cfg *config.Config) (*config.Config, bool, error) {
 	}
 	if pending.DatabasePath != "" {
 		var applyErr error
-		if pending.Driver == "postgres" {
+		switch pending.Driver {
+		case "postgres":
 			applyErr = backup.ApplyPostgresDatabase(current.DBDSN, pending.DatabasePath)
-		} else {
+		case "mysql":
+			applyErr = backup.ApplyMySQLDatabase(current.DBDSN, pending.DatabasePath)
+		default:
 			applyErr = backup.ApplyDatabase(current.DBPath, pending.DatabasePath)
 		}
 		if err := applyErr; err != nil {
@@ -656,7 +698,11 @@ func printStartup(cfg *config.Config, entry string, st *store.Store, setupToken 
 	fmt.Println("  " + cliText("cli.version", "version", api.Version))
 	fmt.Println("==============================================")
 	if count == 0 {
-		fmt.Println("  " + cliText("cli.secure_entry", "url", fmt.Sprintf("http://%s/%s/", addr, entry)))
+		scheme := "http"
+		if cfg.ServerTLS.Cert != "" {
+			scheme = "https"
+		}
+		fmt.Println("  " + cliText("cli.secure_entry", "url", fmt.Sprintf("%s://%s/%s/", scheme, addr, entry)))
 		if setupToken != "" {
 			fmt.Println("  " + cliText("cli.setup_token", "token", setupToken))
 		}

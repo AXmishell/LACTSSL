@@ -117,6 +117,115 @@ security:
 	}
 }
 
+func TestLoadNormalizesTrustedProxies(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	dataDir := filepath.Join(dir, "data")
+	content := fmt.Sprintf(`server:
+  trusted_proxies: [" 127.0.0.1 ", "::ffff:192.0.2.1", "10.1.2.3/8", "::ffff:172.16.0.0/108"]
+data_dir: %q
+security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`, dataDir)
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"127.0.0.1", "192.0.2.1", "10.0.0.0/8", "172.16.0.0/12"}
+	if len(cfg.TrustedProxies) != len(want) {
+		t.Fatalf("可信代理未规范化: %v", cfg.TrustedProxies)
+	}
+	for index := range want {
+		if cfg.TrustedProxies[index] != want[index] {
+			t.Fatalf("第 %d 项应为 %s，实际 %s", index, want[index], cfg.TrustedProxies[index])
+		}
+	}
+}
+
+func TestLoadProxyModes(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	dataDir := filepath.Join(dir, "data")
+	content := fmt.Sprintf(`server:
+  client_ip_mode: "cloudflare"
+  proxy_protocol: true
+  tls:
+    cert: "/tmp/server.crt"
+    key: "/tmp/server.key"
+    proxy_client_ca: "/tmp/proxy-ca.pem"
+data_dir: %q
+security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`, dataDir)
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ClientIPMode != "cloudflare" || !cfg.ProxyProtocol {
+		t.Fatalf("代理模式未生效: mode=%s proxy=%v", cfg.ClientIPMode, cfg.ProxyProtocol)
+	}
+	if cfg.ServerTLS.Cert != "/tmp/server.crt" || cfg.ServerTLS.Key != "/tmp/server.key" || cfg.ServerTLS.ProxyClientCA != "/tmp/proxy-ca.pem" {
+		t.Fatalf("主监听 TLS 未生效: %+v", cfg.ServerTLS)
+	}
+
+	content = fmt.Sprintf(`server:
+  client_ip_mode: "invalid"
+data_dir: %q
+security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`, dataDir)
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFrom(cfgPath); err == nil {
+		t.Fatal("应拒绝非法 client_ip_mode")
+	}
+
+	content = fmt.Sprintf(`server:
+  tls:
+    cert: "/tmp/server.crt"
+data_dir: %q
+security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`, dataDir)
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFrom(cfgPath); err == nil {
+		t.Fatal("应拒绝不完整的 server.tls 配置")
+	}
+}
+
+func TestLoadRejectsUnsafeTrustedProxies(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	dataDir := filepath.Join(dir, "data")
+	content := fmt.Sprintf(`server:
+  trusted_proxies: ["0.0.0.0/0"]
+data_dir: %q
+security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`, dataDir)
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFrom(cfgPath); err == nil {
+		t.Fatal("启动加载应拒绝 /0 可信代理")
+	}
+}
+
 // TestLoadIgnoresEnvironmentVariables 确认运行配置只来自 config.yaml。
 func TestLoadIgnoresEnvironmentVariables(t *testing.T) {
 	dir := t.TempDir()

@@ -80,6 +80,30 @@ func TestFillTaskBodyNormalizesPipeline(t *testing.T) {
 	}
 }
 
+func TestFillTaskBodyNoKeyStorageFromApplyNode(t *testing.T) {
+	s := newPipelineTestServer(t)
+	dnsAccounts, _ := s.Store.ListDNSAccounts()
+	body := &taskBody{
+		Domains:      []string{"example.com"},
+		DNSAccountID: dnsAccounts[0].ID,
+		CA:           "letsencrypt",
+		KeyType:      "ecdsa",
+		RenewDays:    30,
+		Pipeline: []model.PipelineNode{
+			{ID: "apply", Type: model.PipelineApply, Enabled: true, Config: model.PipelineConfig{NoKeyStorage: true}},
+		},
+	}
+	if err := s.fillTaskBody(body); err != nil {
+		t.Fatalf("任务配置校验失败: %v", err)
+	}
+	if !body.NoKeyStorage {
+		t.Fatal("仅提交任务流程时也应识别申请节点的不存储私钥配置")
+	}
+	if len(body.Pipeline) != 1 || !body.Pipeline[0].Config.NoKeyStorage {
+		t.Fatalf("申请节点的不存储私钥配置未保留: %+v", body.Pipeline)
+	}
+}
+
 func TestFillTaskBodyRejectsMissingDeployConfig(t *testing.T) {
 	s := newPipelineTestServer(t)
 	dnsAccounts, _ := s.Store.ListDNSAccounts()

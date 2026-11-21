@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,8 +27,10 @@ import (
 
 // ACMERequest 描述一次证书签发请求。
 type ACMERequest struct {
-	Domains    []string
+	Domains []string
+	// DNSAccount 是单账户兼容字段；DNSRoutes 非空时按域名路由到多个账户。
 	DNSAccount *model.DNSAccount
+	DNSRoutes  []model.DNSRoute
 	CA         string
 	KeyType    string
 	Email      string
@@ -157,11 +158,28 @@ type Manager struct {
 	// ProtectedPaths 是本地部署禁止写入的目录（数据目录、配置目录、程序目录）。
 	// 避免部署参数把证书/私钥覆盖到数据库、config.yaml 或程序二进制上。
 	ProtectedPaths []string
+
+	// 安全通知 worker 懒启动：只有真正写入过安全事件才创建一个后台协程。
+	securityOnce sync.Once
+	securityWake chan struct{}
+	// mailSender / channelSender 允许测试注入投递实现；生产环境使用 SendMail / SendNotifyChannel。
+	mailSender    func(SMTPConfig, string, string, string) error
+	channelSender func(string, NotifyChannelConfig, string, string) error
+	// securityRateMu 串行化“每小时计数 + 摘要判断 + 事件插入”。
+	securityRateMu    sync.Mutex
+	securityFailureMu sync.Mutex
+	securityFailures  map[string]*securityFailureState
 }
 
 // New 创建业务管理器。
 func New(st *store.Store) *Manager {
-	return &Manager{Store: st, batchSem: make(chan struct{}, 4), csrSem: make(chan struct{}, 4)}
+	return &Manager{
+		Store:         st,
+		batchSem:      make(chan struct{}, 4),
+		csrSem:        make(chan struct{}, 4),
+		mailSender:    SendMail,
+		channelSender: SendNotifyChannel,
+	}
 }
 
 // Locale 返回系统设置中保存的语言，供后台任务与邮件使用。
@@ -183,17 +201,18 @@ func (m *Manager) Obtain(req ACMERequest) (*ACMEResult, error) {
 	m.acmeMu.Lock()
 	defer m.acmeMu.Unlock()
 
-	if req.DNSAccount == nil {
-		return nil, i18n.E("service.acme.dns_account_required")
+	routes, accounts, err := m.resolveACMEDNSRoutes(req)
+	if err != nil {
+		return nil, err
 	}
-	provider, undo, err := newDNSProvider(req.DNSAccount.Provider, req.DNSAccount.Config)
+	provider, undo, err := newRoutedDNSProvider(routes, accounts)
 	if err != nil {
 		return nil, err
 	}
 	defer undo()
 	// 与 CSR 申请共用按 DNS 账户的锁，避免任务签发和 CSR 申请同时
-	// 向同一服务商写入/清理 TXT 记录。
-	unlockDNS := m.dnsLocks.Lock(strconv.FormatInt(req.DNSAccount.ID, 10))
+	// 向同一服务商写入/清理 TXT 记录。多账户按 ID 排序后依次加锁。
+	unlockDNS := m.lockDNSAccounts(DNSRouteAccountIDs(routes))
 	defer unlockDNS()
 
 	keyType := certificateKeyType(req.KeyType)
@@ -282,7 +301,7 @@ func (m *Manager) newACMEClient(ca CADef, email string, keyType certcrypto.KeyTy
 	}
 
 	cfg := lego.NewConfig(user)
-	cfg.CADirURL = ca.URL
+	cfg.CADirURL = caDirectoryURL(ca, keyType)
 	cfg.UserAgent = "LACTSSL/1.0"
 	cfg.Certificate.KeyType = keyType
 
@@ -361,6 +380,15 @@ func certificateCoversDomain(cert *x509.Certificate, domain string) bool {
 		}
 	}
 	return false
+}
+
+// caDirectoryURL 返回 CA 针对指定密钥类型的 ACME 目录。
+// 默认使用 URL；配置了 RSAURL 的 CA（如 SSL.com）在 RSA 私钥下切换到 RSA 端点。
+func caDirectoryURL(ca CADef, keyType certcrypto.KeyType) string {
+	if ca.RSAURL != "" && (keyType == certcrypto.RSA2048 || keyType == certcrypto.RSA4096) {
+		return ca.RSAURL
+	}
+	return ca.URL
 }
 
 // certificateKeyType 把界面上的私钥类型转换为 lego 的证书密钥类型。

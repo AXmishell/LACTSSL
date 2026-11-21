@@ -138,6 +138,35 @@ func TestLocalizeDeployTypesIncludesLoadedPluginTarget(t *testing.T) {
 	}
 }
 
+func TestLocalizeDeployTypesExposesPluginCapabilities(t *testing.T) {
+	deployer := &captureDeployer{
+		id: "plannable-target",
+		external: &deployplugin.ExternalDeployer{
+			Name:         "Plannable Target",
+			Capabilities: []string{"plan-v1"},
+			DeployFields: []deployplugin.ManifestField{{Key: "sites", Label: "Sites", Type: "text"}},
+		},
+	}
+	if err := deployplugin.RegisterExternal(deployer); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { deployplugin.UnregisterSource(deployplugin.SourceExec) })
+
+	found := false
+	for _, item := range LocalizeDeployTypes(i18n.ZhCN) {
+		if item.Value != "plannable-target" {
+			continue
+		}
+		found = true
+		if len(item.Capabilities) != 1 || item.Capabilities[0] != "plan-v1" {
+			t.Fatalf("plugin capabilities not exposed: %+v", item)
+		}
+	}
+	if !found {
+		t.Fatal("plannable plugin target missing from deploy type list")
+	}
+}
+
 func TestExternalDeployerIntegration(t *testing.T) {
 	deployer := &captureDeployer{id: "capture-target"}
 	if err := deployplugin.RegisterExternal(deployer); err != nil {

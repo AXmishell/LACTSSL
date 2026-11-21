@@ -54,7 +54,7 @@ func (s *Server) setupStatus(c *gin.Context) {
 }
 
 func (s *Server) handleSetup(c *gin.Context) {
-	if allowed, wait := s.allow(ratelimit.Setup, "setup:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.Setup, "setup:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -119,6 +119,8 @@ func (s *Server) handleSetup(c *gin.Context) {
 		return
 	}
 	s.Store.AddLogKey("auth", 0, "info", "log.auth.setup", map[string]any{"email": user.Email})
+	// 初始化只建立首个设备历史，不发提醒（此时通常还未配置 SMTP）。
+	s.notifyLogin(c, user, model.SecurityEventLoginPassword, "password", true)
 	ok(c, gin.H{"expire_at": expire, "user": user})
 }
 
@@ -136,7 +138,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 
 	// 登录限流：IP 维度在密码校验前扣减，成功后归还；账户维度只对失败扣减，
 	// 这样即使账户配额被攻击者耗尽，正确密码仍可登录，避免账户被恶意锁定。
-	ipKey := "login:ip:" + clientRateKey(c)
+	ipKey := "login:ip:" + s.clientRateKey(c)
 	if allowed, wait := s.allow(ratelimit.LoginIP, ipKey); !allowed {
 		rateLimited(c, wait)
 		return
@@ -152,11 +154,17 @@ func (s *Server) handleLogin(c *gin.Context) {
 		auth.VerifyDummy(body.Password)
 	}
 	if !passwordOK {
+		accountID := int64(0)
+		if user != nil {
+			accountID = user.ID
+		}
+		// 先记录失败再做限流判断：即使已经触发限流，错误的凭据也应计入聚合。
+		s.notifyLoginFailure(c, accountID, "password")
 		if allowed, wait := s.allow(ratelimit.LoginAccount, acctKey); !allowed {
 			rateLimited(c, wait)
 			return
 		}
-		s.Store.AddLogKey("auth", 0, "warning", "log.auth.login_failed", map[string]any{"ip": c.ClientIP()})
+		s.Store.AddLogKey("auth", 0, "warning", "log.auth.login_failed", map[string]any{"ip": s.clientIP(c)})
 		failKey(c, http.StatusUnauthorized, "api.error.bad_credentials")
 		return
 	}
@@ -172,6 +180,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 		}
 		totpKey := "login:totp:" + acctKey
 		if !auth.ValidateTOTP(user.TOTPSecret, body.TOTP) {
+			s.notifyLoginFailure(c, user.ID, "totp")
 			if allowed, wait := s.allow(ratelimit.LoginTOTP, totpKey); !allowed {
 				rateLimited(c, wait)
 				return
@@ -188,7 +197,9 @@ func (s *Server) handleLogin(c *gin.Context) {
 	}
 	s.limiter.Reset(ipKey)
 	s.limiter.Reset(acctKey)
-	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.login_success", map[string]any{"ip": c.ClientIP()})
+	s.resetLoginFailures(c, user.ID)
+	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.login_success", map[string]any{"ip": s.clientIP(c)})
+	s.notifyLogin(c, user, model.SecurityEventLoginPassword, "password", false)
 	ok(c, gin.H{"expire_at": expire, "user": user})
 }
 
@@ -250,6 +261,9 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.hash_failed")
 		return
 	}
+	apiKeys, _ := s.Store.ListAPIKeys(user.ID)
+	passkeys, _ := s.Store.CountPasskeys(user.ID)
+	sessions, _ := s.Store.ListSessions(user.ID, time.Now().UTC())
 	if err := s.Store.UpdatePassword(user.ID, hash); err != nil {
 		s.logger().Warn("修改密码失败", "error", err.Error(), "request_id", c.GetString(requestIDKey))
 		failKey(c, http.StatusInternalServerError, "api.error.change_password_failed")
@@ -261,6 +275,11 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 	s.clearSessionCookie(c)
 	s.clearCSRFCookie(c)
 	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.password_changed", nil)
+	s.notifySecurityEvent(c, user.ID, model.SecurityEventPasswordChanged, map[string]string{
+		"sessions": fmt.Sprint(len(sessions)),
+		"api_keys": fmt.Sprint(len(apiKeys)),
+		"passkeys": fmt.Sprint(passkeys),
+	})
 	ok(c, gin.H{"relogin": true})
 }
 
@@ -283,10 +302,27 @@ func (s *Server) handleChangeEmail(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_email")
 		return
 	}
+	oldEmail := user.Email
 	if err := s.Store.UpdateEmail(user.ID, email); err != nil {
 		s.logger().Warn("修改邮箱失败", "error", err.Error(), "request_id", c.GetString(requestIDKey))
 		failKey(c, http.StatusInternalServerError, "api.error.change_email_failed")
 		return
+	}
+	// 换邮箱必须通知旧地址：否则攻击者先换邮箱、再走密码重置，原管理员
+	// 将完全收不到提醒。新旧邮箱分别落一条事件，避免单个收件人失败影响另一个。
+	// 这里在后续会话签发之前发送，确保即使签发失败也已留下告警。
+	event := s.securityEvent(c, user.ID, model.SecurityEventEmailChanged, map[string]string{
+		"old_email": oldEmail,
+		"new_email": email,
+	})
+	event.AccountEmail = email
+	event.Recipients = []string{oldEmail}
+	// 换邮箱是接管账户的关键一步，必须绕开每小时上限。
+	event.BypassRateLimit = true
+	s.notifySecurity(event)
+	if !strings.EqualFold(oldEmail, email) {
+		event.Recipients = []string{email}
+		s.notifySecurity(event)
 	}
 	updated, err := s.Store.GetUserByID(user.ID)
 	if err != nil || updated == nil {
@@ -366,6 +402,7 @@ func (s *Server) handleTOTPEnable(c *gin.Context) {
 		return
 	}
 	s.Store.AddLogKey("auth", user.ID, "info", "log.auth.totp_enabled", nil)
+	s.notifySecurityEvent(c, user.ID, model.SecurityEventTOTPEnabled, nil)
 	ok(c, gin.H{"enabled": true})
 }
 
@@ -387,6 +424,7 @@ func (s *Server) handleTOTPDisable(c *gin.Context) {
 		return
 	}
 	s.Store.AddLogKey("auth", user.ID, "warning", "log.auth.totp_disabled", nil)
+	s.notifySecurityEvent(c, user.ID, model.SecurityEventTOTPDisabled, nil)
 	ok(c, gin.H{"enabled": false})
 }
 
@@ -399,7 +437,7 @@ func (s *Server) handleForgotPassword(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(body.Email))
-	if allowed, wait := s.allow(ratelimit.ForgotIP, "forgot:ip:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.ForgotIP, "forgot:ip:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -486,6 +524,10 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 		failKey(c, http.StatusInternalServerError, "api.error.hash_failed")
 		return
 	}
+	// 重置前读取账户和凭据数量：ResetPassword 会关闭 TOTP 并删除通行密钥/API 密钥。
+	target, _ := s.Store.GetUserByID(userID)
+	apiKeys, _ := s.Store.ListAPIKeys(userID)
+	passkeys, _ := s.Store.CountPasskeys(userID)
 	// 重置密码同时关闭 TOTP，保证邮箱持有者能恢复被攻击者绑定了 TOTP 的账户。
 	if err := s.Store.ResetPassword(userID, hash); err != nil {
 		failKey(c, http.StatusInternalServerError, "api.error.change_password_failed")
@@ -494,5 +536,13 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 	// 重置密码会同时关闭 TOTP；旧令牌全部失效，清理对应会话记录。
 	_ = s.Store.DeleteUserSessions(userID)
 	s.Store.AddLogKey("auth", userID, "info", "log.auth.password_reset", nil)
+	event := s.securityEvent(c, userID, model.SecurityEventPasswordReset, map[string]string{
+		"api_keys": fmt.Sprint(len(apiKeys)),
+		"passkeys": fmt.Sprint(passkeys),
+	})
+	if target != nil {
+		event.AccountEmail = target.Email
+	}
+	s.notifySecurity(event)
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.password_reset", nil)})
 }

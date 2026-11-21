@@ -103,6 +103,33 @@ func TestRecoveryLogsPanicAndReturnsJSON(t *testing.T) {
 	}
 }
 
+func TestAccessLogIncludesClientIPDiagnostics(t *testing.T) {
+	var buffer bytes.Buffer
+	server := testAccessServer(t, true, &buffer)
+	server.TrustedProxies = []string{"192.0.2.0/24"}
+	router := gin.New()
+	router.Use(server.requestID(), server.resolveClientIP(), server.accessLog())
+	router.GET("/api/ping", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
+	request.RemoteAddr = "192.0.2.30:1234"
+	request.Header.Set("X-Forwarded-For", "203.0.113.9, 192.0.2.30")
+	router.ServeHTTP(httptest.NewRecorder(), request)
+
+	output := buffer.String()
+	for _, want := range []string{
+		"ip=203.0.113.9",
+		"ip_source=x-forwarded-for",
+		"ip_skipped=1",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("access log missing %q: %s", want, output)
+		}
+	}
+}
+
 func TestAccessLogDisabledStillSetsRequestID(t *testing.T) {
 	var buffer bytes.Buffer
 	server := testAccessServer(t, false, &buffer)

@@ -32,8 +32,11 @@ This document describes LACTSSL capabilities by business domain, including key p
 | ZeroSSL | Requires EAB |
 | Google Trust Services | Requires EAB |
 | LiteSSL | Requires EAB |
+| ZoTrus | Requires EAB; KID is the registered email |
+| Actalis | Requires EAB |
+| SSL.com | Requires EAB; ECDSA/RSA endpoint selected by key type |
 
-"Authoritative CA" also lets you add multiple **generic ACME upstreams**:
+"Public CA" also lets you add multiple **generic ACME upstreams**:
 
 - Configure the ACME directory URL, ACME v1/v2 protocol version, and optional EAB.
 - Generic upstreams appear in the task and default CA selection lists.
@@ -44,15 +47,16 @@ This document describes LACTSSL capabilities by business domain, including key p
 
 - Private key types: `ecdsa` (default), `ecdsa384`, `rsa2048`, `rsa4096`.
 - Automatic renewal triggers 30 days before expiry by default and can be adjusted per task.
+- The apply node can enable "Do not store certificate private key on the server": the key stays in memory only during issuance and deployment, is never written to the database, and cannot be downloaded. Auto-renewal reissues and redeploys; standard flows require at least one enabled deploy node.
 - The background scheduler checks for due tasks every 30 seconds.
 - If a task fails, review the task log for the cause; credential, domain, and CA issues produce explicit errors.
-- The certificate management page supports search, status filtering, details, and security analysis.
+- The certificate management page supports search, status filtering, source filtering (task issuance, ACME server, CSR request), details, and security analysis.
 - Downloading certificate chains and viewing or downloading private keys require a login session; for API calls, downloading the chain requires `certificates:read`, while viewing or downloading the private key additionally requires `certificates:key`.
 - Bulk cleanup can filter by status (expired, revoked, or all), age, issuance time, domain, issuer, source, and "keep the latest certificate for each task"; after cleanup, certificate references in affected tasks are cleared.
 
 ### 1.4 Default configuration
 
-"Authoritative CA" supports configuring:
+"Public CA" supports configuring:
 
 - ACME account email.
 - Default CA.
@@ -74,10 +78,10 @@ Target Flow Beta is for scenarios where certificates follow panel websites. It r
 
 ### 1.6 Client CSR requests
 
-- The API accepts a client CSR and acts as an intermediary to complete DNS-01 validation and issuance with an authoritative CA.
+- The API accepts a client CSR and acts as an intermediary to complete DNS-01 validation and issuance with a public CA.
 - The server never generates or stores the private key; the certificate binds the public key from the client CSR, and the client keeps the private key.
 - Requests run asynchronously and support status polling, cancellation, retry, and per-request certificate chain download.
-- Only ACME v2 authoritative CAs and DNS-01 are supported; wildcard certificates require DNS-01.
+- Only ACME v2 public CAs and DNS-01 are supported; wildcard certificates require DNS-01.
 - A dedicated `certificates:request` API key scope is required, and `csr.allowed_domains` can restrict requestable domains.
 
 ## 2. DNS providers
@@ -116,13 +120,14 @@ Tasks consist of nodes; the default flow is "Request → Deploy (one or more) �
 
 | Node | Key parameters |
 | --- | --- |
-| Request | Domains, DNS account, CA, private key type, automatic renewal, renewal lead days |
+| Request | Domains, DNS account (auto by domain bindings across accounts), CA, private key type, automatic renewal, renewal lead days |
 | Deploy | Target credentials, certificate/private key paths, site/domain/certificate name, reload command |
 | Notify | Channels, trigger timing (always / success only / failure only) |
 
 Key points:
 
 - Nodes can be enabled/disabled and reordered; a task can contain multiple deploy nodes to deliver the same certificate to multiple targets.
+- The request node supports "auto by domain binding": one certificate may cover domains from multiple DNS accounts, and each domain writes and cleans TXT records through its own account. Selecting an explicit account still means that account covers every domain.
 - When an old task has no explicit workflow, the system derives an equivalent workflow from its existing domains, target credentials, and other fields.
 - During upgrades, deployment paths, sites, and domains from old credentials are migrated to task deploy nodes before the deployment parameters are removed from credentials.
 - The task list supports header select-all and multi-select for batch execution, pausing, or starting automatic renewal.
@@ -197,6 +202,20 @@ Gotify, ServerChan, ntfy, GoCQHTTP, PushDeer, Bark, Telegram, DingTalk, WeCom bo
 - Channels can be enabled individually and send test messages.
 - A task notification node can select specific channels or use all enabled channels.
 - Trigger timing supports always, success only, and failure only.
+
+### 6.3 Security alerts
+
+- Security alerts are independent of the certificate notification switch; disabling certificate email does not blind security alerts.
+- Alerts are sent for password changes, email changes, TOTP enable/disable, passkey add/delete, password resets, API key create/update/delete/rotate, and notification setting changes.
+- A **new device** sign-in is reported by default; the same browser is reminded at most once within the configured quiet window (30 days by default). The window can be adjusted, or the mode changed to “every sign-in”.
+- Failed sign-ins are aggregated per account: 5 failures within 10 minutes trigger an alert, at most once per hour. Unknown emails are aggregated by source IP.
+- Email goes to the account email plus up to 10 additional recipients. Changing the email notifies both the old and new addresses, preventing account takeover through “change email, then reset password”.
+- Email and enabled notification plugin channels are supported. Email is the default; selecting plugin channels sends the sign-in IP, device, and account email to the corresponding third party, so select only trusted channels.
+- Messages never contain passwords, TOTP codes, API keys, or full passkey identifiers. The settings page provides a test alert and shows the latest delivery status.
+- An hourly alert limit can be configured (10 by default) for high-frequency sign-in/failure alerts only. Events beyond the limit are still recorded under "Recent security events" (recorded only) but are combined into one digest, sent at most once per hour. Critical credential changes, new-device sign-ins, email changes, policy changes, and test alerts bypass the limit.
+- The "Recent security events" dialog shows event time, type, per-target recipient/channel status, and errors, and can export JSON.
+- Changing the security alert policy requires re-authentication and notifies the previous recipients and channels. It uses the old SMTP configuration snapshot so the old recipients still receive the alert even if the new SMTP settings are wrong or point to an attacker. Events are retained for 90 days by default and can be adjusted.
+- If SMTP is not configured and only email is selected, alerts cannot be delivered; the UI shows a warning, and failed events keep the error and retry with backoff.
 
 ## 7. Private CA
 

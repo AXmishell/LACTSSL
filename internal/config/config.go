@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"lactssl/internal/outbound"
 	"lactssl/internal/ratelimit"
 	"lactssl/internal/util"
 )
@@ -32,13 +33,13 @@ const officialPluginRepoPublicKey = "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss
 type Config struct {
 	Addr          string // 监听地址，例如 :8080
 	DataDir       string // 数据目录
-	DBDriver      string // sqlite 或 postgres
+	DBDriver      string // sqlite、postgres 或 mysql
 	DBPath        string // SQLite 数据库文件
-	DBDSN         string // PostgreSQL DSN
-	DBMaxOpen     int    // PostgreSQL 最大连接数
-	DBMaxIdle     int    // PostgreSQL 最大空闲连接数
+	DBDSN         string // PostgreSQL/MySQL DSN
+	DBMaxOpen     int    // PostgreSQL/MySQL 最大连接数
+	DBMaxIdle     int    // PostgreSQL/MySQL 最大空闲连接数
 	DBConnMaxLife time.Duration
-	DBAllowMulti  bool   // 是否允许多实例共享同一个 PostgreSQL 数据库
+	DBAllowMulti  bool   // 是否允许多实例共享同一个数据库
 	JWTSecret     []byte // JWT 签名密钥
 	EncryptionKey []byte // 数据库敏感配置加密密钥（盐）
 	Entry         string // 初始门禁入口（来自配置文件）
@@ -47,6 +48,9 @@ type Config struct {
 	// 且 JWT 签名子密钥不随启动轮换），否则每次启动都会使所有旧登录失效。
 	SessionPersistence bool             // 重启后保留登录会话
 	TrustedProxies     []string         // 可信反向代理 CIDR；为空表示不信任任何代理头
+	ClientIPMode       string           // auto（默认）或 cloudflare
+	ProxyProtocol      bool             // 是否接受可信代理发送的 PROXY protocol v1/v2
+	ServerTLS          ServerTLSConfig  // 主监听 TLS 与代理 mTLS 身份
 	RateLimit          ratelimit.Config // 管理端与 ACME 入口限流阈值
 	ACME               ACMEConfig       // 内置 ACME 服务端配置
 	Plugins            PluginsConfig    // 外部 DNS 插件配置
@@ -133,6 +137,7 @@ type PluginRepoConfig struct {
 	Channel       string
 	AutoUpdate    bool
 	PublicKey     string
+	Proxy         string
 	Timeout       time.Duration
 	MaxDownloadMB int
 	CheckInterval time.Duration
@@ -145,6 +150,14 @@ type PluginsConfig struct {
 	MemoryLimitMB int
 	Timeout       time.Duration
 	MaxOutputKB   int
+}
+
+// ServerTLSConfig 是主监听的可选 TLS 配置。
+// ProxyClientCA 非空时，持有该 CA 签发客户端证书的连接视为可信代理。
+type ServerTLSConfig struct {
+	Cert          string
+	Key           string
+	ProxyClientCA string
 }
 
 // ACMEConfig 是内置 ACME 服务端的监听与传输层配置。
@@ -166,6 +179,13 @@ type fileConfig struct {
 		Host           string   `yaml:"host"`
 		Port           int      `yaml:"port"`
 		TrustedProxies []string `yaml:"trusted_proxies,omitempty"`
+		ClientIPMode   string   `yaml:"client_ip_mode,omitempty"`
+		ProxyProtocol  bool     `yaml:"proxy_protocol,omitempty"`
+		TLS            struct {
+			Cert          string `yaml:"cert"`
+			Key           string `yaml:"key"`
+			ProxyClientCA string `yaml:"proxy_client_ca"`
+		} `yaml:"tls"`
 	} `yaml:"server"`
 	DataDir  string `yaml:"data_dir"`
 	Database struct {
@@ -213,6 +233,7 @@ type fileConfig struct {
 			Channel            string `yaml:"channel"`
 			AutoUpdate         bool   `yaml:"auto_update"`
 			PublicKey          string `yaml:"public_key"`
+			Proxy              string `yaml:"proxy"`
 			TimeoutSeconds     int    `yaml:"timeout_seconds"`
 			MaxDownloadMB      int    `yaml:"max_download_mb"`
 			CheckIntervalHours int    `yaml:"check_interval_hours"`
@@ -286,6 +307,7 @@ type fileRateLimitRule struct {
 func defaults() *fileConfig {
 	fc := &fileConfig{}
 	fc.Server.Port = 8080
+	fc.Server.ClientIPMode = "auto"
 	fc.Security.RateLimit.MaxKeys = ratelimit.DefaultMaxKeys
 	fc.DataDir = "data"
 	// 默认仍使用 SQLite；PostgreSQL 需要显式配置 driver 与 dsn。
@@ -433,26 +455,35 @@ func LoadFrom(path string) (*Config, error) {
 		return nil, err
 	}
 
-	dbDriver := strings.ToLower(strings.TrimSpace(fc.Database.Driver))
-	if dbDriver == "" {
-		dbDriver = "sqlite"
-	}
-	if dbDriver != "sqlite" && dbDriver != "postgres" {
-		return nil, fmt.Errorf("database.driver 必须是 sqlite 或 postgres")
+	dbDriver, ok := normalizeDatabaseDriver(fc.Database.Driver)
+	if !ok {
+		return nil, fmt.Errorf("database.driver 必须是 sqlite、postgres 或 mysql")
 	}
 	dbPath := strings.TrimSpace(fc.Database.Path)
 	if dbDriver == "sqlite" && dbPath == "" {
 		dbPath = filepath.Join(dataDir, "lactssl.db")
 	}
+	if dbDriver != "sqlite" {
+		// PostgreSQL/MySQL 不使用 SQLite 文件路径；忽略模板或历史配置中的残留值。
+		dbPath = ""
+	}
 	dbDSN := strings.TrimSpace(fc.Database.DSN)
-	// 允许通过环境变量提供 DSN，避免密码写入配置文件；存在该变量时视为
-	// 使用 PostgreSQL，配置中的 sqlite 默认值不再生效。
+	// 允许通过环境变量提供 DSN，避免密码写入配置文件。默认沿用 PostgreSQL
+	// 以兼容旧部署；同时设置 LACTSSL_DATABASE_DRIVER 可切换到 MySQL。
 	if value := strings.TrimSpace(os.Getenv("LACTSSL_DATABASE_DSN")); value != "" {
 		dbDSN = value
-		dbDriver = "postgres"
+		if envDriver := strings.TrimSpace(os.Getenv("LACTSSL_DATABASE_DRIVER")); envDriver != "" {
+			driver, valid := normalizeDatabaseDriver(envDriver)
+			if !valid {
+				return nil, fmt.Errorf("LACTSSL_DATABASE_DRIVER 必须是 sqlite、postgres 或 mysql")
+			}
+			dbDriver = driver
+		} else {
+			dbDriver = "postgres"
+		}
 	}
-	if dbDriver == "postgres" && dbDSN == "" {
-		return nil, fmt.Errorf("database.driver=postgres 时必须配置 database.dsn 或环境变量 LACTSSL_DATABASE_DSN")
+	if dbDriver != "sqlite" && dbDSN == "" {
+		return nil, fmt.Errorf("database.driver=%s 时必须配置 database.dsn 或环境变量 LACTSSL_DATABASE_DSN", dbDriver)
 	}
 	if dbDriver == "sqlite" && dbDSN != "" {
 		return nil, fmt.Errorf("database.driver=sqlite 时不能同时配置 database.dsn")
@@ -484,7 +515,31 @@ func LoadFrom(path string) (*Config, error) {
 	// 显式开启后，进程重启不清空 sessions 表，JWT 也使用固定的 jwt_secret 签名。
 	sessionPersistence := fc.Security.SessionPersistence
 
-	trustedProxies := fc.Server.TrustedProxies
+	// 运行时使用规范化后的值，避免手工配置中的空白或 IPv4-mapped 写法
+	// 让 Gin 解析失败，或把 ::ffff:x.x.x.x 误解析成过宽的 IPv6 网段。
+	trustedProxies, err := NormalizeTrustedProxies(fc.Server.TrustedProxies)
+	if err != nil {
+		return nil, err
+	}
+
+	clientIPMode := strings.ToLower(strings.TrimSpace(fc.Server.ClientIPMode))
+	if clientIPMode == "" {
+		clientIPMode = "auto"
+	}
+	if clientIPMode != "auto" && clientIPMode != "cloudflare" {
+		return nil, fmt.Errorf("server.client_ip_mode 必须是 auto 或 cloudflare")
+	}
+	serverTLS := ServerTLSConfig{
+		Cert:          strings.TrimSpace(fc.Server.TLS.Cert),
+		Key:           strings.TrimSpace(fc.Server.TLS.Key),
+		ProxyClientCA: strings.TrimSpace(fc.Server.TLS.ProxyClientCA),
+	}
+	if (serverTLS.Cert == "") != (serverTLS.Key == "") {
+		return nil, fmt.Errorf("server.tls.cert 与 server.tls.key 必须同时配置")
+	}
+	if serverTLS.ProxyClientCA != "" && serverTLS.Cert == "" {
+		return nil, fmt.Errorf("server.tls.proxy_client_ca 需要同时配置 server.tls.cert / server.tls.key")
+	}
 
 	rateLimitCfg, err := resolveRateLimit(fc)
 	if err != nil {
@@ -538,6 +593,7 @@ func LoadFrom(path string) (*Config, error) {
 		Channel:       strings.TrimSpace(fc.Plugins.Repo.Channel),
 		AutoUpdate:    fc.Plugins.Repo.AutoUpdate,
 		PublicKey:     strings.TrimSpace(fc.Plugins.Repo.PublicKey),
+		Proxy:         strings.TrimSpace(fc.Plugins.Repo.Proxy),
 		Timeout:       time.Duration(fc.Plugins.Repo.TimeoutSeconds) * time.Second,
 		MaxDownloadMB: fc.Plugins.Repo.MaxDownloadMB,
 		CheckInterval: time.Duration(fc.Plugins.Repo.CheckIntervalHours) * time.Hour,
@@ -556,6 +612,9 @@ func LoadFrom(path string) (*Config, error) {
 	}
 	if err := validateRepoURL(repoCfg.URL, "plugins.repo.url"); err != nil {
 		return nil, err
+	}
+	if err := outbound.ValidateProxyURL(repoCfg.Proxy); err != nil {
+		return nil, fmt.Errorf("plugins.repo.proxy: %w", err)
 	}
 
 	deployPluginsCfg := PluginsConfig{
@@ -664,6 +723,9 @@ func LoadFrom(path string) (*Config, error) {
 		PublicURL:          publicURL,
 		SessionPersistence: sessionPersistence,
 		TrustedProxies:     trustedProxies,
+		ClientIPMode:       clientIPMode,
+		ProxyProtocol:      fc.Server.ProxyProtocol,
+		ServerTLS:          serverTLS,
 		RateLimit:          rateLimitCfg,
 		ACME:               acmeCfg,
 		Plugins:            pluginsCfg,
@@ -836,17 +898,28 @@ func ValidateFile(path string) error {
 	return validateFileValues(fc)
 }
 
+// normalizeDatabaseDriver 规范化配置中的数据库驱动名称。
+func normalizeDatabaseDriver(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "sqlite", "sqlite3":
+		return "sqlite", true
+	case "postgres", "postgresql", "pg":
+		return "postgres", true
+	case "mysql", "mariadb":
+		return "mysql", true
+	default:
+		return "", false
+	}
+}
+
 func validateFileValues(fc *fileConfig) error {
-	driver := strings.ToLower(strings.TrimSpace(fc.Database.Driver))
-	if driver == "" {
-		driver = "sqlite"
+	driver, ok := normalizeDatabaseDriver(fc.Database.Driver)
+	if !ok {
+		return fmt.Errorf("database.driver 必须是 sqlite、postgres 或 mysql")
 	}
-	if driver != "sqlite" && driver != "postgres" {
-		return fmt.Errorf("database.driver 必须是 sqlite 或 postgres")
-	}
-	if driver == "postgres" && strings.TrimSpace(fc.Database.DSN) == "" &&
+	if driver != "sqlite" && strings.TrimSpace(fc.Database.DSN) == "" &&
 		strings.TrimSpace(os.Getenv("LACTSSL_DATABASE_DSN")) == "" {
-		return fmt.Errorf("database.driver=postgres 时必须配置 database.dsn")
+		return fmt.Errorf("database.driver=%s 时必须配置 database.dsn", driver)
 	}
 	if driver == "sqlite" && strings.TrimSpace(fc.Database.DSN) != "" {
 		return fmt.Errorf("database.driver=sqlite 时不能配置 database.dsn")
@@ -890,6 +963,16 @@ func validateFileValues(fc *fileConfig) error {
 	}
 	if _, err := NormalizeTrustedProxies(fc.Server.TrustedProxies); err != nil {
 		return err
+	}
+	mode := strings.ToLower(strings.TrimSpace(fc.Server.ClientIPMode))
+	if mode != "" && mode != "auto" && mode != "cloudflare" {
+		return fmt.Errorf("server.client_ip_mode 必须是 auto 或 cloudflare")
+	}
+	if (strings.TrimSpace(fc.Server.TLS.Cert) == "") != (strings.TrimSpace(fc.Server.TLS.Key) == "") {
+		return fmt.Errorf("server.tls.cert 与 server.tls.key 必须同时配置")
+	}
+	if strings.TrimSpace(fc.Server.TLS.ProxyClientCA) != "" && strings.TrimSpace(fc.Server.TLS.Cert) == "" {
+		return fmt.Errorf("server.tls.proxy_client_ca 需要同时配置 server.tls.cert / server.tls.key")
 	}
 	if strings.TrimSpace(fc.ACME.Addr) != "" {
 		mainAddr, err := resolveAddr(fc)
@@ -940,6 +1023,9 @@ func validateFileValues(fc *fileConfig) error {
 		MaxOutputKB:   fc.NotifyPlugins.MaxOutputKB,
 	}); err != nil {
 		return err
+	}
+	if err := outbound.ValidateProxyURL(fc.Plugins.Repo.Proxy); err != nil {
+		return fmt.Errorf("plugins.repo.proxy: %w", err)
 	}
 	if err := validateLogConfig(LogConfig{
 		Level:               strings.ToLower(strings.TrimSpace(fc.Log.Level)),
@@ -1105,24 +1191,36 @@ server:
   host: %s
   port: %d
   # 可信反向代理 CIDR；留空表示不信任任何代理头（直连部署推荐）
-  # 例如：["127.0.0.1", "10.0.0.0/8"]
+  # 例如：["127.0.0.1", "::1"]；确需网段时使用最小 CIDR
   trusted_proxies: []
+  # 客户端 IP 模式：auto（默认）或 cloudflare。
+  # cloudflare 模式会在 peer 属于 trusted_proxies 时优先采信 CF-Connecting-IP。
+  client_ip_mode: "auto"
+  # 是否接受可信代理发送的 PROXY protocol v1/v2；非可信来源发送的 PROXY 头会被拒绝。
+  proxy_protocol: false
+  # 主监听 TLS；反向代理终止 TLS 时留空。
+  # proxy_client_ca 非空时，持有该 CA 签发客户端证书的连接会被视为可信代理（可选）。
+  tls:
+    cert: ""
+    key: ""
+    proxy_client_ca: ""
 
 # 数据目录：存放插件、日志与升级备份
 data_dir: %s
 
 database:
-  # sqlite（默认）或 postgres
+  # sqlite（默认）、postgres 或 mysql（MySQL 5.7+）
   driver: %s
   # SQLite 文件路径；留空表示 <data_dir>/lactssl.db
   path: %s
-  # PostgreSQL 连接串；driver=postgres 时必填
-  # 生产环境建议使用 sslmode=verify-full，也可用 LACTSSL_DATABASE_DSN 覆盖
+  # PostgreSQL/MySQL 连接串；driver 非 sqlite 时必填
+  # PostgreSQL 建议 sslmode=verify-full；MySQL 可使用 mysql://user:pass@host:3306/db?tls=preferred
+  # 也可用 LACTSSL_DATABASE_DSN 覆盖；MySQL 还需设置 LACTSSL_DATABASE_DRIVER=mysql
   dsn: %s
   max_open_conns: %d
   max_idle_conns: %d
   conn_max_lifetime_minutes: %d
-  # 是否允许多个实例共享同一个 PostgreSQL 数据库；默认 false
+  # 是否允许多个实例共享同一个 PostgreSQL/MySQL 数据库；默认 false
   allow_multi_instance: %t
 
 log:
@@ -1247,6 +1345,9 @@ plugins:
     auto_update: %t
     # 索引签名公钥（base64 Ed25519）；留空时只校验 HTTPS 与 asset sha256
     public_key: %s
+    # 拉取索引/下载插件的显式代理；留空沿用 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY 环境变量。
+    # 支持 http、https、socks5、socks5h，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
+    proxy: %s
     # 拉取索引/下载插件超时（秒）
     timeout_seconds: %d
     # 单个插件包大小上限（MB）
@@ -1343,6 +1444,7 @@ notify_plugins:
 		quote(fc.Plugins.Repo.Channel),
 		fc.Plugins.Repo.AutoUpdate,
 		quote(fc.Plugins.Repo.PublicKey),
+		quote(fc.Plugins.Repo.Proxy),
 		fc.Plugins.Repo.TimeoutSeconds,
 		fc.Plugins.Repo.MaxDownloadMB,
 		fc.Plugins.Repo.CheckIntervalHours,

@@ -94,6 +94,13 @@ func defaultSpec() map[string]any {
 			"host":            fc.Server.Host,
 			"port":            fc.Server.Port,
 			"trusted_proxies": []string{},
+			"client_ip_mode":  fc.Server.ClientIPMode,
+			"proxy_protocol":  fc.Server.ProxyProtocol,
+			"tls": map[string]any{
+				"cert":            "",
+				"key":             "",
+				"proxy_client_ca": "",
+			},
 		},
 		"data_dir": fc.DataDir,
 		"database": map[string]any{
@@ -142,6 +149,7 @@ func defaultSpec() map[string]any {
 				"channel":              fc.Plugins.Repo.Channel,
 				"auto_update":          fc.Plugins.Repo.AutoUpdate,
 				"public_key":           fc.Plugins.Repo.PublicKey,
+				"proxy":                fc.Plugins.Repo.Proxy,
 				"timeout_seconds":      fc.Plugins.Repo.TimeoutSeconds,
 				"max_download_mb":      fc.Plugins.Repo.MaxDownloadMB,
 				"check_interval_hours": fc.Plugins.Repo.CheckIntervalHours,

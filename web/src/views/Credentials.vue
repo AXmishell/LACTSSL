@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page table-page cred-page">
     <div class="page-head">
       <div>
         <h1>{{ isDNS ? t('credentials.dnsTitle') : t('credentials.deployTitle') }}</h1>
@@ -7,18 +7,19 @@
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle @click="load" />
+        <el-button v-if="!isDNS" :icon="Document" @click="openRecords">{{ t('credentials.recentDeployments') }}</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">{{ isDNS ? t('credentials.addDns') : t('credentials.addDeploy') }}</el-button>
       </div>
     </div>
 
-    <div v-if="!items.length && !loading" class="k-card" style="text-align: center; padding: 56px 20px">
+    <div v-if="!items.length && !loading" class="k-card table-fill cred-empty-card">
       <el-icon size="34" color="#94a3b8"><component :is="isDNS ? DnsAccountIcon : 'UploadFilled'" /></el-icon>
       <h3 style="margin: 14px 0 6px">{{ isDNS ? t('credentials.emptyDnsTitle') : t('credentials.emptyDeployTitle') }}</h3>
       <p class="muted" style="margin-top: 0">{{ isDNS ? t('credentials.emptyDnsDesc') : t('credentials.emptyDeployDesc') }}</p>
       <el-button type="primary" style="margin-top: 12px" @click="openCreate">{{ t('credentials.addNow') }}</el-button>
     </div>
 
-    <div v-else class="k-card cred-list" v-loading="loading">
+    <div v-else class="k-card cred-list table-fill" v-loading="loading">
       <div class="cred-list-head">
         <span class="cred-head-name">
           <el-checkbox
@@ -33,6 +34,7 @@
         <span>{{ t('credentials.time') }}</span>
         <span class="cred-head-actions">{{ t('common.actions') }}</span>
       </div>
+      <div class="cred-scroll">
       <div v-for="item in items" :key="item.id" class="cred-row" :class="{ 'is-selected': isSelected(item) }">
         <div class="cred-cell cred-name">
           <el-checkbox
@@ -68,6 +70,9 @@
         <div class="cred-cell cred-remark cred-meta">{{ item.remark || t('credentials.noRemark') }}</div>
         <div class="cred-cell cred-time cred-meta">{{ t('credentials.updatedAt', { value: fromNow(item.updated_at) }) }}</div>
         <div class="cred-cell cred-actions">
+          <el-button v-if="isDNS" text type="primary" size="small" @click="openZones(item)">
+            {{ t('credentials.zones') }}
+          </el-button>
           <el-button
             text
             type="primary"
@@ -89,80 +94,18 @@
           </el-dropdown>
         </div>
       </div>
-    </div>
-
-    <div v-if="showBatchBar && selectedIds.length" class="batch-bar">
-      <div class="batch-actions">
-        <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchDelete">
-          {{ t('credentials.batchDelete') }}
-        </el-button>
-        <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('credentials.clearSelection') }}</el-button>
       </div>
-      <span class="batch-count">{{ t('credentials.selectedCount', { count: selectedIds.length }) }}</span>
-    </div>
 
-    <div v-if="!isDNS" class="k-card recent-deploy-card" style="margin-top: 20px">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('credentials.recentDeployments') }}</h3>
-          <div class="sub">{{ t('credentials.recentDeploymentsSub') }}</div>
+      <div v-if="showBatchBar && selectedIds.length" class="cred-footer">
+        <div class="batch-bar">
+          <div class="batch-actions">
+            <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchDelete">
+              {{ t('credentials.batchDelete') }}
+            </el-button>
+            <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('credentials.clearSelection') }}</el-button>
+          </div>
+          <span class="batch-count">{{ t('credentials.selectedCount', { count: selectedIds.length }) }}</span>
         </div>
-        <div class="deploy-record-actions">
-          <el-button text type="primary" @click="loadRecords">{{ t('credentials.refresh') }}</el-button>
-          <el-button
-            text
-            type="danger"
-            :icon="Delete"
-            :loading="clearingRecords"
-            :disabled="!records.length"
-            @click="clearRecords"
-          >
-            {{ t('credentials.clearRecords') }}
-          </el-button>
-        </div>
-      </div>
-      <div class="table-scroll">
-        <el-table :data="records" size="small" class="recent-deploy-table" style="width: 100%">
-          <el-table-column width="160" :label="t('credentials.time')">
-            <template #default="{ row }"><span class="muted">{{ formatDate(row.created_at) }}</span></template>
-          </el-table-column>
-          <el-table-column min-width="170" :label="t('credentials.certificate')">
-            <template #default="{ row }">
-              <OverflowTooltip :content="certDomain(row.cert_id)" :label="t('credentials.certificate')">
-                <span class="mono" style="font-size: 12px">{{ certDomain(row.cert_id) }}</span>
-              </OverflowTooltip>
-            </template>
-          </el-table-column>
-          <el-table-column width="150" :label="t('credentials.deployTarget')">
-            <template #default="{ row }">
-              <OverflowTooltip :content="row.account_name || t('credentials.unknownTarget')" :label="t('credentials.deployTarget')">
-                <span>{{ row.account_name || t('credentials.unknownTarget') }}</span>
-              </OverflowTooltip>
-            </template>
-          </el-table-column>
-          <el-table-column width="100" :label="t('credentials.status')">
-            <template #default="{ row }">
-              <el-tag :type="row.status === 'success' ? 'success' : 'danger'" size="small" effect="light" round>
-                {{ row.status === 'success' ? t('credentials.success') : t('credentials.failed') }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column min-width="260" :label="t('credentials.result')">
-            <template #default="{ row }">
-              <OverflowTooltip
-                :content="row.message"
-                :label="t('credentials.result')"
-                :tone="row.status === 'success' ? 'success' : 'danger'"
-                always
-              >
-                <span class="muted" style="font-size: 12px">{{ row.message }}</span>
-              </OverflowTooltip>
-            </template>
-          </el-table-column>
-          <template #empty>
-            <div style="padding: 26px 22px; color: #94a3b8">{{ t('credentials.noRecords') }}</div>
-          </template>
-        </el-table>
       </div>
     </div>
 
@@ -277,12 +220,6 @@
           <div class="form-help">{{ t('credentials.verifyDomainHelp') }}</div>
         </el-form-item>
 
-        <ReauthFields
-          v-model:password="reauth.password"
-          v-model:totp="reauth.totp"
-          :totp-enabled="!!user?.totp_enabled"
-        />
-
         <el-alert
           v-if="verifyResult"
           :type="verifyResult.ok ? 'success' : 'warning'"
@@ -304,6 +241,136 @@
         <el-button type="primary" :loading="verifying" @click="verifyCurrent">{{ t('credentials.verify') }}</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="zonesVisible"
+      :title="`${t('credentials.zones')} · ${zonesTarget?.name || ''}`"
+      width="680px"
+      class="zones-dialog"
+      destroy-on-close
+      :before-close="beforeZonesClose"
+      @closed="resetZones"
+    >
+      <div class="zone-hint">
+        <span>{{ t('credentials.zonesHint') }}</span>
+        <el-tooltip :content="t('credentials.zonesHintDetail')" placement="top" :show-after="200">
+          <el-icon class="zone-hint-icon"><InfoFilled /></el-icon>
+        </el-tooltip>
+      </div>
+
+      <div v-loading="zonesLoading" class="zone-list">
+        <div class="zone-head">
+          <span>{{ t('credentials.colZone') }}</span>
+          <span>{{ t('credentials.colMatch') }}</span>
+          <span>{{ t('credentials.colPriority') }}</span>
+          <span>{{ t('credentials.colEnabled') }}</span>
+          <span />
+        </div>
+        <div v-if="!zoneRows.length" class="zone-empty">{{ t('credentials.zonesEmpty') }}</div>
+        <div
+          v-for="(row, index) in zoneRows"
+          :key="row.uid"
+          class="zone-row"
+          :class="{ 'is-off': !row.enabled }"
+        >
+          <div class="zone-cell">
+            <el-input
+              v-model="row.zone"
+              :placeholder="t('credentials.zonePlaceholder')"
+              :aria-label="t('credentials.colZone')"
+              @input="clearZoneError(row)"
+            />
+            <div v-if="zoneErrors[row.uid]" class="zone-error">{{ zoneErrors[row.uid] }}</div>
+          </div>
+          <el-select v-model="row.match_mode" :aria-label="t('credentials.colMatch')">
+            <el-option :label="t('credentials.zoneSuffix')" value="suffix" />
+            <el-option :label="t('credentials.zoneExact')" value="exact" />
+          </el-select>
+          <el-input-number
+            v-model="row.priority"
+            :min="-1000"
+            :max="1000"
+            controls-position="right"
+            :aria-label="t('credentials.colPriority')"
+          />
+          <div class="zone-row-end">
+            <el-switch v-model="row.enabled" :aria-label="t('credentials.colEnabled')" />
+            <el-tooltip :content="t('credentials.zoneRemove')" placement="top">
+              <el-button
+                text
+                type="danger"
+                :icon="Delete"
+                :aria-label="t('credentials.zoneRemove')"
+                @click="removeZoneRow(index)"
+              />
+            </el-tooltip>
+          </div>
+        </div>
+      </div>
+
+      <div class="zone-actions">
+        <el-button :icon="Plus" @click="addZoneRow">{{ t('credentials.zoneAdd') }}</el-button>
+        <span class="zone-actions-spacer" />
+        <el-input
+          v-model="probeDomain"
+          class="zone-probe-input"
+          :placeholder="t('credentials.zoneProbePlaceholder')"
+          :aria-label="t('credentials.zoneProbePlaceholder')"
+          @keyup.enter="probeZone"
+        />
+        <el-button type="primary" plain :icon="Search" :loading="probing" @click="probeZone">
+          {{ t('credentials.zoneProbeAction') }}
+        </el-button>
+        <el-tooltip :content="t('credentials.zoneProbeHint')" placement="top" :show-after="200">
+          <el-icon class="zone-hint-icon"><InfoFilled /></el-icon>
+        </el-tooltip>
+      </div>
+      <template #footer>
+        <el-button @click="cancelZones">{{ t('credentials.cancel') }}</el-button>
+        <el-button type="primary" :loading="zonesSaving" @click="saveZones">{{ t('credentials.save') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 最近部署记录：与任务执行日志一致，使用抽屉展示 -->
+    <el-drawer
+      v-model="recordsVisible"
+      :title="t('credentials.recentDeployments')"
+      size="560px"
+    >
+      <div v-loading="recordsLoading">
+        <div class="records-hint muted">{{ t('credentials.recentDeploymentsSub') }}</div>
+        <div v-if="!records.length" class="muted records-empty">{{ t('credentials.noRecords') }}</div>
+        <div v-for="row in records" :key="row.id" class="log-row">
+          <div class="log-dot" :style="{ background: recordColor(row) }"></div>
+          <div class="log-body">
+            <div class="log-msg">{{ row.message }}</div>
+            <div class="log-time">
+              {{ formatDate(row.created_at) }} · {{ row.account_name || t('credentials.unknownTarget') }} ·
+              {{ certDomain(row.cert_id) }}
+            </div>
+          </div>
+          <el-tag :type="row.status === 'success' ? 'success' : 'danger'" size="small" effect="plain">
+            {{ row.status === 'success' ? t('credentials.success') : t('credentials.failed') }}
+          </el-tag>
+        </div>
+      </div>
+      <template #footer>
+        <div class="records-drawer-footer">
+          <el-button @click="loadRecords" :loading="recordsLoading">{{ t('credentials.refresh') }}</el-button>
+          <el-button
+            type="danger"
+            plain
+            :icon="Delete"
+            :loading="clearingRecords"
+            :disabled="!records.length"
+            @click="clearRecords"
+          >
+            {{ t('credentials.clearRecords') }}
+          </el-button>
+        </div>
+      </template>
+    </el-drawer>
+
     <OverflowTooltipLayer />
   </div>
 </template>
@@ -313,17 +380,15 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Close, Delete, Plus, Refresh } from '@element-plus/icons-vue'
+import { Close, Delete, Document, InfoFilled, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
-import { loadMeta, state } from '../store'
+import { loadMeta } from '../store'
 import { fieldVisible, formatDate, fromNow } from '../utils'
 import { loadPluginIcons, pluginIcon } from '../pluginIcons'
 import DnsAccountIcon from '../components/DnsAccountIcon.vue'
-import OverflowTooltip from '../components/OverflowTooltip.vue'
 import OverflowTooltipLayer from '../components/OverflowTooltipLayer.vue'
-import ReauthFields from '../components/ReauthFields.vue'
-import type { Certificate, DeployRecord, FieldDef, Meta, ProviderDef, VerifyResult } from '../types'
+import type { Certificate, DeployRecord, DNSZoneBinding, FieldDef, Meta, ProviderDef, VerifyResult } from '../types'
 
 interface CredentialItem {
   id: number
@@ -356,6 +421,8 @@ const items = ref<CredentialItem[]>([])
 const meta = ref<Meta | null>(null)
 const records = ref<DeployRecord[]>([])
 const certificates = ref<Certificate[]>([])
+const recordsVisible = ref(false)
+const recordsLoading = ref(false)
 const clearingRecords = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref(0)
@@ -372,8 +439,49 @@ const visibleVerifyChecks = computed(() =>
   (verifyResult.value?.checks || []).filter((check) => !(check.key === 'scope' && check.status === 'skipped'))
 )
 const verifyDomain = ref('')
-const reauth = reactive({ password: '', totp: '' })
-const user = computed(() => state.user)
+
+// 域名绑定：声明式解析 CSR 域名的 DNS 账户归属。
+interface ZoneRow {
+  uid: string
+  zone: string
+  match_mode: 'suffix' | 'exact'
+  priority: number
+  enabled: boolean
+}
+const zonesVisible = ref(false)
+const zonesTarget = ref<CredentialItem | null>(null)
+const zonesLoading = ref(false)
+const zonesSaving = ref(false)
+const zoneRows = ref<ZoneRow[]>([])
+const zoneErrors = ref<Record<string, string>>({})
+const zonesSnapshot = ref('')
+const probeDomain = ref('')
+const probing = ref(false)
+
+let zoneUidSeq = 0
+function nextZoneUid(): string {
+  zoneUidSeq += 1
+  return `zone-${zoneUidSeq}`
+}
+
+function normalizeZoneKey(zone: string): string {
+  // 与服务端 NormalizeDNSZone 保持一致：通配符前缀和尾点都会归一化掉。
+  return zone.trim().toLowerCase().replace(/^\*\./, '').replace(/\.+$/, '')
+}
+
+// 只比较会影响提交结果的字段，避免输入框临时状态触发“未保存”提示。
+function serializeZones(rows: ZoneRow[]): string {
+  return JSON.stringify(
+    rows.map((row) => ({
+      zone: normalizeZoneKey(row.zone),
+      match_mode: row.match_mode,
+      priority: row.priority || 0,
+      enabled: row.enabled
+    }))
+  )
+}
+
+const zonesDirty = computed(() => serializeZones(zoneRows.value) !== zonesSnapshot.value)
 
 const form = reactive<CredentialForm>({ name: '', type: '', config: {}, remark: '' })
 
@@ -399,39 +507,20 @@ const typeValue = computed({
   }
 })
 
-function validReauth(): boolean {
-  if (user.value?.totp_enabled) {
-    if (!/^\d{6}$/.test(reauth.totp.trim())) {
-      ElMessage.warning(t('settings.reauthTotpRequired'))
-      return false
-    }
-    return true
-  }
-  if (!reauth.password) {
-    ElMessage.warning(t('settings.reauthPasswordRequired'))
-    return false
-  }
-  return true
-}
-
-function clearReauth(): void {
-  reauth.password = ''
-  reauth.totp = ''
-}
-
 // 每次打开或关闭验证弹窗后清空上次结果，避免结果与当前凭据错配。
 function resetVerify(): void {
   verifyResult.value = null
   verifyDomain.value = ''
   verifyTarget.value = null
-  clearReauth()
 }
 
 // 验证只针对已保存的凭据，避免使用表单中尚未保存的配置。
+// 打开弹窗后立即执行一次验证，用户无需再点击一次“验证可用性”。
 function openVerify(item: CredentialItem): void {
   resetVerify()
   verifyTarget.value = item
   verifyVisible.value = true
+  void verifyCurrent()
 }
 
 function verifyTagType(status: string): 'success' | 'danger' | 'warning' | 'info' {
@@ -473,14 +562,11 @@ function verifyCheckLabel(key: string): string {
 async function verifyCurrent(): Promise<void> {
   const target = verifyTarget.value
   if (!target) return
-  if (!validReauth()) return
   verifying.value = true
   verifyResult.value = null
   try {
     const payload: Record<string, unknown> = {
-      mode: 'auto',
-      password: reauth.password,
-      totp: reauth.totp
+      mode: 'auto'
     }
     let path = ''
     if (isDNS.value) {
@@ -493,7 +579,6 @@ async function verifyCurrent(): Promise<void> {
     const data = await api.post<VerifyResult>(path, payload)
     if (data === null) return
     verifyResult.value = data
-    clearReauth()
     await load()
     if (data.ok) ElMessage.success(t('credentials.verifyPassed'))
     else ElMessage.warning(data.message || t('credentials.verifyFailed'))
@@ -501,6 +586,182 @@ async function verifyCurrent(): Promise<void> {
     ElMessage.error(error.message)
   } finally {
     verifying.value = false
+  }
+}
+
+function openZones(item: CredentialItem): void {
+  resetZones()
+  zonesTarget.value = item
+  zonesVisible.value = true
+  void loadZones(item)
+}
+
+function toZoneRows(list: DNSZoneBinding[] | null): ZoneRow[] {
+  return (list || []).map((zone) => ({
+    uid: nextZoneUid(),
+    zone: zone.zone,
+    match_mode: zone.match_mode === 'exact' ? 'exact' : 'suffix',
+    priority: zone.priority || 0,
+    enabled: zone.enabled
+  }))
+}
+
+async function loadZones(item: CredentialItem): Promise<void> {
+  zonesLoading.value = true
+  try {
+    const list = await api.get<DNSZoneBinding[]>(`/dns-accounts/${item.id}/zones`)
+    zoneRows.value = toZoneRows(list)
+    zoneErrors.value = {}
+    zonesSnapshot.value = serializeZones(zoneRows.value)
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    zonesLoading.value = false
+  }
+}
+
+function resetZones(): void {
+  zonesTarget.value = null
+  zoneRows.value = []
+  zoneErrors.value = {}
+  zonesSnapshot.value = serializeZones([])
+  probeDomain.value = ''
+}
+
+function addZoneRow(): void {
+  zoneRows.value.push({ uid: nextZoneUid(), zone: '', match_mode: 'suffix', priority: 0, enabled: true })
+}
+
+function removeZoneRow(index: number): void {
+  const [removed] = zoneRows.value.splice(index, 1)
+  if (!removed) return
+  const next = { ...zoneErrors.value }
+  delete next[removed.uid]
+  zoneErrors.value = next
+}
+
+function clearZoneError(row: ZoneRow): void {
+  if (!zoneErrors.value[row.uid]) return
+  const next = { ...zoneErrors.value }
+  delete next[row.uid]
+  zoneErrors.value = next
+}
+
+// 保存前逐行校验，避免空行被静默丢弃后仍提示成功。
+function validateZones(): boolean {
+  const errors: Record<string, string> = {}
+  const seen = new Map<string, string>()
+  for (const row of zoneRows.value) {
+    const zone = row.zone.trim()
+    if (!zone) {
+      errors[row.uid] = t('credentials.zoneRequired')
+      continue
+    }
+    if (/\s/.test(zone) || zone.includes('/')) {
+      errors[row.uid] = t('credentials.zoneInvalid')
+      continue
+    }
+    const key = normalizeZoneKey(zone)
+    if (!key || key.includes('*')) {
+      errors[row.uid] = t('credentials.zoneInvalid')
+      continue
+    }
+    const previous = seen.get(key)
+    if (previous) {
+      errors[row.uid] = t('credentials.zoneDuplicateRow')
+      if (!errors[previous]) errors[previous] = t('credentials.zoneDuplicateRow')
+      continue
+    }
+    seen.set(key, row.uid)
+  }
+  zoneErrors.value = errors
+  return Object.keys(errors).length === 0
+}
+
+async function confirmDiscardZones(): Promise<boolean> {
+  if (!zonesDirty.value) return true
+  try {
+    await ElMessageBox.confirm(t('credentials.zonesDiscardConfirm'), t('credentials.zonesUnsaved'), {
+      confirmButtonText: t('credentials.zonesDiscard'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning'
+    })
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+async function cancelZones(): Promise<void> {
+  if (await confirmDiscardZones()) zonesVisible.value = false
+}
+
+async function beforeZonesClose(done: () => void): Promise<void> {
+  if (zonesSaving.value) return
+  if (await confirmDiscardZones()) done()
+}
+
+async function saveZones(): Promise<void> {
+  const target = zonesTarget.value
+  if (!target) return
+  if (!validateZones()) {
+    ElMessage.warning(t('credentials.zonesFixErrors'))
+    return
+  }
+  const zones = zoneRows.value.map((row) => ({
+    zone: row.zone.trim(),
+    match_mode: row.match_mode,
+    priority: row.priority || 0,
+    enabled: row.enabled
+  }))
+  zonesSaving.value = true
+  try {
+    const saved = await api.put<DNSZoneBinding[]>(`/dns-accounts/${target.id}/zones`, { zones })
+    if (saved === null) return
+    zoneRows.value = toZoneRows(saved)
+    zoneErrors.value = {}
+    zonesSnapshot.value = serializeZones(zoneRows.value)
+    ElMessage.success(t('credentials.zonesSaved'))
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    zonesSaving.value = false
+  }
+}
+
+async function probeZone(): Promise<void> {
+  const target = zonesTarget.value
+  if (!target) return
+  const domain = probeDomain.value.trim()
+  if (!domain) {
+    ElMessage.warning(t('credentials.zoneProbeRequired'))
+    return
+  }
+  probing.value = true
+  try {
+    // apply=false：探测只做只读检查，结果写入草稿，由“保存”统一提交。
+    const data = await api.post<{ zone: string; applied: boolean }>(`/dns-accounts/${target.id}/zones/probe`, {
+      domain,
+      mode: 'read',
+      apply: false
+    })
+    if (data?.zone) {
+      const zone = data.zone.trim()
+      const key = normalizeZoneKey(zone)
+      if (zoneRows.value.some((row) => normalizeZoneKey(row.zone) === key)) {
+        ElMessage.warning(t('credentials.zoneDuplicateRow'))
+      } else {
+        zoneRows.value.push({ uid: nextZoneUid(), zone, match_mode: 'suffix', priority: 0, enabled: true })
+        ElMessage.success(t('credentials.zoneProbeSuccess', { zone }))
+      }
+      probeDomain.value = ''
+    } else {
+      ElMessage.warning(t('credentials.zoneProbeUnsupported'))
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    probing.value = false
   }
 }
 
@@ -546,7 +807,6 @@ async function load(): Promise<void> {
     meta.value = metaData
     items.value = list || []
     selectedIds.value = []
-    if (!isDNS.value) await loadRecords()
   } catch (error: any) {
     ElMessage.error(error.message)
   } finally {
@@ -554,7 +814,13 @@ async function load(): Promise<void> {
   }
 }
 
+function openRecords(): void {
+  recordsVisible.value = true
+  void loadRecords()
+}
+
 async function loadRecords(): Promise<void> {
+  recordsLoading.value = true
   try {
     const [deployments, certs] = await Promise.all([
       api.get<DeployRecord[]>('/deployments'),
@@ -564,7 +830,13 @@ async function loadRecords(): Promise<void> {
     certificates.value = certs || []
   } catch (error: any) {
     ElMessage.error(error.message)
+  } finally {
+    recordsLoading.value = false
   }
+}
+
+function recordColor(row: DeployRecord): string {
+  return row.status === 'success' ? '#10b981' : '#ef4444'
 }
 
 async function clearRecords(): Promise<void> {
@@ -758,6 +1030,35 @@ onMounted(() => {
 .cred-list {
   padding: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cred-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.cred-list-head {
+  flex: none;
+}
+
+.cred-footer {
+  flex: none;
+  padding: 12px 20px;
+  border-top: 1px solid var(--kp-border);
+  background: #ffffff;
+}
+
+.cred-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 20px;
+  text-align: center;
 }
 
 .cred-head-name {
@@ -805,47 +1106,187 @@ onMounted(() => {
   color: #1d4ed8;
 }
 
-/* 最近部署记录：卡片不留内边距，表格贴边，标题区仅保留左右 20px 间距 */
-.recent-deploy-card {
-  padding: 0;
-  overflow: hidden;
+.zone-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #eef2f8;
+  background: #f7f9fd;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
-.recent-deploy-card .card-head {
-  padding: 12px 20px 0;
+.zone-hint-icon {
+  flex: none;
+  margin-top: 4px;
+  color: #94a3b8;
+  cursor: help;
 }
 
-.recent-deploy-card .deploy-record-actions {
+.zone-list {
+  max-height: 300px;
+  margin-top: 12px;
+  overflow-y: auto;
+}
+
+.zone-head,
+.zone-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px 88px 44px 36px;
+  gap: 8px;
+  align-items: center;
+}
+
+.zone-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0 4px 6px;
+  border-bottom: 1px solid #eef1f6;
+  background: #ffffff;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.zone-empty {
+  padding: 28px 0;
+  color: #94a3b8;
+  font-size: 12px;
+  text-align: center;
+}
+
+.zone-row {
+  padding: 6px 4px;
+  border-bottom: 1px dashed #f1f5f9;
+}
+
+.zone-row.is-off {
+  opacity: 0.55;
+}
+
+.zone-row > .el-select,
+.zone-row > .el-input-number {
+  width: 100%;
+}
+
+.zone-cell {
+  min-width: 0;
+}
+
+.zone-row-end {
+  display: contents;
+}
+
+.zone-error {
+  margin-top: 4px;
+  color: #dc2626;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.zone-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
 }
 
-/* 最近部署记录：单行固定高度，超长内容省略并悬浮显示完整内容 */
-.recent-deploy-table :deep(.cell) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.zone-actions-spacer {
+  flex: 1 1 auto;
 }
 
-/* 首列左、末列右各留 20px，与标题栏左右间距对齐 */
-.recent-deploy-table :deep(.el-table__header th:first-child .cell),
-.recent-deploy-table :deep(.el-table__body td:first-child .cell) {
-  padding-left: 20px;
+.zone-probe-input {
+  flex: 0 1 220px;
 }
 
-.recent-deploy-table :deep(.el-table__header th:last-child .cell),
-.recent-deploy-table :deep(.el-table__body td:last-child .cell) {
-  padding-right: 20px;
+@media (max-width: 560px) {
+  .zone-head {
+    display: none;
+  }
+  .zone-row {
+    grid-template-columns: 96px 88px minmax(0, 1fr);
+    grid-template-areas:
+      'zone zone zone'
+      'match priority end';
+    row-gap: 8px;
+    padding: 10px 4px;
+  }
+  .zone-cell {
+    grid-area: zone;
+  }
+  .zone-row > .el-select {
+    grid-area: match;
+  }
+  .zone-row > .el-input-number {
+    grid-area: priority;
+  }
+  .zone-row-end {
+    display: flex;
+    grid-area: end;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .zone-actions-spacer {
+    display: none;
+  }
+  .zone-probe-input {
+    flex: 1 1 160px;
+  }
 }
 
-/* 表格自带底边会与卡片底边重复，这里清除 */
-.recent-deploy-table :deep(.el-table__inner-wrapper::before) {
-  display: none;
+/* 最近部署记录抽屉：与任务执行日志共用同一种日志行样式。 */
+.records-hint {
+  margin-bottom: 8px;
+  font-size: 12px;
 }
 
-.recent-deploy-table :deep(.el-table__body tr:last-child > td.el-table__cell) {
-  border-bottom: 0;
+.records-empty {
+  text-align: center;
+  padding: 40px 0;
+}
+
+.records-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.log-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px dashed #eef1f6;
+}
+
+.log-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex: none;
+}
+
+.log-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.log-msg {
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.log-time {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
 }
 
 .cred-list-head,
@@ -922,6 +1363,13 @@ onMounted(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+}
+
+@media (min-width: 861px) {
+  /* 凭据列表占满一屏剩余高度，页头保持固定。 */
+  .cred-page > .page-head {
+    flex: none;
+  }
 }
 
 @media (max-width: 900px) {

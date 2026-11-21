@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/http"
+	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/util"
 )
 
@@ -27,6 +31,11 @@ const (
 	apiKeyContextKey   = "api_key"
 	// apiKeyTouchWindow 限制最近使用时间的写库频率，避免每个请求都写 SQLite。
 	apiKeyTouchWindow = time.Minute
+	// apiKeyMaxAllowedIPs / apiKeyMaxAllowedIPLen 限制白名单规模，避免单条密钥拖垮认证路径。
+	apiKeyMaxAllowedIPs   = 64
+	apiKeyMaxAllowedIPLen = 64
+	// apiKeyMaxAllowedDNSAccounts 限制单个密钥可绑定的 DNS 账户数量。
+	apiKeyMaxAllowedDNSAccounts = 200
 )
 
 // API 密钥权限。权限按“资源:动作”划分，敏感操作单独授权，
@@ -39,7 +48,7 @@ const (
 	apiScopeCertificatesRead  = "certificates:read"
 	apiScopeCertificatesWrite = "certificates:write"
 	apiScopeCertificatesKey   = "certificates:key"
-	// apiScopeCertificatesRequest 允许客户端提交 CSR，由服务端向权威 CA 完成
+	// apiScopeCertificatesRequest 允许客户端提交 CSR，由服务端向公共 CA 完成
 	// 域名验证与签发。该权限会消耗上游 CA 配额并触发 DNS 挑战写入，需单独授权。
 	apiScopeCertificatesRequest = "certificates:request"
 	apiScopeTasksRead           = "tasks:read"
@@ -230,13 +239,17 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"POST /api/acme-diagnostics/cleanup":         {apiScopeCAWrite},
 	"POST /api/acme-diagnostics/cleanup/preview": {apiScopeCARead},
 
-	"GET /api/dns-accounts":             {apiScopeDNSRead},
-	"GET /api/dns-accounts/:id":         {apiScopeDNSRead},
-	"POST /api/dns-accounts":            {apiScopeDNSWrite},
-	"POST /api/dns-accounts/verify":     {apiScopeDNSWrite},
-	"POST /api/dns-accounts/:id/verify": {apiScopeDNSWrite},
-	"PUT /api/dns-accounts/:id":         {apiScopeDNSWrite},
-	"DELETE /api/dns-accounts/:id":      {apiScopeDNSWrite},
+	"GET /api/dns-accounts":                  {apiScopeDNSRead},
+	"POST /api/dns-accounts/resolve":         {apiScopeDNSRead},
+	"GET /api/dns-accounts/:id":              {apiScopeDNSRead},
+	"GET /api/dns-accounts/:id/zones":        {apiScopeDNSRead},
+	"POST /api/dns-accounts":                 {apiScopeDNSWrite},
+	"POST /api/dns-accounts/verify":          {apiScopeDNSWrite},
+	"POST /api/dns-accounts/:id/verify":      {apiScopeDNSWrite},
+	"PUT /api/dns-accounts/:id/zones":        {apiScopeDNSWrite},
+	"POST /api/dns-accounts/:id/zones/probe": {apiScopeDNSWrite},
+	"PUT /api/dns-accounts/:id":              {apiScopeDNSWrite},
+	"DELETE /api/dns-accounts/:id":           {apiScopeDNSWrite},
 
 	"GET /api/deploy-accounts":              {apiScopeDeployAccountsRead},
 	"GET /api/deploy-accounts/:id":          {apiScopeDeployAccountsRead},
@@ -300,7 +313,7 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"POST /api/upgrade/run":      {apiScopeUpgradeWrite},
 	"POST /api/upgrade/optimize": {apiScopeUpgradeWrite},
 	"GET /api/upgrade/database":  {apiScopeUpgradeRead},
-	// 数据库连通性测试会让服务端主动连接任意 PostgreSQL DSN，属于出站操作，
+	// 数据库连通性测试会让服务端主动连接任意 PostgreSQL/MySQL DSN，属于出站操作，
 	// 不能由只读 scope 触发。
 	"POST /api/upgrade/database/test":                {apiScopeUpgradeWrite},
 	"POST /api/upgrade/database/preflight":           {apiScopeUpgradeWrite},
@@ -326,6 +339,8 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"POST /api/settings/config/restart":              {},
 	"POST /api/settings/test-mail":                   {apiScopeSettingsWrite},
 	"POST /api/settings/test-channel":                {apiScopeSettingsWrite},
+	"POST /api/settings/test-security-notify":        {apiScopeSettingsWrite},
+	"GET /api/security/events":                       {},
 	"POST /api/security/entry":                       {apiScopeSecurityWrite},
 
 	"GET /api/api-keys":             {apiScopeAPIKeysRead},
@@ -394,7 +409,25 @@ func (s *Server) authenticateAPIKey(c *gin.Context, token string) bool {
 		failKey(c, http.StatusUnauthorized, "api.error.api_key_invalid")
 		return false
 	}
-	_ = s.Store.TouchAPIKey(key.ID, now, now.Add(-apiKeyTouchWindow))
+	// IP 白名单为空表示不限制；非空时必须能识别客户端 IP，且至少命中一条规则。
+	// 校验放在 Touch 之前，避免被拒绝的请求污染 last_used_at / last_used_ip。
+	clientIP, hasClientIP := parseAPIKeyClientIP(s.clientIP(c))
+	if len(key.AllowedIPs) > 0 {
+		if !hasClientIP {
+			failKey(c, http.StatusForbidden, "api.error.api_key_ip_unavailable")
+			return false
+		}
+		if !apiKeyIPAllowed(key, clientIP) {
+			s.logAPIKeyIPDenied(c, key, clientIP)
+			failKey(c, http.StatusForbidden, "api.error.api_key_ip_denied")
+			return false
+		}
+	}
+	lastUsedIP := ""
+	if hasClientIP {
+		lastUsedIP = clientIP.String()
+	}
+	_ = s.Store.TouchAPIKey(key.ID, now, now.Add(-apiKeyTouchWindow), lastUsedIP)
 	c.Set("user", user)
 	c.Set(apiKeyContextKey, key)
 	c.Set("session_id", "api-key:"+strconv.FormatInt(key.ID, 10))
@@ -481,6 +514,289 @@ func (s *Server) allowManageAPIKey(c *gin.Context, target *model.APIKey) bool {
 	return true
 }
 
+// allowAPIKeyIPAssignment 防止 API 密钥给自己或新密钥授予比自身更宽的 IP 白名单。
+// 浏览器登录会话代表账户本人，不受此限制。
+func (s *Server) allowAPIKeyIPAssignment(c *gin.Context, allowedIPs []string) bool {
+	actor := apiKeyFromContext(c)
+	if actor == nil || len(actor.AllowedIPs) == 0 {
+		return true
+	}
+	if !apiKeyIPPolicySubset(actor.AllowedIPs, allowedIPs) {
+		failKey(c, http.StatusForbidden, "api.error.api_key_ip_escalation")
+		return false
+	}
+	return true
+}
+
+// allowManageAPIKeyIP 防止受 IP 限制的密钥管理或轮换 IP 范围更宽的密钥。
+// 尤其是轮换会直接返回目标密钥的新令牌，必须阻止受限密钥借它绕过白名单。
+func (s *Server) allowManageAPIKeyIP(c *gin.Context, target *model.APIKey) bool {
+	if target == nil {
+		return true
+	}
+	actor := apiKeyFromContext(c)
+	if actor == nil || len(actor.AllowedIPs) == 0 {
+		return true
+	}
+	if !apiKeyIPPolicySubset(actor.AllowedIPs, target.AllowedIPs) {
+		failKey(c, http.StatusForbidden, "api.error.api_key_ip_target_forbidden")
+		return false
+	}
+	return true
+}
+
+// allowAPIKeyDNSAccountAssignment 防止受限密钥把 DNS 账户范围扩大到超出自身。
+// 空 actor 集合表示不限制；空 target 集合表示不限制，受限 actor 不能创建无限制密钥。
+func (s *Server) allowAPIKeyDNSAccountAssignment(c *gin.Context, ids []int64) bool {
+	actor := apiKeyFromContext(c)
+	if actor == nil || !actor.DNSAccountRestricted() {
+		return true
+	}
+	if len(ids) == 0 {
+		failKey(c, http.StatusForbidden, "api.error.api_key_dns_escalation")
+		return false
+	}
+	for _, id := range ids {
+		if !actor.AllowsDNSAccount(id) {
+			failKey(c, http.StatusForbidden, "api.error.api_key_dns_escalation")
+			return false
+		}
+	}
+	return true
+}
+
+// allowManageAPIKeyDNS 防止受限密钥管理、轮换或删除 DNS 范围更宽的密钥。
+func (s *Server) allowManageAPIKeyDNS(c *gin.Context, target *model.APIKey) bool {
+	if target == nil {
+		return true
+	}
+	actor := apiKeyFromContext(c)
+	if actor == nil || !actor.DNSAccountRestricted() {
+		return true
+	}
+	if !target.DNSAccountRestricted() {
+		failKey(c, http.StatusForbidden, "api.error.api_key_dns_target_forbidden")
+		return false
+	}
+	for _, id := range target.AllowedDNSAccountIDs {
+		if !actor.AllowsDNSAccount(id) {
+			failKey(c, http.StatusForbidden, "api.error.api_key_dns_target_forbidden")
+			return false
+		}
+	}
+	return true
+}
+
+// apiKeyIPPolicySubset 判断 target 白名单是否完全落在 actor 白名单内。
+// 空 actor 表示不限制，可以管理任意策略；空 target 表示不限制，不能被受限 actor 管理。
+func apiKeyIPPolicySubset(actor, target []string) bool {
+	if len(actor) == 0 {
+		return true
+	}
+	if len(target) == 0 {
+		return false
+	}
+	actorPrefixes := make([]netip.Prefix, 0, len(actor))
+	for _, rule := range actor {
+		if prefix, ok := apiKeyRulePrefix(rule); ok {
+			actorPrefixes = append(actorPrefixes, prefix)
+		}
+	}
+	if len(actorPrefixes) == 0 {
+		return false
+	}
+	for _, rule := range target {
+		targetPrefix, ok := apiKeyRulePrefix(rule)
+		if !ok {
+			return false
+		}
+		contained := false
+		for _, actorPrefix := range actorPrefixes {
+			if prefixContainsPrefix(actorPrefix, targetPrefix) {
+				contained = true
+				break
+			}
+		}
+		if !contained {
+			return false
+		}
+	}
+	return true
+}
+
+// prefixContainsPrefix 判断 outer 是否完整包含 inner；不同地址族不互相包含。
+func prefixContainsPrefix(outer, inner netip.Prefix) bool {
+	if outer.Addr().Is4() != inner.Addr().Is4() {
+		return false
+	}
+	return outer.Bits() <= inner.Bits() && outer.Masked().Contains(inner.Masked().Addr())
+}
+
+// apiKeyRulePrefix 把单 IP 或 CIDR 规则统一成可比较的前缀。
+func apiKeyRulePrefix(rule string) (netip.Prefix, bool) {
+	value := strings.TrimSpace(rule)
+	if value == "" {
+		return netip.Prefix{}, false
+	}
+	if strings.Contains(value, "/") {
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return netip.Prefix{}, false
+		}
+		prefix = prefix.Masked()
+		if prefix.Addr().Is4In6() {
+			if prefix.Bits() < 96 {
+				return netip.Prefix{}, false
+			}
+			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96).Masked()
+		}
+		return prefix, true
+	}
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return netip.Prefix{}, false
+	}
+	if addr.Zone() != "" {
+		return netip.Prefix{}, false
+	}
+	addr = addr.Unmap()
+	bits := 128
+	if addr.Is4() {
+		bits = 32
+	}
+	return netip.PrefixFrom(addr, bits), true
+}
+
+// normalizeAPIKeyAllowedIPs 校验并规范化管理接口提交的白名单。
+// 单个 IP 与 CIDR 都接受；空列表表示不限制，重复项会被去掉。
+func normalizeAPIKeyAllowedIPs(input []string) ([]string, error) {
+	out := make([]string, 0, len(input))
+	seen := map[string]bool{}
+	for _, raw := range input {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if len(value) > apiKeyMaxAllowedIPLen {
+			return nil, i18n.E("api.error.api_key_ip_invalid", "value", value)
+		}
+		var normalized string
+		if strings.Contains(value, "/") {
+			prefix, err := netip.ParsePrefix(value)
+			if err != nil {
+				return nil, i18n.E("api.error.api_key_ip_invalid", "value", value)
+			}
+			prefix = prefix.Masked()
+			if prefix.Addr().Is4In6() {
+				if prefix.Bits() < 96 {
+					return nil, i18n.E("api.error.api_key_ip_invalid", "value", value)
+				}
+				prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96).Masked()
+			}
+			// 明确拒绝“全放行”前缀，避免用户误以为配置了限制；需要不限制时留空列表。
+			if prefix.Bits() == 0 {
+				return nil, i18n.E("api.error.api_key_ip_all_disallowed")
+			}
+			normalized = prefix.String()
+		} else {
+			addr, err := netip.ParseAddr(value)
+			if err != nil || addr.Zone() != "" {
+				return nil, i18n.E("api.error.api_key_ip_invalid", "value", value)
+			}
+			normalized = addr.Unmap().String()
+		}
+		if len(normalized) > apiKeyMaxAllowedIPLen {
+			return nil, i18n.E("api.error.api_key_ip_invalid", "value", value)
+		}
+		if seen[normalized] {
+			continue
+		}
+		seen[normalized] = true
+		out = append(out, normalized)
+	}
+	if len(out) > apiKeyMaxAllowedIPs {
+		return nil, i18n.E("api.error.api_key_ip_limit", "max", apiKeyMaxAllowedIPs)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// apiKeyIPAllowed 判断客户端 IP 是否命中密钥白名单；空白名单表示不限制。
+func apiKeyIPAllowed(key *model.APIKey, addr netip.Addr) bool {
+	if key == nil || len(key.AllowedIPs) == 0 {
+		return true
+	}
+	if !addr.IsValid() {
+		return false
+	}
+	addr = addr.Unmap()
+	for _, rule := range key.AllowedIPs {
+		prefix, ok := apiKeyRulePrefix(rule)
+		if !ok {
+			continue
+		}
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseAPIKeyClientIP 兼容 host:port、纯 IPv6、[IPv6]:port 与带 zone 的地址。
+func parseAPIKeyClientIP(raw string) (netip.Addr, bool) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return netip.Addr{}, false
+	}
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	}
+	value = strings.Trim(value, "[]")
+	if index := strings.LastIndexByte(value, '%'); index >= 0 {
+		value = value[:index]
+	}
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return addr.Unmap(), true
+}
+
+// effectiveClientIP 返回用于界面展示的客户端 IP，解析失败时保留原始值。
+func (s *Server) effectiveClientIP(c *gin.Context) string {
+	raw := strings.TrimSpace(s.clientIP(c))
+	if addr, ok := parseAPIKeyClientIP(raw); ok {
+		return addr.String()
+	}
+	return raw
+}
+
+// logAPIKeyIPDenied 写入被拒绝的来源 IP 审计日志；同一密钥限频，避免日志洪水。
+func (s *Server) logAPIKeyIPDenied(c *gin.Context, key *model.APIKey, addr netip.Addr) {
+	if key == nil {
+		return
+	}
+	if allowed, _ := s.allow(ratelimit.APIKeyIPDenied, "apikey-ip-denied:"+strconv.FormatInt(key.ID, 10)); !allowed {
+		return
+	}
+	path := c.FullPath()
+	if path == "" {
+		path = s.logPath(c)
+	}
+	s.Store.AddLogKey("apikey", key.ID, "warning", "log.api_key.ip_denied", map[string]any{
+		"ip": addr.String(),
+	})
+	result := s.clientIPResult(c)
+	s.logger().Warn("API 密钥来源 IP 被拒绝",
+		"key_id", key.ID,
+		"ip", addr.String(),
+		"ip_source", string(result.Source),
+		"ip_skipped", result.Skipped,
+		"path", path,
+		"request_id", c.GetString(requestIDKey),
+	)
+}
+
 // ---------------------------- API 密钥管理接口 ----------------------------
 
 type apiKeyBody struct {
@@ -488,6 +804,10 @@ type apiKeyBody struct {
 	Scopes    []string `json:"scopes"`
 	Enabled   *bool    `json:"enabled"`
 	ExpiresAt string   `json:"expires_at"`
+	// AllowedIPs 使用指针区分“未提供”（保持原值）与“显式提交空数组”（取消限制）。
+	AllowedIPs *[]string `json:"allowed_ips"`
+	// AllowedDNSAccountIDs 同理：未提供时继承调用者策略或保持原值。
+	AllowedDNSAccountIDs *[]int64 `json:"allowed_dns_account_ids"`
 }
 
 func (s *Server) listAPIKeys(c *gin.Context) {
@@ -524,7 +844,36 @@ func (s *Server) apiKeyScopes(c *gin.Context) {
 			"sensitive":   def.Sensitive,
 		})
 	}
-	ok(c, gin.H{"scopes": list, "groups": groups})
+	result := s.clientIPResult(c)
+	peer := requestPeerIP(c.Request.RemoteAddr)
+	peerValue := ""
+	peerTrusted := false
+	if peer.IsValid() {
+		peerValue = peer.String()
+		peerTrusted = s.trustedProxies().Contains(peer)
+	}
+	xff := splitHeaderList(c.GetHeader("X-Forwarded-For"), 8, 64)
+	xRealIP := truncateHeader(c.GetHeader("X-Real-IP"), 64)
+	hasForwarded := len(xff) > 0 || xRealIP != "" ||
+		strings.TrimSpace(c.GetHeader("Forwarded")) != "" ||
+		strings.TrimSpace(c.GetHeader("CF-Connecting-IP")) != ""
+	warnings := result.Warnings
+	if warnings == nil {
+		warnings = []string{}
+	}
+	ok(c, gin.H{
+		"scopes":             list,
+		"groups":             groups,
+		"client_ip":          s.effectiveClientIP(c),
+		"client_ip_source":   string(result.Source),
+		"client_ip_warnings": warnings,
+		"peer_ip":            peerValue,
+		"peer_trusted":       peerTrusted,
+		"forwarded_for":      xff,
+		"x_real_ip":          xRealIP,
+		"forwarded_proto":    truncateHeader(c.GetHeader("X-Forwarded-Proto"), 32),
+		"has_forwarded":      hasForwarded,
+	})
 }
 
 func (s *Server) createAPIKey(c *gin.Context) {
@@ -551,6 +900,44 @@ func (s *Server) createAPIKey(c *gin.Context) {
 	if !s.allowAPIKeyScopeAssignment(c, scopes) {
 		return
 	}
+	// 未显式提供白名单时：浏览器会话默认不限制；API 密钥调用继承调用者策略，
+	// 避免受限密钥通过“创建新密钥”得到一个无 IP 限制的令牌。
+	rawAllowedIPs := []string{}
+	if body.AllowedIPs != nil {
+		rawAllowedIPs = *body.AllowedIPs
+	} else if actor := apiKeyFromContext(c); actor != nil {
+		rawAllowedIPs = actor.AllowedIPs
+	}
+	allowedIPs, err := normalizeAPIKeyAllowedIPs(rawAllowedIPs)
+	if err != nil {
+		failErr(c, http.StatusBadRequest, err)
+		return
+	}
+	if !s.allowAPIKeyIPAssignment(c, allowedIPs) {
+		return
+	}
+	// 未显式提供时：浏览器会话默认不限制；受限 API 密钥继承调用者集合，
+	// 避免受限密钥通过创建新密钥获得更大的 DNS 账户范围。
+	rawDNSAccounts := []int64{}
+	if body.AllowedDNSAccountIDs != nil {
+		rawDNSAccounts = *body.AllowedDNSAccountIDs
+	} else if actor := apiKeyFromContext(c); actor != nil {
+		rawDNSAccounts = actor.AllowedDNSAccountIDs
+	}
+	allowedDNSAccounts, err := normalizeAPIKeyDNSAccountIDs(rawDNSAccounts)
+	if err != nil {
+		failErr(c, http.StatusBadRequest, err)
+		return
+	}
+	if body.AllowedDNSAccountIDs != nil {
+		if err := s.validateAPIKeyDNSAccountIDs(allowedDNSAccounts); err != nil {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if !s.allowAPIKeyDNSAccountAssignment(c, allowedDNSAccounts) {
+		return
+	}
 	expires, err := parseAPIKeyExpiry(body.ExpiresAt, true)
 	if err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.api_key_expiry_invalid")
@@ -566,19 +953,25 @@ func (s *Server) createAPIKey(c *gin.Context) {
 		return
 	}
 	key := &model.APIKey{
-		UserID:    user.ID,
-		Name:      name,
-		Prefix:    apiKeyPrefixOf(token),
-		TokenHash: util.HashToken(token),
-		Scopes:    scopes,
-		Enabled:   enabled,
-		ExpiresAt: expires,
+		UserID:               user.ID,
+		Name:                 name,
+		Prefix:               apiKeyPrefixOf(token),
+		TokenHash:            util.HashToken(token),
+		Scopes:               scopes,
+		AllowedIPs:           allowedIPs,
+		AllowedDNSAccountIDs: allowedDNSAccounts,
+		Enabled:              enabled,
+		ExpiresAt:            expires,
 	}
 	if err := s.Store.CreateAPIKey(key); err != nil {
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}
 	s.Store.AddLogKey("apikey", key.ID, "info", "log.api_key.created", map[string]any{"name": key.Name})
+	s.notifySecurityEvent(c, user.ID, model.SecurityEventAPIKeyCreated, map[string]string{
+		"name":   key.Name,
+		"prefix": key.Prefix,
+	})
 	ok(c, gin.H{"api_key": key, "token": token})
 }
 
@@ -598,6 +991,12 @@ func (s *Server) updateAPIKey(c *gin.Context) {
 		return
 	}
 	if !s.allowManageAPIKey(c, current) {
+		return
+	}
+	if !s.allowManageAPIKeyIP(c, current) {
+		return
+	}
+	if !s.allowManageAPIKeyDNS(c, current) {
 		return
 	}
 	var body apiKeyBody
@@ -622,6 +1021,35 @@ func (s *Server) updateAPIKey(c *gin.Context) {
 	if !s.allowAPIKeyScopeAssignment(c, scopes) {
 		return
 	}
+	// 未提供 allowed_ips 时保留原值，显式空数组表示取消限制。
+	allowedIPs := current.AllowedIPs
+	if body.AllowedIPs != nil {
+		normalized, err := normalizeAPIKeyAllowedIPs(*body.AllowedIPs)
+		if err != nil {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+		if !s.allowAPIKeyIPAssignment(c, normalized) {
+			return
+		}
+		allowedIPs = normalized
+	}
+	allowedDNSAccounts := current.AllowedDNSAccountIDs
+	if body.AllowedDNSAccountIDs != nil {
+		normalized, err := normalizeAPIKeyDNSAccountIDs(*body.AllowedDNSAccountIDs)
+		if err != nil {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+		if err := s.validateAPIKeyDNSAccountIDs(normalized); err != nil {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+		if !s.allowAPIKeyDNSAccountAssignment(c, normalized) {
+			return
+		}
+		allowedDNSAccounts = normalized
+	}
 	expires, err := parseAPIKeyExpiry(body.ExpiresAt, false)
 	if err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.api_key_expiry_invalid")
@@ -629,6 +1057,8 @@ func (s *Server) updateAPIKey(c *gin.Context) {
 	}
 	current.Name = name
 	current.Scopes = scopes
+	current.AllowedIPs = allowedIPs
+	current.AllowedDNSAccountIDs = allowedDNSAccounts
 	current.ExpiresAt = expires
 	if body.Enabled != nil {
 		current.Enabled = *body.Enabled
@@ -642,6 +1072,10 @@ func (s *Server) updateAPIKey(c *gin.Context) {
 		return
 	}
 	s.Store.AddLogKey("apikey", current.ID, "info", "log.api_key.updated", map[string]any{"name": current.Name})
+	s.notifySecurityEvent(c, user.ID, model.SecurityEventAPIKeyUpdated, map[string]string{
+		"name":   current.Name,
+		"prefix": current.Prefix,
+	})
 	ok(c, current)
 }
 
@@ -663,6 +1097,12 @@ func (s *Server) deleteAPIKey(c *gin.Context) {
 	if !s.allowManageAPIKey(c, target) {
 		return
 	}
+	if !s.allowManageAPIKeyIP(c, target) {
+		return
+	}
+	if !s.allowManageAPIKeyDNS(c, target) {
+		return
+	}
 	found, err := s.Store.DeleteAPIKey(user.ID, id)
 	if err != nil {
 		failErr(c, http.StatusInternalServerError, err)
@@ -673,6 +1113,10 @@ func (s *Server) deleteAPIKey(c *gin.Context) {
 		return
 	}
 	s.Store.AddLogKey("apikey", id, "warning", "log.api_key.deleted", nil)
+	s.notifySecurityEvent(c, user.ID, model.SecurityEventAPIKeyDeleted, map[string]string{
+		"name":   target.Name,
+		"prefix": target.Prefix,
+	})
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.deleted", nil)})
 }
 
@@ -694,6 +1138,12 @@ func (s *Server) rotateAPIKey(c *gin.Context) {
 	if !s.allowManageAPIKey(c, key) {
 		return
 	}
+	if !s.allowManageAPIKeyIP(c, key) {
+		return
+	}
+	if !s.allowManageAPIKeyDNS(c, key) {
+		return
+	}
 	token, err := newAPIKeyToken()
 	if err != nil {
 		failErr(c, http.StatusInternalServerError, err)
@@ -710,6 +1160,10 @@ func (s *Server) rotateAPIKey(c *gin.Context) {
 	key.Prefix = apiKeyPrefixOf(token)
 	key.UpdatedAt = time.Now().UTC()
 	s.Store.AddLogKey("apikey", key.ID, "warning", "log.api_key.rotated", map[string]any{"name": key.Name})
+	s.notifySecurityEvent(c, user.ID, model.SecurityEventAPIKeyRotated, map[string]string{
+		"name":   key.Name,
+		"prefix": key.Prefix,
+	})
 	ok(c, gin.H{"api_key": key, "token": token})
 }
 
@@ -735,6 +1189,37 @@ func validateAPIKeyName(name string) error {
 	}
 	if len([]rune(name)) > 64 {
 		return i18n.E("api.error.api_key_name_too_long")
+	}
+	return nil
+}
+
+// normalizeAPIKeyDNSAccountIDs 去重、排序并限制 DNS 账户集合规模。
+func normalizeAPIKeyDNSAccountIDs(input []int64) ([]int64, error) {
+	seen := make(map[int64]bool, len(input))
+	out := make([]int64, 0, len(input))
+	for _, id := range input {
+		if id <= 0 {
+			return nil, i18n.E("api.error.api_key_dns_account_invalid", "id", id)
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	if len(out) > apiKeyMaxAllowedDNSAccounts {
+		return nil, i18n.E("api.error.api_key_dns_account_too_many", "max", apiKeyMaxAllowedDNSAccounts)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out, nil
+}
+
+// validateAPIKeyDNSAccountIDs 在保存时确认账户存在，尽早发现拼写或过期 ID。
+func (s *Server) validateAPIKeyDNSAccountIDs(ids []int64) error {
+	for _, id := range ids {
+		if _, err := s.Store.GetDNSAccount(id); err != nil {
+			return i18n.E("api.error.api_key_dns_account_invalid", "id", id)
+		}
 	}
 	return nil
 }

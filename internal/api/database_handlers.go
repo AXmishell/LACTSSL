@@ -103,12 +103,12 @@ func (s *Server) targetRequest(c *gin.Context) (dbconvert.StartRequest, bool) {
 		path = abs
 	}
 	dsn := strings.TrimSpace(body.TargetDSN)
-	if driver == db.Postgres {
+	if driver != db.SQLite {
 		if dsn == "" {
 			failKey(c, http.StatusBadRequest, "api.error.db_convert_dsn_required")
 			return dbconvert.StartRequest{}, false
 		}
-		if err := validateDatabaseTargetDSN(c.Request.Context(), dsn); err != nil {
+		if err := validateDatabaseTargetDSN(c.Request.Context(), driver, dsn); err != nil {
 			failErr(c, http.StatusBadRequest, err)
 			return dbconvert.StartRequest{}, false
 		}
@@ -124,7 +124,7 @@ func (s *Server) targetRequest(c *gin.Context) (dbconvert.StartRequest, bool) {
 
 // databaseTargetRateLimit 限制数据库连通性测试频率，避免被当作高速端口扫描器。
 func (s *Server) databaseTargetRateLimit(c *gin.Context) bool {
-	key := "db-target:" + clientRateKey(c)
+	key := "db-target:" + s.clientRateKey(c)
 	if apiKeyFromContext(c) != nil {
 		key = "db-target:" + currentSessionID(c)
 	}
@@ -137,13 +137,25 @@ func (s *Server) databaseTargetRateLimit(c *gin.Context) bool {
 
 // validateDatabaseTargetDSN 拒绝云元数据/链路本地等不应作为数据库目标的主机，
 // 防止把“数据库连通性测试”变成元数据服务探测器。私网/回环仍允许用于真实迁移。
-func validateDatabaseTargetDSN(ctx context.Context, dsn string) error {
-	parsed, err := url.Parse(strings.TrimSpace(dsn))
-	if err != nil || parsed.Hostname() == "" {
-		// 关键字式 DSN（host=...）交给 pgx 解析；这里只处理 URL 形式。
+func validateDatabaseTargetDSN(ctx context.Context, driver db.Dialect, dsn string) error {
+	host := ""
+	if driver.IsMySQL() {
+		address, ok := db.MySQLAddress(dsn)
+		if !ok {
+			return nil
+		}
+		host, _, _ = net.SplitHostPort(address)
+	} else {
+		parsed, err := url.Parse(strings.TrimSpace(dsn))
+		if err != nil || parsed.Hostname() == "" {
+			// 关键字式 DSN（host=...）交给 pgx 解析；这里只处理 URL 形式。
+			return nil
+		}
+		host = parsed.Hostname()
+	}
+	if host == "" {
 		return nil
 	}
-	host := parsed.Hostname()
 	if ip := net.ParseIP(host); ip != nil {
 		if blockedDatabaseTargetIP(ip) {
 			return i18n.E("api.error.db_convert_target_blocked", "host", host)
@@ -279,7 +291,7 @@ func (s *Server) startDatabaseConvert(c *gin.Context) {
 		}
 		req.TargetPath = abs
 	}
-	if driver == db.Postgres && req.TargetDSN == "" {
+	if driver != db.SQLite && req.TargetDSN == "" {
 		failKey(c, http.StatusBadRequest, "api.error.db_convert_dsn_required")
 		return
 	}

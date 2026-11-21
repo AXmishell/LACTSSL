@@ -2,6 +2,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -21,7 +22,15 @@ import (
 //   - 11：目标流程 Beta（tasks.flow_mode / tasks.target_flow）。
 //   - 12：目标流程多证书关联（task_certificate_links）。
 //   - 13：监控项内网目标授权（monitors.allow_internal）。
-const schemaVersion = 13
+//   - 14：API 密钥来源 IP/CIDR 白名单（api_keys.allowed_ips）。
+//   - 15：DNS 账户的声明式域名绑定（dns_zone_bindings）与 CSR 解析来源。
+//   - 16：API 密钥最近使用来源 IP（api_keys.last_used_ip）。
+//   - 17：API 密钥允许使用的 DNS 账户集合（api_keys.allowed_dns_account_ids）。
+//   - 18：安全通知事件与投递队列（security_events）。
+//   - 19：多 DNS 账户按域名路由（tasks.dns_routes / certificate_requests.dns_routes）。
+//   - 20：安全事件保存旧 SMTP 配置快照（security_events.smtp_snapshot）。
+//   - 21：任务可选择不保存证书私钥（tasks.no_key_storage）。
+const schemaVersion = 21
 
 func migrate(conn *Handle) error {
 	version, err := conn.SchemaVersion()
@@ -32,13 +41,35 @@ func migrate(conn *Handle) error {
 		return nil
 	}
 
-	// PostgreSQL 需要先创建版本元数据表；SQLite 使用 PRAGMA user_version。
-	if conn.Dialect().IsPostgres() {
-		if _, err := conn.Exec(`CREATE TABLE IF NOT EXISTS schema_meta (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		)`); err != nil {
+	// PostgreSQL/MySQL 需要先创建版本元数据表；SQLite 使用 PRAGMA user_version。
+	if conn.Dialect().IsPostgres() || conn.Dialect().IsMySQL() {
+		if err := conn.ensureSchemaMeta(); err != nil {
 			return fmt.Errorf("初始化结构版本表失败: %w", err)
+		}
+	}
+
+	// 旧版本的在途 CSR 唯一索引只包含 (csr_sha256, ca, api_key_id)，
+	// 加入 DNS 账户维度后必须重建，否则同 CSR 换账户会被旧索引拦截。
+	// MySQL 不支持 DROP INDEX IF EXISTS；生成列唯一索引由 ensureMySQLActiveIndex 幂等维护。
+	if !conn.Dialect().IsMySQL() {
+		if _, err := conn.Exec(`DROP INDEX IF EXISTS idx_cert_request_active_hash`); err != nil {
+			return fmt.Errorf("重建 CSR 唯一索引失败: %w", err)
+		}
+	}
+
+	// 新唯一索引引用 dns_routes_hash；旧库必须先补列，否则建索引会失败。
+	// 全新数据库还没有表，跳过这里，由下方建表语句直接包含新列。
+	if tableHasColumn(conn, "certificate_requests", "dns_account_id") {
+		if err := ensureColumn(conn, "certificate_requests", "dns_routes", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
+			return fmt.Errorf("升级数据库结构失败: %w", err)
+		}
+		if err := ensureColumn(conn, "certificate_requests", "dns_routes_hash", `TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("升级数据库结构失败: %w", err)
+		}
+	}
+	if tableHasColumn(conn, "tasks", "dns_account_id") {
+		if err := ensureColumn(conn, "tasks", "dns_routes", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
+			return fmt.Errorf("升级数据库结构失败: %w", err)
 		}
 	}
 
@@ -46,11 +77,33 @@ func migrate(conn *Handle) error {
 
 	for _, stmt := range stmts {
 		if _, err := conn.Exec(stmt); err != nil {
+			// MySQL 的 CREATE INDEX 不支持 IF NOT EXISTS；迁移中断后重跑时
+			// 已存在的索引可以安全跳过。
+			upper := strings.ToUpper(strings.TrimSpace(stmt))
+			if conn.Dialect().IsMySQL() && isMySQLDuplicateIndexError(err) &&
+				(strings.HasPrefix(upper, "CREATE INDEX") || strings.HasPrefix(upper, "CREATE UNIQUE INDEX")) {
+				continue
+			}
 			return fmt.Errorf("初始化数据库表失败: %w", err)
+		}
+	}
+	if conn.Dialect().IsMySQL() {
+		if err := ensureMySQLActiveIndex(context.Background(), conn); err != nil {
+			return err
 		}
 	}
 	// 兼容旧数据库：为已有 tasks 表补充任务流程字段。
 	if err := ensureColumn(conn, "tasks", "pipeline", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	// 兼容旧数据库：API 密钥的来源 IP/CIDR 白名单与最近使用 IP。
+	if err := ensureColumn(conn, "api_keys", "allowed_ips", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	if err := ensureColumn(conn, "api_keys", "last_used_ip", `TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	if err := ensureColumn(conn, "api_keys", "allowed_dns_account_ids", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
 	// 兼容旧数据库：DNS 账户与目标凭据的可用性验证结果。
@@ -93,7 +146,7 @@ func migrate(conn *Handle) error {
 		`CREATE INDEX IF NOT EXISTS idx_logs_category_id ON logs(category, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_logs_ref ON logs(ref_type, ref_id, created_at)`,
 	} {
-		if _, err := conn.Exec(stmt); err != nil {
+		if err := execIndex(conn, stmt); err != nil {
 			return fmt.Errorf("创建日志索引失败: %w", err)
 		}
 	}
@@ -116,12 +169,15 @@ func migrate(conn *Handle) error {
 	if err := ensureColumn(conn, "tasks", "target_flow", `TEXT NOT NULL DEFAULT '{}'`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
+	if err := ensureColumn(conn, "tasks", "no_key_storage", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
 	// 兼容旧监控表：记录调用方是否有权监控内网/回环目标。历史数据默认 0，
 	// 由管理员重新保存后再开启内网拨号，避免升级后立即放开内网探测。
 	if err := ensureColumn(conn, "monitors", "allow_internal", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
-	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_ca_pool ON tasks(ca_pool_id)`); err != nil {
+	if err := execIndex(conn, `CREATE INDEX IF NOT EXISTS idx_tasks_ca_pool ON tasks(ca_pool_id)`); err != nil {
 		return fmt.Errorf("创建任务 CA 调度组索引失败: %w", err)
 	}
 	// 兼容旧 ACME 端点表：补充 TLS-ALPN-01 配置。
@@ -167,10 +223,26 @@ func migrate(conn *Handle) error {
 			return fmt.Errorf("升级数据库结构失败: %w", err)
 		}
 	}
-	if _, err := conn.Exec(`CREATE INDEX IF NOT EXISTS idx_cert_csr_request ON certificates(csr_request_id)`); err != nil {
+	if err := execIndex(conn, `CREATE INDEX IF NOT EXISTS idx_cert_csr_request ON certificates(csr_request_id)`); err != nil {
 		return fmt.Errorf("创建证书申请索引失败: %w", err)
 	}
 	if err := ensureColumn(conn, "private_cas", "crl_number", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	// 兼容旧 CSR 申请表：记录 DNS 账户是显式指定还是按 zone 绑定解析。
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{"resolved_by", `TEXT NOT NULL DEFAULT ''`},
+		{"resolved_zone", `TEXT NOT NULL DEFAULT ''`},
+	} {
+		if err := ensureColumn(conn, "certificate_requests", column.name, column.definition); err != nil {
+			return fmt.Errorf("升级数据库结构失败: %w", err)
+		}
+	}
+	// 兼容旧库：通知目标变更事件需要保存旧 SMTP 配置快照（密文）。
+	if err := ensureColumn(conn, "security_events", "smtp_snapshot", `TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
 	// 把旧版本中已吊销的证书回填到独立吊销表，后续删除证书不会丢失吊销状态。
@@ -200,17 +272,35 @@ func (h *Handle) Migrate() error { return migrate(h) }
 // CurrentSchemaVersion 返回当前程序的基础表结构版本。
 func CurrentSchemaVersion() int { return schemaVersion }
 
+// ensureSchemaMeta 创建非 SQLite 后端的结构版本表。
+func (h *Handle) ensureSchemaMeta() error {
+	if h.Dialect().IsMySQL() {
+		_, err := h.DB.Exec("CREATE TABLE IF NOT EXISTS schema_meta (`key` VARCHAR(64) PRIMARY KEY, `value` LONGTEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")
+		return err
+	}
+	_, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS schema_meta (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`)
+	return err
+}
+
 // SchemaVersion 读取基础表结构版本。
 func (h *Handle) SchemaVersion() (int, error) {
-	if h.Dialect().IsPostgres() {
-		if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS schema_meta (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		)`); err != nil {
+	if h.Dialect().IsPostgres() || h.Dialect().IsMySQL() {
+		if err := h.ensureSchemaMeta(); err != nil {
 			return 0, err
 		}
-		var value string
-		err := h.DB.QueryRow(`SELECT value FROM schema_meta WHERE key='schema.version'`).Scan(&value)
+		var (
+			value string
+			query string
+		)
+		if h.Dialect().IsMySQL() {
+			query = "SELECT `value` FROM schema_meta WHERE `key`='schema.version'"
+		} else {
+			query = `SELECT value FROM schema_meta WHERE key='schema.version'`
+		}
+		err := h.DB.QueryRow(query).Scan(&value)
 		if err == sql.ErrNoRows {
 			return 0, nil
 		}
@@ -228,6 +318,10 @@ func (h *Handle) SchemaVersion() (int, error) {
 
 // SetSchemaVersion 写入基础表结构版本。
 func (h *Handle) SetSchemaVersion(version int) error {
+	if h.Dialect().IsMySQL() {
+		_, err := h.Exec("INSERT INTO schema_meta(`key`,`value`) VALUES('schema.version',?) ON DUPLICATE KEY UPDATE `value`=VALUES(`value`)", fmt.Sprintf("%d", version))
+		return err
+	}
 	if h.Dialect().IsPostgres() {
 		_, err := h.Exec(`INSERT INTO schema_meta(key,value) VALUES('schema.version',?)
 			ON CONFLICT(key) DO UPDATE SET value=excluded.value`, fmt.Sprintf("%d", version))
@@ -244,6 +338,12 @@ func tableHasColumn(conn *Handle, table, column string) bool {
 }
 
 func hasColumn(conn *Handle, table, column string) (bool, error) {
+	if conn.Dialect().IsMySQL() {
+		var count int64
+		err := conn.QueryRow(`SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema=DATABASE() AND table_name=? AND column_name=?`, table, column).Scan(&count)
+		return count > 0, err
+	}
 	if conn.Dialect().IsPostgres() {
 		var exists bool
 		err := conn.QueryRow(`SELECT EXISTS (
@@ -291,9 +391,35 @@ func ensureColumn(conn *Handle, table, column, definition string) error {
 			definition = strings.Replace(definition, "INTEGER", "BIGINT", 1)
 		}
 	}
+	if conn.Dialect().IsMySQL() {
+		definition = datetimePattern.ReplaceAllString(definition, "DATETIME(6)")
+		definition = strings.ReplaceAll(definition, "INTEGER", "BIGINT")
+		if strings.Contains(strings.ToUpper(definition), "TEXT") {
+			if replacement, ok := mysqlTextOverrides[table+"."+column]; ok {
+				definition = mysqlTextTypePattern.ReplaceAllString(definition, replacement)
+			} else if strings.Contains(strings.ToUpper(definition), "DEFAULT") {
+				// 迁移新增列使用带默认值的 VARCHAR，避免 MySQL 5.7 拒绝 TEXT DEFAULT。
+				definition = mysqlTextTypePattern.ReplaceAllString(definition, "VARCHAR(2048)")
+			} else {
+				definition = mysqlTextTypePattern.ReplaceAllString(definition, "LONGTEXT")
+			}
+		}
+	}
 	_, err = conn.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
 	if err != nil {
 		return fmt.Errorf("为 %s 添加列 %s 失败: %w", table, column, err)
 	}
 	return nil
+}
+
+// execIndex 执行建索引语句。MySQL 不支持 IF NOT EXISTS，迁移重跑时忽略重复索引错误。
+func execIndex(conn *Handle, stmt string) error {
+	if conn.Dialect().IsMySQL() {
+		stmt = strings.Replace(stmt, "IF NOT EXISTS ", "", 1)
+	}
+	_, err := conn.Exec(stmt)
+	if err != nil && conn.Dialect().IsMySQL() && isMySQLDuplicateIndexError(err) {
+		return nil
+	}
+	return err
 }

@@ -7,20 +7,21 @@ import (
 	"strings"
 	"time"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 	"lactssl/internal/model"
 )
 
-const csrRequestColumns = `id,public_id,csr_pem,csr_sha256,identifiers,primary_domain,ca,challenge,dns_account_id,status,error_code,error_message,retryable,attempts,certificate_id,upstream_order_id,idempotency_key,user_id,api_key_id,created_at,updated_at,expires_at,completed_at`
+const csrRequestColumns = `id,public_id,csr_pem,csr_sha256,identifiers,primary_domain,ca,challenge,dns_account_id,dns_routes,dns_routes_hash,resolved_by,resolved_zone,status,error_code,error_message,retryable,attempts,certificate_id,upstream_order_id,idempotency_key,user_id,api_key_id,created_at,updated_at,expires_at,completed_at`
 
 func scanCSRRequest(row interface{ Scan(...any) error }) (*model.CSRRequest, error) {
 	var r model.CSRRequest
-	var identifiers string
+	var identifiers, dnsRoutes string
 	var retryable int
 	var expiresAt, completedAt sql.NullTime
 	if err := row.Scan(
 		&r.ID, &r.PublicID, &r.CSRPEM, &r.CSRHash, &identifiers, &r.PrimaryDomain,
-		&r.CA, &r.Challenge, &r.DNSAccountID, &r.Status, &r.ErrorCode, &r.ErrorMessage,
+		&r.CA, &r.Challenge, &r.DNSAccountID, &dnsRoutes, &r.DNSRoutesHash, &r.ResolvedBy, &r.ResolvedZone, &r.Status, &r.ErrorCode, &r.ErrorMessage,
 		&retryable, &r.Attempts, &r.CertificateID, &r.UpstreamOrderID, &r.IdempotencyKey,
 		&r.UserID, &r.APIKeyID, &r.CreatedAt, &r.UpdatedAt, &expiresAt, &completedAt,
 	); err != nil {
@@ -34,8 +35,12 @@ func scanCSRRequest(row interface{ Scan(...any) error }) (*model.CSRRequest, err
 		r.CompletedAt = &completedAt.Time
 	}
 	_ = json.Unmarshal([]byte(identifiers), &r.Identifiers)
+	_ = json.Unmarshal([]byte(dnsRoutes), &r.DNSRoutes)
 	if r.Identifiers == nil {
 		r.Identifiers = []string{}
+	}
+	if r.DNSRoutes == nil {
+		r.DNSRoutes = []model.DNSRoute{}
 	}
 	return &r, nil
 }
@@ -46,10 +51,15 @@ func (s *Store) CreateCSRRequest(r *model.CSRRequest) error {
 	if err != nil {
 		return err
 	}
+	dnsRoutes, err := json.Marshal(r.DNSRoutes)
+	if err != nil {
+		return err
+	}
 	now := nowUTC()
-	id, err := s.DB.InsertID(`INSERT INTO certificate_requests(public_id,csr_pem,csr_sha256,identifiers,primary_domain,ca,challenge,dns_account_id,status,error_code,error_message,retryable,attempts,certificate_id,upstream_order_id,idempotency_key,user_id,api_key_id,created_at,updated_at,expires_at,completed_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		r.PublicID, r.CSRPEM, r.CSRHash, string(identifiers), r.PrimaryDomain, r.CA, r.Challenge, r.DNSAccountID,
+	id, err := s.DB.InsertID(`INSERT INTO certificate_requests(public_id,csr_pem,csr_sha256,identifiers,primary_domain,ca,challenge,dns_account_id,dns_routes,dns_routes_hash,resolved_by,resolved_zone,status,error_code,error_message,retryable,attempts,certificate_id,upstream_order_id,idempotency_key,user_id,api_key_id,created_at,updated_at,expires_at,completed_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		r.PublicID, r.CSRPEM, r.CSRHash, string(identifiers), r.PrimaryDomain, r.CA, r.Challenge,
+		r.DNSAccountID, string(dnsRoutes), r.DNSRoutesHash, r.ResolvedBy, r.ResolvedZone,
 		r.Status, r.ErrorCode, r.ErrorMessage, boolInt(r.Retryable), r.Attempts, r.CertificateID,
 		r.UpstreamOrderID, r.IdempotencyKey, r.UserID, r.APIKeyID, now, now, r.ExpiresAt, r.CompletedAt)
 	if err != nil {
@@ -78,11 +88,13 @@ func (s *Store) GetCSRRequestByIdempotency(apiKeyID int64, key string) (*model.C
 	return scanCSRRequest(row)
 }
 
-// GetActiveCSRRequestByHash 查询同一调用方、CSR 与 CA 下仍在途的申请。
-// 已签发记录不参与去重，允许客户端使用同一公钥在证书到期前重新申请续期。
-func (s *Store) GetActiveCSRRequestByHash(hash, ca string, apiKeyID int64) (*model.CSRRequest, error) {
+// GetActiveCSRRequestByHash 查询同一调用方、CSR、CA 与 DNS 路由下仍在途的申请。
+// 已签发记录不参与去重，允许客户端使用同一公钥在证书到期前重新申请续期；
+// DNS 路由摘要也参与去重，避免同一证书换账户后被错误复用。
+func (s *Store) GetActiveCSRRequestByHash(hash, ca string, apiKeyID, dnsAccountID int64, dnsRoutesHash string) (*model.CSRRequest, error) {
 	row := s.DB.QueryRow(`SELECT `+csrRequestColumns+` FROM certificate_requests
-		WHERE csr_sha256=? AND ca=? AND api_key_id=? AND status IN ('pending','running') ORDER BY id DESC LIMIT 1`, hash, ca, apiKeyID)
+		WHERE csr_sha256=? AND ca=? AND api_key_id=? AND dns_account_id=? AND dns_routes_hash=? AND status IN ('pending','running') ORDER BY id DESC LIMIT 1`,
+		hash, ca, apiKeyID, dnsAccountID, dnsRoutesHash)
 	return scanCSRRequest(row)
 }
 
@@ -220,10 +232,36 @@ func (s *Store) CountActiveCSRRequestsForCA(ca string) (int64, error) {
 }
 
 // CountActiveCSRRequestsForDNSAccount 统计引用指定 DNS 账户的在途申请。
+// 多账户 CSR 的主账户字段可能不是被删除的账户，因此需要同时检查路由快照。
 func (s *Store) CountActiveCSRRequestsForDNSAccount(id int64) (int64, error) {
+	rows, err := s.DB.Query(`SELECT dns_account_id,dns_routes FROM certificate_requests WHERE status IN ('pending','running')`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
 	var count int64
-	err := s.DB.QueryRow(`SELECT COUNT(*) FROM certificate_requests WHERE dns_account_id=? AND status IN ('pending','running')`, id).Scan(&count)
-	return count, err
+	for rows.Next() {
+		var primary int64
+		var routesJSON string
+		if err := rows.Scan(&primary, &routesJSON); err != nil {
+			return 0, err
+		}
+		if primary == id {
+			count++
+			continue
+		}
+		var routes []model.DNSRoute
+		if err := json.Unmarshal([]byte(routesJSON), &routes); err != nil {
+			continue
+		}
+		for _, route := range routes {
+			if route.DNSAccountID == id {
+				count++
+				break
+			}
+		}
+	}
+	return count, rows.Err()
 }
 
 // CleanupCSRRequests 删除超过保留期的终态申请记录。
@@ -244,6 +282,11 @@ func CSRRequestExists(err error) bool {
 	if errors.As(err, &pgErr) {
 		return pgErr.Code == "23505"
 	}
+	var mysqlErr *mysqldriver.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1062
+	}
 	text := strings.ToLower(err.Error())
-	return strings.Contains(text, "unique constraint") || strings.Contains(text, "duplicate key")
+	return strings.Contains(text, "unique constraint") || strings.Contains(text, "duplicate key") ||
+		strings.Contains(text, "duplicate entry") || strings.Contains(text, "error 1062")
 }

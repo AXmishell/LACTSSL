@@ -90,6 +90,7 @@ type Metadata struct {
 type Client struct {
 	URL           string
 	Channel       string
+	Proxy         string
 	PublicKey     ed25519.PublicKey
 	Timeout       time.Duration
 	MaxDownloadMB int
@@ -117,6 +118,13 @@ func PublicKeyFingerprint(key ed25519.PublicKey) string {
 
 // NewClient 创建仓库客户端。publicKey 为空表示不校验索引签名。
 func NewClient(rawURL, channel, publicKey string, timeout time.Duration, maxDownloadMB int) (*Client, error) {
+	return NewClientWithProxy(rawURL, channel, publicKey, timeout, maxDownloadMB, "")
+}
+
+// NewClientWithProxy 创建带显式下载代理的仓库客户端。
+// proxy 为空时沿用 HTTP(S)_PROXY/ALL_PROXY 环境变量；非空时支持
+// http、https、socks5 与 socks5h，且不再应用 NO_PROXY。
+func NewClientWithProxy(rawURL, channel, publicKey string, timeout time.Duration, maxDownloadMB int, proxy string) (*Client, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
 		return nil, errors.New("插件仓库地址为空")
@@ -127,12 +135,18 @@ func NewClient(rawURL, channel, publicKey string, timeout time.Duration, maxDown
 	if maxDownloadMB <= 0 {
 		maxDownloadMB = 256
 	}
+	proxy = strings.TrimSpace(proxy)
+	httpClient, err := outbound.NewClientWithProxy(timeout, false, proxy)
+	if err != nil {
+		return nil, err
+	}
 	client := &Client{
 		URL:           rawURL,
 		Channel:       channel,
+		Proxy:         proxy,
 		Timeout:       timeout,
 		MaxDownloadMB: maxDownloadMB,
-		HTTP:          outbound.NewClient(timeout, false),
+		HTTP:          httpClient,
 	}
 	if strings.TrimSpace(publicKey) != "" {
 		key, err := ParsePublicKey(publicKey)

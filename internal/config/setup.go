@@ -36,9 +36,11 @@ type SetupConfig struct {
 }
 
 type SetupServerConfig struct {
-	Addr string `json:"addr"`
-	Host string `json:"host"`
-	Port int    `json:"port"`
+	Addr          string `json:"addr"`
+	Host          string `json:"host"`
+	Port          int    `json:"port"`
+	ClientIPMode  string `json:"client_ip_mode"`
+	ProxyProtocol bool   `json:"proxy_protocol"`
 }
 
 type SetupACMEConfig struct {
@@ -61,8 +63,9 @@ type SetupMTLSConfig struct {
 
 // SetupRateLimitConfig 是限流阈值的完整生效值（默认值 + 配置文件覆盖）。
 type SetupRateLimitConfig struct {
-	MaxKeys int                           `json:"max_keys"`
-	Rules   map[string]SetupRateLimitRule `json:"rules"`
+	MaxKeys  int                           `json:"max_keys"`
+	Rules    map[string]SetupRateLimitRule `json:"rules"`
+	Defaults map[string]SetupRateLimitRule `json:"defaults"`
 }
 
 // SetupRateLimitRule 是单条限流规则的生效值。
@@ -72,15 +75,16 @@ type SetupRateLimitRule struct {
 }
 
 type SetupLogConfig struct {
-	Level      string               `json:"level"`
-	Format     string               `json:"format"`
-	AlsoStdout bool                 `json:"also_stdout"`
-	MaxSizeMB  int                  `json:"max_size_mb"`
-	MaxBackups int                  `json:"max_backups"`
-	MaxAgeDays int                  `json:"max_age_days"`
-	Compress   bool                 `json:"compress"`
-	AccessLog  bool                 `json:"access_log"`
-	System     SetupLogSystemConfig `json:"system"`
+	Level      string                `json:"level"`
+	Format     string                `json:"format"`
+	AlsoStdout bool                  `json:"also_stdout"`
+	MaxSizeMB  int                   `json:"max_size_mb"`
+	MaxBackups int                   `json:"max_backups"`
+	MaxAgeDays int                   `json:"max_age_days"`
+	Compress   bool                  `json:"compress"`
+	AccessLog  bool                  `json:"access_log"`
+	System     SetupLogSystemConfig  `json:"system"`
+	Archive    SetupLogArchiveConfig `json:"archive"`
 }
 
 type SetupLogSystemConfig struct {
@@ -89,6 +93,15 @@ type SetupLogSystemConfig struct {
 	Access        bool   `json:"access"`
 	RetentionDays int    `json:"retention_days"`
 	MaxRows       int    `json:"max_rows"`
+}
+
+// SetupLogArchiveConfig 是日志归档的生效配置。目录路径仍由服务器上的 config.yaml 管理。
+type SetupLogArchiveConfig struct {
+	Enabled       bool   `json:"enabled"`
+	Compress      bool   `json:"compress"`
+	RetentionDays int    `json:"retention_days"`
+	MaxTotalMB    int    `json:"max_total_mb"`
+	QuotaPolicy   string `json:"quota_policy"`
 }
 
 type SetupUpgradeConfig struct {
@@ -119,6 +132,7 @@ type SetupPluginRepoConfig struct {
 	URL                string `json:"url"`
 	Channel            string `json:"channel"`
 	AutoUpdate         bool   `json:"auto_update"`
+	Proxy              string `json:"proxy"`
 	TimeoutSeconds     int    `json:"timeout_seconds"`
 	MaxDownloadMB      int    `json:"max_download_mb"`
 	CheckIntervalHours int    `json:"check_interval_hours"`
@@ -145,12 +159,17 @@ type SetupConfigPatch struct {
 	Plugins            *SetupPluginsPatch       `json:"plugins"`
 	DeployPlugins      *SetupPluginRuntimePatch `json:"deploy_plugins"`
 	NotifyPlugins      *SetupPluginRuntimePatch `json:"notify_plugins"`
+	// Reset 是要从 config.yaml 删除、恢复内置默认值的配置路径。
+	// 目前支持 security.rate_limit.rules.<name>、security.rate_limit.rules 与 log.archive。
+	Reset []string `json:"reset"`
 }
 
 type SetupServerPatch struct {
-	Addr *string `json:"addr"`
-	Host *string `json:"host"`
-	Port *int    `json:"port"`
+	Addr          *string `json:"addr"`
+	Host          *string `json:"host"`
+	Port          *int    `json:"port"`
+	ClientIPMode  *string `json:"client_ip_mode"`
+	ProxyProtocol *bool   `json:"proxy_protocol"`
 }
 
 type SetupACMEPatch struct {
@@ -184,15 +203,16 @@ type SetupRateLimitRulePatch struct {
 }
 
 type SetupLogPatch struct {
-	Level      *string              `json:"level"`
-	Format     *string              `json:"format"`
-	AlsoStdout *bool                `json:"also_stdout"`
-	MaxSizeMB  *int                 `json:"max_size_mb"`
-	MaxBackups *int                 `json:"max_backups"`
-	MaxAgeDays *int                 `json:"max_age_days"`
-	Compress   *bool                `json:"compress"`
-	AccessLog  *bool                `json:"access_log"`
-	System     *SetupLogSystemPatch `json:"system"`
+	Level      *string               `json:"level"`
+	Format     *string               `json:"format"`
+	AlsoStdout *bool                 `json:"also_stdout"`
+	MaxSizeMB  *int                  `json:"max_size_mb"`
+	MaxBackups *int                  `json:"max_backups"`
+	MaxAgeDays *int                  `json:"max_age_days"`
+	Compress   *bool                 `json:"compress"`
+	AccessLog  *bool                 `json:"access_log"`
+	System     *SetupLogSystemPatch  `json:"system"`
+	Archive    *SetupLogArchivePatch `json:"archive"`
 }
 
 type SetupLogSystemPatch struct {
@@ -201,6 +221,15 @@ type SetupLogSystemPatch struct {
 	Access        *bool   `json:"access"`
 	RetentionDays *int    `json:"retention_days"`
 	MaxRows       *int    `json:"max_rows"`
+}
+
+// SetupLogArchivePatch 只写入显式提交的归档字段。
+type SetupLogArchivePatch struct {
+	Enabled       *bool   `json:"enabled"`
+	Compress      *bool   `json:"compress"`
+	RetentionDays *int    `json:"retention_days"`
+	MaxTotalMB    *int    `json:"max_total_mb"`
+	QuotaPolicy   *string `json:"quota_policy"`
 }
 
 type SetupUpgradePatch struct {
@@ -231,6 +260,7 @@ type SetupPluginRepoPatch struct {
 	URL                *string `json:"url"`
 	Channel            *string `json:"channel"`
 	AutoUpdate         *bool   `json:"auto_update"`
+	Proxy              *string `json:"proxy"`
 	TimeoutSeconds     *int    `json:"timeout_seconds"`
 	MaxDownloadMB      *int    `json:"max_download_mb"`
 	CheckIntervalHours *int    `json:"check_interval_hours"`
@@ -269,11 +299,15 @@ func (p SetupConfigPatch) Empty() bool {
 	if p.RateLimit != nil && !p.RateLimit.empty() {
 		return false
 	}
+	if len(p.Reset) > 0 {
+		return false
+	}
 	return p.TrustedProxies == nil && p.PublicURL == nil && p.SessionPersistence == nil
 }
 
 func (p SetupServerPatch) empty() bool {
-	return p.Addr == nil && p.Host == nil && p.Port == nil
+	return p.Addr == nil && p.Host == nil && p.Port == nil &&
+		p.ClientIPMode == nil && p.ProxyProtocol == nil
 }
 
 func (p SetupACMEPatch) empty() bool {
@@ -298,7 +332,15 @@ func (p SetupLogPatch) empty() bool {
 		p.System.RetentionDays != nil || p.System.MaxRows != nil) {
 		return false
 	}
+	if p.Archive != nil && !p.Archive.empty() {
+		return false
+	}
 	return true
+}
+
+func (p SetupLogArchivePatch) empty() bool {
+	return p.Enabled == nil && p.Compress == nil && p.RetentionDays == nil &&
+		p.MaxTotalMB == nil && p.QuotaPolicy == nil
 }
 
 func (p SetupUpgradePatch) empty() bool {
@@ -306,7 +348,8 @@ func (p SetupUpgradePatch) empty() bool {
 		return false
 	}
 	if p.Program != nil && (p.Program.Enabled != nil || p.Program.Channel != nil ||
-		p.Program.CheckIntervalHours != nil || p.Program.MaxDownloadMB != nil) {
+		p.Program.CheckIntervalHours != nil || p.Program.MaxDownloadMB != nil ||
+		p.Program.AllowUnsigned != nil) {
 		return false
 	}
 	return true
@@ -317,7 +360,7 @@ func (p SetupPluginsPatch) empty() bool {
 		return false
 	}
 	if p.Repo != nil && (p.Repo.Enabled != nil || p.Repo.URL != nil || p.Repo.Channel != nil ||
-		p.Repo.AutoUpdate != nil || p.Repo.TimeoutSeconds != nil ||
+		p.Repo.AutoUpdate != nil || p.Repo.Proxy != nil || p.Repo.TimeoutSeconds != nil ||
 		p.Repo.MaxDownloadMB != nil || p.Repo.CheckIntervalHours != nil) {
 		return false
 	}
@@ -351,11 +394,21 @@ func setupConfigFromFile(fc *fileConfig) *SetupConfig {
 		// 与 resolveAddr 保持一致：0 表示使用默认端口。
 		port = 8080
 	}
+	clientIPMode := strings.ToLower(strings.TrimSpace(fc.Server.ClientIPMode))
+	if clientIPMode == "" {
+		clientIPMode = "auto"
+	}
+	quotaPolicy := strings.ToLower(strings.TrimSpace(fc.Log.Archive.QuotaPolicy))
+	if quotaPolicy == "" {
+		quotaPolicy = "fail"
+	}
 	return &SetupConfig{
 		Server: SetupServerConfig{
-			Addr: strings.TrimSpace(fc.Server.Addr),
-			Host: strings.TrimSpace(fc.Server.Host),
-			Port: port,
+			Addr:          strings.TrimSpace(fc.Server.Addr),
+			Host:          strings.TrimSpace(fc.Server.Host),
+			Port:          port,
+			ClientIPMode:  clientIPMode,
+			ProxyProtocol: fc.Server.ProxyProtocol,
 		},
 		TrustedProxies:     proxies,
 		PublicURL:          strings.TrimSpace(fc.Security.PublicURL),
@@ -390,6 +443,13 @@ func setupConfigFromFile(fc *fileConfig) *SetupConfig {
 				RetentionDays: fc.Log.System.RetentionDays,
 				MaxRows:       fc.Log.System.MaxRows,
 			},
+			Archive: SetupLogArchiveConfig{
+				Enabled:       fc.Log.Archive.Enabled,
+				Compress:      fc.Log.Archive.Compress,
+				RetentionDays: fc.Log.Archive.RetentionDays,
+				MaxTotalMB:    fc.Log.Archive.MaxTotalMB,
+				QuotaPolicy:   quotaPolicy,
+			},
 		},
 		Upgrade: SetupUpgradeConfig{
 			Auto:         fc.Upgrade.Auto,
@@ -413,6 +473,7 @@ func setupConfigFromFile(fc *fileConfig) *SetupConfig {
 				URL:                strings.TrimSpace(fc.Plugins.Repo.URL),
 				Channel:            strings.ToLower(strings.TrimSpace(fc.Plugins.Repo.Channel)),
 				AutoUpdate:         fc.Plugins.Repo.AutoUpdate,
+				Proxy:              strings.TrimSpace(fc.Plugins.Repo.Proxy),
 				TimeoutSeconds:     fc.Plugins.Repo.TimeoutSeconds,
 				MaxDownloadMB:      fc.Plugins.Repo.MaxDownloadMB,
 				CheckIntervalHours: fc.Plugins.Repo.CheckIntervalHours,
@@ -441,15 +502,22 @@ func setupRateLimitConfig(fc *fileConfig) SetupRateLimitConfig {
 		// 保存时仍会经过完整校验并拒绝非法值。
 		cfg = ratelimit.DefaultConfig()
 	}
+	defaultsCfg := ratelimit.DefaultConfig()
 	rules := make(map[string]SetupRateLimitRule, len(ratelimit.Names()))
+	defaults := make(map[string]SetupRateLimitRule, len(ratelimit.Names()))
 	for _, name := range ratelimit.Names() {
 		rule := cfg.For(name)
 		rules[name] = SetupRateLimitRule{
 			Max:           rule.Max,
 			WindowSeconds: int(rule.Window.Seconds()),
 		}
+		defaultRule := defaultsCfg.For(name)
+		defaults[name] = SetupRateLimitRule{
+			Max:           defaultRule.Max,
+			WindowSeconds: int(defaultRule.Window.Seconds()),
+		}
 	}
-	return SetupRateLimitConfig{MaxKeys: cfg.MaxKeys, Rules: rules}
+	return SetupRateLimitConfig{MaxKeys: cfg.MaxKeys, Rules: rules, Defaults: defaults}
 }
 
 // UpdateSetupConfig 只更新白名单字段，保留配置文件中的其他内容和注释。
@@ -497,6 +565,12 @@ func applySetupPatch(root *yaml.Node, patch SetupConfigPatch) error {
 			return err
 		}
 		if err := setOptInt(section, "port", patch.Server.Port); err != nil {
+			return err
+		}
+		if err := setOptLower(section, "client_ip_mode", patch.Server.ClientIPMode); err != nil {
+			return err
+		}
+		if err := setOptBool(section, "proxy_protocol", patch.Server.ProxyProtocol); err != nil {
 			return err
 		}
 	}
@@ -656,6 +730,27 @@ func applySetupPatch(root *yaml.Node, patch SetupConfigPatch) error {
 				return err
 			}
 		}
+		if patch.Log.Archive != nil {
+			archiveSection, err := ensureMapping(section, "archive")
+			if err != nil {
+				return err
+			}
+			if err := setOptBool(archiveSection, "enabled", patch.Log.Archive.Enabled); err != nil {
+				return err
+			}
+			if err := setOptBool(archiveSection, "compress", patch.Log.Archive.Compress); err != nil {
+				return err
+			}
+			if err := setOptInt(archiveSection, "retention_days", patch.Log.Archive.RetentionDays); err != nil {
+				return err
+			}
+			if err := setOptInt(archiveSection, "max_total_mb", patch.Log.Archive.MaxTotalMB); err != nil {
+				return err
+			}
+			if err := setOptLower(archiveSection, "quota_policy", patch.Log.Archive.QuotaPolicy); err != nil {
+				return err
+			}
+		}
 	}
 	if patch.Upgrade != nil {
 		section, err := ensureMapping(root, "upgrade")
@@ -723,6 +818,9 @@ func applySetupPatch(root *yaml.Node, patch SetupConfigPatch) error {
 			if err := setOptBool(repoSection, "auto_update", patch.Plugins.Repo.AutoUpdate); err != nil {
 				return err
 			}
+			if err := setOptString(repoSection, "proxy", patch.Plugins.Repo.Proxy); err != nil {
+				return err
+			}
 			if err := setOptInt(repoSection, "timeout_seconds", patch.Plugins.Repo.TimeoutSeconds); err != nil {
 				return err
 			}
@@ -752,7 +850,136 @@ func applySetupPatch(root *yaml.Node, patch SetupConfigPatch) error {
 			return err
 		}
 	}
+	return applyConfigResets(root, patch.Reset)
+}
+
+// applyConfigResets 删除指定的配置键，让运行时回退到内置默认值。
+func applyConfigResets(root *yaml.Node, paths []string) error {
+	seen := make(map[string]bool, len(paths))
+	for _, raw := range paths {
+		path := strings.TrimSpace(raw)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		if err := resetConfigPath(root, path); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func resetConfigPath(root *yaml.Node, path string) error {
+	parts := strings.Split(path, ".")
+	switch {
+	case len(parts) == 4 && parts[0] == "security" && parts[1] == "rate_limit" && parts[2] == "rules":
+		name := parts[3]
+		if !ratelimit.Known(name) {
+			return fmt.Errorf("security.rate_limit.rules.%s 不是已知的限流规则", name)
+		}
+		rateLimitSection := mappingChild(root, "security", "rate_limit")
+		if rateLimitSection == nil || rateLimitSection.Kind != yaml.MappingNode {
+			return nil
+		}
+		rulesSection, _ := mappingValue(rateLimitSection, "rules")
+		if rulesSection == nil {
+			return nil
+		}
+		if rulesSection.Kind != yaml.MappingNode {
+			return fmt.Errorf("security.rate_limit.rules 必须是映射")
+		}
+		removeMappingKey(rulesSection, name)
+		if len(rulesSection.Content) == 0 {
+			removeMappingKey(rateLimitSection, "rules")
+		}
+		return nil
+	case len(parts) == 3 && parts[0] == "security" && parts[1] == "rate_limit" && parts[2] == "rules":
+		rateLimitSection := mappingChild(root, "security", "rate_limit")
+		if rateLimitSection == nil || rateLimitSection.Kind != yaml.MappingNode {
+			return nil
+		}
+		removeMappingKey(rateLimitSection, "rules")
+		return nil
+	case len(parts) == 2 && parts[0] == "log" && parts[1] == "archive":
+		logSection := mappingChild(root, "log")
+		if logSection == nil || logSection.Kind != yaml.MappingNode {
+			return nil
+		}
+		removeMappingKey(logSection, "archive")
+		return nil
+	default:
+		return fmt.Errorf("不支持的配置重置路径: %s", path)
+	}
+}
+
+// presentResetFields 返回当前文件中确实存在、可以被删除的重置路径。
+func presentResetFields(root *yaml.Node, paths []string) []string {
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, raw := range paths {
+		path := strings.TrimSpace(raw)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		if resetPathExists(root, path) {
+			out = append(out, path)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func resetPathExists(root *yaml.Node, path string) bool {
+	parts := strings.Split(path, ".")
+	switch {
+	case len(parts) == 4 && parts[0] == "security" && parts[1] == "rate_limit" && parts[2] == "rules":
+		if !ratelimit.Known(parts[3]) {
+			return false
+		}
+		rulesSection := mappingChild(root, "security", "rate_limit", "rules")
+		if rulesSection == nil || rulesSection.Kind != yaml.MappingNode {
+			return false
+		}
+		_, index := mappingValue(rulesSection, parts[3])
+		return index >= 0
+	case len(parts) == 3 && parts[0] == "security" && parts[1] == "rate_limit" && parts[2] == "rules":
+		rateLimitSection := mappingChild(root, "security", "rate_limit")
+		if rateLimitSection == nil || rateLimitSection.Kind != yaml.MappingNode {
+			return false
+		}
+		_, index := mappingValue(rateLimitSection, "rules")
+		return index >= 0
+	case len(parts) == 2 && parts[0] == "log" && parts[1] == "archive":
+		logSection := mappingChild(root, "log")
+		if logSection == nil || logSection.Kind != yaml.MappingNode {
+			return false
+		}
+		_, index := mappingValue(logSection, "archive")
+		return index >= 0
+	default:
+		return false
+	}
+}
+
+func mappingChild(parent *yaml.Node, keys ...string) *yaml.Node {
+	current := parent
+	for _, key := range keys {
+		if current == nil || current.Kind != yaml.MappingNode {
+			return nil
+		}
+		current, _ = mappingValue(current, key)
+	}
+	return current
+}
+
+func removeMappingKey(parent *yaml.Node, key string) bool {
+	_, index := mappingValue(parent, key)
+	if index < 0 {
+		return false
+	}
+	parent.Content = append(parent.Content[:index-1], parent.Content[index+1:]...)
+	return true
 }
 
 // applyPluginRuntimePatch 写入插件通用字段（开关、资源限制）。

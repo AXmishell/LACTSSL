@@ -74,10 +74,10 @@ func PrivateCAValue(id int64) string {
 // ParsePrivateCAValue 解析任务配置中的私有 CA 引用。
 func ParsePrivateCAValue(value string) (int64, bool) {
 	value = strings.TrimSpace(value)
-	if !strings.HasPrefix(value, privateCAPrefix) {
+	if !strings.HasPrefix(strings.ToLower(value), privateCAPrefix) {
 		return 0, false
 	}
-	id, err := strconv.ParseInt(strings.TrimPrefix(value, privateCAPrefix), 10, 64)
+	id, err := strconv.ParseInt(value[len(privateCAPrefix):], 10, 64)
 	if err != nil || id <= 0 {
 		return 0, false
 	}

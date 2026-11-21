@@ -17,7 +17,8 @@ func (s *Store) CreateCAPool(pool *model.CAPool) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	pool.ID, err = tx.InsertID(`INSERT INTO ca_pools(public_id,name,strategy,cursor,enabled,created_at,updated_at)
+	cursorColumn := s.DB.Dialect().QuoteIdent("cursor")
+	pool.ID, err = tx.InsertID(`INSERT INTO ca_pools(public_id,name,strategy,`+cursorColumn+`,enabled,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?)`,
 		pool.PublicID, pool.Name, pool.Strategy, pool.Cursor, boolInt(pool.Enabled), now, now)
 	if err != nil {
@@ -94,7 +95,7 @@ func (s *Store) UpdateCAPool(pool *model.CAPool) error {
 func (s *Store) GetCAPool(id int64) (*model.CAPool, error) {
 	var pool model.CAPool
 	var enabled int
-	err := s.DB.QueryRow(`SELECT id,public_id,name,strategy,cursor,enabled,created_at,updated_at
+	err := s.DB.QueryRow(`SELECT id,public_id,name,strategy,`+s.DB.Dialect().QuoteIdent("cursor")+`,enabled,created_at,updated_at
 		FROM ca_pools WHERE id=?`, id).
 		Scan(&pool.ID, &pool.PublicID, &pool.Name, &pool.Strategy, &pool.Cursor, &enabled, &pool.CreatedAt, &pool.UpdatedAt)
 	if err != nil {
@@ -111,7 +112,7 @@ func (s *Store) GetCAPool(id int64) (*model.CAPool, error) {
 
 // ListCAPools 返回全部调度组及其候选。
 func (s *Store) ListCAPools() ([]model.CAPool, error) {
-	rows, err := s.DB.Query(`SELECT id,public_id,name,strategy,cursor,enabled,created_at,updated_at
+	rows, err := s.DB.Query(`SELECT id,public_id,name,strategy,` + s.DB.Dialect().QuoteIdent("cursor") + `,enabled,created_at,updated_at
 		FROM ca_pools ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -191,9 +192,29 @@ func (s *Store) DeleteCAPool(id int64) error {
 
 // NextCAPoolCursor 原子地返回当前游标并递增，供轮询策略分配起始位置。
 func (s *Store) NextCAPoolCursor(id int64) (int64, error) {
-	// 单语句原子递增：UPDATE 的行锁保证并发调用拿到不同游标。
 	var cursor int64
-	err := s.DB.QueryRow(`UPDATE ca_pools SET cursor=cursor+1 WHERE id=? RETURNING cursor-1`, id).Scan(&cursor)
+	if s.DB.Dialect().IsMySQL() {
+		// MySQL 不支持 UPDATE ... RETURNING，使用事务内的行锁完成同样的原子操作。
+		tx, err := s.DB.Begin()
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = tx.Rollback() }()
+		cursorColumn := s.DB.Dialect().QuoteIdent("cursor")
+		if err := tx.QueryRow(`SELECT `+cursorColumn+` FROM ca_pools WHERE id=? FOR UPDATE`, id).Scan(&cursor); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(`UPDATE ca_pools SET `+cursorColumn+`=`+cursorColumn+`+1 WHERE id=?`, id); err != nil {
+			return 0, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
+		return cursor, nil
+	}
+	// 单语句原子递增：UPDATE 的行锁保证并发调用拿到不同游标。
+	cursorColumn := s.DB.Dialect().QuoteIdent("cursor")
+	err := s.DB.QueryRow(`UPDATE ca_pools SET `+cursorColumn+`=`+cursorColumn+`+1 WHERE id=? RETURNING `+cursorColumn+`-1`, id).Scan(&cursor)
 	if err != nil {
 		return 0, err
 	}

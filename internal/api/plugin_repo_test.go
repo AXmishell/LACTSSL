@@ -72,6 +72,48 @@ func TestRepoStatusShowsPublicKeyValidation(t *testing.T) {
 	}
 }
 
+func TestRepoProxyFallbackAndOverride(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "plugins.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	cipher, err := util.NewCipher([]byte("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{
+		Store:           store.New(conn, cipher),
+		PluginRepoProxy: "http://127.0.0.1:7890",
+	}
+	if got := s.repoProxy(); got != "http://127.0.0.1:7890" {
+		t.Fatalf("configuration fallback not used: %q", got)
+	}
+	if got := s.repoStatus()["proxy"]; got != "http://127.0.0.1:7890" {
+		t.Fatalf("status proxy = %v", got)
+	}
+
+	const runtimeProxy = "socks5://user:pass@127.0.0.1:1080"
+	if err := s.Store.SetSecret(repoProxySetting, runtimeProxy); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.repoProxy(); got != runtimeProxy {
+		t.Fatalf("runtime proxy not used: %q", got)
+	}
+	status := s.repoStatus()
+	if status["proxy"] != runtimeProxy || status["proxy_set"] != true {
+		t.Fatalf("unexpected proxy status: %+v", status)
+	}
+
+	// 显式保存空值应关闭代理，而不是回退到配置文件。
+	if err := s.Store.SetSecret(repoProxySetting, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.repoProxy(); got != "" {
+		t.Fatalf("explicit empty proxy should override configuration: %q", got)
+	}
+}
+
 func TestInstallRepoPlugin(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell helper test is unix-only")
@@ -801,6 +843,46 @@ func TestCachedRepoIndexRejectedWhenPublicKeyChanged(t *testing.T) {
 	changed := &Server{Store: st, Auth: manager, PluginRepoPublicKey: base64.StdEncoding.EncodeToString(pubB)}
 	if _, ok := changed.loadCachedRepoIndex(); ok {
 		t.Fatal("公钥变化后不得沿用旧索引的验签状态")
+	}
+}
+
+// TestRepoStatusRestoresVerifiedCacheAfterRefreshFailure 验证进程启动后后台刷新失败时，
+// 状态接口会恢复本地已验签缓存，而不是误报签名校验失败。
+func TestRepoStatusRestoresVerifiedCacheAfterRefreshFailure(t *testing.T) {
+	st := newSessionTestStore(t)
+	manager := auth.New([]byte("repo-status-test-key"))
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"schema":1,"protocol":"v1","plugins":[]}`)
+	signature := ed25519.Sign(priv, raw)
+	marker := &Server{Auth: manager}
+	if err := st.SetSetting(repoIndexSetting, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoIndexMACSetting, marker.repoIndexMAC(string(raw))); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoIndexSigSetting, base64.StdEncoding.EncodeToString(signature)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(repoCheckedSetting, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{
+		Store:               st,
+		Auth:                manager,
+		PluginRepoEnabled:   true,
+		PluginRepoPublicKey: base64.StdEncoding.EncodeToString(pub),
+	}
+	s.pluginRepoErr = "dial tcp: network unreachable"
+	status := s.repoStatus()
+	if status["signature_verified"] != true {
+		t.Fatalf("有效缓存应被标记为已验签: %+v", status)
+	}
+	if status["error"] != "dial tcp: network unreachable" {
+		t.Fatalf("恢复缓存后仍应保留最近一次刷新错误: %+v", status)
 	}
 }
 

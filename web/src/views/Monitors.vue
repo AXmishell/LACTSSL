@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page table-page">
     <div class="page-head">
       <div>
         <h1>{{ t('monitors.title') }}</h1>
@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <div v-if="!monitors.length && !loading" class="k-card" style="text-align: center; padding: 54px 20px">
+    <div v-if="!monitors.length && !loading" class="k-card table-fill monitor-empty-card">
       <el-icon size="34" color="#94a3b8"><Monitor /></el-icon>
       <h3 style="margin: 14px 0 6px">{{ t('monitors.emptyTitle') }}</h3>
       <p class="muted" style="margin-top: 0">{{ t('monitors.emptyDesc') }}</p>
@@ -360,6 +360,14 @@ onMounted(load)
   font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.03em;
+}
+.monitor-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 20px;
+  text-align: center;
 }
 .monitor-list {
   padding: 0;

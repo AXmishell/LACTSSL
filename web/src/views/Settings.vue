@@ -1,9 +1,8 @@
 <template>
-  <div class="page">
+  <div class="page settings-page">
     <div class="page-head">
       <div>
         <h1>{{ t('settings.title') }}</h1>
-        <p>{{ t('settings.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle @click="reload" />
@@ -13,13 +12,15 @@
     <el-tabs v-model="tab" class="settings-tabs">
       <!-- 账户安全 -->
       <el-tab-pane :label="t('settings.tabSecurity')" name="security">
-        <div class="k-card">
+        <div class="k-card settings-card">
           <div class="card-head">
             <div>
               <h3>{{ t('settings.loginAccount') }}</h3>
               <div class="sub">{{ t('settings.loginAccountSub') }}</div>
             </div>
           </div>
+
+          <div class="settings-scroll">
           <div class="account-row">
             <div style="flex: 1; min-width: 0">
               <div style="font-weight: 600">{{ user?.email }}</div>
@@ -82,287 +83,416 @@
             </div>
             <el-button @click="goNotifications">{{ t('settings.goConfigure') }}</el-button>
           </div>
-        </div>
 
-        <!-- 门禁入口 -->
-        <div class="k-card">
-          <div class="card-head">
-            <div>
+          <!-- 门禁入口 -->
+          <div class="settings-section">
+            <div class="section-head">
               <h3>{{ t('settings.entryTitle') }}</h3>
               <div class="sub">{{ t('settings.entrySub') }}</div>
             </div>
+            <el-form :model="entryForm" label-position="top" class="entry-form">
+              <el-form-item>
+                <el-input v-model="entryForm.entry" :placeholder="settings?.entry || t('settings.entryPlaceholder')" />
+                <div class="form-help">{{ t('settings.entryHelp') }}</div>
+              </el-form-item>
+              <el-button type="primary" :loading="savingEntry" @click="saveEntry">{{ t('settings.updateEntry') }}</el-button>
+            </el-form>
           </div>
-          <el-form :model="entryForm" label-position="top" class="entry-form">
-            <el-form-item>
-              <el-input v-model="entryForm.entry" :placeholder="settings?.entry || t('settings.entryPlaceholder')" />
-              <div class="form-help">{{ t('settings.entryHelp') }}</div>
-            </el-form-item>
-            <el-button type="primary" :loading="savingEntry" @click="saveEntry">{{ t('settings.updateEntry') }}</el-button>
-          </el-form>
+          </div>
+        </div>
+      </el-tab-pane>
+
+      <!-- 安全提醒 -->
+      <el-tab-pane :label="t('notifications.securityTitle')" name="security-alerts">
+        <div class="k-card settings-card">
+          <div class="settings-scroll">
+            <el-form :model="security" label-position="top">
+              <el-form-item :label="t('notifications.securityEnabled')">
+                <div class="flex gap-10" style="height: 32px">
+                  <el-switch v-model="security.enabled" />
+                </div>
+              </el-form-item>
+              <el-form-item :label="t('notifications.securityLogin')">
+                <el-radio-group v-model="security.login">
+                  <el-radio-button value="off">{{ t('notifications.securityLoginOff') }}</el-radio-button>
+                  <el-radio-button value="new">{{ t('notifications.securityLoginNew') }}</el-radio-button>
+                  <el-radio-button value="always">{{ t('notifications.securityLoginAlways') }}</el-radio-button>
+                </el-radio-group>
+                <div class="form-help">{{ t('notifications.securityLoginHint') }}</div>
+              </el-form-item>
+              <div class="grid grid-3" style="gap: 0 18px">
+                <el-form-item :label="t('notifications.securityNewDeviceDays')">
+                  <el-input-number v-model="security.new_device_days" :min="1" :max="365" style="width: 100%" />
+                </el-form-item>
+                <el-form-item :label="t('notifications.securityFailedLogin')">
+                  <div class="flex gap-10" style="height: 32px">
+                    <el-switch v-model="security.failed_login" />
+                  </div>
+                </el-form-item>
+                <el-form-item :label="t('notifications.securityFailedThreshold')">
+                  <el-input-number
+                    v-model="security.failed_threshold"
+                    :min="1"
+                    :max="100"
+                    :disabled="!security.failed_login"
+                    style="width: 100%"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('notifications.securityFailedWindow')">
+                  <el-input-number
+                    v-model="security.failed_window"
+                    :min="60"
+                    :max="86400"
+                    :step="60"
+                    :disabled="!security.failed_login"
+                    style="width: 100%"
+                  />
+                </el-form-item>
+              </div>
+              <el-form-item :label="t('notifications.securityChannels')">
+                <el-select v-model="security.channels" multiple style="width: 100%">
+                  <el-option
+                    v-for="item in securityChannelOptions"
+                    :key="item.value"
+                    :value="item.value"
+                    :label="item.label"
+                  />
+                </el-select>
+                <div class="form-help">{{ t('notifications.securityChannelsHint') }}</div>
+              </el-form-item>
+              <el-form-item :label="t('notifications.securityEvents')">
+                <el-checkbox-group v-model="security.events" class="security-events">
+                  <el-checkbox v-for="item in securityEventOptions" :key="item.value" :value="item.value">
+                    {{ t(item.labelKey) }}
+                  </el-checkbox>
+                </el-checkbox-group>
+                <div class="form-help">{{ t('notifications.securityEventsHint') }}</div>
+              </el-form-item>
+              <div class="grid grid-2" style="gap: 0 18px">
+                <el-form-item :label="t('notifications.securityTo')">
+                  <el-input v-model="security.to" :placeholder="t('notifications.securityToPlaceholder')" />
+                </el-form-item>
+                <el-form-item :label="t('notifications.securityRetention')">
+                  <el-input-number v-model="security.retention_days" :min="7" :max="365" style="width: 100%" />
+                </el-form-item>
+              </div>
+              <el-alert
+                v-if="!security.channels.length"
+                :title="t('notifications.securityNoChannel')"
+                type="warning"
+                :closable="false"
+                style="margin-bottom: 14px"
+              />
+              <el-alert
+                v-else-if="security.channels.includes('mail') && !settings?.smtp_host"
+                :title="t('notifications.securityNoSmtp')"
+                type="warning"
+                :closable="false"
+                style="margin-bottom: 14px"
+              />
+              <el-alert
+                v-else-if="security.last_error"
+                :title="t('notifications.securityLastError', { error: security.last_error })"
+                type="error"
+                :closable="false"
+                style="margin-bottom: 14px"
+              />
+              <el-alert
+                v-else-if="security.last_delivered_at"
+                :title="t('notifications.securityLastDelivered', { time: formatDate(security.last_delivered_at) })"
+                type="success"
+                :closable="false"
+                style="margin-bottom: 14px"
+              />
+              <ReauthFields
+                v-model:password="securityReauth.password"
+                v-model:totp="securityReauth.totp"
+                :totp-enabled="!!user?.totp_enabled"
+              />
+            </el-form>
+          </div>
+
+          <div class="settings-footer">
+            <div class="footer-actions">
+              <el-button type="primary" :loading="savingSecurity" @click="saveSecurity">
+                {{ t('notifications.securitySave') }}
+              </el-button>
+              <el-button :loading="testingSecurity" @click="sendSecurityTest">
+                {{ t('notifications.securitySendTest') }}
+              </el-button>
+              <span class="muted test-hint">{{ t('notifications.securityHint') }}</span>
+            </div>
+          </div>
         </div>
       </el-tab-pane>
 
       <!-- 备份与恢复 -->
       <el-tab-pane :label="t('settings.tabBackup')" name="backup">
-        <div class="k-card">
-          <div class="card-head">
-            <div>
-              <h3>{{ t('settings.backupTitle') }}</h3>
-              <div class="sub">{{ t('settings.backupSub') }}</div>
+        <div class="k-card settings-card backup-card">
+          <div class="settings-scroll">
+            <div class="setting-row">
+              <div>
+                <div class="setting-name">{{ t('settings.backupDownloadTitle') }}</div>
+                <div class="muted" style="margin-top: 4px">{{ t('settings.backupDownloadSub') }}</div>
+              </div>
             </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-name">{{ t('settings.backupRestoreTitle') }}</div>
+                <div class="muted" style="margin-top: 4px">{{ t('settings.backupRestoreSub') }}</div>
+              </div>
+            </div>
+
+            <div class="backup-meta">
+              <div class="about-line">
+                <span>{{ t('settings.backupDatabaseSize') }}</span>
+                <span class="mono">{{ backup ? formatBytes(backup.database_size) : t('common.none') }}</span>
+              </div>
+              <div class="about-line">
+                <span>{{ t('settings.backupConfigFile') }}</span>
+                <span class="tag-soft" :class="backup?.config_included ? 'tag-green' : 'tag-gray'">
+                  {{ backup?.config_included ? t('settings.backupConfigIncluded') : t('settings.backupConfigMissing') }}
+                </span>
+              </div>
+              <div class="about-line">
+                <span>{{ t('settings.backupLastBackup') }}</span>
+                <span class="mono">{{ formatDate(backup?.last_backup_at) }}</span>
+              </div>
+            </div>
+
+            <el-alert
+              v-if="backup?.pending_restore"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="t('settings.backupPending')"
+              style="margin-top: 16px"
+            />
+            <el-alert
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="t('settings.backupWarning')"
+              style="margin-top: 16px"
+            />
           </div>
 
-          <div class="setting-row">
-            <div>
-              <div class="setting-name">{{ t('settings.backupDownloadTitle') }}</div>
-              <div class="muted" style="margin-top: 4px">{{ t('settings.backupDownloadSub') }}</div>
-            </div>
-            <el-button type="primary" :loading="backupDownloading" @click="openBackupDialog">
-              {{ t('settings.backupDownload') }}
-            </el-button>
-          </div>
-
-          <div class="setting-row">
-            <div>
-              <div class="setting-name">{{ t('settings.backupRestoreTitle') }}</div>
-              <div class="muted" style="margin-top: 4px">{{ t('settings.backupRestoreSub') }}</div>
-            </div>
-            <el-button type="danger" plain @click="openRestore">{{ t('settings.backupRestore') }}</el-button>
-          </div>
-
-          <div class="backup-meta">
-            <div class="about-line">
-              <span>{{ t('settings.backupDatabaseSize') }}</span>
-              <span class="mono">{{ backup ? formatBytes(backup.database_size) : t('common.none') }}</span>
-            </div>
-            <div class="about-line">
-              <span>{{ t('settings.backupConfigFile') }}</span>
-              <span class="tag-soft" :class="backup?.config_included ? 'tag-green' : 'tag-gray'">
-                {{ backup?.config_included ? t('settings.backupConfigIncluded') : t('settings.backupConfigMissing') }}
-              </span>
-            </div>
-            <div class="about-line">
-              <span>{{ t('settings.backupLastBackup') }}</span>
-              <span class="mono">{{ formatDate(backup?.last_backup_at) }}</span>
+          <div class="settings-footer">
+            <div class="footer-actions">
+              <div class="footer-action-group">
+                <el-button type="primary" :loading="backupDownloading" @click="openBackupDialog">
+                  {{ t('settings.backupDownload') }}
+                </el-button>
+              </div>
+              <div class="footer-action-group">
+                <el-button type="danger" plain @click="openRestore">{{ t('settings.backupRestore') }}</el-button>
+              </div>
             </div>
           </div>
-
-          <el-alert
-            v-if="backup?.pending_restore"
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="t('settings.backupPending')"
-            style="margin-top: 16px"
-          />
-          <el-alert
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="t('settings.backupWarning')"
-            style="margin-top: 16px"
-          />
         </div>
       </el-tab-pane>
 
       <!-- 配置文件 -->
       <el-tab-pane :label="t('settings.tabConfig')" name="config">
-        <div class="k-card">
-          <div class="card-head">
-            <div>
-              <h3>{{ t('settings.configTitle') }}</h3>
-              <div class="sub">{{ t('settings.configSub') }}</div>
-            </div>
-            <el-button :icon="Refresh" circle :loading="configLoading" @click="loadConfig" />
-          </div>
-
-          <el-alert v-if="configLoadError" :title="configLoadError" type="error" :closable="false" show-icon />
-          <el-alert
-            v-else-if="configReady && !configWritable"
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="t('settings.configReadonly')"
-            style="margin-bottom: 16px"
-          />
-          <el-alert
-            v-if="configPending"
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="t('settings.configRestartPending')"
-            style="margin-bottom: 16px"
-          >
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
-              <span>{{ t('settings.configRestartPendingHint') }}</span>
-              <el-button type="warning" plain size="small" @click="openConfigRestart">
-                {{ t('settings.configRestartNow') }}
-              </el-button>
-            </div>
-          </el-alert>
-
-          <div v-if="configReady && configForm" v-loading="configLoading">
-            <div class="config-meta">
-              <span>
-                <span class="muted">{{ t('settings.configPath') }}</span>
-                <span class="mono">{{ configPath }}</span>
-              </span>
-              <span>
-                <span class="muted">{{ t('settings.configEffectiveAddr') }}</span>
-                <span class="mono">{{ configEffectiveAddr || t('common.none') }}</span>
-              </span>
-            </div>
-            <ConfigEditor
-              :model-value="configForm"
-              :disabled="!configWritable"
-              show-detect
-              @detect-proxy="openProxyDialog"
+        <div class="k-card settings-card config-card">
+          <div class="settings-scroll">
+            <el-alert v-if="configLoadError" :title="configLoadError" type="error" :closable="false" show-icon />
+            <el-alert
+              v-else-if="configReady && !configWritable"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="t('settings.configReadonly')"
+              style="margin-bottom: 16px"
             />
-            <div class="flex gap-10 wrap" style="margin-top: 18px">
-              <el-button type="primary" :disabled="!configWritable" :loading="configSaving" @click="openConfigSave">
-                {{ t('settings.configSave') }}
-              </el-button>
-              <el-button :disabled="!configWritable" @click="openConfigBackup">
-                {{ t('settings.configBackupNow') }}
-              </el-button>
-            </div>
-          </div>
-        </div>
+            <el-alert
+              v-if="configPending"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="t('settings.configRestartPending')"
+              style="margin-bottom: 16px"
+            >
+              <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+                <span>{{ t('settings.configRestartPendingHint') }}</span>
+                <el-button type="warning" plain size="small" @click="openConfigRestart">
+                  {{ t('settings.configRestartNow') }}
+                </el-button>
+              </div>
+            </el-alert>
 
-        <div class="k-card" style="margin-top: 18px">
-          <div class="card-head">
-            <div>
-              <h3>{{ t('settings.configBackupTitle') }}</h3>
-              <div class="sub">{{ t('settings.configBackupSub') }}</div>
+            <div v-if="configReady && configForm" v-loading="configLoading">
+              <ConfigEditor
+                :model-value="configForm"
+                :disabled="!configWritable"
+                show-detect
+                @detect-proxy="openProxyDialog"
+              />
+
+              <div class="settings-section">
+                <div class="section-head">
+                  <h3>{{ t('settings.configBackupTitle') }}</h3>
+                  <div class="sub">{{ t('settings.configBackupSub') }}</div>
+                </div>
+                <el-alert
+                  type="warning"
+                  :closable="false"
+                  show-icon
+                  :title="t('settings.configBackupWarning')"
+                  style="margin-bottom: 16px"
+                />
+                <div class="table-scroll">
+                  <el-table :data="configBackups" v-loading="configLoading" size="small" style="width: 100%">
+                    <el-table-column width="170" :label="t('settings.configBackupTime')">
+                      <template #default="{ row }">
+                        <span>{{ formatDate(row.created_at) }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column width="110" :label="t('settings.configBackupReason')">
+                      <template #default="{ row }">
+                        <span class="tag-soft tag-gray">{{ configBackupReason(row.reason) }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column min-width="160" :label="t('settings.configBackupNote')">
+                      <template #default="{ row }">
+                        <span :title="row.note || undefined">{{ row.note || t('common.none') }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column width="110" :label="t('settings.configBackupSize')">
+                      <template #default="{ row }">
+                        <span class="mono">{{ formatBytes(row.size) }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column width="120" :label="t('settings.configBackupSalt')">
+                      <template #default="{ row }">
+                        <span class="tag-soft" :class="row.salt_matches ? 'tag-green' : 'tag-red'">
+                          {{ row.salt_matches ? t('settings.configBackupSaltMatch') : t('settings.configBackupSaltMismatch') }}
+                        </span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column width="210" align="right" :label="t('common.actions')">
+                      <template #default="{ row }">
+                        <el-button text type="primary" size="small" @click="openBackupAction('restore', row)">
+                          {{ t('settings.configBackupRestore') }}
+                        </el-button>
+                        <el-button text size="small" @click="openBackupAction('download', row)">
+                          {{ t('settings.configBackupDownload') }}
+                        </el-button>
+                        <el-button text type="danger" size="small" @click="openBackupAction('delete', row)">
+                          {{ t('common.delete') }}
+                        </el-button>
+                      </template>
+                    </el-table-column>
+                    <template #empty>
+                      <div style="padding: 28px 0; color: #94a3b8">{{ t('settings.configBackupEmpty') }}</div>
+                    </template>
+                  </el-table>
+                </div>
+              </div>
             </div>
           </div>
-          <el-alert
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="t('settings.configBackupWarning')"
-            style="margin-bottom: 16px"
-          />
-          <div class="table-scroll">
-            <el-table :data="configBackups" v-loading="configLoading" size="small" style="width: 100%">
-              <el-table-column width="170" :label="t('settings.configBackupTime')">
-                <template #default="{ row }">
-                  <span>{{ formatDate(row.created_at) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column width="110" :label="t('settings.configBackupReason')">
-                <template #default="{ row }">
-                  <span class="tag-soft tag-gray">{{ configBackupReason(row.reason) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column min-width="160" :label="t('settings.configBackupNote')">
-                <template #default="{ row }">
-                  <span :title="row.note || undefined">{{ row.note || t('common.none') }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column width="110" :label="t('settings.configBackupSize')">
-                <template #default="{ row }">
-                  <span class="mono">{{ formatBytes(row.size) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column width="120" :label="t('settings.configBackupSalt')">
-                <template #default="{ row }">
-                  <span class="tag-soft" :class="row.salt_matches ? 'tag-green' : 'tag-red'">
-                    {{ row.salt_matches ? t('settings.configBackupSaltMatch') : t('settings.configBackupSaltMismatch') }}
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column width="210" align="right" :label="t('common.actions')">
-                <template #default="{ row }">
-                  <el-button text type="primary" size="small" @click="openBackupAction('restore', row)">
-                    {{ t('settings.configBackupRestore') }}
-                  </el-button>
-                  <el-button text size="small" @click="openBackupAction('download', row)">
-                    {{ t('settings.configBackupDownload') }}
-                  </el-button>
-                  <el-button text type="danger" size="small" @click="openBackupAction('delete', row)">
-                    {{ t('common.delete') }}
-                  </el-button>
-                </template>
-              </el-table-column>
-              <template #empty>
-                <div style="padding: 28px 0; color: #94a3b8">{{ t('settings.configBackupEmpty') }}</div>
-              </template>
-            </el-table>
+
+          <div v-if="configReady && configForm" class="settings-footer">
+            <div class="footer-actions">
+              <div class="footer-action-group">
+                <el-button type="primary" :disabled="!configWritable" :loading="configSaving" @click="openConfigSave">
+                  {{ t('settings.configSave') }}
+                </el-button>
+              </div>
+              <div class="footer-action-group">
+                <el-button :disabled="!configWritable" @click="openConfigBackup">
+                  {{ t('settings.configBackupNow') }}
+                </el-button>
+              </div>
+            </div>
           </div>
         </div>
       </el-tab-pane>
 
       <!-- TLS 信任链 -->
       <el-tab-pane :label="t('settings.tabTrust')" name="trust">
-        <div class="k-card">
+        <div class="k-card settings-card">
           <div class="card-head">
             <div>
               <h3>{{ t('settings.trustTitle') }}</h3>
               <div class="sub">{{ t('settings.trustSub') }}</div>
             </div>
-            <div class="flex gap-10 wrap">
-              <el-button :icon="Download" @click="downloadTrustBundle">{{ t('settings.trustDownload') }}</el-button>
-              <el-button type="primary" :icon="Upload" @click="openTrustDialog">{{ t('settings.trustImport') }}</el-button>
+          </div>
+
+          <div class="settings-scroll trust-scroll">
+            <el-alert
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="t('settings.trustAlert')"
+              style="margin-bottom: 16px"
+            />
+
+            <div class="trust-list" :class="{ 'is-empty': !trustedCAs.length }" v-loading="trustLoading">
+              <div v-if="!trustedCAs.length" class="trust-empty">
+                <el-icon size="28"><Lock /></el-icon>
+                <p>{{ t('settings.trustEmpty') }}</p>
+              </div>
+              <div v-for="row in trustedCAs" :key="row.id" class="trust-item">
+                <div class="trust-head">
+                  <div class="trust-name">
+                    <el-icon><Lock /></el-icon>
+                    <span>{{ row.name }}</span>
+                  </div>
+                  <el-button text type="danger" size="small" @click="removeTrustedCA(row)">
+                    {{ t('common.delete') }}
+                  </el-button>
+                </div>
+                <div class="trust-subject mono">{{ row.subject }}</div>
+                <div class="trust-meta">
+                  <div class="trust-field">
+                    <span class="trust-label">{{ t('settings.trustIssuer') }}</span>
+                    <span class="trust-value mono">{{ row.issuer }}</span>
+                  </div>
+                  <div class="trust-field">
+                    <span class="trust-label">{{ t('settings.trustExpires') }}</span>
+                    <span class="trust-value">{{ formatDate(row.not_after) }}</span>
+                  </div>
+                </div>
+                <div class="trust-field trust-fingerprint">
+                  <span class="trust-label">{{ t('settings.trustFingerprint') }}</span>
+                  <span class="trust-value mono">{{ row.fingerprint }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-help" style="margin-top: 12px">{{ t('settings.trustBuiltinNote') }}</div>
+          </div>
+
+          <div class="settings-footer">
+            <div class="footer-actions">
+              <div class="footer-action-group">
+                <el-button :icon="Download" @click="downloadTrustBundle">{{ t('settings.trustDownload') }}</el-button>
+              </div>
+              <div class="footer-action-group">
+                <el-button type="primary" :icon="Upload" @click="openTrustDialog">{{ t('settings.trustImport') }}</el-button>
+              </div>
             </div>
           </div>
-
-          <el-alert
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="t('settings.trustAlert')"
-            style="margin-bottom: 16px"
-          />
-
-          <div class="table-scroll">
-            <el-table :data="trustedCAs" v-loading="trustLoading" size="small" style="width: 100%">
-              <el-table-column min-width="220" :label="t('settings.trustCA')">
-                <template #default="{ row }">
-                  <div style="font-weight: 600">{{ row.name }}</div>
-                  <div class="muted mono" style="font-size: 12px; margin-top: 2px; word-break: break-all">{{ row.subject }}</div>
-                </template>
-              </el-table-column>
-              <el-table-column min-width="180" :label="t('settings.trustIssuer')">
-                <template #default="{ row }">
-                  <span class="mono" style="font-size: 12px; word-break: break-all">{{ row.issuer }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column width="170" :label="t('settings.trustExpires')">
-                <template #default="{ row }">
-                  <span>{{ formatDate(row.not_after) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column min-width="190" :label="t('settings.trustFingerprint')">
-                <template #default="{ row }">
-                  <span class="mono" style="font-size: 11px; word-break: break-all">{{ row.fingerprint }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column width="80" align="right" :label="t('common.actions')">
-                <template #default="{ row }">
-                  <el-button text type="danger" size="small" @click="removeTrustedCA(row)">{{ t('common.delete') }}</el-button>
-                </template>
-              </el-table-column>
-              <template #empty>
-                <div style="padding: 34px 0; color: #94a3b8">
-                  <el-icon size="28"><Lock /></el-icon>
-                  <p style="margin: 10px 0 0">{{ t('settings.trustEmpty') }}</p>
-                </div>
-              </template>
-            </el-table>
-          </div>
-          <div class="form-help" style="margin-top: 12px">{{ t('settings.trustBuiltinNote') }}</div>
         </div>
       </el-tab-pane>
 
       <!-- 关于 -->
       <el-tab-pane :label="t('settings.tabAbout')" name="about">
-        <div class="k-card about-card">
-          <img src="/logo.svg" alt="LACTSSL" style="width: 58px; height: 58px" />
-          <div>
-            <h2 style="margin: 0 0 6px">LACTSSL</h2>
-            <div class="muted">{{ t('settings.aboutDesc') }}</div>
-            <div class="muted" style="margin-top: 8px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 18px">
+        <div class="k-card settings-card">
+          <div class="card-head">
+            <div class="about-head">
+              <img src="/logo.svg" alt="LACTSSL" style="width: 46px; height: 46px" />
+              <div>
+                <h3>LACTSSL</h3>
+                <div class="sub">{{ t('settings.aboutDesc') }}</div>
+              </div>
+            </div>
+            <span class="tag-soft tag-gray">{{ meta?.version || '1.0.0' }}</span>
+          </div>
+
+          <div class="settings-scroll">
+            <div class="about-build muted">
               <span>{{ t('settings.buildVersion') }}</span>
               <span class="mono">{{ meta?.version || '1.0.0' }}</span>
               <span>{{ t('settings.buildTime') }}</span>
@@ -370,65 +500,69 @@
               <span>{{ t('settings.buildArch') }}</span>
               <span class="mono">{{ status?.build_arch || t('common.none') }}</span>
             </div>
-          </div>
-        </div>
-        <div class="grid grid-2" style="margin-top: 18px">
-          <div class="k-card">
-            <div class="card-head"><h3>{{ t('settings.features') }}</h3></div>
-            <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature1') }}</div>
-            <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature2') }}</div>
-            <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature3') }}</div>
-            <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature4') }}</div>
-            <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature5') }}</div>
-          </div>
-          <div class="k-card">
-            <div class="card-head"><h3>{{ t('settings.techStack') }}</h3></div>
-            <div class="about-line"><span>{{ t('settings.backend') }}</span><span class="mono">Go + Gin + SQLite</span></div>
-            <div class="about-line"><span>{{ t('settings.frontend') }}</span><span class="mono">Vue 3 + Vite + Element Plus</span></div>
-            <div class="about-line"><span>{{ t('settings.acme') }}</span><span class="mono">lego / RFC 8555</span></div>
-            <div class="about-line"><span>{{ t('settings.storage') }}</span><span class="mono">SQLite (encrypted)</span></div>
-            <div class="about-line"><span>{{ t('settings.repo') }}</span><a href="https://github.com/AXmishell/LACTSSL" target="_blank" rel="noreferrer">github.com/AXmishell/LACTSSL</a></div>
-          </div>
-        </div>
-        <div class="k-card" style="margin-top: 18px">
-          <div class="card-head"><h3>{{ t('settings.systemInfo') }}</h3></div>
-          <div class="about-table-wrap">
-            <table class="about-table about-table-h">
-              <thead>
-                <tr>
-                  <th scope="col">{{ t('common.status') }}</th>
-                  <th scope="col">{{ t('settings.uptime') }}</th>
-                  <th scope="col">{{ t('settings.startedAt') }}</th>
-                  <th scope="col">{{ t('settings.goroutines') }}</th>
-                  <th scope="col">{{ t('settings.threads') }}</th>
-                  <th scope="col">{{ t('settings.memory') }}</th>
-                  <th scope="col">{{ t('settings.vmRss') }}</th>
-                  <th scope="col">{{ t('settings.rssAnon') }}</th>
-                  <th scope="col">{{ t('settings.vmSwap') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>
-                    <span
-                      class="tag-soft"
-                      :class="status ? 'tag-green' : statusError ? 'tag-red' : 'tag-gray'"
-                      :title="statusError || undefined"
-                    >
-                      {{ status ? t('settings.running') : statusError ? t('settings.statusError') : t('settings.loading') }}
-                    </span>
-                  </td>
-                  <td class="mono">{{ uptimeText }}</td>
-                  <td class="mono">{{ status ? formatDate(status.started_at) : t('common.none') }}</td>
-                  <td class="mono">{{ status?.goroutines ?? t('common.none') }}</td>
-                  <td class="mono">{{ status?.threads ?? t('common.none') }}</td>
-                  <td class="mono">{{ memoryText }}</td>
-                  <td class="mono">{{ formatBytes(status?.memory_rss) }}</td>
-                  <td class="mono">{{ formatBytes(status?.memory_anon) }}</td>
-                  <td class="mono">{{ formatBytes(status?.memory_swap) }}</td>
-                </tr>
-              </tbody>
-            </table>
+
+            <div class="grid grid-2 about-grid">
+              <div class="about-panel">
+                <div class="card-head"><h3>{{ t('settings.features') }}</h3></div>
+                <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature1') }}</div>
+                <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature2') }}</div>
+                <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature3') }}</div>
+                <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature4') }}</div>
+                <div class="about-feature"><el-icon color="#10b981"><CircleCheck /></el-icon>{{ t('settings.feature5') }}</div>
+              </div>
+              <div class="about-panel">
+                <div class="card-head"><h3>{{ t('settings.techStack') }}</h3></div>
+                <div class="about-line"><span>{{ t('settings.backend') }}</span><span class="mono">Go + Gin + SQLite</span></div>
+                <div class="about-line"><span>{{ t('settings.frontend') }}</span><span class="mono">Vue 3 + Vite + Element Plus</span></div>
+                <div class="about-line"><span>{{ t('settings.acme') }}</span><span class="mono">lego / RFC 8555</span></div>
+                <div class="about-line"><span>{{ t('settings.storage') }}</span><span class="mono">SQLite (encrypted)</span></div>
+                <div class="about-line"><span>{{ t('settings.repo') }}</span><a href="https://github.com/AXmishell/LACTSSL" target="_blank" rel="noreferrer">github.com/AXmishell/LACTSSL</a></div>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="section-head">
+                <h3>{{ t('settings.systemInfo') }}</h3>
+              </div>
+              <div class="about-table-wrap">
+                <table class="about-table about-table-h">
+                  <thead>
+                    <tr>
+                      <th scope="col">{{ t('common.status') }}</th>
+                      <th scope="col">{{ t('settings.uptime') }}</th>
+                      <th scope="col">{{ t('settings.startedAt') }}</th>
+                      <th scope="col">{{ t('settings.goroutines') }}</th>
+                      <th scope="col">{{ t('settings.threads') }}</th>
+                      <th scope="col">{{ t('settings.memory') }}</th>
+                      <th scope="col">{{ t('settings.vmRss') }}</th>
+                      <th scope="col">{{ t('settings.rssAnon') }}</th>
+                      <th scope="col">{{ t('settings.vmSwap') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <span
+                          class="tag-soft"
+                          :class="status ? 'tag-green' : statusError ? 'tag-red' : 'tag-gray'"
+                          :title="statusError || undefined"
+                        >
+                          {{ status ? t('settings.running') : statusError ? t('settings.statusError') : t('settings.loading') }}
+                        </span>
+                      </td>
+                      <td class="mono">{{ uptimeText }}</td>
+                      <td class="mono">{{ status ? formatDate(status.started_at) : t('common.none') }}</td>
+                      <td class="mono">{{ status?.goroutines ?? t('common.none') }}</td>
+                      <td class="mono">{{ status?.threads ?? t('common.none') }}</td>
+                      <td class="mono">{{ memoryText }}</td>
+                      <td class="mono">{{ formatBytes(status?.memory_rss) }}</td>
+                      <td class="mono">{{ formatBytes(status?.memory_anon) }}</td>
+                      <td class="mono">{{ formatBytes(status?.memory_swap) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </el-tab-pane>
@@ -779,8 +913,24 @@
             <span class="mono">{{ proxyHints.effective_client_ip || t('common.none') }}</span>
           </div>
           <div class="about-line">
+            <span>{{ t('settings.configDetectSource') }}</span>
+            <span class="mono">{{ proxyHints.client_ip_source || t('common.none') }}</span>
+          </div>
+          <div class="about-line">
+            <span>{{ t('settings.configDetectApplied') }}</span>
+            <span class="mono" style="word-break: break-all">{{ (proxyHints.applied_trusted_proxies || []).join(', ') || t('common.none') }}</span>
+          </div>
+          <div class="about-line">
+            <span>{{ t('settings.configDetectConfigured') }}</span>
+            <span class="mono" style="word-break: break-all">{{ (proxyHints.configured_trusted_proxies || []).join(', ') || t('common.none') }}</span>
+          </div>
+          <div class="about-line">
             <span>{{ t('settings.configDetectForwarded') }}</span>
             <span class="mono" style="word-break: break-all">{{ forwardedText }}</span>
+          </div>
+          <div v-if="proxyHints.header_warnings?.length" class="about-line">
+            <span>{{ t('settings.configDetectHeaderWarnings') }}</span>
+            <span class="mono" style="word-break: break-all">{{ headerWarningText(proxyHints.header_warnings) }}</span>
           </div>
         </div>
         <div v-if="proxyHints?.suggestions?.length" class="proxy-suggestions">
@@ -790,6 +940,13 @@
               <div class="muted" style="margin-top: 4px; font-size: 12px">
                 {{ proxyReasonText(item.reason) }}
               </div>
+              <el-checkbox
+                v-if="item.requires_confirmation && !item.already_trusted"
+                v-model="proxyConfirmations[item.value]"
+                style="margin-top: 6px; height: auto; white-space: normal"
+              >
+                {{ t('settings.configDetectConfirm') }}
+              </el-checkbox>
             </div>
             <div class="flex gap-10" style="align-items: center">
               <span class="tag-soft" :class="item.confidence === 'high' ? 'tag-green' : 'tag-gray'">
@@ -799,7 +956,7 @@
                 size="small"
                 type="primary"
                 plain
-                :disabled="item.already_trusted"
+                :disabled="!canAddProxy(item)"
                 @click="addProxySuggestion(item.value)"
               >
                 {{ item.already_trusted ? t('settings.configDetectAlready') : t('settings.configDetectAdd') }}
@@ -898,6 +1055,7 @@ import ReauthFields from '../components/ReauthFields.vue'
 import ConfigEditor from '../components/ConfigEditor.vue'
 import { api, copyText, downloadFile, errorText } from '../api'
 import { isPasskeyCancelled, passkeySecureContext, passkeySupported, registerPasskey } from '../passkeys'
+import { notifyChannelLabelKey } from '../notifyChannels'
 import { loadMeta, loadSettings, loadUser, logout, state } from '../store'
 import { formatDate } from '../utils'
 import type {
@@ -905,6 +1063,7 @@ import type {
   BackupInfo,
   ConfigBackupInfo,
   ConfigProxyHints,
+  ConfigProxySuggestion,
   ConfigProxyWarning,
   MessageResult,
   Meta,
@@ -936,6 +1095,23 @@ interface ProgramStatus {
   memory_swap: number
 }
 
+const securityEventOptions = [
+  { value: 'credential.password.changed', labelKey: 'notifications.securityEventPassword' },
+  { value: 'credential.email.changed', labelKey: 'notifications.securityEventEmail' },
+  { value: 'credential.totp.enabled', labelKey: 'notifications.securityEventTOTPEnabled' },
+  { value: 'credential.totp.disabled', labelKey: 'notifications.securityEventTOTPDisabled' },
+  { value: 'credential.passkey.added', labelKey: 'notifications.securityEventPasskeyAdded' },
+  { value: 'credential.passkey.deleted', labelKey: 'notifications.securityEventPasskeyDeleted' },
+  { value: 'credential.recovery.reset', labelKey: 'notifications.securityEventReset' },
+  { value: 'apikey.created', labelKey: 'notifications.securityEventAPIKeyCreated' },
+  { value: 'apikey.updated', labelKey: 'notifications.securityEventAPIKeyUpdated' },
+  { value: 'apikey.deleted', labelKey: 'notifications.securityEventAPIKeyDeleted' },
+  { value: 'apikey.rotated', labelKey: 'notifications.securityEventAPIKeyRotated' },
+  { value: 'settings.notify.changed', labelKey: 'notifications.securityEventNotify' }
+]
+
+const defaultSecurityEvents = securityEventOptions.map((item) => item.value)
+
 const { t } = useI18n()
 const router = useRouter()
 const tab = ref('security')
@@ -954,6 +1130,36 @@ const passkeyUsable = computed(() => passkeySupported() && passkeySecureContext(
 
 const savingEntry = ref(false)
 const savingAccount = ref(false)
+const savingSecurity = ref(false)
+const testingSecurity = ref(false)
+const securityReauth = reactive({ password: '', totp: '' })
+const security = reactive({
+  enabled: true,
+  events: [...defaultSecurityEvents] as string[],
+  to: '',
+  retention_days: 90,
+  login: 'new' as 'off' | 'new' | 'always',
+  failed_login: true,
+  failed_threshold: 5,
+  failed_window: 600,
+  new_device_days: 30,
+  channels: ['mail'] as string[],
+  last_error: '',
+  last_delivered_at: '' as string | null
+})
+
+const securityChannelOptions = computed(() => {
+  const options = [{ value: 'mail', label: t('notifications.channelMail') }]
+  for (const def of settings.value?.notify_channel_defs || []) {
+    if (def.id === 'mail') continue
+    const labelKey = notifyChannelLabelKey(def.id)
+    options.push({
+      value: def.id,
+      label: def.name || (labelKey ? t(labelKey) : def.id)
+    })
+  }
+  return options
+})
 
 const entryForm = reactive({ entry: '' })
 
@@ -997,7 +1203,6 @@ const configReady = ref(false)
 const configLoadError = ref('')
 const configForm = ref<SetupConfig | null>(null)
 const configRevision = ref('')
-const configPath = ref('')
 const configWritable = ref(true)
 const configEffectiveAddr = ref('')
 const configPending = ref<PendingConfigRestart | null>(null)
@@ -1022,6 +1227,7 @@ const backupActionReauth = reactive({ password: '', totp: '' })
 const proxyVisible = ref(false)
 const proxyLoading = ref(false)
 const proxyHints = ref<ConfigProxyHints | null>(null)
+const proxyConfirmations = ref<Record<string, boolean>>({})
 
 const configRestartVisible = ref(false)
 const configRestarting = ref(false)
@@ -1136,9 +1342,49 @@ function proxyWarningText(warning: ConfigProxyWarning): string {
       return t('settings.configDetectCDNWarning')
     case 'broad_proxy_range':
       return t('settings.configDetectBroadWarning', { value: warning.detail || '' })
+    case 'unverified_forwarded_headers':
+      return t('settings.configDetectUnverifiedWarning')
+    case 'public_peer_forwarded':
+      return t('settings.configDetectPublicPeerWarning')
+    case 'configured_differs_from_applied':
+      return t('settings.configDetectRestartDiffWarning')
+    case 'trusted_config_invalid':
+      return t('settings.configDetectInvalidConfigWarning')
     default:
       return warning.code
   }
+}
+
+function canAddProxy(item: ConfigProxySuggestion): boolean {
+  if (item.already_trusted) return false
+  return !item.requires_confirmation || !!proxyConfirmations.value[item.value]
+}
+
+function headerWarningText(warnings: string[]): string {
+  return warnings
+    .map((code) => {
+      switch (code) {
+        case 'x_forwarded_for_unusable':
+        case 'x_forwarded_for_too_large':
+          return t('settings.configDetectHeaderXFFUnusable')
+        case 'x_real_ip_unusable':
+        case 'x_real_ip_too_large':
+          return t('settings.configDetectHeaderXRealIPUnusable')
+        case 'cf_connecting_ip_unusable':
+        case 'cf_connecting_ip_too_large':
+          return t('settings.configDetectHeaderCFUnusable')
+        case 'forwarded_unusable':
+        case 'forwarded_too_large':
+          return t('settings.configDetectHeaderForwardedUnusable')
+        case 'headers_unusable':
+          return t('settings.configDetectHeaderFallback')
+        case 'invalid_remote_addr':
+          return t('settings.configDetectHeaderInvalidRemote')
+        default:
+          return code
+      }
+    })
+    .join('; ')
 }
 
 function requireConfigReauth(form: { password: string; totp: string }): boolean {
@@ -1157,7 +1403,6 @@ async function loadConfig(): Promise<void> {
     const data = await api.get<SettingsConfigResult>('/settings/config')
     configForm.value = data.config
     configRevision.value = data.revision
-    configPath.value = data.path
     configWritable.value = data.writable
     configEffectiveAddr.value = data.effective_addr
     configPending.value = data.restart_pending
@@ -1191,12 +1436,19 @@ async function saveConfig(): Promise<void> {
   if (!requireConfigReauth(configSaveReauth)) return
   configSaving.value = true
   try {
+    const form = configForm.value
     const result = await api.put<SettingsConfigSaveResult>('/settings/config', {
       revision: configRevision.value,
       note: configSaveNote.value.trim(),
       password: configSaveReauth.password,
       totp: configSaveReauth.totp.trim(),
-      config: configForm.value
+      config: {
+        ...form,
+        rate_limit: {
+          max_keys: form.rate_limit.max_keys,
+          rules: form.rate_limit.rules
+        }
+      }
     })
     configSaveVisible.value = false
     ElMessage.success(result.message || t('settings.configSaved'))
@@ -1296,6 +1548,7 @@ async function confirmBackupAction(): Promise<void> {
 
 function openProxyDialog(): void {
   proxyVisible.value = true
+  proxyConfirmations.value = {}
   loadProxyHints()
 }
 
@@ -1367,10 +1620,80 @@ function applySettings(data: AppSettings): void {
   settings.value = data
   // 默认填入当前入口，便于直接编辑。
   entryForm.entry = data.entry || ''
+
+  const policy = data.security_notify
+  Object.assign(security, {
+    enabled: policy?.enabled !== false,
+    events: Array.isArray(policy?.events) ? [...policy.events] : [...defaultSecurityEvents],
+    to: policy?.to || '',
+    retention_days: policy?.retention_days || 90,
+    login: policy?.login === 'off' || policy?.login === 'always' ? policy.login : 'new',
+    failed_login: policy?.failed_login !== false,
+    failed_threshold: policy?.failed_threshold || 5,
+    failed_window: policy?.failed_window || 600,
+    new_device_days: policy?.new_device_days || 30,
+    channels: Array.isArray(policy?.channels) && policy.channels.length ? [...policy.channels] : ['mail'],
+    last_error: policy?.last_error || '',
+    last_delivered_at: policy?.last_delivered_at || null
+  })
 }
 
 function goNotifications(): void {
   router.push('/notifications')
+}
+
+async function saveSecurity(): Promise<void> {
+  if (!validReauth(securityReauth)) return
+  savingSecurity.value = true
+  try {
+    const saved = await api.put('/settings', {
+      security_notify: {
+        enabled: security.enabled,
+        events: [...security.events],
+        to: security.to,
+        retention_days: security.retention_days,
+        login: security.login,
+        failed_login: security.failed_login,
+        failed_threshold: security.failed_threshold,
+        failed_window: security.failed_window,
+        new_device_days: security.new_device_days,
+        channels: [...security.channels]
+      },
+      password: securityReauth.password,
+      totp: securityReauth.totp
+    })
+    if (saved === null) return
+    securityReauth.password = ''
+    securityReauth.totp = ''
+    ElMessage.success(t('notifications.securitySaved'))
+    applySettings(await loadSettings(true))
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    savingSecurity.value = false
+  }
+}
+
+async function sendSecurityTest(): Promise<void> {
+  if (!validReauth(securityReauth)) return
+  testingSecurity.value = true
+  try {
+    const data = await api.post<MessageResult>('/settings/test-security-notify', {
+      channels: [...security.channels],
+      to: security.to,
+      password: securityReauth.password,
+      totp: securityReauth.totp
+    })
+    if (data === null) return
+    securityReauth.password = ''
+    securityReauth.totp = ''
+    ElMessage.success(data.message || t('notifications.securityTestQueued'))
+    applySettings(await loadSettings(true))
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    testingSecurity.value = false
+  }
 }
 
 async function loadStatus(): Promise<void> {
@@ -1875,8 +2198,326 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 与 /upgrade 一致：整页固定高度，卡片头部固定，内容区滚动，主操作固定在底部。 */
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 设置页页头与标签栏自带间距，去掉页头下外边距避免双重留白。 */
+.settings-page > .page-head {
+  margin-bottom: 0;
+}
+
+.settings-card > .card-head {
+  flex: none;
+  /* 滚动区内容（如配置文件路径信息）上滑时不能盖住卡片标题与副标题。 */
+  position: relative;
+  z-index: 1;
+  background: var(--kp-card);
+}
+
+/* 配置文件卡片：上留白 12px，下留白 20px。 */
+.k-card.config-card {
+  padding-top: 12px;
+  padding-bottom: 20px;
+}
+
+/* 配置文件卡片：滚动区从卡片顶部开始，标签栏固定在滚动区顶部。 */
+.settings-scroll {
+  min-height: 0;
+  /* 让内层 sticky 标签的层级限制在滚动区内部，不会盖到卡片标题。 */
+  isolation: isolate;
+}
+
+.settings-footer {
+  flex: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--kp-border);
+}
+
+.footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.footer-action-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 信任链使用自适应列表而不是固定列表格，避免长主题与指纹把操作列挤出视口。 */
+.trust-scroll {
+  display: flex;
+  flex-direction: column;
+}
+
+.trust-scroll > .el-alert,
+.trust-scroll > .form-help {
+  flex: none;
+}
+
+.trust-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 160px;
+  border: 1px solid var(--kp-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* 没有数据时让空状态区域撑满卡片剩余高度。 */
+.trust-list.is-empty {
+  flex: 1 1 auto;
+}
+
+.trust-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 44px 16px;
+  color: #94a3b8;
+}
+
+.trust-empty p {
+  margin: 10px 0 0;
+}
+
+.trust-item {
+  flex: none;
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-top: 1px solid #f1f5f9;
+  transition: background 0.15s ease;
+}
+
+.trust-item:first-child {
+  border-top: 0;
+}
+
+.trust-item:hover {
+  background: #f8fbff;
+}
+
+.trust-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trust-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.trust-name .el-icon {
+  flex: none;
+  color: #64748b;
+}
+
+.trust-head > .el-button {
+  flex: none;
+  margin-top: -4px;
+}
+
+.trust-subject {
+  color: var(--kp-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.trust-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(150px, 1fr);
+  gap: 6px 24px;
+}
+
+.trust-field {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.trust-label {
+  color: #94a3b8;
+}
+
+.trust-value {
+  min-width: 0;
+  color: #334155;
+  word-break: break-all;
+}
+
+.trust-fingerprint .trust-value {
+  font-size: 11px;
+}
+
+@media (max-width: 1200px) {
+  .trust-meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .trust-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
+
+.test-hint {
+  font-size: 12px;
+}
+
+.security-events {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px 18px;
+  width: 100%;
+}
+
+.settings-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--kp-border);
+}
+
+.section-head {
+  margin-bottom: 14px;
+}
+
+.section-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.section-head .sub {
+  color: var(--kp-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.about-build {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 18px;
+  margin-bottom: 18px;
+}
+
+.about-grid {
+  margin-top: 0;
+}
+
+.about-panel {
+  padding: 18px;
+  border: 1px solid var(--kp-border);
+  border-radius: 14px;
+  background: #fbfcfe;
+}
+
+.about-panel .card-head {
+  margin-bottom: 12px;
+}
+
+@media (min-width: 861px) {
+  .page.settings-page {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--kp-topbar-h) - 41px);
+    min-height: 460px;
+  }
+
+  .settings-page .settings-tabs {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings-page .settings-tabs :deep(.el-tabs__content) {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .settings-page .settings-tabs :deep(.el-tab-pane) {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .settings-card {
+    height: 100%;
+    margin-bottom: 0;
+  }
+
+  .settings-scroll {
+    flex: 1 1 auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  /* 配置表单较长，内层分组标签固定在滚动区顶部，滚动时仍可切换分组。 */
+  .settings-scroll :deep(.config-tabs .el-tabs__header) {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin-bottom: 0;
+    padding-bottom: 18px;
+    background: var(--kp-card);
+  }
+}
+
+@media (max-width: 860px) {
+  .card-head {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 620px) {
+  .footer-actions,
+  .footer-action-group {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .footer-action-group :deep(.el-button) {
+    flex: 1;
+  }
+}
+
 .settings-tabs :deep(.el-tabs__header) {
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 .account-row {
   display: flex;
@@ -1929,6 +2570,9 @@ onUnmounted(() => {
 .setting-row:first-of-type {
   margin-top: 8px;
 }
+.backup-card .setting-row:first-of-type {
+  margin-top: 0;
+}
 .form-help {
   font-size: 12px;
   color: #94a3b8;
@@ -1970,12 +2614,6 @@ onUnmounted(() => {
   border-radius: 10px;
   padding: 10px 14px;
   font-size: 13px;
-}
-.about-card {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  background: linear-gradient(135deg, #ffffff, #f5f9ff);
 }
 .about-feature {
   display: flex;
@@ -2035,20 +2673,7 @@ onUnmounted(() => {
 .about-table-h tbody tr:last-child td {
   border-bottom: none;
 }
-.config-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
-  margin-bottom: 16px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: #f8fafc;
-  font-size: 12px;
-}
-.config-meta .mono {
-  margin-left: 6px;
-  color: #334155;
-}
+
 .proxy-info {
   padding: 4px 0 12px;
 }

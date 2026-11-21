@@ -404,3 +404,38 @@ func TestMigrateTOTPSecrets(t *testing.T) {
 		t.Fatalf("迁移后无法解密: %+v, %v", loaded, err)
 	}
 }
+
+func TestAPIKeyAllowedDNSAccountsPersistence(t *testing.T) {
+	st := newTestStore(t)
+	user, err := st.CreateUser("dns-key@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := &model.APIKey{
+		UserID:               user.ID,
+		Name:                 "restricted",
+		Prefix:               "abcd1234",
+		TokenHash:            "token-hash",
+		Scopes:               []string{"dns_accounts:read"},
+		AllowedDNSAccountIDs: []int64{3, 1, 2},
+		Enabled:              true,
+	}
+	if err := st.CreateAPIKey(key); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := st.GetAPIKey(user.ID, key.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.AllowedDNSAccountIDs) != 3 || loaded.AllowedDNSAccountIDs[0] != 3 || loaded.AllowedDNSAccountIDs[2] != 2 {
+		t.Fatalf("DNS 账户集合未正确持久化: %+v", loaded.AllowedDNSAccountIDs)
+	}
+	loaded.AllowedDNSAccountIDs = []int64{9}
+	if err := st.UpdateAPIKey(loaded); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = st.GetAPIKey(user.ID, key.ID)
+	if err != nil || len(loaded.AllowedDNSAccountIDs) != 1 || loaded.AllowedDNSAccountIDs[0] != 9 {
+		t.Fatalf("DNS 账户集合未正确更新: %+v %v", loaded, err)
+	}
+}

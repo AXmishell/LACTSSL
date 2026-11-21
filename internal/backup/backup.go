@@ -42,6 +42,8 @@ const (
 	DatabaseName = "lactssl.db"
 	// PostgresDatabaseName 是 PostgreSQL 逻辑备份在包内的固定名称。
 	PostgresDatabaseName = "lactssl.dump"
+	// MySQLDatabaseName 是 MySQL 逻辑备份在包内的固定名称。
+	MySQLDatabaseName = "lactssl.sql"
 	// driverName 记录待恢复目录中的数据库驱动。
 	driverName = "driver"
 	// ConfigName 是备份包内配置文件的固定名称。
@@ -135,6 +137,9 @@ func (m *Manager) Info() (Info, error) {
 	info := Info{}
 	if m.DB != nil && m.DB.Dialect().IsPostgres() {
 		_ = m.DB.QueryRow(`SELECT pg_database_size(current_database())`).Scan(&info.DatabaseSize)
+	} else if m.DB != nil && m.DB.Dialect().IsMySQL() {
+		_ = m.DB.QueryRow(`SELECT COALESCE(SUM(data_length+index_length),0)
+			FROM information_schema.tables WHERE table_schema=DATABASE()`).Scan(&info.DatabaseSize)
 	} else if stat, err := os.Stat(m.DBPath); err == nil {
 		info.DatabaseSize = stat.Size()
 	}
@@ -178,6 +183,8 @@ func (m *Manager) Export(password string) (string, string, func(), error) {
 	databaseName := DatabaseName
 	if m.DB != nil && m.DB.Dialect().IsPostgres() {
 		databaseName = PostgresDatabaseName
+	} else if m.DB != nil && m.DB.Dialect().IsMySQL() {
+		databaseName = MySQLDatabaseName
 	}
 	dbSnapshot := filepath.Join(tempDir, databaseName)
 	if err := m.snapshot(dbSnapshot); err != nil {
@@ -195,6 +202,8 @@ func (m *Manager) Export(password string) (string, string, func(), error) {
 	}
 	if databaseName == PostgresDatabaseName {
 		meta.Driver = "postgres"
+	} else if databaseName == MySQLDatabaseName {
+		meta.Driver = "mysql"
 	}
 	if stat, err := os.Stat(m.ConfigFile); err == nil && stat.Mode().IsRegular() {
 		meta.Config = ConfigName
@@ -485,6 +494,22 @@ func (m *Manager) snapshot(target string) error {
 		}
 		return nil
 	}
+	if m.DB.Dialect().IsMySQL() {
+		mysqlDump, err := findMySQLDump()
+		if err != nil {
+			return err
+		}
+		connection, err := db.MySQLCLI(m.DB.DSN())
+		if err != nil {
+			return err
+		}
+		cmd := exec.CommandContext(context.Background(), mysqlDump, db.MySQLDumpArgs(mysqlDump, connection, target)...) // #nosec G204 -- mysqldump 从 PATH 解析，参数由服务端生成
+		cmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("mysqldump 失败: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return nil
+	}
 	if _, err := m.DB.Exec(`VACUUM INTO ?`, target); err != nil {
 		return fmt.Errorf("创建数据库快照失败: %w", err)
 	}
@@ -595,6 +620,9 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 		if bytes.HasPrefix(magic, []byte("PGDMP")) {
 			driver = "postgres"
 		}
+		if strings.HasSuffix(strings.ToLower(filename), ".sql") || looksLikeMySQLDump(uploadPath) {
+			driver = "mysql"
+		}
 	}
 	if err != nil {
 		return err
@@ -625,6 +653,9 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 	databaseName := DatabaseName
 	if driver == "postgres" {
 		databaseName = PostgresDatabaseName
+	}
+	if driver == "mysql" {
+		databaseName = MySQLDatabaseName
 	}
 	if err := copyFile(dbPath, filepath.Join(next, databaseName)); err != nil {
 		_ = os.RemoveAll(next)
@@ -757,6 +788,15 @@ func extractArchive(archivePath, workDir string) (string, string, error) {
 				return "", "", err
 			}
 			dbPath = target
+		case dbPath == "" && (lower == MySQLDatabaseName || strings.HasSuffix(lower, ".sql")):
+			if entry.UncompressedSize64 > uint64(MaxUploadSize) {
+				return "", "", ErrTooLarge
+			}
+			target := filepath.Join(workDir, MySQLDatabaseName)
+			if err := extractEntry(entry, target, MaxUploadSize); err != nil {
+				return "", "", err
+			}
+			dbPath = target
 		case configPath == "" && (lower == ConfigName || strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")):
 			if entry.UncompressedSize64 > maxConfigSize {
 				return "", "", fmt.Errorf("%w: 配置文件过大", ErrInvalidArchive)
@@ -787,6 +827,9 @@ func extractEntry(entry *zip.File, target string, limit int64) error {
 func validateDatabase(driver, filePath string) error {
 	if driver == "postgres" {
 		return validatePostgresDump(filePath)
+	}
+	if driver == "mysql" {
+		return validateMySQLDump(filePath)
 	}
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -846,6 +889,43 @@ func validatePostgresDump(filePath string) error {
 		}
 	}
 	return nil
+}
+
+// validateMySQLDump 校验逻辑备份包含基础表定义。
+func validateMySQLDump(filePath string) error {
+	raw, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	if len(raw) == 0 {
+		return ErrInvalidDatabase
+	}
+	text := string(raw[:min(len(raw), 512)])
+	upper := strings.ToUpper(text)
+	if !strings.Contains(upper, "MYSQL DUMP") && !strings.Contains(upper, "MARIADB DUMP") &&
+		!strings.Contains(text, "/*!40101") && !strings.Contains(text, "CREATE TABLE") {
+		return ErrInvalidDatabase
+	}
+	full := string(raw)
+	for _, table := range requiredTables {
+		if !strings.Contains(full, "CREATE TABLE `"+table+"`") &&
+			!strings.Contains(full, "CREATE TABLE "+table) {
+			return fmt.Errorf("%w: 缺少数据表 %s", ErrInvalidDatabase, table)
+		}
+	}
+	return nil
+}
+
+func looksLikeMySQLDump(filePath string) bool {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	header := make([]byte, 512)
+	n, _ := file.Read(header)
+	text := strings.ToUpper(string(header[:n]))
+	return strings.Contains(text, "MYSQL DUMP") || strings.Contains(text, "MARIADB DUMP")
 }
 
 func findPgRestore() (string, error) {
@@ -964,8 +1044,11 @@ func LoadPending(dataDir string) (*Pending, error) {
 	root := PendingDir(dataDir)
 	pending := &Pending{Root: root, Driver: "sqlite"}
 	if data, err := os.ReadFile(filepath.Join(root, driverName)); err == nil {
-		if strings.TrimSpace(string(data)) == "postgres" {
+		switch strings.TrimSpace(string(data)) {
+		case "postgres":
 			pending.Driver = "postgres"
+		case "mysql":
+			pending.Driver = "mysql"
 		}
 	}
 	if stat, err := os.Stat(filepath.Join(root, DatabaseName)); err == nil && stat.Mode().IsRegular() {
@@ -974,6 +1057,10 @@ func LoadPending(dataDir string) (*Pending, error) {
 	if stat, err := os.Stat(filepath.Join(root, PostgresDatabaseName)); err == nil && stat.Mode().IsRegular() {
 		pending.DatabasePath = filepath.Join(root, PostgresDatabaseName)
 		pending.Driver = "postgres"
+	}
+	if stat, err := os.Stat(filepath.Join(root, MySQLDatabaseName)); err == nil && stat.Mode().IsRegular() {
+		pending.DatabasePath = filepath.Join(root, MySQLDatabaseName)
+		pending.Driver = "mysql"
 	}
 	if stat, err := os.Stat(filepath.Join(root, ConfigName)); err == nil && stat.Mode().IsRegular() {
 		pending.ConfigPath = filepath.Join(root, ConfigName)
@@ -1115,6 +1202,57 @@ func ApplyPostgresDatabase(dsn, source string) error {
 	return nil
 }
 
+// ApplyMySQLDatabase 用 mysql 客户端恢复 MySQL 逻辑备份。
+// 调用方必须在数据库连接打开前调用（服务重启的启动阶段）。
+func ApplyMySQLDatabase(dsn, source string) error {
+	if strings.TrimSpace(dsn) == "" || strings.TrimSpace(source) == "" {
+		return errors.New("MySQL DSN 或备份文件未配置")
+	}
+	mysqlDump, err := findMySQLDump()
+	if err != nil {
+		return err
+	}
+	mysqlClient, err := findMySQLClient()
+	if err != nil {
+		return err
+	}
+	connection, err := db.MySQLCLI(dsn)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(connection.Database) == "" {
+		return errors.New("MySQL DSN 必须包含数据库名")
+	}
+	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	rollback := source + ".before-restore-" + suffix
+	dumpCmd := exec.Command(mysqlDump, db.MySQLDumpArgs(mysqlDump, connection, rollback)...) // #nosec G204 -- mysqldump 从 PATH 解析，参数由服务端生成
+	dumpCmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
+	if output, err := dumpCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("恢复前备份当前 MySQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	defer os.Remove(rollback)
+	restoreFile, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer restoreFile.Close()
+	restoreCmd := exec.Command(mysqlClient, db.MySQLRestoreArgs(mysqlClient, connection)...) // #nosec G204 -- mysql 从 PATH 解析，参数由服务端生成
+	restoreCmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
+	restoreCmd.Stdin = restoreFile
+	if output, err := restoreCmd.CombinedOutput(); err != nil {
+		// 尝试把恢复前的备份写回，降低半恢复状态的影响。
+		if rollbackFile, openErr := os.Open(rollback); openErr == nil {
+			rollbackCmd := exec.Command(mysqlClient, db.MySQLRestoreArgs(mysqlClient, connection)...) // #nosec G204 -- mysql 从 PATH 解析，参数由服务端生成
+			rollbackCmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
+			rollbackCmd.Stdin = rollbackFile
+			_, _ = rollbackCmd.CombinedOutput()
+			_ = rollbackFile.Close()
+		}
+		return fmt.Errorf("mysql 恢复失败: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 // ApplyConfig 用恢复文件替换配置文件，权限保持 0600。
 func ApplyConfig(target, source string) error {
 	if target == "" || source == "" {
@@ -1181,4 +1319,28 @@ func findPgDump() (string, error) {
 		}
 	}
 	return "", errors.New("未找到 pg_dump；请安装 PostgreSQL 18 客户端")
+}
+
+func findMySQLDump() (string, error) {
+	if path, err := exec.LookPath("mysqldump"); err == nil {
+		return path, nil
+	}
+	for _, candidate := range []string{"/usr/bin/mysqldump", "/usr/local/bin/mysqldump", "/usr/local/mysql/bin/mysqldump"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", errors.New("未找到 mysqldump；请安装 MySQL 客户端")
+}
+
+func findMySQLClient() (string, error) {
+	if path, err := exec.LookPath("mysql"); err == nil {
+		return path, nil
+	}
+	for _, candidate := range []string{"/usr/bin/mysql", "/usr/local/bin/mysql", "/usr/local/mysql/bin/mysql"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", errors.New("未找到 mysql 客户端；无法恢复 MySQL 备份")
 }

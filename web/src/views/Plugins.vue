@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page table-page plugin-page" :class="{ 'plugin-page-fill': useFillLayout }">
     <div class="page-head">
       <div>
         <h1>{{ t('plugins.title') }}</h1>
@@ -20,79 +20,74 @@
     </div>
 
     <div class="k-card plugin-repo-card" v-loading="repoLoading">
-      <div class="card-head">
-        <div>
+      <div class="card-head plugin-repo-head">
+        <div class="repo-head-main">
           <h3>{{ t('plugins.repoTitle') }}</h3>
-          <div class="sub">{{ t('plugins.repoSubtitle') }}</div>
+          <div class="sub repo-summary">
+            <el-tag v-if="repo" size="small" :type="repoSignature.type" effect="plain">{{ repoSignature.text }}</el-tag>
+            <span class="repo-summary-text" :title="repoStatusText">{{ repoStatusText }}</span>
+            <span v-if="repo?.enabled && repo.channel" class="repo-summary-sep">{{ repo.channel }}</span>
+            <span v-if="repo?.platform || repo?.host_version" class="repo-summary-sep mono">
+              {{ repo?.platform || '-' }} · {{ repo?.host_version || '-' }}
+            </span>
+          </div>
         </div>
         <div class="plugin-head-actions">
           <label class="repo-toggle">
             <span>{{ t('plugins.repoEnable') }}</span>
             <el-switch v-model="repoForm.enabled" />
           </label>
+          <el-button size="small" type="primary" :loading="repoSaving" @click="saveRepo">{{ t('common.save') }}</el-button>
           <el-button size="small" :icon="Refresh" :loading="repoRefreshing" :disabled="!repoForm.enabled" @click="refreshRepo">
             {{ t('plugins.repoRefresh') }}
           </el-button>
           <el-button size="small" type="primary" plain :disabled="!repoForm.enabled" @click="openMarket">
             {{ t('plugins.repoBrowse') }}
           </el-button>
+          <el-button size="small" text :icon="repoExpanded ? ArrowUp : ArrowDown" @click="repoExpanded = !repoExpanded">
+            {{ t('plugins.repoSettings') }}
+          </el-button>
         </div>
       </div>
-      <div class="repo-body">
-        <el-form class="repo-form" label-position="top" @submit.prevent>
-          <el-form-item :label="t('plugins.repoUrl')">
-            <el-input v-model="repoForm.url" placeholder="https://.../index.json" />
-          </el-form-item>
-          <div class="repo-inline">
-            <el-form-item :label="t('plugins.repoChannel')" class="repo-channel">
-              <el-select v-model="repoForm.channel">
-                <el-option label="stable" value="stable" />
-                <el-option label="beta" value="beta" />
-              </el-select>
+      <el-collapse-transition>
+        <div v-show="repoExpanded" class="repo-expanded">
+          <el-form class="repo-form" label-position="top" @submit.prevent>
+            <el-form-item :label="t('plugins.repoUrl')">
+              <el-input v-model="repoForm.url" placeholder="https://.../index.json" />
             </el-form-item>
-            <el-form-item :label="t('plugins.repoAutoUpdate')" class="repo-auto">
-              <el-switch v-model="repoForm.autoUpdate" />
+            <el-form-item :label="t('plugins.repoProxy')">
+              <el-input v-model="repoForm.proxy" clearable placeholder="http://127.0.0.1:7890 / socks5://127.0.0.1:1080" />
+              <div class="sub">{{ t('plugins.repoProxyHint') }}</div>
             </el-form-item>
-          </div>
-          <el-form-item :label="t('plugins.repoPublicKey')" class="repo-key">
-            <el-input v-model="repoForm.publicKey" type="password" show-password :placeholder="t('plugins.repoPublicKeyPlaceholder')" />
-            <div class="form-help key-status">
-              <span v-if="repoKeyInputError" class="key-invalid">{{ repoKeyInputError }}</span>
-              <span v-else-if="repoForm.publicKey.trim()">{{ t('plugins.repoPublicKeyInputValid') }}</span>
-              <template v-else-if="repo?.public_key_set">
-                <span>{{ t('plugins.repoPublicKeyConfigured') }}</span>
-                <span v-if="repo.public_key_valid && repo.public_key_fingerprint" class="mono">
-                  · {{ repo.public_key_fingerprint }}
-                </span>
-                <span v-else class="key-invalid">· {{ t('plugins.repoPublicKeyInvalid') }}</span>
-              </template>
-              <span v-else>{{ t('plugins.repoPublicKeyUnset') }}</span>
+            <div class="repo-inline">
+              <el-form-item :label="t('plugins.repoChannel')" class="repo-channel">
+                <el-select v-model="repoForm.channel">
+                  <el-option label="stable" value="stable" />
+                  <el-option label="beta" value="beta" />
+                </el-select>
+              </el-form-item>
+              <el-form-item :label="t('plugins.repoAutoUpdate')" class="repo-auto">
+                <el-switch v-model="repoForm.autoUpdate" />
+              </el-form-item>
             </div>
-          </el-form-item>
-          <div class="repo-form-actions">
-            <el-button size="small" :loading="repoSaving" @click="saveRepo">{{ t('common.save') }}</el-button>
-          </div>
-        </el-form>
-        <aside class="repo-status">
-          <div class="repo-status-item">
-            <span class="repo-status-label">{{ t('plugins.repoStatus') }}</span>
-            <span class="repo-status-value">{{ repoStatusText }}</span>
-          </div>
-          <div class="repo-status-item">
-            <span class="repo-status-label">{{ t('plugins.repoSignature') }}</span>
-            <div class="repo-status-value key-status">
-              <el-tag size="small" :type="repoSignature.type" effect="plain">{{ repoSignature.text }}</el-tag>
-              <span v-if="repo?.public_key_valid && repo.public_key_fingerprint" class="key-fingerprint mono">
-                {{ repo.public_key_fingerprint }}
-              </span>
-            </div>
-          </div>
-          <div class="repo-status-item">
-            <span class="repo-status-label">{{ t('plugins.repoPlatform') }}</span>
-            <span class="repo-status-value mono">{{ repo?.platform || '-' }} · {{ repo?.host_version || '-' }}</span>
-          </div>
-        </aside>
-      </div>
+            <el-form-item :label="t('plugins.repoPublicKey')" class="repo-key">
+              <el-input v-model="repoForm.publicKey" type="password" show-password :placeholder="t('plugins.repoPublicKeyPlaceholder')" />
+              <div class="form-help key-status">
+                <span v-if="repoKeyInputError" class="key-invalid">{{ repoKeyInputError }}</span>
+                <span v-else-if="repoForm.publicKey.trim()">{{ t('plugins.repoPublicKeyInputValid') }}</span>
+                <template v-else-if="repo?.public_key_set">
+                  <span>{{ t('plugins.repoPublicKeyConfigured') }}</span>
+                  <span v-if="repo.public_key_valid && repo.public_key_fingerprint" class="mono">
+                    · {{ repo.public_key_fingerprint }}
+                  </span>
+                  <span v-else class="key-invalid">· {{ t('plugins.repoPublicKeyInvalid') }}</span>
+                </template>
+                <span v-else>{{ t('plugins.repoPublicKeyUnset') }}</span>
+              </div>
+            </el-form-item>
+          </el-form>
+        </div>
+      </el-collapse-transition>
       <el-alert v-if="repo?.error" :title="repo.error" type="warning" :closable="false" class="repo-alert" />
       <el-alert
         v-if="repo?.enabled && !repo?.public_key_set"
@@ -127,11 +122,11 @@
       </el-radio-group>
     </div>
 
-    <div v-if="activeTab === 'dns'" class="k-card" v-loading="loading">
+    <div v-if="activeTab === 'dns'" class="k-card plugin-card" v-loading="loading">
       <div class="card-head">
         <div>
           <h3>{{ t('plugins.dnsTitle') }}</h3>
-          <div class="sub">{{ plugins?.dir || t('common.none') }}</div>
+          <div class="sub">{{ t('plugins.dnsSubtitle') }}</div>
         </div>
         <div class="plugin-head-actions">
           <span class="tag-soft" :class="plugins?.enabled ? 'tag-green' : 'tag-gray'">{{ statusText(plugins?.enabled) }}</span>
@@ -145,14 +140,20 @@
           </el-button>
         </div>
       </div>
-      <div class="about-line"><span>{{ t('plugins.enabled') }}</span><span class="mono">{{ statusText(plugins?.enabled) }}</span></div>
-      <div class="about-line"><span>{{ t('plugins.dir') }}</span><span class="mono">{{ plugins?.dir || t('common.none') }}</span></div>
-      <div class="about-line"><span>{{ t('plugins.helpers') }}</span><span class="mono">{{ plugins?.helpers ?? 0 }}</span></div>
-      <div class="about-line">
-        <span>{{ t('plugins.providers') }}</span>
-        <span class="mono">{{ enabledCount }} / {{ providers.length }}</span>
+      <div class="plugin-summary">
+        <div v-for="item in activeSummary" :key="item.label" class="plugin-summary-item">
+          <span class="plugin-summary-label">{{ item.label }}</span>
+          <span class="plugin-summary-value" :class="{ mono: item.mono }" :title="item.title || item.value">{{ item.value }}</span>
+        </div>
       </div>
-      <div class="about-line"><span>{{ t('plugins.memoryLimit') }}</span><span class="mono">{{ plugins?.limits?.memory_limit_mb ?? 0 }} MB</span></div>
+      <div v-if="activePluginStatus" class="plugin-status" :title="activePluginStatus.text">
+        <el-alert
+          :title="activePluginStatus.text"
+          :type="activePluginStatus.type"
+          :closable="false"
+          show-icon
+        />
+      </div>
       <div v-if="providers.length" class="plugin-toolbar">
         <el-input v-model="providerFilter" :placeholder="t('plugins.searchProvider')" clearable class="plugin-search" />
         <div class="plugin-bulk">
@@ -160,55 +161,37 @@
           <el-button size="small" :loading="bulkLoading" @click="bulkProviders(false)">{{ t('plugins.disableAll') }}</el-button>
         </div>
       </div>
-      <PluginGroupTable
-        v-if="providers.length || dnsFiles.length"
-        kind="dns"
-        :items="providers"
-        :files="dnsFiles"
-        :keyword="providerFilter"
-        :toggling="toggling"
-        :deleting="deletingFiles"
-        :file-toggling="fileToggling"
-        :aggregate-loading="dnsGroupToggling"
-        :empty-text="t('plugins.noMatched')"
-        :batch-action="batchAction"
-        @toggle="toggleProvider"
-        @toggle-group="toggleDnsGroup"
-        @toggle-items="(items, enabled) => togglePluginItems('dns', items, enabled)"
-        @toggle-file="(file, enabled) => togglePluginFile('dns', file, enabled)"
-        @delete="deletePluginFile"
-        @batch-toggle="batchToggleDnsGroups"
-        @batch-delete="batchDeletePluginFiles"
-      />
-      <div v-else class="sub">{{ t('plugins.noProviders') }}</div>
-      <el-alert
-        v-if="plugins && !plugins.enabled"
-        :title="t('plugins.dnsDisabledHint')"
-        type="info"
-        :closable="false"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-if="plugins?.skipped?.length"
-        :title="`${t('plugins.skipped')}: ${plugins.skipped.join(', ')}`"
-        type="warning"
-        :closable="false"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-if="plugins?.errors?.length"
-        :title="plugins.errors.join('；')"
-        type="warning"
-        :closable="false"
-        style="margin-top: 12px"
-      />
+      <div class="plugin-scroll">
+        <PluginGroupTable
+          v-if="providers.length || dnsFiles.length"
+          :fill="useFillLayout"
+          kind="dns"
+          :items="providers"
+          :files="dnsFiles"
+          :keyword="providerFilter"
+          :toggling="toggling"
+          :deleting="deletingFiles"
+          :file-toggling="fileToggling"
+          :aggregate-loading="dnsGroupToggling"
+          :empty-text="t('plugins.noMatched')"
+          :batch-action="batchAction"
+          @toggle="toggleProvider"
+          @toggle-group="toggleDnsGroup"
+          @toggle-items="(items, enabled) => togglePluginItems('dns', items, enabled)"
+          @toggle-file="(file, enabled) => togglePluginFile('dns', file, enabled)"
+          @delete="deletePluginFile"
+          @batch-toggle="batchToggleDnsGroups"
+          @batch-delete="batchDeletePluginFiles"
+        />
+        <div v-else class="plugin-scroll-empty sub">{{ t('plugins.noProviders') }}</div>
+      </div>
     </div>
 
-    <div v-if="activeTab === 'deploy'" class="k-card" v-loading="loading">
+    <div v-if="activeTab === 'deploy'" class="k-card plugin-card" v-loading="loading">
       <div class="card-head">
         <div>
           <h3>{{ t('plugins.deployTitle') }}</h3>
-          <div class="sub">{{ plugins?.deploy?.dir || t('common.none') }}</div>
+          <div class="sub">{{ t('plugins.deploySubtitle') }}</div>
         </div>
         <div class="plugin-head-actions">
           <span class="tag-soft" :class="plugins?.deploy?.enabled ? 'tag-green' : 'tag-gray'">
@@ -224,20 +207,19 @@
           </el-button>
         </div>
       </div>
-      <div class="about-line"><span>{{ t('plugins.enabled') }}</span><span class="mono">{{ statusText(plugins?.deploy?.enabled) }}</span></div>
-      <div class="about-line"><span>{{ t('plugins.dir') }}</span><span class="mono">{{ plugins?.deploy?.dir || t('common.none') }}</span></div>
-      <div class="about-line"><span>{{ t('plugins.deployHelpers') }}</span><span class="mono">{{ plugins?.deploy?.helpers ?? 0 }}</span></div>
-      <div class="about-line">
-        <span>{{ t('plugins.deployers') }}</span>
-        <span class="mono">{{ enabledDeployCount }} / {{ deployers.length }}</span>
+      <div class="plugin-summary">
+        <div v-for="item in activeSummary" :key="item.label" class="plugin-summary-item">
+          <span class="plugin-summary-label">{{ item.label }}</span>
+          <span class="plugin-summary-value" :class="{ mono: item.mono }" :title="item.title || item.value">{{ item.value }}</span>
+        </div>
       </div>
-      <div class="about-line">
-        <span>{{ t('plugins.deployMemoryLimit') }}</span>
-        <span class="mono">{{ plugins?.deploy?.limits?.memory_limit_mb ?? 0 }} MB</span>
-      </div>
-      <div class="about-line">
-        <span>{{ t('plugins.deployTimeout') }}</span>
-        <span class="mono">{{ plugins?.deploy?.limits?.timeout_seconds ?? 0 }} s</span>
+      <div v-if="activePluginStatus" class="plugin-status" :title="activePluginStatus.text">
+        <el-alert
+          :title="activePluginStatus.text"
+          :type="activePluginStatus.type"
+          :closable="false"
+          show-icon
+        />
       </div>
       <div v-if="deployers.length" class="plugin-toolbar">
         <el-input v-model="deployerFilter" :placeholder="t('plugins.searchDeployer')" clearable class="plugin-search" />
@@ -246,55 +228,37 @@
           <el-button size="small" :loading="bulkDeployLoading" @click="bulkDeployers(false)">{{ t('plugins.disableAll') }}</el-button>
         </div>
       </div>
-      <PluginGroupTable
-        v-if="deployers.length || deployFiles.length"
-        kind="deploy"
-        :items="deployers"
-        :files="deployFiles"
-        :keyword="deployerFilter"
-        :toggling="togglingDeployers"
-        :deleting="deletingFiles"
-        :file-toggling="fileToggling"
-        :aggregate-loading="deployGroupToggling"
-        :empty-text="t('plugins.noMatched')"
-        :batch-action="batchAction"
-        @toggle="toggleDeployer"
-        @toggle-group="toggleDeployGroup"
-        @toggle-items="(items, enabled) => togglePluginItems('deploy', items, enabled)"
-        @toggle-file="(file, enabled) => togglePluginFile('deploy', file, enabled)"
-        @delete="deletePluginFile"
-        @batch-toggle="batchToggleDeployGroups"
-        @batch-delete="batchDeletePluginFiles"
-      />
-      <div v-else class="sub">{{ t('plugins.noDeployers') }}</div>
-      <el-alert
-        v-if="plugins && !plugins.deploy?.enabled"
-        :title="t('plugins.disabledHint')"
-        type="info"
-        :closable="false"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-if="plugins?.deploy?.skipped?.length"
-        :title="`${t('plugins.skipped')}: ${plugins.deploy.skipped.join(', ')}`"
-        type="warning"
-        :closable="false"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-if="plugins?.deploy?.errors?.length"
-        :title="plugins.deploy.errors.join('；')"
-        type="warning"
-        :closable="false"
-        style="margin-top: 12px"
-      />
+      <div class="plugin-scroll">
+        <PluginGroupTable
+          v-if="deployers.length || deployFiles.length"
+          :fill="useFillLayout"
+          kind="deploy"
+          :items="deployers"
+          :files="deployFiles"
+          :keyword="deployerFilter"
+          :toggling="togglingDeployers"
+          :deleting="deletingFiles"
+          :file-toggling="fileToggling"
+          :aggregate-loading="deployGroupToggling"
+          :empty-text="t('plugins.noMatched')"
+          :batch-action="batchAction"
+          @toggle="toggleDeployer"
+          @toggle-group="toggleDeployGroup"
+          @toggle-items="(items, enabled) => togglePluginItems('deploy', items, enabled)"
+          @toggle-file="(file, enabled) => togglePluginFile('deploy', file, enabled)"
+          @delete="deletePluginFile"
+          @batch-toggle="batchToggleDeployGroups"
+          @batch-delete="batchDeletePluginFiles"
+        />
+        <div v-else class="plugin-scroll-empty sub">{{ t('plugins.noDeployers') }}</div>
+      </div>
     </div>
 
-    <div v-if="activeTab === 'notify'" class="k-card" v-loading="loading">
+    <div v-if="activeTab === 'notify'" class="k-card plugin-card" v-loading="loading">
       <div class="card-head">
         <div>
           <h3>{{ t('plugins.notifyTitle') }}</h3>
-          <div class="sub">{{ plugins?.notify?.dir || t('common.none') }}</div>
+          <div class="sub">{{ t('plugins.notifySubtitle') }}</div>
         </div>
         <div class="plugin-head-actions">
           <span class="tag-soft" :class="plugins?.notify?.enabled ? 'tag-green' : 'tag-gray'">
@@ -310,20 +274,19 @@
           </el-button>
         </div>
       </div>
-      <div class="about-line"><span>{{ t('plugins.enabled') }}</span><span class="mono">{{ statusText(plugins?.notify?.enabled) }}</span></div>
-      <div class="about-line"><span>{{ t('plugins.dir') }}</span><span class="mono">{{ plugins?.notify?.dir || t('common.none') }}</span></div>
-      <div class="about-line"><span>{{ t('plugins.notifyHelpers') }}</span><span class="mono">{{ plugins?.notify?.helpers ?? 0 }}</span></div>
-      <div class="about-line">
-        <span>{{ t('plugins.notifyChannels') }}</span>
-        <span class="mono">{{ enabledNotifyCount }} / {{ notifyChannels.length }}</span>
+      <div class="plugin-summary">
+        <div v-for="item in activeSummary" :key="item.label" class="plugin-summary-item">
+          <span class="plugin-summary-label">{{ item.label }}</span>
+          <span class="plugin-summary-value" :class="{ mono: item.mono }" :title="item.title || item.value">{{ item.value }}</span>
+        </div>
       </div>
-      <div class="about-line">
-        <span>{{ t('plugins.notifyMemoryLimit') }}</span>
-        <span class="mono">{{ plugins?.notify?.limits?.memory_limit_mb ?? 0 }} MB</span>
-      </div>
-      <div class="about-line">
-        <span>{{ t('plugins.notifyTimeout') }}</span>
-        <span class="mono">{{ plugins?.notify?.limits?.timeout_seconds ?? 0 }} s</span>
+      <div v-if="activePluginStatus" class="plugin-status" :title="activePluginStatus.text">
+        <el-alert
+          :title="activePluginStatus.text"
+          :type="activePluginStatus.type"
+          :closable="false"
+          show-icon
+        />
       </div>
       <div v-if="notifyChannels.length" class="plugin-toolbar">
         <el-input v-model="notifyFilter" :placeholder="t('plugins.searchNotifyChannel')" clearable class="plugin-search" />
@@ -332,48 +295,30 @@
           <el-button size="small" :loading="bulkNotifyLoading" @click="bulkNotifyChannels(false)">{{ t('plugins.disableAll') }}</el-button>
         </div>
       </div>
-      <PluginGroupTable
-        v-if="notifyChannels.length || notifyFiles.length"
-        kind="notify"
-        :items="notifyChannels"
-        :files="notifyFiles"
-        :keyword="notifyFilter"
-        :toggling="togglingNotify"
-        :deleting="deletingFiles"
-        :file-toggling="fileToggling"
-        :aggregate-loading="notifyGroupToggling"
-        :empty-text="t('plugins.noMatched')"
-        :batch-action="batchAction"
-        @toggle="toggleNotifyChannel"
-        @toggle-group="toggleNotifyGroup"
-        @toggle-items="(items, enabled) => togglePluginItems('notify', items, enabled)"
-        @toggle-file="(file, enabled) => togglePluginFile('notify', file, enabled)"
-        @delete="deletePluginFile"
-        @batch-toggle="batchToggleNotifyGroups"
-        @batch-delete="batchDeletePluginFiles"
-      />
-      <div v-else class="sub">{{ t('plugins.noNotifyChannels') }}</div>
-      <el-alert
-        v-if="plugins && !plugins.notify?.enabled"
-        :title="t('plugins.notifyDisabledHint')"
-        type="info"
-        :closable="false"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-if="plugins?.notify?.skipped?.length"
-        :title="`${t('plugins.skipped')}: ${plugins.notify.skipped.join(', ')}`"
-        type="warning"
-        :closable="false"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-if="plugins?.notify?.errors?.length"
-        :title="plugins.notify.errors.join('；')"
-        type="warning"
-        :closable="false"
-        style="margin-top: 12px"
-      />
+      <div class="plugin-scroll">
+        <PluginGroupTable
+          v-if="notifyChannels.length || notifyFiles.length"
+          :fill="useFillLayout"
+          kind="notify"
+          :items="notifyChannels"
+          :files="notifyFiles"
+          :keyword="notifyFilter"
+          :toggling="togglingNotify"
+          :deleting="deletingFiles"
+          :file-toggling="fileToggling"
+          :aggregate-loading="notifyGroupToggling"
+          :empty-text="t('plugins.noMatched')"
+          :batch-action="batchAction"
+          @toggle="toggleNotifyChannel"
+          @toggle-group="toggleNotifyGroup"
+          @toggle-items="(items, enabled) => togglePluginItems('notify', items, enabled)"
+          @toggle-file="(file, enabled) => togglePluginFile('notify', file, enabled)"
+          @delete="deletePluginFile"
+          @batch-toggle="batchToggleNotifyGroups"
+          @batch-delete="batchDeletePluginFiles"
+        />
+        <div v-else class="plugin-scroll-empty sub">{{ t('plugins.noNotifyChannels') }}</div>
+      </div>
     </div>
 
     <el-dialog v-model="marketVisible" :title="t('plugins.repoMarketTitle')" width="920px">
@@ -512,18 +457,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, UploadInstance } from 'element-plus'
-import { Document, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Document, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import { api, errorText } from '../api'
 import { notifyChannelLabelKey } from '../notifyChannels'
 import { formatSize, formatVersion } from '../utils'
 import PluginGroupTable from '../components/PluginGroupTable.vue'
-import type { LegacyPluginFile, NotifyPluginChannel, PluginFile, PluginInstallation, PluginProvider, PluginGroup, PluginRepoInstallResult, PluginRepoItem, PluginRepoStatus, PluginRepoUpdateResult, PluginStatus, PluginUploadResult } from '../types'
+import type { LegacyPluginFile, NotifyPluginChannel, PluginConflict, PluginFile, PluginInstallation, PluginProvider, PluginGroup, PluginRepoInstallResult, PluginRepoItem, PluginRepoStatus, PluginRepoUpdateResult, PluginStatus, PluginUploadResult } from '../types'
 
 const { t } = useI18n()
+// 视口足够高时才启用一屏布局；1366×768 等短屏回退为整页滚动 + 表格内滚动。
+const FILL_MEDIA = '(min-width: 861px) and (min-height: 800px)'
+const fillLayout = ref(window.matchMedia(FILL_MEDIA).matches)
+let fillMedia: MediaQueryList | null = null
 const plugins = ref<PluginStatus | null>(null)
 const loading = ref(false)
 const rescanning = ref(false)
@@ -551,6 +500,9 @@ const fileToggling = ref<Record<string, boolean>>({})
 const batchAction = ref<'' | 'enable' | 'disable' | 'delete'>('')
 const deletingFiles = ref<Record<string, boolean>>({})
 const repo = ref<PluginRepoStatus | null>(null)
+const repoExpanded = ref(false)
+// 展开仓库设置时临时回退为整页滚动，避免表单把表格压到 0 高。
+const useFillLayout = computed(() => fillLayout.value && !repoExpanded.value)
 const repoLoading = ref(false)
 const repoSaving = ref(false)
 const repoRefreshing = ref(false)
@@ -572,6 +524,7 @@ const repoForm = ref({
   url: '',
   channel: 'stable',
   autoUpdate: false,
+  proxy: '',
   publicKey: ''
 })
 // 公钥输入框不回显已保存的值，这里只对本次输入做格式预览。
@@ -599,8 +552,12 @@ const repoSignature = computed<{ type: 'success' | 'warning' | 'danger' | 'info'
   if (repo.value.signature_verified) {
     return { type: 'success', text: t('plugins.repoSignatureVerified') }
   }
-  if (repo.value.checked_at || repo.value.error) {
-    return { type: repo.value.error ? 'danger' : 'warning', text: t('plugins.repoSignatureFailed') }
+  // 索引尚未加载时（例如网络暂时不可达）不能据此断言签名失败。
+  if (repo.value.error && !repo.value.checked_at) {
+    return { type: 'warning', text: t('plugins.repoSignatureUnavailable') }
+  }
+  if (repo.value.checked_at) {
+    return { type: 'danger', text: t('plugins.repoSignatureFailed') }
   }
   return { type: 'warning', text: t('plugins.repoSignaturePending') }
 })
@@ -629,6 +586,84 @@ const deployFiles = computed(() => plugins.value?.deploy?.files || [])
 const notifyChannels = computed(() => plugins.value?.notify?.channels || [])
 const enabledNotifyCount = computed(() => notifyChannels.value.filter((item) => item.enabled).length)
 const notifyFiles = computed(() => plugins.value?.notify?.files || [])
+
+interface PluginSummaryItem {
+  label: string
+  value: string
+  mono?: boolean
+  title?: string
+}
+
+interface PluginTabStatus {
+  type: 'info' | 'warning' | 'error'
+  text: string
+}
+
+// 当前标签页的一行指标：目录、helper、启用数量与资源限制。
+const activeSummary = computed<PluginSummaryItem[]>(() => {
+  const status = plugins.value
+  if (!status) return []
+  if (activeTab.value === 'dns') {
+    return [
+      { label: t('plugins.dir'), value: status.dir || t('common.none'), mono: true, title: status.dir },
+      { label: t('plugins.helpers'), value: String(status.helpers ?? 0) },
+      { label: t('plugins.providers'), value: `${enabledCount.value} / ${providers.value.length}` },
+      { label: t('plugins.memoryLimit'), value: `${status.limits?.memory_limit_mb ?? 0} MB` }
+    ]
+  }
+  if (activeTab.value === 'deploy') {
+    return [
+      { label: t('plugins.dir'), value: status.deploy?.dir || t('common.none'), mono: true, title: status.deploy?.dir },
+      { label: t('plugins.deployHelpers'), value: String(status.deploy?.helpers ?? 0) },
+      { label: t('plugins.deployers'), value: `${enabledDeployCount.value} / ${deployers.value.length}` },
+      { label: t('plugins.deployMemoryLimit'), value: `${status.deploy?.limits?.memory_limit_mb ?? 0} MB` },
+      { label: t('plugins.deployTimeout'), value: `${status.deploy?.limits?.timeout_seconds ?? 0} s` }
+    ]
+  }
+  return [
+    { label: t('plugins.dir'), value: status.notify?.dir || t('common.none'), mono: true, title: status.notify?.dir },
+    { label: t('plugins.notifyHelpers'), value: String(status.notify?.helpers ?? 0) },
+    { label: t('plugins.notifyChannels'), value: `${enabledNotifyCount.value} / ${notifyChannels.value.length}` },
+    { label: t('plugins.notifyMemoryLimit'), value: `${status.notify?.limits?.memory_limit_mb ?? 0} MB` },
+    { label: t('plugins.notifyTimeout'), value: `${status.notify?.limits?.timeout_seconds ?? 0} s` }
+  ]
+})
+
+// 表格上方的单行状态摘要：错误 > 跳过 > 未启用，避免多条 alert 把表头推走。
+const activePluginStatus = computed<PluginTabStatus | null>(() => {
+  const status = plugins.value
+  if (!status) return null
+  const current = activeTab.value === 'dns'
+    ? {
+        enabled: !!status.enabled,
+        errors: status.errors || [],
+        skipped: status.skipped || [],
+        disabledHint: t('plugins.dnsDisabledHint')
+      }
+    : activeTab.value === 'deploy'
+      ? {
+          enabled: !!status.deploy?.enabled,
+          errors: status.deploy?.errors || [],
+          skipped: status.deploy?.skipped || [],
+          disabledHint: t('plugins.disabledHint')
+        }
+      : {
+          enabled: !!status.notify?.enabled,
+          errors: status.notify?.errors || [],
+          skipped: status.notify?.skipped || [],
+          disabledHint: t('plugins.notifyDisabledHint')
+        }
+  if (current.errors.length) {
+    return { type: 'error', text: `${t('plugins.loadErrors')}: ${current.errors.join('; ')}` }
+  }
+  if (current.skipped.length) {
+    return { type: 'warning', text: `${t('plugins.skipped')}: ${current.skipped.join(', ')}` }
+  }
+  if (!current.enabled) {
+    return { type: 'info', text: current.disabledHint }
+  }
+  return null
+})
 
 function notifyChannelLabel(channel: NotifyPluginChannel): string {
   const key = notifyChannelLabelKey(channel.id)
@@ -1079,6 +1114,7 @@ async function loadRepo(): Promise<void> {
       url: repo.value.url,
       channel: repo.value.channel || 'stable',
       autoUpdate: repo.value.auto_update,
+      proxy: repo.value.proxy || '',
       publicKey: ''
     }
     await loadLegacy()
@@ -1109,7 +1145,8 @@ async function saveRepo(): Promise<void> {
       enabled: repoForm.value.enabled,
       url: repoForm.value.url.trim(),
       channel: repoForm.value.channel,
-      auto_update: repoForm.value.autoUpdate
+      auto_update: repoForm.value.autoUpdate,
+      proxy: repoForm.value.proxy.trim()
     }
     // 公钥输入框不回显已有值；留空表示保持原公钥不变。
     if (repoForm.value.publicKey.trim()) payload.public_key = repoForm.value.publicKey.trim()
@@ -1204,6 +1241,112 @@ function applyUpdatedPlugin(item: PluginRepoItem, plugin?: PluginInstallation): 
   item.update_available = false
 }
 
+function conflictTypeLabel(type: PluginConflict['type']): string {
+  switch (type) {
+    case 'builtin':
+      return t('plugins.conflictTypeBuiltin')
+    case 'alias':
+      return t('plugins.conflictTypeAlias')
+    default:
+      return t('plugins.conflictTypeID')
+  }
+}
+
+function conflictSourceLabel(source?: string): string {
+  if (source === 'repo') return t('plugins.fileSourceRepo')
+  if (source === 'legacy') return t('plugins.fileSourceLegacy')
+  return t('plugins.fileSourceManual')
+}
+
+// buildConflictMessage 用 VNode 组装冲突说明，避免把插件名称/文件名当作 HTML 注入。
+function buildConflictMessage(conflicts: PluginConflict[], item: PluginRepoItem) {
+  const blocks = conflicts.map((conflict) => {
+    const lines = [
+      h('div', { style: 'font-weight: 600; margin-top: 10px' }, `${conflict.kind}/${conflict.id} · ${conflictTypeLabel(conflict.type)}`)
+    ]
+    if (conflict.type === 'builtin') {
+      lines.push(h('div', { style: 'color: var(--el-color-warning)' }, t('plugins.conflictBuiltinHint')))
+      return h('div', {}, lines)
+    }
+    const existing = conflict.existing
+    if (!existing) return h('div', {}, lines)
+    const meta = [existing.file]
+    if (existing.version) meta.push(t('plugins.repoInstalledVersion', { version: formatVersion(existing.version) }))
+    meta.push(conflictSourceLabel(existing.source))
+    lines.push(h('div', { style: 'color: var(--el-text-color-secondary)' }, meta.join(' · ')))
+    if (existing.uncovered?.length) {
+      lines.push(h('div', { style: 'color: var(--el-color-warning)' }, t('plugins.conflictUncovered', { items: existing.uncovered.join(', ') })))
+    }
+    const usage = existing.usage
+    if (usage && ((usage.accounts || 0) + (usage.targets || 0) + (usage.channels || 0) > 0)) {
+      lines.push(h('div', { style: 'color: var(--el-color-warning)' }, t('plugins.conflictUsage', {
+        accounts: usage.accounts || 0,
+        targets: usage.targets || 0,
+        channels: usage.channels || 0
+      })))
+    }
+    return h('div', {}, lines)
+  })
+  return h('div', {}, [
+    h('p', { style: 'margin: 0 0 4px' }, t('plugins.conflictIntro', { name: item.name || item.id })),
+    ...blocks
+  ])
+}
+
+async function uninstallConflictFiles(conflicts: PluginConflict[]): Promise<void> {
+  const seen = new Set<string>()
+  for (const conflict of conflicts) {
+    const existing = conflict.existing
+    if (!existing || seen.has(existing.file)) continue
+    seen.add(existing.file)
+    if (existing.source === 'repo' && existing.plugin_id) {
+      await api.delete(`/plugins/repo/plugins/${encodeURIComponent(conflict.kind)}/${encodeURIComponent(existing.plugin_id)}`)
+    } else {
+      await api.delete(`/plugins/files/${encodeURIComponent(conflict.kind)}/${encodeURIComponent(existing.file)}`)
+    }
+  }
+}
+
+// handlePluginConflicts 展示冲突详情；仅当所有冲突都能通过卸载解决时才提供“卸载并重试”。
+async function handlePluginConflicts(
+  conflicts: PluginConflict[],
+  item: PluginRepoItem,
+  retry: () => Promise<void>
+): Promise<boolean> {
+  if (!conflicts.length) return false
+  const message = buildConflictMessage(conflicts, item)
+  if (conflicts.some((conflict) => conflict.type === 'builtin')) {
+    await ElMessageBox.alert(message, t('plugins.conflictTitle'), {
+      type: 'error',
+      confirmButtonText: t('common.confirm')
+    })
+    return true
+  }
+  try {
+    await ElMessageBox.confirm(message, t('plugins.conflictTitle'), {
+      type: 'warning',
+      confirmButtonText: t('plugins.conflictUninstallAndRetry'),
+      cancelButtonText: t('common.cancel')
+    })
+  } catch (_) {
+    return true
+  }
+  try {
+    await uninstallConflictFiles(conflicts)
+  } catch (error) {
+    ElMessage.error(errorText(error))
+    return true
+  }
+  ElMessage.info(t('plugins.conflictResolvedRetry'))
+  await retry()
+  return true
+}
+
+function pluginConflictsOf(error: unknown): PluginConflict[] {
+  const conflicts = (error as { data?: { conflicts?: PluginConflict[] } })?.data?.conflicts
+  return Array.isArray(conflicts) ? conflicts : []
+}
+
 async function installRepoPlugin(item: PluginRepoItem, update: boolean): Promise<void> {
   try {
     await ElMessageBox.confirm(
@@ -1214,6 +1357,11 @@ async function installRepoPlugin(item: PluginRepoItem, update: boolean): Promise
   } catch (_) {
     return
   }
+  await runRepoInstall(item, update)
+}
+
+// runRepoInstall 执行实际安装/更新；retried 防止卸载后仍失败时再次弹出冲突对话框。
+async function runRepoInstall(item: PluginRepoItem, update: boolean, retried = false): Promise<void> {
   const key = item.kind + '/' + item.id
   marketBusy.value[key] = true
   try {
@@ -1231,6 +1379,11 @@ async function installRepoPlugin(item: PluginRepoItem, update: boolean): Promise
       const target = results.find(
         (entry) => entry.kind.toLowerCase() === item.kind.toLowerCase() && entry.id.toLowerCase() === item.id.toLowerCase()
       )
+      const conflictEntry = results.find((entry) => (entry.conflicts?.length || 0) > 0)
+      if (!retried && conflictEntry?.conflicts?.length) {
+        const handled = await handlePluginConflicts(conflictEntry.conflicts, item, () => runRepoInstall(item, update, true))
+        if (handled) return
+      }
       const failure = target?.error || results.find((entry) => entry.error)?.error
       if (failure) {
         ElMessage.error(failure)
@@ -1250,6 +1403,11 @@ async function installRepoPlugin(item: PluginRepoItem, update: boolean): Promise
     }
     await Promise.all([loadMarket(), load(), loadRepo()])
   } catch (error) {
+    const conflicts = pluginConflictsOf(error)
+    if (!retried && conflicts.length) {
+      const handled = await handlePluginConflicts(conflicts, item, () => runRepoInstall(item, update, true))
+      if (handled) return
+    }
     ElMessage.error(errorText(error))
     // 失败时也静默刷新一次：若服务端已完成更新（例如响应超时），状态列能立即纠正。
     await loadMarket(true)
@@ -1310,7 +1468,14 @@ watch(marketVisible, (visible) => {
   }
 })
 
+function syncFillLayout(event?: MediaQueryListEvent): void {
+  fillLayout.value = event ? event.matches : !!fillMedia?.matches
+}
+
 onMounted(() => {
+  fillMedia = window.matchMedia(FILL_MEDIA)
+  fillMedia.addEventListener('change', syncFillLayout)
+  syncFillLayout()
   load()
   loadRepo()
   document.addEventListener('visibilitychange', onMarketVisibilityChange)
@@ -1318,6 +1483,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopMarketPolling()
+  fillMedia?.removeEventListener('change', syncFillLayout)
+  fillMedia = null
   document.removeEventListener('visibilitychange', onMarketVisibilityChange)
 })
 </script>
@@ -1338,7 +1505,41 @@ onUnmounted(() => {
 .plugin-head-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+}
+.repo-head-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  min-width: 0;
+}
+.repo-head-main h3 {
+  margin: 0;
+  white-space: nowrap;
+}
+.plugin-repo-head .repo-summary {
+  margin-top: 0;
+}
+.repo-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.repo-summary-text {
+  min-width: 0;
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-summary-sep {
+  color: var(--kp-muted);
+  white-space: nowrap;
 }
 .repo-toggle {
   display: inline-flex;
@@ -1382,6 +1583,57 @@ onUnmounted(() => {
   opacity: 0.75;
   word-break: break-all;
 }
+.plugin-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 22px;
+  margin-top: 0;
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: var(--el-fill-color-lighter);
+}
+.plugin-summary-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.plugin-summary-label {
+  font-size: 12px;
+  color: var(--kp-muted);
+  white-space: nowrap;
+}
+.plugin-summary-value {
+  max-width: 320px;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--kp-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plugin-status {
+  margin-top: 10px;
+}
+.plugin-status :deep(.el-alert) {
+  padding: 5px 12px;
+}
+.plugin-status :deep(.el-alert__content) {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+.plugin-status :deep(.el-alert__title) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plugin-scroll {
+  min-height: 0;
+}
+.plugin-scroll-empty {
+  padding: 12px 0 0;
+}
 .plugin-toolbar {
   display: flex;
   align-items: center;
@@ -1422,15 +1674,21 @@ onUnmounted(() => {
 
 .plugin-repo-card {
   margin-bottom: 16px;
+  padding: 14px 18px;
 }
-.repo-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
-  align-items: start;
-  gap: 24px;
+.plugin-repo-card .plugin-repo-head {
+  margin-bottom: 0;
+}
+.repo-expanded {
+  max-height: min(48vh, 460px);
+  margin-top: 12px;
+  padding: 12px 4px 2px 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 .repo-form {
-  min-width: 0;
+  width: 100%;
+  max-width: 760px;
 }
 .repo-form .el-form-item {
   margin-bottom: 14px;
@@ -1451,44 +1709,48 @@ onUnmounted(() => {
 .repo-key {
   margin-bottom: 6px;
 }
-.repo-form-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-.repo-status {
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-  padding: 16px 18px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 12px;
-  background: var(--el-fill-color-lighter);
-}
-.repo-status-item {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-.repo-status-label {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--kp-muted);
-}
-.repo-status-value {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--kp-text);
-  word-break: break-word;
-}
-.repo-status .key-status {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
 .repo-alert {
   margin-top: 14px;
 }
-@media (max-width: 1100px) {
+@media (min-width: 861px) {
+  /* 短屏回退：取消整页固定高度，表格恢复 420px 内滚动并允许页面滚动。 */
+  .plugin-page:not(.plugin-page-fill) {
+    display: block;
+    height: auto;
+    min-height: 0;
+  }
+  .plugin-page-fill > .page-head,
+  .plugin-page-fill > .plugin-repo-card,
+  .plugin-page-fill > .plugin-tabs {
+    flex: none;
+  }
+  .plugin-page-fill .plugin-card {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .plugin-page-fill .plugin-card > .card-head,
+  .plugin-page-fill .plugin-card > .plugin-summary,
+  .plugin-page-fill .plugin-card > .plugin-status,
+  .plugin-page-fill .plugin-card > .plugin-toolbar {
+    flex: none;
+  }
+  .plugin-page-fill .plugin-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .plugin-page-fill .plugin-scroll > * {
+    height: 100%;
+    min-height: 0;
+  }
+  /* 一屏布局下文件说明会挤占表体高度，改由删除确认框提示。 */
+  .plugin-page-fill .plugin-scroll :deep(.plugin-file-hint) {
+    display: none;
+  }
+}
+@media (max-width: 960px) {
   .plugin-repo-card .card-head {
     align-items: flex-start;
     flex-direction: column;
@@ -1496,21 +1758,27 @@ onUnmounted(() => {
   }
   .plugin-repo-card .plugin-head-actions {
     width: 100%;
+    justify-content: flex-start;
   }
-  .repo-body {
-    grid-template-columns: minmax(0, 1fr);
+}
+@media (max-width: 860px) {
+  .plugin-card .card-head {
+    align-items: flex-start;
+    flex-direction: column;
     gap: 10px;
   }
-  .repo-status {
-    gap: 8px;
-  }
-  .repo-status-item {
-    grid-template-columns: 96px minmax(0, 1fr);
-    align-items: baseline;
-    gap: 12px;
-  }
-  .repo-form-actions {
+  .plugin-card .plugin-head-actions {
+    width: 100%;
     justify-content: flex-start;
+  }
+  .plugin-summary {
+    gap: 6px 16px;
+  }
+  .plugin-summary-value {
+    max-width: 100%;
+  }
+  .plugin-scroll :deep(.plugin-group-fill) {
+    height: auto;
   }
 }
 @media (max-width: 760px) {
@@ -1521,6 +1789,10 @@ onUnmounted(() => {
     margin-right: 0;
     padding-right: 0;
     border-right: none;
+  }
+  .plugin-summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 .legacy-row {

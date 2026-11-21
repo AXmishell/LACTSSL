@@ -640,7 +640,7 @@ a {
   .table-page {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - var(--kp-topbar-h) - 72px); /* 减去 main-content 上下内边距 */
+    height: calc(100vh - var(--kp-topbar-h) - 41px); /* 减去 main-content 上下内边距（16px + 25px） */
     min-height: 460px;
   }
 
@@ -664,6 +664,13 @@ a {
 
 .el-dialog {
   border-radius: 18px;
+}
+
+/* 域名绑定弹窗（680px）在窄屏下按比例收缩，避免横向溢出。 */
+@media (max-width: 720px) {
+  .el-dialog.zones-dialog {
+    width: 92% !important;
+  }
 }
 
 .el-drawer {
@@ -1081,7 +1088,7 @@ a {
 }
 
 .main-content {
-  padding: 28px 30px 44px;
+  padding: 16px 20px 25px;
   width: 100%;
   max-width: 1480px;
   margin: 0 auto;
@@ -1093,7 +1100,7 @@ a {
 
 /* ---------- 404 页面 ---------- */
 .notfound-page {
-  min-height: calc(100vh - var(--kp-topbar-h) - 72px);
+  min-height: calc(100vh - var(--kp-topbar-h) - 41px);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -55,6 +55,7 @@ type uploadedPlugin struct {
 	version string
 	digest  string
 	items   []string
+	aliases []string
 }
 
 // expectedPluginDigests 返回仓库安装记录中的文件名到可执行文件摘要映射。
@@ -540,6 +541,11 @@ func (s *Server) uploadPlugin(c *gin.Context) {
 			"error", service.SanitizeErrorText(err.Error()))
 		return
 	}
+	// 上传同样在落盘前检查 ID/别名冲突；覆盖同名文件时排除目标自身。
+	if conflict := s.detectPluginConflicts(kind, info.items, info.aliases, false, name, info.name, name); conflict != nil {
+		failPluginConflict(c, conflict)
+		return
+	}
 	if err := os.Chmod(tmpName, 0o755); err != nil {
 		failErr(c, http.StatusInternalServerError, err)
 		return
@@ -636,6 +642,7 @@ func (s *Server) inspectUploadedPlugin(kind, path string) (uploadedPlugin, error
 		info := uploadedPlugin{name: manifest.Name, version: manifest.Version, digest: digest}
 		for _, provider := range manifest.Providers {
 			info.items = append(info.items, provider.ID)
+			info.aliases = append(info.aliases, provider.Aliases...)
 		}
 		return info, nil
 	case pluginKindDeploy:
@@ -651,6 +658,7 @@ func (s *Server) inspectUploadedPlugin(kind, path string) (uploadedPlugin, error
 		info := uploadedPlugin{name: manifest.Name, version: manifest.Version, digest: digest}
 		for _, deployer := range manifest.Deployers {
 			info.items = append(info.items, deployer.ID)
+			info.aliases = append(info.aliases, deployer.Aliases...)
 		}
 		return info, nil
 	case pluginKindNotify:
@@ -666,6 +674,7 @@ func (s *Server) inspectUploadedPlugin(kind, path string) (uploadedPlugin, error
 		info := uploadedPlugin{name: manifest.Name, version: manifest.Version, digest: digest}
 		for _, channel := range manifest.Channels {
 			info.items = append(info.items, channel.ID)
+			info.aliases = append(info.aliases, channel.Aliases...)
 		}
 		return info, nil
 	default:

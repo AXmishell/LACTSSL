@@ -1,108 +1,231 @@
 <template>
-  <div class="page">
+  <div class="page table-page ca-page">
     <div class="page-head">
       <div>
         <h1>{{ t('ca.title') }}</h1>
         <p>{{ t('ca.subtitle') }}</p>
       </div>
       <div class="page-actions">
-        <el-button :icon="Refresh" circle @click="load" />
+        <el-button :icon="Refresh" circle :loading="loading" @click="load" />
       </div>
     </div>
 
-    <el-alert
-      :title="t('ca.alert')"
-      type="info"
-      :closable="false"
-      show-icon
-      style="margin-bottom: 18px"
-    />
+    <div class="k-card ca-card table-fill" v-loading="loading" style="padding: 0; overflow: hidden">
+      <el-tabs v-model="tab" class="ca-tabs">
+        <el-tab-pane :label="t('ca.tabs.upstreams')" name="upstreams">
+          <div class="ca-notice">
+            <el-icon><InfoFilled /></el-icon>
+            <span>{{ t('ca.alert') }}</span>
+          </div>
 
-    <div class="k-card">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('ca.defaultParams') }}</h3>
-          <div class="sub">{{ t('ca.defaultParamsSub') }}</div>
-        </div>
-      </div>
-      <el-form :model="acme" label-position="top">
-        <div class="grid grid-2" style="gap: 0 18px">
-          <el-form-item :label="t('ca.acmeEmail')">
-            <el-input v-model="acme.acme_email" placeholder="name@example.com" />
-            <div class="form-help">{{ t('ca.acmeEmailHelp') }}</div>
-          </el-form-item>
-          <el-form-item :label="t('ca.defaultCA')">
-            <el-select v-model="acme.acme_ca" style="width: 100%">
-              <el-option v-for="ca in meta?.cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
-            </el-select>
-            <div class="form-help">{{ t('ca.defaultCAHelp') }}</div>
-          </el-form-item>
-          <el-form-item :label="t('ca.defaultPool')">
-            <el-select v-model="acme.acme_ca_pool_id" style="width: 100%">
-              <el-option :label="t('ca.poolNone')" :value="0" />
-              <el-option v-for="pool in pools" :key="pool.id" :label="pool.name" :value="pool.id" :disabled="!pool.enabled" />
-            </el-select>
-            <div class="form-help">{{ t('ca.defaultPoolHelp') }}</div>
-          </el-form-item>
-          <el-form-item :label="t('ca.defaultKeyType')">
-            <el-select v-model="acme.acme_key_type" style="width: 100%">
-              <el-option v-for="item in meta?.key_types || []" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('ca.renewDays')">
-            <el-input-number v-model="acme.acme_renew_days" :min="1" :max="60" style="width: 100%" />
-          </el-form-item>
-        </div>
+          <div class="filter-row">
+            <el-radio-group v-model="upstreamFilter" size="default">
+              <el-radio-button value="all">{{ t('ca.filterAll', { count: upstreamRows.length }) }}</el-radio-button>
+              <el-radio-button value="builtin">{{ t('ca.filterBuiltin', { count: builtinCount }) }}</el-radio-button>
+              <el-radio-button value="custom">{{ t('ca.filterCustom', { count: customCount }) }}</el-radio-button>
+            </el-radio-group>
+            <el-input v-model="upstreamKeyword" clearable :placeholder="t('ca.searchPlaceholder')" style="width: 240px">
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <span class="filter-spacer" />
+            <el-button type="primary" :icon="Plus" @click="openGenericCreate">{{ t('ca.genericAdd') }}</el-button>
+          </div>
 
-        <el-button type="primary" :loading="savingACME" @click="saveACME">{{ t('ca.saveCerts') }}</el-button>
-      </el-form>
-    </div>
+          <div class="table-scroll">
+            <el-table :data="filteredUpstreams" height="100%" style="width: 100%">
+              <el-table-column min-width="260" :label="t('ca.ca')">
+                <template #default="{ row }">
+                  <div class="ca-title">
+                    <span class="ca-name">{{ row.label }}</span>
+                    <span class="tag-soft tag-gray">{{ row.source === 'builtin' ? t('ca.sourceBuiltin') : t('ca.sourceCustom') }}</span>
+                    <span v-if="row.isDefault" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
+                  </div>
+                  <div class="ca-desc">{{ row.desc || t('ca.genericTitle') }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column width="76" :label="t('ca.id')">
+                <template #default="{ row }">
+                  <span v-if="row.id != null" class="mono">{{ row.id }}</span>
+                  <span v-else class="muted">—</span>
+                </template>
+              </el-table-column>
+              <el-table-column width="90" :label="t('ca.protocol')">
+                <template #default="{ row }">
+                  <span class="tag-soft tag-gray">{{ String(row.protocol).toUpperCase() }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column min-width="240" :label="t('ca.directory')">
+                <template #default="{ row }">
+                  <el-tooltip :content="row.url" placement="top" :disabled="!row.url">
+                    <span class="ca-url">{{ row.url }}</span>
+                  </el-tooltip>
+                </template>
+              </el-table-column>
+              <el-table-column width="120" :label="t('ca.eab')">
+                <template #default="{ row }">
+                  <span v-if="!row.eabRequired" class="tag-soft tag-gray">{{ t('ca.eabNotRequired') }}</span>
+                  <el-tag v-else-if="row.eabConfigured" type="success" effect="light" round size="small">
+                    {{ t('ca.eabConfigured') }}
+                  </el-tag>
+                  <el-tag v-else type="warning" effect="light" round size="small">{{ t('ca.eabNotConfigured') }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column width="170" fixed="right" :label="t('ca.actions')">
+                <template #default="{ row }">
+                  <template v-if="row.source === 'builtin'">
+                    <el-button v-if="row.eabRequired" text type="primary" size="small" @click="openBuiltinEAB(row)">
+                      {{ t('ca.configureEAB') }}
+                    </el-button>
+                    <span v-else class="muted">{{ t('ca.noConfigNeeded') }}</span>
+                  </template>
+                  <template v-else>
+                    <el-button text type="primary" size="small" @click="editCustomUpstream(row)">{{ t('ca.genericEdit') }}</el-button>
+                    <el-dropdown trigger="click" @command="(cmd: string) => handleUpstreamCommand(cmd, row)">
+                      <el-button text size="small">
+                        {{ t('common.more') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                      </el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item command="delete" divided>{{ t('ca.genericDelete') }}</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </template>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div class="ca-empty">
+                  {{ upstreamKeyword ? t('ca.noMatchingUpstream') : t('ca.genericEmpty') }}
+                </div>
+              </template>
+            </el-table>
+          </div>
+        </el-tab-pane>
 
-    <div class="k-card">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('ca.poolTitle') }}</h3>
-          <div class="sub">{{ t('ca.poolSub') }}</div>
-        </div>
-        <el-button type="primary" :icon="Plus" @click="openPoolCreate">{{ t('ca.poolAdd') }}</el-button>
-      </div>
-      <div class="table-scroll">
-        <el-table :data="pools" v-loading="poolLoading" style="width: 100%">
-          <el-table-column min-width="200" :label="t('ca.poolName')">
-            <template #default="{ row }">
-              <div class="ca-title">
-                {{ row.name }}
-                <span v-if="acme.acme_ca_pool_id === row.id" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
-                <span v-if="!row.enabled" class="tag-soft tag-gray">{{ t('common.disabled') }}</span>
+        <el-tab-pane :label="t('ca.tabs.pools')" name="pools">
+          <div class="filter-row">
+            <span class="muted">{{ t('ca.poolCount', { count: pools.length }) }}</span>
+            <span class="filter-spacer" />
+            <el-button type="primary" :icon="Plus" @click="openPoolCreate">{{ t('ca.poolAdd') }}</el-button>
+          </div>
+
+          <div class="table-scroll">
+            <el-table :data="pools" height="100%" style="width: 100%">
+              <el-table-column min-width="200" :label="t('ca.poolName')">
+                <template #default="{ row }">
+                  <div class="ca-title">
+                    <span class="ca-name">{{ row.name }}</span>
+                    <span v-if="mode === 'pool' && acme.acme_ca_pool_id === row.id" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
+                    <span v-if="!row.enabled" class="tag-soft tag-gray">{{ t('common.disabled') }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column width="120" :label="t('ca.poolStrategy')">
+                <template #default="{ row }">
+                  <span class="tag-soft tag-gray">{{ strategyLabel(row.strategy) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column min-width="280" :label="t('ca.poolCandidates')">
+                <template #default="{ row }">
+                  <el-tooltip :content="poolTooltip(row)" placement="top" :disabled="!enabledCandidates(row).length">
+                    <div class="ca-chips">
+                      <span v-for="(label, index) in poolChips(row)" :key="index" class="tag-soft tag-gray">{{ label }}</span>
+                      <span v-if="poolHiddenCount(row) > 0" class="tag-soft tag-gray">+{{ poolHiddenCount(row) }}</span>
+                      <span v-if="!enabledCandidates(row).length" class="muted">{{ t('ca.poolNoCandidates') }}</span>
+                    </div>
+                  </el-tooltip>
+                </template>
+              </el-table-column>
+              <el-table-column width="150" fixed="right" :label="t('ca.actions')">
+                <template #default="{ row }">
+                  <el-button text type="primary" size="small" @click="openPoolEdit(row)">{{ t('common.edit') }}</el-button>
+                  <el-dropdown trigger="click" @command="(cmd: string) => handlePoolCommand(cmd, row)">
+                    <el-button text size="small">
+                      {{ t('common.more') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                    </el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="delete" divided>{{ t('common.delete') }}</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div class="ca-empty">{{ t('ca.poolEmpty') }}</div>
+              </template>
+            </el-table>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane :label="t('ca.tabs.defaults')" name="defaults">
+          <div class="ca-form-scroll">
+            <div class="ca-effective" :class="{ 'is-warning': mode === 'pool' && !defaultPoolActive }">
+              <el-icon><InfoFilled /></el-icon>
+              <span>{{ effectiveSummary }}</span>
+            </div>
+
+            <el-form :model="acme" label-position="top" class="ca-default-form">
+              <div class="grid grid-2" style="gap: 0 18px">
+                <el-form-item :label="t('ca.acmeEmail')">
+                  <el-input v-model="acme.acme_email" placeholder="name@example.com" />
+                  <div class="form-help">{{ t('ca.acmeEmailHelp') }}</div>
+                </el-form-item>
+                <el-form-item :label="t('ca.defaultKeyType')">
+                  <el-select v-model="acme.acme_key_type" style="width: 100%">
+                    <el-option v-for="item in meta?.key_types || []" :key="item.value" :label="item.label" :value="item.value" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item :label="t('ca.renewDays')">
+                  <el-input-number v-model="acme.acme_renew_days" :min="1" :max="60" style="width: 100%" />
+                </el-form-item>
               </div>
-            </template>
-          </el-table-column>
-          <el-table-column width="150" :label="t('ca.poolStrategy')">
-            <template #default="{ row }">
-              <span class="tag-soft tag-gray">{{ strategyLabel(row.strategy) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column width="120" :label="t('ca.poolCandidates')">
-            <template #default="{ row }">
-              <span class="muted">{{ row.items?.filter((item: any) => item.enabled).length || 0 }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column width="150" :label="t('ca.poolOrder')">
-            <template #default="{ row }">
-              <span class="ca-url">{{ poolOrder(row) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column width="150" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
-            <template #default="{ row }">
-              <el-button text type="primary" size="small" @click="openPoolEdit(row)">{{ t('common.edit') }}</el-button>
-              <el-button text type="danger" size="small" @click="deletePool(row)">{{ t('common.delete') }}</el-button>
-            </template>
-          </el-table-column>
-          <template #empty>
-            <div class="muted" style="padding: 24px 0">{{ t('ca.poolEmpty') }}</div>
-          </template>
-        </el-table>
-      </div>
+
+              <div class="ca-mode">
+                <div class="ca-mode-title">{{ t('ca.defaultMode') }}</div>
+                <el-radio-group v-model="mode" size="default">
+                  <el-radio-button value="single">{{ t('ca.defaultModeSingle') }}</el-radio-button>
+                  <el-radio-button value="pool">{{ t('ca.defaultModePool') }}</el-radio-button>
+                </el-radio-group>
+
+                <div class="grid grid-2 ca-mode-fields">
+                  <el-form-item v-if="mode === 'single'" :label="t('ca.defaultCA')">
+                    <el-select v-model="acme.acme_ca" style="width: 100%">
+                      <el-option v-for="ca in meta?.cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
+                    </el-select>
+                    <div class="form-help">{{ t('ca.defaultCAHelp') }}</div>
+                  </el-form-item>
+                  <template v-else>
+                    <el-form-item :label="t('ca.defaultPool')">
+                      <el-select v-model="acme.acme_ca_pool_id" style="width: 100%">
+                        <el-option
+                          v-for="pool in pools"
+                          :key="pool.id"
+                          :label="pool.enabled ? pool.name : `${pool.name} · ${t('common.disabled')}`"
+                          :value="pool.id"
+                          :disabled="!pool.enabled"
+                        />
+                      </el-select>
+                      <div class="form-help">{{ t('ca.defaultPoolHelp') }}</div>
+                    </el-form-item>
+                    <el-form-item :label="t('ca.fallbackCA')">
+                      <el-select v-model="acme.acme_ca" style="width: 100%">
+                        <el-option v-for="ca in meta?.cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
+                      </el-select>
+                    </el-form-item>
+                  </template>
+                </div>
+                <div class="form-help">{{ t('ca.defaultModeHelp') }}</div>
+              </div>
+            </el-form>
+          </div>
+
+          <div class="ca-form-footer">
+            <span class="muted">{{ t('ca.defaultParamsSub') }}</span>
+            <el-button type="primary" :loading="savingACME" @click="saveACME">{{ t('ca.saveCerts') }}</el-button>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
     <el-dialog
@@ -129,7 +252,7 @@
         </el-form-item>
         <el-form-item :label="t('ca.poolCandidates')">
           <div style="width: 100%">
-            <div v-for="(item, index) in poolForm.items" :key="index" class="flex gap-10" style="margin-bottom: 8px; align-items: center">
+            <div v-for="(item, index) in poolForm.items" :key="index" class="pool-item">
               <el-select v-model="item.ca_value" filterable style="flex: 1" :placeholder="t('ca.poolSelectCA')">
                 <el-option v-for="ca in meta?.cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
               </el-select>
@@ -148,74 +271,6 @@
         <el-button type="primary" :loading="poolSaving" @click="savePool">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
-
-    <div class="k-card" style="padding: 0; overflow: hidden">
-      <div class="table-scroll">
-        <el-table :data="items" v-loading="loading" class="ca-table" style="width: 100%">
-          <el-table-column min-width="260" :label="t('ca.ca')">
-            <template #default="{ row }">
-              <div class="ca-title-wrap">
-                <div>
-                  <div class="ca-title">
-                    {{ row.label }}
-                    <span v-if="row.is_default" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
-                  </div>
-                  <div class="ca-desc">{{ row.desc }}</div>
-                </div>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column width="120" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
-            <template #default="{ row }">
-              <el-button v-if="row.eab" text type="primary" size="small" @click="openConfig(row)">{{ t('ca.configureEAB') }}</el-button>
-              <span v-else class="muted">{{ t('ca.noConfigNeeded') }}</span>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-    </div>
-
-    <div class="k-card">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('ca.genericTitle') }}</h3>
-          <div class="sub">{{ t('ca.genericSub') }}</div>
-        </div>
-        <el-button type="primary" :icon="Plus" @click="openGenericCreate">{{ t('ca.genericAdd') }}</el-button>
-      </div>
-      <div class="table-scroll">
-        <el-table :data="genericItems" v-loading="genericLoading" style="width: 100%">
-          <el-table-column min-width="180" :label="t('ca.genericName')">
-            <template #default="{ row }">
-              <div class="ca-title">
-                {{ row.name }}
-                <span v-if="acme.acme_ca === `acme-ca:${row.id}`" class="tag-soft tag-blue">{{ t('ca.default') }}</span>
-                <span v-if="row.eab_required" class="tag-soft tag-blue">EAB</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column min-width="280" :label="t('ca.genericURL')">
-            <template #default="{ row }">
-              <span class="ca-url">{{ row.directory_url }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column width="110" :label="t('ca.genericProtocol')">
-            <template #default="{ row }">
-              <span class="tag-soft tag-gray">{{ String(row.protocol || 'v2').toUpperCase() }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column width="150" align="left" header-align="left" class-name="ca-actions-cell" :label="t('ca.actions')" fixed="right">
-            <template #default="{ row }">
-              <el-button text type="primary" size="small" @click="openGenericEdit(row)">{{ t('ca.genericEdit') }}</el-button>
-              <el-button text type="danger" size="small" @click="deleteGeneric(row)">{{ t('ca.genericDelete') }}</el-button>
-            </template>
-          </el-table-column>
-          <template #empty>
-            <div class="muted" style="padding: 24px 0">{{ t('ca.genericEmpty') }}</div>
-          </template>
-        </el-table>
-      </div>
-    </div>
 
     <el-dialog
       v-model="genericDialogVisible"
@@ -303,10 +358,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { ArrowDown, InfoFilled, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { loadMeta, loadSettings } from '../store'
 import type { ACMECA, CAConfig, CAPool, CAPoolItem, CAPoolStrategy, MessageResult, Meta, Settings } from '../types'
@@ -319,14 +374,32 @@ interface ACMEForm {
   acme_renew_days: number
 }
 
+type UpstreamSource = 'builtin' | 'custom'
+type UpstreamFilter = 'all' | UpstreamSource
+type IssuanceMode = 'single' | 'pool'
+
+interface CAUpstreamRow {
+  value: string
+  label: string
+  desc: string
+  url: string
+  protocol: 'v1' | 'v2'
+  source: UpstreamSource
+  eabRequired: boolean
+  eabConfigured: boolean
+  isDefault: boolean
+  id?: number
+  builtin?: CAConfig
+  custom?: ACMECA
+}
+
 const { t } = useI18n()
+const tab = ref<'upstreams' | 'pools' | 'defaults'>('upstreams')
 const items = ref<CAConfig[]>([])
 const genericItems = ref<ACMECA[]>([])
 const pools = ref<CAPool[]>([])
 const meta = ref<Meta | null>(null)
 const loading = ref(false)
-const genericLoading = ref(false)
-const poolLoading = ref(false)
 const poolSaving = ref(false)
 const poolDialogVisible = ref(false)
 const poolEditingId = ref<number | null>(null)
@@ -334,6 +407,9 @@ const saving = ref(false)
 const savingACME = ref(false)
 const dialogVisible = ref(false)
 const editing = ref<CAConfig | null>(null)
+
+const upstreamFilter = ref<UpstreamFilter>('all')
+const upstreamKeyword = ref('')
 
 const genericDialogVisible = ref(false)
 const genericSaving = ref(false)
@@ -345,7 +421,7 @@ const genericForm = reactive({
   name: '',
   directory_url: '',
   protocol: 'v2',
-  eab_required: false,
+  eab_required: true,
   eab_kid: '',
   eab_hmac: ''
 })
@@ -370,6 +446,67 @@ const acme = reactive<ACMEForm>({
   acme_renew_days: 30
 })
 
+const mode = ref<IssuanceMode>('single')
+
+const upstreamRows = computed<CAUpstreamRow[]>(() => {
+  const rows: CAUpstreamRow[] = items.value.map((ca) => ({
+    value: ca.value,
+    label: ca.label,
+    desc: ca.desc || '',
+    url: ca.url || '',
+    protocol: ca.protocol === 'v1' ? 'v1' : 'v2',
+    source: 'builtin',
+    eabRequired: !!ca.eab,
+    eabConfigured: ca.eab ? ca.eab_hmac_set : false,
+    isDefault: ca.is_default,
+    builtin: ca
+  }))
+  for (const ca of genericItems.value) {
+    const value = `acme-ca:${ca.id}`
+    rows.push({
+      value,
+      label: ca.name,
+      desc: t('ca.genericTitle'),
+      url: ca.directory_url,
+      protocol: ca.protocol === 'v1' ? 'v1' : 'v2',
+      source: 'custom',
+      eabRequired: ca.eab_required,
+      eabConfigured: ca.eab_required ? ca.eab_hmac_set : false,
+      isDefault: acme.acme_ca === value,
+      id: ca.id,
+      custom: ca
+    })
+  }
+  return rows
+})
+
+const builtinCount = computed(() => upstreamRows.value.filter((row) => row.source === 'builtin').length)
+const customCount = computed(() => upstreamRows.value.filter((row) => row.source === 'custom').length)
+
+const filteredUpstreams = computed(() => {
+  const keyword = upstreamKeyword.value.trim().toLowerCase()
+  return upstreamRows.value.filter((row) => {
+    if (upstreamFilter.value !== 'all' && row.source !== upstreamFilter.value) return false
+    if (!keyword) return true
+    return [row.label, row.url, row.desc].some((value) => value.toLowerCase().includes(keyword))
+  })
+})
+
+const defaultPool = computed(() => pools.value.find((pool) => pool.id === acme.acme_ca_pool_id))
+const defaultPoolActive = computed(
+  () => !!defaultPool.value?.enabled && (defaultPool.value.items || []).some((item) => item.enabled)
+)
+const defaultCALabel = computed(() => caOptionLabel(acme.acme_ca))
+const effectiveSummary = computed(() => {
+  if (mode.value === 'single') {
+    return t('ca.effectiveSingle', { ca: defaultCALabel.value })
+  }
+  if (!defaultPool.value || !defaultPoolActive.value) {
+    return t('ca.poolUnavailable', { ca: defaultCALabel.value })
+  }
+  return t('ca.effectivePool', { pool: defaultPool.value.name, ca: defaultCALabel.value })
+})
+
 function applySettings(data: Settings): void {
   Object.assign(acme, {
     acme_email: data.acme_email || '',
@@ -378,12 +515,11 @@ function applySettings(data: Settings): void {
     acme_key_type: data.acme_key_type || 'ecdsa',
     acme_renew_days: data.acme_renew_days || 30
   })
+  mode.value = acme.acme_ca_pool_id > 0 ? 'pool' : 'single'
 }
 
 async function load(): Promise<void> {
   loading.value = true
-  genericLoading.value = true
-  poolLoading.value = true
   try {
     const [caItems, generic, poolItems, metaData, settingData] = await Promise.all([
       api.get<CAConfig[]>('/ca-configs'),
@@ -401,8 +537,6 @@ async function load(): Promise<void> {
     ElMessage.error(error.message)
   } finally {
     loading.value = false
-    genericLoading.value = false
-    poolLoading.value = false
   }
 }
 
@@ -417,16 +551,28 @@ function strategyLabel(value?: string): string {
   }
 }
 
-function poolOrder(pool: CAPool): string {
-  return (pool.items || [])
-    .filter((item) => item.enabled)
-    .sort((a, b) => a.priority - b.priority)
-    .map((item) => caOptionLabel(item.ca_value))
-    .join(' → ')
-}
-
 function caOptionLabel(value: string): string {
   return (meta.value?.cas || []).find((item) => item.value === value)?.label || value
+}
+
+function enabledCandidates(pool: CAPool): CAPoolItem[] {
+  return (pool.items || []).filter((item) => item.enabled).sort((a, b) => a.priority - b.priority)
+}
+
+function poolChips(pool: CAPool): string[] {
+  return enabledCandidates(pool)
+    .slice(0, 3)
+    .map((item) => caOptionLabel(item.ca_value))
+}
+
+function poolHiddenCount(pool: CAPool): number {
+  return Math.max(0, enabledCandidates(pool).length - 3)
+}
+
+function poolTooltip(pool: CAPool): string {
+  return enabledCandidates(pool)
+    .map((item) => `${caOptionLabel(item.ca_value)} · P${item.priority} · W${item.weight}`)
+    .join('；')
 }
 
 function newPoolItem(): CAPoolItem {
@@ -461,6 +607,10 @@ function addPoolItem(): void {
 
 function removePoolItem(index: number): void {
   poolForm.items.splice(index, 1)
+}
+
+function handlePoolCommand(command: string, row: CAPool): void {
+  if (command === 'delete') void deletePool(row)
 }
 
 async function savePool(): Promise<void> {
@@ -529,7 +679,7 @@ function openGenericCreate(): void {
     name: '',
     directory_url: '',
     protocol: 'v2',
-    eab_required: false,
+    eab_required: true,
     eab_kid: '',
     eab_hmac: ''
   })
@@ -550,10 +700,21 @@ function openGenericEdit(row: ACMECA): void {
   genericDialogVisible.value = true
 }
 
+function openBuiltinEAB(row: CAUpstreamRow): void {
+  if (row.builtin) openConfig(row.builtin)
+}
+
+function editCustomUpstream(row: CAUpstreamRow): void {
+  if (row.custom) openGenericEdit(row.custom)
+}
+
+function handleUpstreamCommand(command: string, row: CAUpstreamRow): void {
+  if (command === 'delete' && row.custom) void deleteGeneric(row.custom)
+}
+
 function onGenericProtocolChange(value: string): void {
-  if (value === 'v1') {
-    genericForm.eab_required = false
-  }
+  // ACME v2 默认启用 EAB；v1 不支持 EAB。
+  genericForm.eab_required = value === 'v2'
 }
 
 async function saveGeneric(): Promise<void> {
@@ -586,8 +747,8 @@ async function saveGeneric(): Promise<void> {
       eab_hmac: genericForm.eab_hmac.trim()
     }
     const saved = await (genericEditingId.value
-        ? api.put(`/acme-cas/${genericEditingId.value}`, payload)
-        : api.post('/acme-cas', payload))
+      ? api.put(`/acme-cas/${genericEditingId.value}`, payload)
+      : api.post('/acme-cas', payload))
     if (saved === null) return
     ElMessage.success(genericEditingId.value ? t('ca.genericUpdated') : t('ca.genericCreated'))
     genericDialogVisible.value = false
@@ -620,15 +781,25 @@ async function deleteGeneric(row: ACMECA): Promise<void> {
 }
 
 async function saveACME(): Promise<void> {
+  if (mode.value === 'pool') {
+    if (!acme.acme_ca_pool_id) {
+      ElMessage.warning(t('ca.defaultPoolRequired'))
+      return
+    }
+    if (!defaultPoolActive.value) {
+      ElMessage.warning(t('ca.defaultPoolUnavailable'))
+      return
+    }
+  }
   savingACME.value = true
   try {
     const saved = await api.put('/settings', {
-        acme_email: acme.acme_email,
-        acme_ca: acme.acme_ca,
-        acme_ca_pool_id: acme.acme_ca_pool_id || 0,
-        acme_key_type: acme.acme_key_type,
-        acme_renew_days: acme.acme_renew_days
-      })
+      acme_email: acme.acme_email,
+      acme_ca: acme.acme_ca || 'letsencrypt',
+      acme_ca_pool_id: mode.value === 'pool' ? acme.acme_ca_pool_id : 0,
+      acme_key_type: acme.acme_key_type,
+      acme_renew_days: acme.acme_renew_days
+    })
     if (saved === null) return
     ElMessage.success(t('ca.saved'))
     await load()
@@ -660,9 +831,9 @@ async function saveEAB(): Promise<void> {
   saving.value = true
   try {
     const data = await api.put<MessageResult>(`/ca-configs/${currentCA.value}`, {
-        eab_kid: form.eab_kid.trim(),
-        eab_hmac: form.eab_hmac.trim()
-      })
+      eab_kid: form.eab_kid.trim(),
+      eab_hmac: form.eab_hmac.trim()
+    })
     if (data === null) return
     ElMessage.success(data?.message || t('ca.eabSaved'))
     dialogVisible.value = false
@@ -704,50 +875,268 @@ onMounted(load)
 </script>
 
 <style scoped>
-.ca-title-wrap {
+.ca-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.ca-tabs :deep(.el-tabs__header) {
+  margin: 0;
+  padding: 0 20px;
+}
+
+.ca-tabs :deep(.el-tabs__item) {
+  padding: 0 12px;
+}
+
+.ca-tabs :deep(.el-tabs__item:first-child) {
+  padding-left: 0;
+}
+
+.filter-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 0;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  flex: none;
 }
+
+.filter-row .muted {
+  font-size: 12px;
+}
+
+.filter-spacer {
+  margin-left: auto;
+}
+
+.ca-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 20px;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--kp-border);
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+  flex: none;
+}
+
+.ca-notice .el-icon {
+  margin-top: 1px;
+  color: #94a3b8;
+}
+
 .ca-title {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
   font-weight: 600;
   font-size: 14px;
   color: #0f172a;
 }
+
+.ca-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ca-desc {
   margin-top: 3px;
   color: #94a3b8;
   font-size: 12px;
   line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 .ca-url {
+  display: block;
   color: #475569;
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.form-help {
-  font-size: 12px;
+
+.ca-card :deep(.el-table .cell) {
+  padding: 0 20px;
+}
+
+.ca-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ca-empty {
+  padding: 40px 0;
   color: #94a3b8;
+}
+
+.ca-form-scroll {
+  padding: 4px 20px 20px;
+}
+
+.ca-effective {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 18px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid var(--kp-border);
+  color: #475569;
+  font-size: 12px;
+}
+
+.ca-effective.is-warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.ca-mode {
   margin-top: 6px;
-  line-height: 1.6;
+  padding-top: 18px;
+  border-top: 1px solid var(--kp-border);
 }
 
-:deep(.ca-table .cell) {
-  padding: 0 22px;
+.ca-mode-title {
+  margin-bottom: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #0f172a;
 }
 
-:deep(.ca-actions-cell .cell) {
-  text-align: left;
+.ca-mode-fields {
+  margin-top: 16px;
 }
 
-:deep(.ca-actions-cell .cell .el-button) {
-  margin-left: 0;
-  padding-left: 0;
-  justify-content: flex-start;
+.ca-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--kp-border);
+  flex: none;
+}
+
+.ca-form-footer .muted {
+  font-size: 12px;
+}
+
+.pool-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+/* 桌面端：标签页内部接上高度链，只有表体/表单滚动。 */
+@media (min-width: 861px) {
+  .ca-card {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ca-card :deep(.el-tabs) {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ca-card :deep(.el-tabs__content) {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .ca-card :deep(.el-tab-pane) {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ca-card :deep(.el-tab-pane > .table-scroll) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .ca-card :deep(.el-tab-pane > .table-scroll > .el-table) {
+    min-width: 0;
+  }
+
+  .ca-form-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .ca-form-footer {
+    flex: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .ca-tabs :deep(.el-tabs__header) {
+    padding: 0 12px;
+  }
+
+  .filter-row {
+    padding: 12px;
+  }
+
+  .filter-row :deep(.el-input) {
+    width: 100% !important;
+  }
+
+  .filter-spacer {
+    margin-left: 0;
+  }
+
+  .ca-notice {
+    padding: 9px 12px;
+  }
+
+  .ca-form-scroll {
+    padding: 4px 12px 16px;
+  }
+
+  .ca-form-footer {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 620px) {
+  .pool-item {
+    flex-wrap: wrap;
+  }
+
+  .pool-item :deep(.el-select) {
+    flex: 1 1 100%;
+  }
+
+  .ca-form-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ca-form-footer .el-button {
+    width: 100%;
+  }
 }
 </style>

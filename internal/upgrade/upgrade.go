@@ -490,7 +490,23 @@ func (m *Manager) createBackup(ctx context.Context) (string, error) {
 		return dir, fmt.Errorf("创建备份目录失败: %w", err)
 	}
 	_ = os.Chmod(targetDir, 0o700)
-	if m.db.Dialect().IsPostgres() {
+	if m.db.Dialect().IsMySQL() {
+		target := filepath.Join(targetDir, "lactssl.sql")
+		mysqlDump := findMySQLDumpBinary()
+		if mysqlDump == "" {
+			return targetDir, fmt.Errorf("备份 MySQL 失败: 未找到 mysqldump")
+		}
+		connection, err := db.MySQLCLI(m.db.DSN())
+		if err != nil {
+			return targetDir, fmt.Errorf("备份 MySQL 失败: %w", err)
+		}
+		cmd := exec.CommandContext(ctx, mysqlDump, db.MySQLDumpArgs(mysqlDump, connection, target)...) // #nosec G204 -- mysqldump 从 PATH 解析，参数由服务端生成
+		cmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return targetDir, fmt.Errorf("备份 MySQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		_ = os.Chmod(target, 0o600)
+	} else if m.db.Dialect().IsPostgres() {
 		target := filepath.Join(targetDir, "lactssl.dump")
 		pgDump := findPgDumpBinary()
 		if pgDump == "" {
@@ -529,6 +545,18 @@ func findPgDumpBinary() string {
 		return path
 	}
 	for _, candidate := range []string{"/usr/pgsql-18/bin/pg_dump", "/usr/bin/pg_dump", "/usr/local/bin/pg_dump"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func findMySQLDumpBinary() string {
+	if path, err := exec.LookPath("mysqldump"); err == nil {
+		return path
+	}
+	for _, candidate := range []string{"/usr/bin/mysqldump", "/usr/local/bin/mysqldump", "/usr/local/mysql/bin/mysqldump"} {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate
 		}

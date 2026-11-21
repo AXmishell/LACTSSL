@@ -87,6 +87,19 @@ export function isSiteDeployAccount(account: DeployAccount): boolean {
   return !!siteFieldOf(account, normalizeDeployConfig(account.type, account.config))
 }
 
+// 目标流程 Beta 的站点来源必须是部署插件声明了 plan-v1 能力、
+// 且当前配置能读到站点字段的目标。能力位完全来自插件 manifest，不在前端维护白名单。
+export const PLAN_CAPABILITY = 'plan-v1'
+
+export function supportsTargetFlowPlan(type: string | undefined): boolean {
+  const def = deployTypeDef(type)
+  return !!def?.capabilities?.includes(PLAN_CAPABILITY)
+}
+
+export function isTargetFlowSource(account: DeployAccount): boolean {
+  return supportsTargetFlowPlan(account.type) && isSiteDeployAccount(account)
+}
+
 export function visibleDeployFields(type: string | undefined, config: Record<string, string> | undefined): FieldDef[] {
   const fields = deployTypeDef(type)?.deploy_fields || []
   return fields.filter((field) => fieldVisible(field, fields, config))

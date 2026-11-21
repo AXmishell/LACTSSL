@@ -12,7 +12,7 @@ import (
 	"lactssl/internal/service"
 )
 
-func TestDeployAccountVerifyRequiresReauthAndPersistsStatus(t *testing.T) {
+func TestDeployAccountVerifyWithoutReauthAndPersistsStatus(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	session := loginSessionTest(t, router)
 
@@ -22,16 +22,10 @@ func TestDeployAccountVerifyRequiresReauthAndPersistsStatus(t *testing.T) {
 	}
 	path := fmt.Sprintf("/api/deploy-accounts/%d/verify", account.ID)
 
-	unauthorized := sessionRequest(t, router, http.MethodPost, path, `{}`,
-		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
-	if unauthorized.Code != http.StatusBadRequest || !strings.Contains(unauthorized.Body.String(), "current_password_wrong") {
-		t.Fatalf("验证必须再认证: %d %s", unauthorized.Code, unauthorized.Body.String())
-	}
-
-	response := sessionRequest(t, router, http.MethodPost, path, `{"password":"password1234"}`,
+	response := sessionRequest(t, router, http.MethodPost, path, `{}`,
 		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if response.Code != http.StatusOK {
-		t.Fatalf("验证失败: %d %s", response.Code, response.Body.String())
+		t.Fatalf("验证不应再要求密码/TOTP: %d %s", response.Code, response.Body.String())
 	}
 	var payload struct {
 		Data service.VerifyResult `json:"data"`
@@ -57,7 +51,7 @@ func TestVerifyUnsavedConfigRequiresExplicitSecret(t *testing.T) {
 	session := loginSessionTest(t, router)
 
 	response := sessionRequest(t, router, http.MethodPost, "/api/deploy-accounts/verify",
-		`{"type":"ssh","config":{"host":"example.com","user":"root","auth_type":"password"},"password":"password1234"}`,
+		`{"type":"ssh","config":{"host":"example.com","user":"root","auth_type":"password"}}`,
 		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "verify_secret_required") {
 		t.Fatalf("未提交密钥时必须拒绝验证: %d %s", response.Code, response.Body.String())
@@ -98,7 +92,7 @@ func TestVerifyDNSAccountPersistsUnsupportedStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := fmt.Sprintf("/api/dns-accounts/%d/verify", account.ID)
-	response := sessionRequest(t, router, http.MethodPost, path, `{"domain":"example.com","password":"password1234"}`,
+	response := sessionRequest(t, router, http.MethodPost, path, `{"domain":"example.com"}`,
 		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if response.Code != http.StatusOK {
 		t.Fatalf("验证接口应返回分项结果: %d %s", response.Code, response.Body.String())
@@ -110,6 +104,23 @@ func TestVerifyDNSAccountPersistsUnsupportedStatus(t *testing.T) {
 	}
 	if loaded.VerifyStatus != "unsupported" {
 		t.Fatalf("未安装插件应记录为 unsupported: %+v", loaded)
+	}
+}
+
+func TestProbeDNSZoneWithoutReauth(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	account := &model.DNSAccount{Name: "probe", Provider: "not-installed", Config: map[string]string{}}
+	if err := st.CreateDNSAccount(account); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/dns-accounts/%d/zones/probe", account.ID)
+	response := sessionRequest(t, router, http.MethodPost, path,
+		`{"domain":"example.com","mode":"read","apply":true}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if response.Code != http.StatusOK {
+		t.Fatalf("探测不应再要求密码/TOTP: %d %s", response.Code, response.Body.String())
 	}
 }
 

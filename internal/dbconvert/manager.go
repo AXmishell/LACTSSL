@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,6 +120,12 @@ func (m *Manager) TestTarget(ctx context.Context, req StartRequest) (map[string]
 			result["server_version"] = version
 		}
 	}
+	if req.TargetDriver.IsMySQL() {
+		var version string
+		if err := conn.QueryRowContext(ctx, `SELECT VERSION()`).Scan(&version); err == nil {
+			result["server_version"] = version
+		}
+	}
 	if req.TargetDriver == db.SQLite {
 		result["path"] = req.TargetPath
 	} else {
@@ -228,6 +235,8 @@ func (m *Manager) validateTarget(req StartRequest) error {
 				return errors.New("目标 SQLite 文件不能与当前数据库是同一个文件")
 			}
 		}
+	} else if strings.TrimSpace(req.TargetDSN) == "" {
+		return fmt.Errorf("%s 目标 DSN 不能为空", strings.ToUpper(req.TargetDriver.String()))
 	}
 	return nil
 }
@@ -255,8 +264,8 @@ func (m *Manager) openTarget(ctx context.Context, req StartRequest, migrate bool
 	switch req.TargetDriver {
 	case db.SQLite:
 		return db.OpenWithOptions(db.Options{Driver: db.SQLite, Path: req.TargetPath, Migrate: migrate})
-	case db.Postgres:
-		return db.OpenWithOptions(db.Options{Driver: db.Postgres, DSN: req.TargetDSN, Migrate: migrate, MaxOpenConns: 4, MaxIdleConns: 2})
+	case db.Postgres, db.MySQL:
+		return db.OpenWithOptions(db.Options{Driver: req.TargetDriver, DSN: req.TargetDSN, Migrate: migrate, MaxOpenConns: 4, MaxIdleConns: 2})
 	default:
 		return nil, fmt.Errorf("不支持的目标驱动: %s", req.TargetDriver)
 	}
@@ -297,10 +306,10 @@ func (m *Manager) run(ctx context.Context, req StartRequest, state *State) {
 	}
 	// 切换成功：写配置，保持源库冻结，随后由 main 重启。
 	dsn, path := "", ""
-	if req.TargetDriver == db.Postgres {
-		dsn = req.TargetDSN
-	} else {
+	if req.TargetDriver == db.SQLite {
 		path = req.TargetPath
+	} else {
+		dsn = req.TargetDSN
 	}
 	configBackup, configErr := config.RewriteDatabase(m.ConfigPath, req.TargetDriver.String(), dsn, path)
 	if configErr != nil {
@@ -382,11 +391,8 @@ func (m *Manager) Rollback() (*State, error) {
 	if !ok || driver == "" {
 		return nil, errors.New("切换前数据库类型无效")
 	}
-	if m.SourceDriver == db.Postgres {
-		// 当前是 PG 源，旧配置的 DSN 不能为空。
-		if driver == db.Postgres && settings.DSN == "" {
-			return nil, errors.New("切换前 PostgreSQL DSN 缺失")
-		}
+	if m.SourceDriver != db.SQLite && driver != db.SQLite && settings.DSN == "" {
+		return nil, fmt.Errorf("切换前 %s DSN 缺失", strings.ToUpper(m.SourceDriver.String()))
 	}
 	req := StartRequest{
 		TargetDriver: driver,
@@ -423,13 +429,17 @@ func VerifyStarted(ctx context.Context, conn *db.Handle, cipher *util.Cipher) er
 	}
 	for _, table := range []string{"users", "settings", "certificates", "tasks", "logs"} {
 		var count int64
-		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+quoteIdent(table)).Scan(&count); err != nil {
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+quoteIdent(conn.Dialect(), table)).Scan(&count); err != nil {
 			return fmt.Errorf("目标库缺少表 %s 或无法读取: %w", table, err)
 		}
 	}
-	if conn.Dialect().IsPostgres() {
+	if conn.Dialect().IsPostgres() || conn.Dialect().IsMySQL() {
+		query := `SELECT value FROM schema_meta WHERE key='schema.version'`
+		if conn.Dialect().IsMySQL() {
+			query = "SELECT `value` FROM schema_meta WHERE `key`='schema.version'"
+		}
 		var version string
-		if err := conn.QueryRowContext(ctx, `SELECT value FROM schema_meta WHERE key='schema.version'`).Scan(&version); err != nil {
+		if err := conn.QueryRowContext(ctx, query).Scan(&version); err != nil {
 			return fmt.Errorf("目标库缺少结构版本: %w", err)
 		}
 	} else {
@@ -452,8 +462,9 @@ func VerifyStarted(ctx context.Context, conn *db.Handle, cipher *util.Cipher) er
 		}
 		for _, check := range checks {
 			var value string
-			query := `SELECT ` + quoteIdent(check.column) + ` FROM ` + quoteIdent(check.table) +
-				` WHERE ` + quoteIdent(check.column) + ` LIKE 'enc:v1:%' LIMIT 1`
+			dialect := conn.Dialect()
+			query := `SELECT ` + quoteIdent(dialect, check.column) + ` FROM ` + quoteIdent(dialect, check.table) +
+				` WHERE ` + quoteIdent(dialect, check.column) + ` LIKE 'enc:v1:%' LIMIT 1`
 			err := conn.QueryRowContext(ctx, query).Scan(&value)
 			if errors.Is(err, sql.ErrNoRows) {
 				continue

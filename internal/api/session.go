@@ -4,7 +4,6 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/auth"
 	"lactssl/internal/model"
+	"lactssl/internal/netutil"
 	"lactssl/internal/util"
 )
 
@@ -33,6 +33,9 @@ const (
 	// deviceCookieValueLength 是设备标识的字符数（16 字节随机数的十六进制表示）。
 	deviceCookieValueLength = 32
 	deviceCookieTTL         = 365 * 24 * time.Hour
+	// deviceCookieContextKey 缓存本次请求内生成/读取到的设备标识，
+	// 避免 deviceFingerprint 与 issueSession 各生成一次导致前后不一致。
+	deviceCookieContextKey = "device_cookie_value"
 )
 
 // sessionCookieSecure 在 TLS 或可信反代声明 HTTPS 时给 Cookie 加 Secure。
@@ -40,35 +43,13 @@ func (s *Server) sessionCookieSecure(c *gin.Context) bool {
 	if c.Request.TLS != nil {
 		return true
 	}
-	return s.isTrustedProxy(c.Request.RemoteAddr) && strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+	return s.isTrustedRequest(c) && strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 }
 
 // isTrustedProxy 判断请求是否来自配置的可信反向代理，只有可信代理的转发头才会被采信。
 func (s *Server) isTrustedProxy(remoteAddr string) bool {
-	host, _, err := net.SplitHostPort(strings.TrimSpace(remoteAddr))
-	if err != nil {
-		host = strings.TrimSpace(remoteAddr)
-	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	if ip == nil {
-		return false
-	}
-	for _, entry := range s.TrustedProxies {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		if strings.Contains(entry, "/") {
-			if _, network, err := net.ParseCIDR(entry); err == nil && network.Contains(ip) {
-				return true
-			}
-			continue
-		}
-		if proxy := net.ParseIP(entry); proxy != nil && proxy.Equal(ip) {
-			return true
-		}
-	}
-	return false
+	peer, ok := netutil.ParsePeer(remoteAddr)
+	return ok && s.trustedProxies().Contains(peer)
 }
 
 // cookieName 在 HTTPS 下给 Cookie 加 __Host- 前缀；HTTP 环境保持原名，
@@ -173,13 +154,19 @@ func (s *Server) setCSRFCookie(c *gin.Context, token string, expire time.Time) {
 
 // ensureDeviceCookie 在首次访问或登录时下发设备标识；已存在时保持不变，
 // 使同一浏览器在多次登录之间仍能保持稳定的设备标识。
-func (s *Server) ensureDeviceCookie(c *gin.Context) {
+// 返回值同时缓存在 gin.Context 中，供安全通知计算设备指纹时复用。
+func (s *Server) ensureDeviceCookie(c *gin.Context) string {
+	if cached, ok := c.Get(deviceCookieContextKey); ok {
+		value, _ := cached.(string)
+		return value
+	}
 	if value, err := s.readCookie(c, deviceCookieName); err == nil && len(value) == deviceCookieValueLength {
-		return
+		c.Set(deviceCookieContextKey, value)
+		return value
 	}
 	value, err := util.RandomHex(deviceCookieValueLength / 2)
 	if err != nil {
-		return
+		return ""
 	}
 	http.SetCookie(c.Writer, &http.Cookie{ // #nosec G124 -- Secure 由 sessionCookieSecure 按 TLS/可信代理动态设置，HttpOnly 与 SameSite 已固定
 		Name:     s.cookieName(deviceCookieName, s.sessionCookieSecure(c)),
@@ -191,6 +178,8 @@ func (s *Server) ensureDeviceCookie(c *gin.Context) {
 		Expires:  time.Now().Add(deviceCookieTTL),
 		MaxAge:   int(deviceCookieTTL.Seconds()),
 	})
+	c.Set(deviceCookieContextKey, value)
+	return value
 }
 
 // clearCSRFCookie 清除 CSRF Cookie（同时清理带与不带 __Host- 前缀的名称）。
@@ -283,7 +272,7 @@ func (s *Server) ensureSession(c *gin.Context, claims *auth.Claims, token string
 		created := &model.Session{
 			ID:         id,
 			UserID:     claims.UserID,
-			IP:         c.ClientIP(),
+			IP:         s.clientIP(c),
 			UserAgent:  c.Request.UserAgent(),
 			CreatedAt:  now,
 			LastSeenAt: now,

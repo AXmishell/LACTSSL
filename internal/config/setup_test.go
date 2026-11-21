@@ -352,12 +352,18 @@ func TestLoadSetupConfigUsesDefaultsAndDoesNotExposeSecrets(t *testing.T) {
 	if cfg.Server.Port != 8080 {
 		t.Fatalf("默认端口不正确: %d", cfg.Server.Port)
 	}
+	if cfg.Server.ClientIPMode != "auto" || cfg.Server.ProxyProtocol {
+		t.Fatalf("默认客户端 IP 模式不正确: %+v", cfg.Server)
+	}
 	if !cfg.ACME.Enabled || !cfg.Plugins.Enabled || cfg.DeployPlugins.Enabled || !cfg.NotifyPlugins.Enabled {
 		t.Fatalf("默认开关不正确: %+v", cfg)
 	}
 	if cfg.Log.Level != "info" || cfg.Log.Format != "text" || cfg.Log.MaxSizeMB != 20 ||
 		!cfg.Log.AlsoStdout || !cfg.Log.System.Enabled {
 		t.Fatalf("默认日志配置不正确: %+v", cfg.Log)
+	}
+	if !cfg.Log.Archive.Enabled || !cfg.Log.Archive.Compress || cfg.Log.Archive.QuotaPolicy != "fail" {
+		t.Fatalf("默认日志归档配置不正确: %+v", cfg.Log.Archive)
 	}
 	if !cfg.Upgrade.Auto || !cfg.Upgrade.Program.Enabled || cfg.Upgrade.Program.Channel != "stable" {
 		t.Fatalf("默认升级配置不正确: %+v", cfg.Upgrade)
@@ -445,5 +451,214 @@ func TestUpdateSetupConfigRequiresExistingFile(t *testing.T) {
 	}
 	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("不应创建新配置文件: %v", statErr)
+	}
+}
+
+func TestUpdateSetupConfigProxyAndArchiveFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := `security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	clientIPMode := "cloudflare"
+	proxyProtocol := true
+	archiveEnabled := true
+	archiveCompress := false
+	archiveRetentionDays := 90
+	archiveMaxTotalMB := 512
+	archiveQuotaPolicy := "prune_oldest"
+	allowUnsigned := true
+	patch := SetupConfigPatch{
+		Server: &SetupServerPatch{
+			ClientIPMode:  &clientIPMode,
+			ProxyProtocol: &proxyProtocol,
+		},
+		Log: &SetupLogPatch{Archive: &SetupLogArchivePatch{
+			Enabled:       &archiveEnabled,
+			Compress:      &archiveCompress,
+			RetentionDays: &archiveRetentionDays,
+			MaxTotalMB:    &archiveMaxTotalMB,
+			QuotaPolicy:   &archiveQuotaPolicy,
+		}},
+		Upgrade: &SetupUpgradePatch{Program: &SetupProgramPatch{
+			AllowUnsigned: &allowUnsigned,
+		}},
+	}
+	if err := UpdateSetupConfig(path, patch); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadSetupConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.ClientIPMode != clientIPMode || !cfg.Server.ProxyProtocol {
+		t.Fatalf("代理识别配置未更新: %+v", cfg.Server)
+	}
+	if !cfg.Log.Archive.Enabled || cfg.Log.Archive.Compress ||
+		cfg.Log.Archive.RetentionDays != archiveRetentionDays ||
+		cfg.Log.Archive.MaxTotalMB != archiveMaxTotalMB ||
+		cfg.Log.Archive.QuotaPolicy != archiveQuotaPolicy {
+		t.Fatalf("日志归档配置未更新: %+v", cfg.Log.Archive)
+	}
+	if !cfg.Upgrade.Program.AllowUnsigned {
+		t.Fatal("allow_unsigned 未更新")
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"client_ip_mode: cloudflare",
+		"proxy_protocol: true",
+		"archive:",
+		"quota_policy: prune_oldest",
+		"allow_unsigned: true",
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("配置缺少 %q:\n%s", want, raw)
+		}
+	}
+}
+
+func TestUpdateSetupConfigAllowsUnsignedOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := `security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	allowUnsigned := true
+	if err := UpdateSetupConfig(path, SetupConfigPatch{
+		Upgrade: &SetupUpgradePatch{Program: &SetupProgramPatch{AllowUnsigned: &allowUnsigned}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadSetupConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Upgrade.Program.AllowUnsigned {
+		t.Fatal("仅提交 allow_unsigned 时也应写入")
+	}
+}
+
+func TestUpdateSetupConfigResetsRateLimitRule(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := `security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+  rate_limit:
+    rules:
+      login_ip: {max: 99, window_seconds: 60}
+`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateSetupConfig(path, SetupConfigPatch{
+		Reset: []string{"security.rate_limit.rules.login_ip"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "login_ip:") {
+		t.Fatalf("恢复默认后应从 config.yaml 删除该规则:\n%s", raw)
+	}
+	cfg, err := LoadSetupConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := cfg.RateLimit.Defaults[ratelimit.LoginIP]
+	rule := cfg.RateLimit.Rules[ratelimit.LoginIP]
+	if rule.Max != def.Max || rule.WindowSeconds != def.WindowSeconds {
+		t.Fatalf("规则未恢复内置默认值: rule=%+v default=%+v", rule, def)
+	}
+}
+
+func TestResetRateLimitRuleIsNotNoopWhenOverrideEqualsDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := `security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+  rate_limit:
+    rules:
+      login_ip: {max: 10, window_seconds: 300}
+`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareConfigUpdate(path, SetupConfigPatch{
+		Reset: []string{"security.rate_limit.rules.login_ip"},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.ChangedFields) == 0 {
+		t.Fatal("删除与默认值相同的显式规则时也应产生变更")
+	}
+	if !containsString(prepared.ChangedFields, "security.rate_limit.rules.login_ip") {
+		t.Fatalf("changed_fields 应包含重置路径: %v", prepared.ChangedFields)
+	}
+}
+
+func TestUpdateSetupConfigRejectsUnknownResetPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := `security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := UpdateSetupConfig(path, SetupConfigPatch{Reset: []string{"security.jwt_secret"}})
+	if !errors.Is(err, ErrSetupConfigInvalid) {
+		t.Fatalf("不支持的重置路径应被拒绝: %v", err)
+	}
+}
+
+func TestUpdateSetupConfigResetsLogArchive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := `security:
+  jwt_secret: "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+  salt: "ssssssssssssssssssssssssssssssss"
+log:
+  archive:
+    enabled: false
+    compress: false
+    retention_days: 30
+    max_total_mb: 1024
+    quota_policy: prune_oldest
+`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateSetupConfig(path, SetupConfigPatch{Reset: []string{"log.archive"}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "archive:") {
+		t.Fatalf("恢复默认后应删除 log.archive 段:\n%s", raw)
+	}
+	cfg, err := LoadSetupConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Log.Archive.Enabled || !cfg.Log.Archive.Compress ||
+		cfg.Log.Archive.RetentionDays != 0 || cfg.Log.Archive.MaxTotalMB != 0 ||
+		cfg.Log.Archive.QuotaPolicy != "fail" {
+		t.Fatalf("日志归档未恢复默认: %+v", cfg.Log.Archive)
 	}
 }

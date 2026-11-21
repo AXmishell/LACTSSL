@@ -11,7 +11,7 @@ Plugins should therefore be subject to change management and admission review ra
 
 ## 1. Plugin model
 
-- **Merged packages by kind**: the official plugin repository builds merged packages for each kind: common DNS, large DNS cloud providers, deployment, and notification, plus a full DNS refactor package covering all 194 providers. Each package contains multiple implementations of that kind and shares a single Go runtime.
+- **Merged packages by kind**: the official plugin repository builds merged packages for each kind: DNS full (refactored), DNS full (lego), DNS full (lego v5), deployment, and notification. Each package contains multiple implementations of that kind and shares a single Go runtime.
 - **Install on demand**: release packages ship no plugins; install the merged package for the capability you need.
 - **Protocol v1**: a plugin is an executable that communicates with the main program through subcommands such as `manifest`, `present/cleanup`, `deploy`, and `send`.
 - **Separate directories**:
@@ -104,7 +104,7 @@ You can upload a single helper on the Plugins page, or place files in the plugin
 
 ### 4.1 Installation
 
-1. Open the Plugins page, confirm the repository URL, and click **Refresh index**.
+1. Open the Plugins page and confirm the repository URL; if the server cannot reach the repository directly, enter an http/socks5 download proxy in the repository settings before clicking **Refresh index**.
 2. Open the **Plugin market** and filter or search by DNS / deployment / notification.
 3. Install the required plugins, then enable the plugin file first and the needed items after that.
 
@@ -127,7 +127,7 @@ Each row on the Plugins page corresponds to one helper file, and enablement has 
 Notes:
 
 - When a file is disabled, its items are still displayed (from the host's cached manifest summary), but the toggles are grayed out; enable the file first.
-- Merged packages (for example, `lactssl-dns-core` with 184 items) are not enabled all at once by the row toggle; enabling more than 10 items at once requires confirmation.
+- Merged packages (for example, `lactssl-dns-all-native` with 194 items) are not enabled all at once by the row toggle; enabling more than 10 items at once requires confirmation.
 - Deleting a file or uninstalling a plugin also clears the manifest cache and file-level state, and removes all items of that file from the item allowlist.
 
 ## 5. Updates, rollback, and uninstall
@@ -154,16 +154,16 @@ Sizes shown in the plugin market are **extracted** sizes, that is, the actual he
 
 | Package | Extracted |
 |---|---:|
-| DNS common (184 providers) | about 21 MiB |
-| DNS large cloud providers (10 providers) | about 39 MiB |
-| DNS complete/refactored (194 providers) | about 18 MiB |
-| Deployment (7 targets) | about 7 MiB |
+| DNS full (refactored, 194 providers) | about 18 MiB |
+| DNS full (lego, 194 providers) | about 58 MiB |
+| DNS full (lego v5, 235 entries) | about 37 MiB |
+| Deployment (25 targets) | about 8 MiB |
 | Notification (23 channels) | about 7 MiB |
 
-- The common DNS package installs about 21 MiB and peaks at about 22 MiB of memory when running `manifest`.
-- Install the roughly 39 MiB heavy package when you need large-SDK providers such as Google Cloud, Yandex, Sakura, Route53, and Azure DNS.
-- To cover all 194 providers, install only the roughly 18 MiB complete/refactored package.
-- Installing everything is about 73 MiB, still roughly 96% less than the approximately 1.7 GiB extracted total of 224 individual plugin packages.
+- Most users only need the roughly 18 MiB DNS full (refactored) package, which covers all 194 providers.
+- Install the roughly 58 MiB DNS full (lego) package when you need full lego v4 capabilities such as rfc2136 GSS-TSIG.
+- Install the roughly 37 MiB DNS full (lego v5) package to follow lego v5 and new providers. The three DNS packages are mutually exclusive.
+- Installing the default DNS, deployment, and notification packages is about 33 MiB, still far below packaging providers individually.
 
 Installation and update unpacking cause a transient memory peak; leave headroom in capacity planning. See [Deployment architecture](architecture.md).
 
@@ -223,7 +223,7 @@ Plugin management requires `plugins:read` / `plugins:write`. Upload, install, up
 
 | Symptom | Cause | Resolution |
 | --- | --- | --- |
-| Index fetch fails | Repository URL, network proxy, TLS certificate | Open `index.json` in a browser first; check outbound policy |
+| Index fetch fails | Repository URL, network proxy, TLS certificate | Open `index.json` in a browser first; check outbound policy; in restricted networks configure an http/socks5 proxy on the Plugins page or via `plugins.repo.proxy` |
 | Signature verification fails | Public key does not match the repository signing key | Verify the public key; do not clear `public_key` casually in production |
 | Platform unavailable | No plugin package exists for the current platform | Check `GOOS/GOARCH` and the index `assets` |
 | Host version incompatible | Plugin `min_host` is higher than the current version | Upgrade the host or install a compatible version |

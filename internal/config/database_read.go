@@ -24,9 +24,9 @@ func DatabaseFromFile(path string) (DatabaseSettings, error) {
 	if err != nil {
 		return DatabaseSettings{}, err
 	}
-	driver := strings.ToLower(strings.TrimSpace(fc.Database.Driver))
-	if driver == "" {
-		driver = "sqlite"
+	driver, valid := normalizeDatabaseDriver(fc.Database.Driver)
+	if !valid {
+		return DatabaseSettings{}, fmt.Errorf("database.driver 必须是 sqlite、postgres 或 mysql")
 	}
 	dataDir := strings.TrimSpace(fc.DataDir)
 	if dataDir == "" {
@@ -37,8 +37,5 @@ func DatabaseFromFile(path string) (DatabaseSettings, error) {
 		sqlitePath = filepath.Join(dataDir, "lactssl.db")
 	}
 	dsn := strings.TrimSpace(fc.Database.DSN)
-	if driver != "sqlite" && driver != "postgres" {
-		return DatabaseSettings{}, fmt.Errorf("database.driver 必须是 sqlite 或 postgres")
-	}
 	return DatabaseSettings{Driver: driver, Path: sqlitePath, DSN: dsn}, nil
 }

@@ -177,11 +177,12 @@ function requireSetupToken(): boolean {
 
 function emptySetupConfig(): SetupConfig {
   return {
-    server: { addr: '', host: '', port: 8080 },
+    reset: [],
+    server: { addr: '', host: '', port: 8080, client_ip_mode: 'auto', proxy_protocol: false },
     trusted_proxies: [],
     public_url: '',
     session_persistence: false,
-    rate_limit: { max_keys: 10000, rules: {} },
+    rate_limit: { max_keys: 10000, rules: {}, defaults: {} },
     acme: {
       enabled: true,
       addr: '',
@@ -204,13 +205,26 @@ function emptySetupConfig(): SetupConfig {
         access: false,
         retention_days: 7,
         max_rows: 20000
+      },
+      archive: {
+        enabled: true,
+        compress: true,
+        retention_days: 0,
+        max_total_mb: 0,
+        quota_policy: 'fail'
       }
     },
     upgrade: {
       auto: true,
       auto_optimize: true,
       vacuum: true,
-      program: { enabled: true, channel: 'stable', check_interval_hours: 6, max_download_mb: 128 }
+      program: {
+        enabled: true,
+        channel: 'stable',
+        check_interval_hours: 6,
+        max_download_mb: 128,
+        allow_unsigned: false
+      }
     },
     plugins: {
       enabled: true,
@@ -222,6 +236,7 @@ function emptySetupConfig(): SetupConfig {
         url: 'https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json',
         channel: 'stable',
         auto_update: false,
+        proxy: '',
         timeout_seconds: 30,
         max_download_mb: 256,
         check_interval_hours: 24
@@ -275,10 +290,13 @@ async function saveConfig(): Promise<void> {
   try {
     const form = configForm.value
     const data = await api.put<SetupConfigSaveResult>('/setup/config', {
+      reset: form.reset || [],
       server: {
         addr: form.server.addr.trim(),
         host: form.server.host.trim(),
-        port: form.server.port
+        port: form.server.port,
+        client_ip_mode: form.server.client_ip_mode,
+        proxy_protocol: form.server.proxy_protocol
       },
       trusted_proxies: proxies,
       public_url: form.public_url.trim(),
@@ -315,6 +333,13 @@ async function saveConfig(): Promise<void> {
           access: form.log.system.access,
           retention_days: form.log.system.retention_days,
           max_rows: form.log.system.max_rows
+        },
+        archive: {
+          enabled: form.log.archive.enabled,
+          compress: form.log.archive.compress,
+          retention_days: form.log.archive.retention_days,
+          max_total_mb: form.log.archive.max_total_mb,
+          quota_policy: form.log.archive.quota_policy
         }
       },
       upgrade: {
@@ -325,7 +350,8 @@ async function saveConfig(): Promise<void> {
           enabled: form.upgrade.program.enabled,
           channel: form.upgrade.program.channel,
           check_interval_hours: form.upgrade.program.check_interval_hours,
-          max_download_mb: form.upgrade.program.max_download_mb
+          max_download_mb: form.upgrade.program.max_download_mb,
+          allow_unsigned: form.upgrade.program.allow_unsigned
         }
       },
       plugins: {
@@ -338,6 +364,7 @@ async function saveConfig(): Promise<void> {
           url: form.plugins.repo.url.trim(),
           channel: form.plugins.repo.channel,
           auto_update: form.plugins.repo.auto_update,
+          proxy: form.plugins.repo.proxy.trim(),
           timeout_seconds: form.plugins.repo.timeout_seconds,
           max_download_mb: form.plugins.repo.max_download_mb,
           check_interval_hours: form.plugins.repo.check_interval_hours
@@ -357,6 +384,7 @@ async function saveConfig(): Promise<void> {
       }
     }, setupHeaders())
     configSaved.value = !!data.restart_required
+    form.reset = []
     ElMessage.success(data.message || t('setup.configSaved'))
   } catch (error: any) {
     ElMessage.error(error?.message || t('setup.configSaveFailed'))

@@ -31,6 +31,7 @@ import (
 	"lactssl/internal/i18n"
 	"lactssl/internal/logarchive"
 	"lactssl/internal/model"
+	"lactssl/internal/netutil"
 	"lactssl/internal/plugin/deploy"
 	"lactssl/internal/plugin/dns"
 	"lactssl/internal/plugin/notify"
@@ -70,7 +71,13 @@ type Server struct {
 	DataDir        string
 	PublicURL      string
 	TrustedProxies []string
-	ACMEBaseURL    string
+	// ClientIPMode 为 auto（默认）或 cloudflare；cloudflare 模式下可信代理优先使用 CF-Connecting-IP。
+	ClientIPMode string
+	// trustedOnce 在首次请求时编译可信代理列表，避免每个请求重复解析。
+	trustedOnce sync.Once
+	trustedSet  netutil.TrustedSet
+	trustedErr  error
+	ACMEBaseURL string
 	// PluginsEnabled 与插件目录/限制由 main 从配置注入。
 	PluginsEnabled      bool
 	PluginDir           string
@@ -95,6 +102,7 @@ type Server struct {
 	PluginRepoChannel       string
 	PluginRepoAutoUpdate    bool
 	PluginRepoPublicKey     string
+	PluginRepoProxy         string
 	PluginRepoTimeout       time.Duration
 	PluginRepoMaxDownloadMB int
 	PluginRepoCheckInterval time.Duration
@@ -217,13 +225,12 @@ func (s *Server) Router() *gin.Engine {
 	r := gin.New()
 	r.RedirectTrailingSlash = false
 	r.RedirectFixedPath = false
-	// 仅信任显式配置的反向代理；为空时 ClientIP 取 RemoteAddr，避免 X-Forwarded-For 伪造。
-	if err := r.SetTrustedProxies(s.TrustedProxies); err != nil {
-		s.logger().Warn("可信代理配置无效，已禁用代理头信任", "error", err)
-		_ = r.SetTrustedProxies(nil)
-	}
+	// 客户端 IP 统一由 resolveClientIP 解析；关闭 Gin 自带的代理头信任，
+	// 避免 c.ClientIP() 与统一解析器产生两套语义。
+	_ = r.SetTrustedProxies(nil)
 	// 访问日志必须包在 recovery 外层，panic 被恢复并写入 500 后才能记录到正确状态码。
-	r.Use(s.requestID(), s.accessLog(), s.recovery(), s.bodyLimit(), s.localeMiddleware(), s.securityHeaders(), s.cors(), s.maintenanceGate())
+	// resolveClientIP 必须在访问日志之前执行，日志才能读到已解析的客户端 IP。
+	r.Use(s.requestID(), s.resolveClientIP(), s.accessLog(), s.recovery(), s.bodyLimit(), s.localeMiddleware(), s.securityHeaders(), s.cors(), s.maintenanceGate())
 
 	// 接口固定挂在裸 /api 下；旧版 /<entry>/api 保留为兼容别名。
 	// 安全链按“来源校验 → 匿名限流 → CSRF → 默认认证”执行：
@@ -327,10 +334,14 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/acme-diagnostics/cleanup", s.cleanupACMEDiagnostics)
 	g.POST("/acme-diagnostics/cleanup/preview", s.previewCleanupACMEDiagnostics)
 	g.GET("/dns-accounts", s.listDNSAccounts)
+	g.POST("/dns-accounts/resolve", s.resolveDNSAccounts)
 	g.GET("/dns-accounts/:id", s.getDNSAccount)
 	g.POST("/dns-accounts", s.createDNSAccount)
 	g.POST("/dns-accounts/verify", s.verifyDNSAccountConfig)
 	g.POST("/dns-accounts/:id/verify", s.verifyDNSAccount)
+	g.GET("/dns-accounts/:id/zones", s.listDNSAccountZones)
+	g.PUT("/dns-accounts/:id/zones", s.replaceDNSAccountZones)
+	g.POST("/dns-accounts/:id/zones/probe", s.probeDNSAccountZone)
 	g.PUT("/dns-accounts/:id", s.updateDNSAccount)
 	g.DELETE("/dns-accounts/:id", s.deleteDNSAccount)
 	g.GET("/deploy-accounts", s.listDeployAccounts)
@@ -354,7 +365,7 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/certificates/cleanup", s.cleanupCertificates)
 	g.POST("/certificates/cleanup/preview", s.previewCleanupCertificates)
 	g.POST("/certificates/batch/deploy", s.batchDeployCertificates)
-	// 客户端 CSR 申请：服务端作为中间环节向权威 CA 完成域名验证与签发。
+	// 客户端 CSR 申请：服务端作为中间环节向公共 CA 完成域名验证与签发。
 	g.POST("/certificate-requests", s.createCSRRequest)
 	g.GET("/certificate-requests", s.listCSRRequests)
 	g.GET("/certificate-requests/:id", s.getCSRRequest)
@@ -414,6 +425,8 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/settings/config/restart", s.restartSettingsConfig)
 	g.POST("/settings/test-mail", s.testMail)
 	g.POST("/settings/test-channel", s.testChannel)
+	g.POST("/settings/test-security-notify", s.testSecurityNotify)
+	g.GET("/security/events", s.listSecurityEvents)
 	g.POST("/security/entry", s.changeEntry)
 	g.GET("/api-keys", s.listAPIKeys)
 	g.GET("/api-keys/scopes", s.apiKeyScopes)
@@ -550,7 +563,7 @@ func (s *Server) sameOrigin(c *gin.Context) bool {
 		}
 	}
 	// 反向代理可能改写 Host，仅在请求来自可信代理时采信 X-Forwarded-Host。
-	if s.isTrustedProxy(c.Request.RemoteAddr) {
+	if s.isTrustedRequest(c) {
 		addHost(c.GetHeader("X-Forwarded-Host"))
 	}
 	return allowed[normalizeOriginHost(parsed.Host)]
@@ -565,8 +578,8 @@ func normalizeOriginHost(host string) string {
 }
 
 // clientRateKey 返回用于限流的客户端标识，IPv6 归并到 /64，防止轮换地址绕过。
-func clientRateKey(c *gin.Context) string {
-	return normalizeRateIP(c.ClientIP())
+func (s *Server) clientRateKey(c *gin.Context) string {
+	return normalizeRateIP(s.clientIP(c))
 }
 
 func normalizeRateIP(raw string) string {
@@ -847,7 +860,7 @@ func (s *Server) serveSPA(c *gin.Context) {
 // 没有门禁 Cookie 的请求只返回精简版 404；已通过入口但未登录的请求
 // 才展示控制台样式的 404 页面（含请求路径与重新进入的提示）。
 func (s *Server) entryNotFound(c *gin.Context) {
-	if allowed, wait := s.allow(ratelimit.Entry, "entry:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.Entry, "entry:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

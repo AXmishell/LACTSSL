@@ -63,6 +63,25 @@ func sqliteStatements() []string {
 			expires_at DATETIME NOT NULL,
 			revoked_at DATETIME
 		)`,
+		`CREATE TABLE IF NOT EXISTS security_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			kind TEXT NOT NULL,
+			fingerprint TEXT NOT NULL DEFAULT '',
+			ip TEXT NOT NULL DEFAULT '',
+			user_agent TEXT NOT NULL DEFAULT '',
+			detail TEXT NOT NULL DEFAULT '{}',
+			recipients TEXT NOT NULL DEFAULT '[]',
+			channels TEXT NOT NULL DEFAULT '[]',
+			notify INTEGER NOT NULL DEFAULT 1,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			deliveries TEXT NOT NULL DEFAULT '{}',
+			smtp_snapshot TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL,
+			next_attempt_at DATETIME,
+			delivered_at DATETIME
+		)`,
 		`CREATE TABLE IF NOT EXISTS passkeys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER NOT NULL,
@@ -79,9 +98,12 @@ func sqliteStatements() []string {
 			prefix TEXT NOT NULL,
 			token_hash TEXT NOT NULL UNIQUE,
 			scopes TEXT NOT NULL DEFAULT '[]',
+			allowed_ips TEXT NOT NULL DEFAULT '[]',
+			allowed_dns_account_ids TEXT NOT NULL DEFAULT '[]',
 			enabled INTEGER NOT NULL DEFAULT 1,
 			expires_at DATETIME,
 			last_used_at DATETIME,
+			last_used_ip TEXT NOT NULL DEFAULT '',
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
 		)`,
@@ -105,6 +127,21 @@ func sqliteStatements() []string {
 			verified_at DATETIME,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
+		)`,
+		// dns_zone_bindings 是“域名 → DNS 账户”的声明式映射。
+		// zone 已规范化（小写、无尾点、无通配符），match_mode=suffix 表示
+		// 覆盖该 zone 及其子域，exact 表示只匹配该域名。
+		`CREATE TABLE IF NOT EXISTS dns_zone_bindings (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			dns_account_id INTEGER NOT NULL,
+			zone TEXT NOT NULL,
+			match_mode TEXT NOT NULL DEFAULT 'suffix',
+			priority INTEGER NOT NULL DEFAULT 0,
+			source TEXT NOT NULL DEFAULT 'manual',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			UNIQUE(zone, dns_account_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS deploy_accounts (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -189,9 +226,11 @@ func sqliteStatements() []string {
 			domains TEXT NOT NULL,
 			challenge TEXT NOT NULL DEFAULT 'dns01',
 			dns_account_id INTEGER NOT NULL DEFAULT 0,
+			dns_routes TEXT NOT NULL DEFAULT '[]',
 			ca TEXT NOT NULL DEFAULT 'letsencrypt',
 			ca_pool_id INTEGER NOT NULL DEFAULT 0,
 			key_type TEXT NOT NULL DEFAULT 'ecdsa',
+			no_key_storage INTEGER NOT NULL DEFAULT 0,
 			auto_renew INTEGER NOT NULL DEFAULT 1,
 			renew_days INTEGER NOT NULL DEFAULT 30,
 			deploy_ids TEXT NOT NULL DEFAULT '[]',
@@ -397,6 +436,10 @@ func sqliteStatements() []string {
 			ca TEXT NOT NULL,
 			challenge TEXT NOT NULL DEFAULT 'dns01',
 			dns_account_id INTEGER NOT NULL DEFAULT 0,
+			dns_routes TEXT NOT NULL DEFAULT '[]',
+			dns_routes_hash TEXT NOT NULL DEFAULT '',
+			resolved_by TEXT NOT NULL DEFAULT '',
+			resolved_zone TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL DEFAULT 'pending',
 			error_code TEXT NOT NULL DEFAULT '',
 			error_message TEXT NOT NULL DEFAULT '',
@@ -414,6 +457,10 @@ func sqliteStatements() []string {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, last_seen_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_security_events_created ON security_events(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_security_events_user_created ON security_events(user_id, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_security_events_user_fingerprint ON security_events(user_id, fingerprint, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_security_events_pending ON security_events(notify, next_attempt_at, delivered_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_passkeys_user ON passkeys(user_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_not_after ON certificates(not_after)`,
@@ -435,9 +482,11 @@ func sqliteStatements() []string {
 		`CREATE INDEX IF NOT EXISTS idx_acme_challenge_next ON acme_challenges(next_check_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_request_status_created ON certificate_requests(status, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_request_hash ON certificate_requests(csr_sha256, ca)`,
-		// 同一调用方对同一 CSR 与 CA 只允许一个在途申请，避免并发提交产生重复订单；
-		// 已签发/失败/取消后允许重新提交。
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cert_request_active_hash ON certificate_requests(csr_sha256, ca, api_key_id) WHERE status IN ('pending','running')`,
+		`CREATE INDEX IF NOT EXISTS idx_dns_zone_bindings_account ON dns_zone_bindings(dns_account_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_dns_zone_bindings_zone ON dns_zone_bindings(zone)`,
+		// 同一调用方对同一 CSR、CA 与 DNS 账户只允许一个在途申请，避免并发提交
+		// 产生重复订单；已签发/失败/取消后允许重新提交。
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cert_request_active_hash ON certificate_requests(csr_sha256, ca, api_key_id, dns_account_id, dns_routes_hash) WHERE status IN ('pending','running')`,
 	}
 }
 
@@ -449,15 +498,19 @@ var (
 
 // schemaStatements 返回指定方言的建表语句。
 func schemaStatements(d Dialect) []string {
-	base := sqliteStatements()
-	if !d.IsPostgres() {
-		return base
+	switch {
+	case d.IsPostgres():
+		base := sqliteStatements()
+		out := make([]string, 0, len(base))
+		for _, stmt := range base {
+			out = append(out, translatePostgresDDL(stmt))
+		}
+		return out
+	case d.IsMySQL():
+		return mysqlStatements()
+	default:
+		return sqliteStatements()
 	}
-	out := make([]string, 0, len(base))
-	for _, stmt := range base {
-		out = append(out, translatePostgresDDL(stmt))
-	}
-	return out
 }
 
 // translatePostgresDDL 把 SQLite 的基础 DDL 转换为 PostgreSQL 兼容写法。

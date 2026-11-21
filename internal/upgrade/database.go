@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"lactssl/internal/db"
 )
 
 // DatabaseStats 是数据库文件与 SQLite 内部页面的概况。
@@ -64,6 +66,9 @@ func (m *Manager) EnsureIndexes(ctx context.Context) ([]string, error) {
 	if m.db.Dialect().IsPostgres() {
 		indexQuery = `SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()`
 	}
+	if m.db.Dialect().IsMySQL() {
+		indexQuery = `SELECT DISTINCT index_name FROM information_schema.statistics WHERE table_schema=DATABASE()`
+	}
 	rows, err := m.db.QueryContext(ctx, indexQuery)
 	if err != nil {
 		return nil, fmt.Errorf("读取索引列表失败: %w", err)
@@ -87,7 +92,12 @@ func (m *Manager) EnsureIndexes(ctx context.Context) ([]string, error) {
 		if existing[item.name] {
 			continue
 		}
-		if _, err := m.db.ExecContext(ctx, item.sql); err != nil {
+		sql := item.sql
+		if m.db.Dialect().IsMySQL() {
+			// MySQL 不支持 CREATE INDEX IF NOT EXISTS；列表查询已确保不存在。
+			sql = strings.Replace(sql, "IF NOT EXISTS ", "", 1)
+		}
+		if _, err := m.db.ExecContext(ctx, sql); err != nil {
 			return created, fmt.Errorf("创建索引 %s 失败: %w", item.name, err)
 		}
 		created = append(created, item.name)
@@ -112,23 +122,34 @@ func (m *Manager) Optimize(ctx context.Context, opts OptimizeOptions) (OptimizeR
 		result.Actions = append(result.Actions, "补充索引: "+strings.Join(created, ", "))
 	}
 
-	if m.db.Dialect().IsPostgres() {
+	switch {
+	case m.db.Dialect().IsPostgres():
 		// PostgreSQL 由 autovacuum 维护统计信息，这里只执行显式 ANALYZE。
-	} else if _, err := m.db.ExecContext(ctx, `PRAGMA optimize`); err != nil {
-		result.Warnings = append(result.Warnings, "PRAGMA optimize 失败: "+err.Error())
-	} else {
-		result.Actions = append(result.Actions, "更新查询规划器统计（PRAGMA optimize）")
+	case m.db.Dialect().IsMySQL():
+		// MySQL 由存储引擎维护统计信息，显式 ANALYZE 在下方统一处理。
+	default:
+		if _, err := m.db.ExecContext(ctx, `PRAGMA optimize`); err != nil {
+			result.Warnings = append(result.Warnings, "PRAGMA optimize 失败: "+err.Error())
+		} else {
+			result.Actions = append(result.Actions, "更新查询规划器统计（PRAGMA optimize）")
+		}
 	}
 
 	if opts.Analyze {
-		if _, err := m.db.ExecContext(ctx, `ANALYZE`); err != nil {
+		if m.db.Dialect().IsMySQL() {
+			if err := m.mysqlTableMaintenance(ctx, "ANALYZE TABLE"); err != nil {
+				result.Warnings = append(result.Warnings, "ANALYZE TABLE 失败: "+err.Error())
+			} else {
+				result.Actions = append(result.Actions, "分析表统计信息（ANALYZE TABLE）")
+			}
+		} else if _, err := m.db.ExecContext(ctx, `ANALYZE`); err != nil {
 			result.Warnings = append(result.Warnings, "ANALYZE 失败: "+err.Error())
 		} else {
 			result.Actions = append(result.Actions, "完整分析表和索引（ANALYZE）")
 		}
 	}
 
-	if opts.Checkpoint && !m.db.Dialect().IsPostgres() {
+	if opts.Checkpoint && !m.db.Dialect().IsPostgres() && !m.db.Dialect().IsMySQL() {
 		var busy, logFrames, checkpointed int
 		row := m.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 		if err := row.Scan(&busy, &logFrames, &checkpointed); err != nil {
@@ -148,18 +169,26 @@ func (m *Manager) Optimize(ctx context.Context, opts OptimizeOptions) (OptimizeR
 	if opts.Vacuum {
 		vacuumCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
-		vacuumSQL := `VACUUM`
-		if m.db.Dialect().IsPostgres() {
-			vacuumSQL = `VACUUM (ANALYZE)`
-		}
-		if _, err := m.db.ExecContext(vacuumCtx, vacuumSQL); err != nil {
-			result.Warnings = append(result.Warnings, "VACUUM 失败: "+err.Error())
+		if m.db.Dialect().IsMySQL() {
+			if err := m.mysqlTableMaintenance(vacuumCtx, "OPTIMIZE TABLE"); err != nil {
+				result.Warnings = append(result.Warnings, "OPTIMIZE TABLE 失败: "+err.Error())
+			} else {
+				result.Actions = append(result.Actions, "重建表并回收空闲空间（OPTIMIZE TABLE）")
+			}
 		} else {
-			result.Actions = append(result.Actions, "VACUUM 回收空闲页面")
-		}
-		// VACUUM 会重写统计信息，再执行一次轻量优化。
-		if !m.db.Dialect().IsPostgres() {
-			_, _ = m.db.ExecContext(vacuumCtx, `PRAGMA optimize`)
+			vacuumSQL := `VACUUM`
+			if m.db.Dialect().IsPostgres() {
+				vacuumSQL = `VACUUM (ANALYZE)`
+			}
+			if _, err := m.db.ExecContext(vacuumCtx, vacuumSQL); err != nil {
+				result.Warnings = append(result.Warnings, "VACUUM 失败: "+err.Error())
+			} else {
+				result.Actions = append(result.Actions, "VACUUM 回收空闲页面")
+			}
+			// VACUUM 会重写统计信息，再执行一次轻量优化。
+			if !m.db.Dialect().IsPostgres() {
+				_, _ = m.db.ExecContext(vacuumCtx, `PRAGMA optimize`)
+			}
 		}
 	}
 
@@ -184,6 +213,9 @@ func (m *Manager) Optimize(ctx context.Context, opts OptimizeOptions) (OptimizeR
 func (m *Manager) databaseStats(ctx context.Context, checkIntegrity bool) (DatabaseStats, error) {
 	if m.db.Dialect().IsPostgres() {
 		return m.postgresStats(ctx, checkIntegrity)
+	}
+	if m.db.Dialect().IsMySQL() {
+		return m.mysqlStats(ctx, checkIntegrity)
 	}
 	stats := DatabaseStats{Integrity: "ok"}
 	if m.dbPath != "" {
@@ -253,6 +285,55 @@ func (m *Manager) postgresStats(ctx context.Context, checkIntegrity bool) (Datab
 		WHERE table_schema=current_schema() AND table_type='BASE TABLE'`).Scan(&stats.Tables)
 	_ = m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pg_indexes WHERE schemaname=current_schema()`).Scan(&stats.Indexes)
 	return stats, nil
+}
+
+func (m *Manager) mysqlStats(ctx context.Context, checkIntegrity bool) (DatabaseStats, error) {
+	stats := DatabaseStats{Integrity: "ok", JournalMode: "innodb"}
+	var dataLength, indexLength int64
+	if err := m.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(data_length),0), COALESCE(SUM(index_length),0), COUNT(*)
+		FROM information_schema.tables WHERE table_schema=DATABASE()`).Scan(&dataLength, &indexLength, &stats.Tables); err != nil {
+		return stats, fmt.Errorf("读取数据库统计失败: %w", err)
+	}
+	if err := m.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(data_length+index_length),0)
+		FROM information_schema.tables WHERE table_schema=DATABASE()`).Scan(&stats.FileSize); err != nil {
+		return stats, fmt.Errorf("读取数据库大小失败: %w", err)
+	}
+	stats.UsedBytes = dataLength + indexLength
+	_ = m.db.QueryRowContext(ctx, `SELECT @@innodb_page_size`).Scan(&stats.PageSize)
+	if stats.PageSize > 0 {
+		stats.PageCount = stats.FileSize / stats.PageSize
+	}
+	_ = m.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics
+		WHERE table_schema=DATABASE()`).Scan(&stats.Indexes)
+	if checkIntegrity {
+		if err := m.db.QueryRowContext(ctx, `SELECT 1`).Scan(new(int)); err != nil {
+			stats.Integrity = "unavailable"
+		}
+	} else {
+		stats.Integrity = "skipped"
+	}
+	return stats, nil
+}
+
+// mysqlTableMaintenance 对全部业务表执行 ANALYZE TABLE / OPTIMIZE TABLE。
+// 这类语句返回结果集，必须显式读取并关闭，不能使用 Exec。
+func (m *Manager) mysqlTableMaintenance(ctx context.Context, statement string) error {
+	names := make([]string, 0, len(db.DataTables()))
+	for _, spec := range db.DataTables() {
+		names = append(names, m.db.Dialect().QuoteIdent(spec.Name))
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	rows, err := m.db.QueryContext(ctx, statement+" "+strings.Join(names, ","))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		// 消费结果集，避免连接残留未读结果。
+	}
+	return rows.Err()
 }
 
 // healthError 在快速检查发现损坏时返回错误，供启动流程决定是否继续。

@@ -41,7 +41,7 @@ func (s *Server) setupConfig(c *gin.Context) {
 // updateSetupConfig 在系统尚未初始化时更新白名单配置项。
 // 保存后不会立即生效，由前端提示用户重启服务。
 func (s *Server) updateSetupConfig(c *gin.Context) {
-	if allowed, wait := s.allow(ratelimit.SetupConfig, "setup-config:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.SetupConfig, "setup-config:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
@@ -96,7 +96,7 @@ func (s *Server) updateSetupConfig(c *gin.Context) {
 
 // restartSetupConfig 在系统尚未初始化时重启服务，使 config.yaml 修改生效。
 func (s *Server) restartSetupConfig(c *gin.Context) {
-	if allowed, wait := s.allow(ratelimit.SetupRestart, "setup-restart:"+clientRateKey(c)); !allowed {
+	if allowed, wait := s.allow(ratelimit.SetupRestart, "setup-restart:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
 	}

@@ -6,6 +6,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"lactssl/internal/logging"
+	"lactssl/internal/netutil"
 )
 
 // ipRateLimiter 是 ACME 协议入口使用的轻量固定窗口限流器。
@@ -90,49 +93,34 @@ func (l *ipRateLimiter) evictLocked(now time.Time) {
 	}
 }
 
-// clientIP 返回用于限流的客户端 IP；仅在请求来自可信代理时采信 X-Forwarded-For。
-func (s *Server) clientIP(r *http.Request) string {
-	remote := r.RemoteAddr
-	host, _, err := net.SplitHostPort(strings.TrimSpace(remote))
-	if err != nil {
-		host = strings.TrimSpace(remote)
-	}
-	remoteIP := net.ParseIP(strings.Trim(host, "[]"))
-	if remoteIP == nil || !trustedIP(remoteIP, s.TrustedProxies) {
-		return remote
-	}
-	values := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
-	for index := len(values) - 1; index >= 0; index-- {
-		ip := net.ParseIP(strings.TrimSpace(values[index]))
-		if ip == nil {
-			continue
+// trustedProxies 返回预编译的可信代理集合；非法配置安全降级为空集合。
+func (s *Server) trustedProxies() netutil.TrustedSet {
+	s.trustedOnce.Do(func() {
+		set, err := netutil.CompileTrusted(s.TrustedProxies)
+		if err != nil {
+			logging.Component("acme").Warn("可信代理配置无效，已禁用代理头信任", "error", err)
+			return
 		}
-		if trustedIP(ip, s.TrustedProxies) {
-			continue
-		}
-		return ip.String()
-	}
-	return remote
+		s.trustedSet = set
+	})
+	return s.trustedSet
 }
 
-// trustedIP 判断 IP 是否位于可信代理列表。
-func trustedIP(ip net.IP, proxies []string) bool {
-	for _, entry := range proxies {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		if strings.Contains(entry, "/") {
-			if _, network, err := net.ParseCIDR(entry); err == nil && network.Contains(ip) {
-				return true
-			}
-			continue
-		}
-		if proxy := net.ParseIP(entry); proxy != nil && proxy.Equal(ip) {
-			return true
-		}
+// clientIPResult 返回客户端 IP、来源与诊断信息。
+func (s *Server) clientIPResult(r *http.Request) netutil.Result {
+	opts := netutil.DefaultOptions()
+	opts.EnableForwarded = true
+	opts.Cloudflare = strings.EqualFold(strings.TrimSpace(s.ClientIPMode), "cloudflare")
+	return netutil.ResolveWithOptions(r.RemoteAddr, r.Header, s.trustedProxies(), opts)
+}
+
+// clientIP 返回用于限流的客户端 IP；仅在请求来自可信代理时采信转发头。
+func (s *Server) clientIP(r *http.Request) string {
+	result := s.clientIPResult(r)
+	if !result.IP.IsValid() {
+		return ""
 	}
-	return false
+	return result.IP.String()
 }
 
 func remoteRateKey(remoteAddr string) string {

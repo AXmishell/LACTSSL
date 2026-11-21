@@ -59,20 +59,33 @@ curl -X POST \
   -d '{
     "name": "CI deployment",
     "scopes": ["tasks:read", "tasks:run", "deploy:execute"],
-    "expires_at": "2027-01-01T00:00:00Z"
+    "expires_at": "2027-01-01T00:00:00Z",
+    "allowed_ips": ["203.0.113.10", "2001:db8::/48"],
+    "allowed_dns_account_ids": [1, 3]
   }' \
   https://ssl.example.com/api/api-keys
 ```
 
-Leaving `expires_at` empty means the key never expires; never-expiring keys are not recommended for production. Creating and modifying keys are high-risk operations; browser sessions rely on the login identity, while API key calls rely on the `api_keys:write` permission.
+Leaving `expires_at` empty means the key never expires; never-expiring keys are not recommended for production. `allowed_ips` is optional and empty means unrestricted; when set, it accepts individual IPv4/IPv6 addresses or CIDR ranges, and requests from other IPs return `403`. `allowed_dns_account_ids` is optional and empty means unrestricted; when set, the key can only issue certificates, run tasks, and manage DNS configuration with the listed accounts. Certificates spanning multiple accounts require every resolved account to be in the list. Creating and modifying keys are high-risk operations; browser sessions rely on the login identity, while API key calls rely on the `api_keys:write` permission.
 
-### 3.2 Rotation and Disabling
+### 3.2 IP Restrictions
+
+- Each key can have its own source IP/CIDR allowlist; browser sessions are unaffected.
+- Empty means unrestricted. Accepted forms include `203.0.113.10`, `10.0.0.0/8`, and `2001:db8::/48`.
+- Authentication uses the real client IP restored by a reverse proxy. Behind a proxy, configure the actual proxy addresses under **Settings → Config file → Trusted proxies**. Without trusted proxies, `X-Forwarded-For` and `X-Real-IP` are ignored.
+- `0.0.0.0/0` and `::/0` are rejected to prevent accidental misconfiguration; leave the list empty for unrestricted access.
+- When managing other keys through an API key, the key cannot create, modify, or rotate a key with a broader IP allowlist than its own.
+- The key list shows the source IP of the most recent successful call. IP denials are available from the **Logs** action on each key, filtered to denial events by default.
+- Proxy misconfiguration, dynamic egress IPs, or mixed old/new versions can weaken or bypass the allowlist. Use **Add current IP** to confirm the outbound address before enabling it.
+- If the server is behind a CDN or reverse proxy and the real IP cannot be restored yet, use **WebRTC probe** in the create/edit dialog to view the current browser's public egress IP. The browser connects to public STUN servers for this; the result may differ from the IP actually used by API clients, so treat it only as a diagnostic hint and not as a replacement for trusted proxy configuration.
+
+### 3.3 Rotation and Disabling
 
 - After rotation, the old token is invalidated immediately.
 - After disabling or deletion, all calls using the key return `401`.
-- When managing other keys through an API key, the key cannot grant permissions it does not itself have, nor modify, rotate, or delete a key with higher permissions than its own.
+- When managing other keys through an API key, the key cannot grant permissions, a broader IP allowlist, or a broader DNS account scope than it has, nor modify, rotate, or delete a key with higher permissions or a broader scope than its own.
 
-### 3.3 Safekeeping
+### 3.4 Safekeeping
 
 - Store keys in the enterprise password manager or secrets management system; do not write them to code repositories, images, or logs.
 - Issue a separate key for each system; include the system name and environment in the key name.
@@ -92,7 +105,7 @@ Permissions are divided by resource:action. `*` represents all system API capabi
 | `certificates:read` | View certificates, download certificate chains, and analyze certificates | No |
 | `certificates:write` | Clean up and delete certificates | No |
 | `certificates:key` | View or download certificate private keys | Yes |
-| `certificates:request` | Submit a client CSR and let the server complete authoritative CA validation and issuance | Yes |
+| `certificates:request` | Submit a client CSR and let the server complete public CA validation and issuance, or sign with a private CA (`private_cas:write` is also required) | Yes |
 | `deploy:execute` | Deploy certificates manually, or create, modify, or run tasks that contain deploy nodes (writes files; command execution requires `deploy:command`) | Yes |
 | `deploy:command` | Allow local/SSH deployments to run reload commands (equivalent to executing arbitrary commands as the service account) | Yes |
 | `tasks:read` | View task lists and task logs | No |
@@ -273,11 +286,11 @@ curl -fsS -X POST \
 | `/api-keys/:id/rotate` | POST | `api_keys:write` | Rotate the key; the old token is invalidated immediately |
 | `/api-keys/:id` | DELETE | `api_keys:write` | Delete a key |
 
-### 6.6 Requesting an Authoritative CA Certificate from a Client CSR
+### 6.6 Requesting a Certificate from a Client CSR
 
-The server acts as an intermediary: it accepts a client CSR, completes DNS-01 validation with the configured authoritative CA and DNS account, and returns the issued certificate. The server never generates or stores the private key.
+The server acts as an intermediary: it accepts a client CSR and issues the certificate either by completing DNS-01 validation with the configured public CA and DNS account, or by signing directly with a private CA managed by the server. The server never generates or stores the private key.
 
-Creating a request requires the `certificates:request` scope:
+Creating a request requires the `certificates:request` scope. Using a private CA additionally requires `private_cas:write`:
 
 ```bash
 curl -fsS -X POST \
@@ -293,6 +306,22 @@ curl -fsS -X POST \
   }' \
   https://ssl.example.com/api/certificate-requests
 ```
+
+For a private CA, set `ca` to `private-ca:<id>` or pass `private_ca_id`. Private CA requests do not use DNS-01, `dns_account_id`, or the ACME contact email, and internal domains such as `app.internal` are allowed:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...\n-----END CERTIFICATE REQUEST-----\n",
+    "private_ca_id": 2,
+    "idempotency_key": "internal-20261121-001"
+  }' \
+  https://ssl.example.com/api/certificate-requests
+```
+
+`dns_account_id` is optional for public CA requests. When an administrator declares domains under "DNS Accounts → Zone bindings", the server selects the account by longest suffix match and reports `resolved_by` / `resolved_zone` in the response. Different domains may resolve to different accounts: the response includes `dns_routes` with the account used for each domain, and issuance writes TXT records per route. Only unbound domains, or one domain matching multiple equal-rank accounts, are rejected. An explicit `dns_account_id` still means that account covers every domain in the CSR.
 
 The endpoint returns `202 Accepted` with a request ID. Poll the request until it is issued:
 
@@ -311,12 +340,33 @@ curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
 
 Notes:
 
-- Phase one supports DNS-01 only. Wildcard certificates require DNS-01.
-- `ca` must be an ACME upstream from the "Authoritative CA" page, not a private CA.
-- The server strictly validates the CSR signature, key strength, canonical SANs, common name, and internal domains. The server cannot modify a signed CSR.
-- Provide an `idempotency_key`. Only one in-flight request is allowed per CSR and CA.
-- Use the `csr.allowed_domains` setting to restrict requestable domains. Separate multiple domains with commas or whitespace.
+- Public CA requests support DNS-01 only. Wildcard certificates require DNS-01. Private CA requests are signed directly and do not use a challenge.
+- `ca` is a public ACME upstream from the "Public CA" page, or `private-ca:<id>` for a private CA. Private CA issuance also requires `private_cas:write` and enforces the CA's ExtKeyUsage and NameConstraints.
+- The server strictly validates the CSR signature, key strength, canonical SANs, and common name. Internal domains are rejected for public CA requests but allowed for private CA requests. The server cannot modify a signed CSR.
+- Provide an `idempotency_key`. Only one in-flight request is allowed per CSR, CA, and DNS route set for the same caller.
+- Use the `csr.allowed_domains` setting to restrict requestable domains. Separate multiple domains with commas or whitespace. Private CA requests skip this allowlist when it is empty and rely on the CA's NameConstraints; once configured, the allowlist is enforced for both CA types.
 - `key_available` is `false` for these certificates, so private-key download and private-key-dependent deployments are disabled.
+
+Zone binding and resolution preview endpoints:
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/api/dns-accounts/:id/zones` | List the zone bindings declared for an account |
+| PUT | `/api/dns-accounts/:id/zones` | Atomically replace the bindings; a zone can belong to only one enabled account |
+| POST | `/api/dns-accounts/:id/zones/probe` | Probe the zone with a read-only verification and backfill it; requires `dns_accounts:write` |
+| POST | `/api/dns-accounts/resolve` | Preview which account each domain resolves to, without outbound requests |
+
+Example:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"domains":["a.example.com","b.other.net"]}' \
+  https://ssl.example.com/api/dns-accounts/resolve
+```
+
+The response includes `routes` and `account_ids`. `account_id` is only set when every domain uses the same account; otherwise it is `0`.
 
 The repository includes a ready-to-use Python client, `scripts/csr_client.py`. It generates the private key and CSR locally, submits the request, polls for completion, and verifies that the downloaded certificate matches the private key:
 
@@ -329,6 +379,12 @@ python3 scripts/csr_client.py \
   --dns-account-id 3 \
   --ca letsencrypt \
   --out-dir ./certs
+
+# Private CA request (the private key is still generated locally)
+python3 scripts/csr_client.py \
+  --domains app.internal,api.internal \
+  --private-ca-id 2 \
+  --out-dir ./certs
 ```
 
 You can also use the interactive wizard to fill in each value (running with no arguments in a terminal starts it automatically):
@@ -337,11 +393,44 @@ You can also use the interactive wizard to fill in each value (running with no a
 python3 scripts/csr_client.py --interactive
 ```
 
-The script uploads only the CSR; the private key never leaves the client. Outputs include `.key`, `.csr`, `.crt`, `.fullchain.crt`, and `.request.json`. If the request was created but the download was interrupted, resume with `--request-id csr_xxxxxxxx`.
+Renewal, status, and batch operations:
+
+```bash
+# Renewal: create a new CSR with the existing key (the key is never copied or modified)
+python3 scripts/csr_client.py \
+  --key ./certs/example.com.key \
+  --domains example.com,www.example.com \
+  --out-dir ./certs \
+  --force
+
+# Or renew directly from the previous state file (reuses key, CA, DNS account, and output name)
+python3 scripts/csr_client.py --renew-from ./certs/example.com.request.json
+
+# Status / cancel (--json is convenient for scripts)
+python3 scripts/csr_client.py --status csr_xxxxxxxx --json
+python3 scripts/csr_client.py --cancel csr_xxxxxxxx --yes
+
+# Batch: sequential execution, stops on the first failure by default
+python3 scripts/csr_client.py --manifest ./certs.json --json
+```
+
+Batch manifest format:
+
+```json
+{
+  "defaults": {"ca": "letsencrypt", "dns_account_id": 3, "out_dir": "./certs"},
+  "certificates": [
+    {"domains": ["example.com", "www.example.com"]},
+    {"domains": ["api.example.com"], "name": "api", "key_type": "rsa2048"}
+  ]
+}
+```
+
+The script uploads only the CSR; the private key never leaves the client. Outputs include `.key`, `.csr`, `.crt`, `.fullchain.crt`, and `.request.json`. Locally generated keys and CSRs are first staged as `.new` files and only atomically replace the final files after the certificate has been downloaded and verified, so a failed request never destroys the previous working set. The `.request.json` state is written immediately after the request is created; even if the connection drops or `--quiet` is used, resume with `--request-id csr_xxxxxxxx`, which also discovers the previous `.key.new`/`.key`. Transient network errors are retried 3 times by default (`--retries`), retryable server failures trigger one automatic `/retry` (`--auto-retry`), and HTTP 429 honors `Retry-After`. Progress goes to stderr; with `--json`, stdout contains only the final JSON. Tokens can be read via `LACTSSL_TOKEN_FILE` or `--token-file` to keep them out of command-line arguments. The client UI supports `zh-CN`, `zh-TW`, `en-US`, `ja-JP`, and `ru-RU` via `--lang` or `LACTSSL_LANG`; API errors are requested in the same language. Exit codes: 0 success, 1 generic failure, 2 argument/configuration, 3 authentication/authorization, 4 network, 5 server-side request failure, 6 local verification failure, 130 cancelled by the user.
 
 ### 6.7 Verifying Credential Availability
 
-After adding or editing a DNS account or target credential, you can verify that the credential actually works. These endpoints require `dns_accounts:write` / `deploy_accounts:write`; browser sessions must also re-authenticate with the current password or TOTP. Results are advisory and never block saving or running tasks.
+After adding or editing a DNS account or target credential, you can verify that the credential actually works. These endpoints require `dns_accounts:write` / `deploy_accounts:write`. Browser sessions no longer need to re-authenticate with the current password or TOTP. Results are advisory and never block saving or running tasks.
 
 | Method | Path | Description |
 | --- | --- | --- |

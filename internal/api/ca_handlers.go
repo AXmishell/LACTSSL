@@ -9,7 +9,7 @@ import (
 	"lactssl/internal/service"
 )
 
-// caConfigView 是权威CA页面返回的证书颁发机构信息。
+// caConfigView 是公共CA页面返回的证书颁发机构信息。
 type caConfigView struct {
 	Value      string `json:"value"`
 	Label      string `json:"label"`

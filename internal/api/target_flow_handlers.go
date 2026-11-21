@@ -13,6 +13,8 @@ type targetFlowPreviewBody struct {
 	Policy    model.CertPolicy          `json:"policy"`
 	Overrides []model.CertGroupOverride `json:"group_overrides"`
 	PublicCA  *bool                     `json:"public_ca"`
+	// NoKeyStorage 与申请节点保持一致，预览时不再推荐复用已有证书。
+	NoKeyStorage bool `json:"no_key_storage"`
 }
 
 // previewTargetFlow 读取目标站点并返回智能选取与证书分组预览。
@@ -43,7 +45,7 @@ func (s *Server) previewTargetFlow(c *gin.Context) {
 	if body.PublicCA != nil {
 		publicCA = *body.PublicCA
 	}
-	preview, err := s.Manager.PreviewTargetFlow(c.Request.Context(), taskInput.TargetFlow, locale(c), publicCA)
+	preview, err := s.Manager.PreviewTargetFlow(c.Request.Context(), taskInput.TargetFlow, locale(c), publicCA, body.NoKeyStorage)
 	if err != nil {
 		failErr(c, http.StatusBadRequest, err)
 		return

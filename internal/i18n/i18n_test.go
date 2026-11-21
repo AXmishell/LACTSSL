@@ -88,14 +88,13 @@ func TestCatalogsHaveSameKeys(t *testing.T) {
 	if !ok {
 		t.Fatal("missing default catalog")
 	}
-	// 中英是默认校验范围；俄语、日语等非中英语言默认跳过，可通过 I18N_TEST_ALL=1 做全量校验。
-	// 繁体中文始终不参与校验。
+	// 中英与繁体中文是默认校验范围；俄语、日语等其他语言默认跳过，可通过 I18N_TEST_ALL=1 做全量校验。
 	all := os.Getenv("I18N_TEST_ALL") == "1"
 	for locale, values := range catalogs {
-		if locale == Default || locale == ZhTW {
+		if locale == Default {
 			continue
 		}
-		if !all && locale != EnUS {
+		if !all && locale != EnUS && locale != ZhTW {
 			continue
 		}
 		for key := range base {

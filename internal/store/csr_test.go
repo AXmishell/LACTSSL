@@ -105,7 +105,7 @@ func TestCSRRequestRetryAndUniqueness(t *testing.T) {
 	if err := st.CreateCSRRequest(duplicate); err == nil {
 		t.Fatal("重复的在途 CSR 应触发唯一约束")
 	}
-	if active, err := st.GetActiveCSRRequestByHash(req.CSRHash, req.CA, 0); err != nil || active.ID != req.ID {
+	if active, err := st.GetActiveCSRRequestByHash(req.CSRHash, req.CA, 0, req.DNSAccountID, req.DNSRoutesHash); err != nil || active.ID != req.ID {
 		t.Fatalf("应返回已有在途申请: %+v %v", active, err)
 	}
 }
@@ -125,5 +125,25 @@ func TestCSRRequestCancel(t *testing.T) {
 	}
 	if _, err := st.ClaimCSRRequest(req.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCSRRequestActiveHashIncludesDNSAccount(t *testing.T) {
+	st := newTestStore(t)
+	first := newTestCSRRequest("csr-account-one")
+	first.CSRHash = "shared-hash"
+	first.DNSAccountID = 1
+	if err := st.CreateCSRRequest(first); err != nil {
+		t.Fatal(err)
+	}
+	second := newTestCSRRequest("csr-account-two")
+	second.CSRHash = "shared-hash"
+	second.DNSAccountID = 2
+	if err := st.CreateCSRRequest(second); err != nil {
+		t.Fatalf("同一 CSR 使用不同 DNS 账户应允许并存: %v", err)
+	}
+	active, err := st.GetActiveCSRRequestByHash("shared-hash", "letsencrypt", 0, 2, second.DNSRoutesHash)
+	if err != nil || active.ID != second.ID {
+		t.Fatalf("应返回指定账户的申请: %+v %v", active, err)
 	}
 }
