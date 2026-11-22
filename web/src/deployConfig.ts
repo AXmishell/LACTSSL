@@ -78,6 +78,27 @@ export function deployObjectFieldKey(type: string | undefined, config: Record<st
   return fallback?.key || ''
 }
 
+// deployDomainMatchesSite 判断网站名称是否属于证书覆盖的域名。
+// 与后端 siteMatchesDomains 保持一致：通配符证书覆盖同一主域名下的子域名。
+export function deployDomainMatchesSite(site: string, domains: string[]): boolean {
+  const name = normalizeDeployDomain(site)
+  if (!name) return false
+  for (const item of domains) {
+    const domain = normalizeDeployDomain(item)
+    if (!domain) continue
+    if (name === domain) return true
+    if (domain.startsWith('*.')) {
+      const base = domain.slice(2)
+      if (name === base || name.endsWith(`.${base}`)) return true
+    }
+  }
+  return false
+}
+
+function normalizeDeployDomain(value: string): string {
+  return String(value || '').trim().toLowerCase().replace(/\.$/, '')
+}
+
 export function siteFieldOf(account: DeployAccount | undefined, config: Record<string, string> | undefined): string {
   if (!account) return ''
   return deployObjectFieldKey(account.type, config)

@@ -264,6 +264,7 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"POST /api/deploy-accounts/verify":      {apiScopeDeployAccountsWrite},
 	"POST /api/deploy-accounts/:id/verify":  {apiScopeDeployAccountsWrite},
 	"POST /api/deploy-accounts/:id/options": {apiScopeDeployAccountsWrite},
+	"POST /api/deploy-accounts/:id/match":   {apiScopeDeployAccountsWrite},
 	"PUT /api/deploy-accounts/:id":          {apiScopeDeployAccountsWrite},
 	"DELETE /api/deploy-accounts/:id":       {apiScopeDeployAccountsWrite},
 

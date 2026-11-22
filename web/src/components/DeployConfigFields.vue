@@ -68,9 +68,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errorText } from '../api'
+import { deployDomainMatchesSite, deployObjectFieldKey } from '../deployConfig'
 import { state } from '../store'
 import type { FieldDef, FieldOption } from '../types'
 import { fieldVisible } from '../utils'
@@ -79,11 +80,19 @@ interface OptionsResponse {
   options?: FieldOption[]
 }
 
+interface MatchResponse {
+  field?: string
+  multiple?: boolean
+  values?: string[]
+}
+
 interface OptionState {
   key: string
   loading: boolean
   error: string
 }
+
+const AUTO_MATCH_DELAY = 400
 
 const props = defineProps<{
   accountType: string
@@ -91,6 +100,8 @@ const props = defineProps<{
   modelValue: Record<string, string>
   // 目标流程 Beta 的站点字段由读取结果自动填充，基础配置中隐藏。
   excludeKeys?: string[]
+  // 证书申请域名。传入后，任务部署节点会自动选中与域名匹配的网站名称。
+  matchDomains?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -128,6 +139,117 @@ watch(
 )
 
 const emptyOptionState: OptionState = { key: '', loading: false, error: '' }
+
+// 任务部署节点只对“网站/站点”字段自动匹配，证书路径、重载命令等字段不受影响。
+const matchSiteField = computed<FieldDef | undefined>(() => {
+  if (!props.matchDomains?.length) return undefined
+  const key = deployObjectFieldKey(props.accountType, props.modelValue)
+  if (!key) return undefined
+  return fields.value.find((field) => field.key === key)
+})
+
+// 记录自动填入的值，用户手动改选后不再覆盖；清空后允许按新域名重新匹配。
+const autoSelected = reactive<Record<string, string>>({})
+let autoMatchTimer: ReturnType<typeof setTimeout> | undefined
+let autoMatchSeq = 0
+
+watch(
+  () => [
+    props.accountId,
+    props.accountType,
+    matchSiteField.value?.key,
+    (props.matchDomains || []).join(','),
+    props.modelValue?.target
+  ],
+  () => scheduleAutoMatch(),
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  if (autoMatchTimer) clearTimeout(autoMatchTimer)
+  autoMatchSeq += 1
+})
+
+function scheduleAutoMatch(): void {
+  if (autoMatchTimer) clearTimeout(autoMatchTimer)
+  if (!props.accountId || !matchSiteField.value || !(props.matchDomains || []).length) return
+  // 域名输入通常逐字变化，稍作等待避免每敲一个字符就请求一次面板。
+  autoMatchTimer = setTimeout(() => {
+    autoMatchTimer = undefined
+    void autoMatchSiteField()
+  }, AUTO_MATCH_DELAY)
+}
+
+async function autoMatchSiteField(): Promise<void> {
+  const field = matchSiteField.value
+  const accountId = props.accountId
+  const domains = normalizeDomains(props.matchDomains || [])
+  if (!field || !accountId || !domains.length) return
+  const stateKey = `${accountId}|${field.key}`
+  const current = valueOf(field).trim()
+  const previous = autoSelected[stateKey] || ''
+  // 已有非自动填入的值视为用户手动选择，不能覆盖。
+  if (current && current !== previous) return
+
+  const seq = ++autoMatchSeq
+  let values: string[] = []
+  let multiple = !!field.multiple
+  try {
+    const result = await api.post<MatchResponse>(`/deploy-accounts/${accountId}/match`, {
+      domains,
+      config: { ...props.modelValue }
+    })
+    if (seq !== autoMatchSeq) return
+    // plan 返回的多值能力比 manifest 静态字段更准确。
+    if (result?.multiple) multiple = true
+    values = normalizeMatchedValues(result?.values)
+  } catch (_) {
+    if (seq !== autoMatchSeq) return
+    // 面板不可达或旧插件不支持 plan 时，退回按已读取的选项名称匹配。
+    values = matchLoadedOptions(field, domains)
+  }
+  if (seq !== autoMatchSeq) return
+  // 单值字段命中多个网站时无法判断该部署到哪一个，留给用户手动选择。
+  if (!multiple && values.length > 1) values = []
+
+  const next = values.join(',')
+  if (next === current) {
+    if (next) autoSelected[stateKey] = next
+    else delete autoSelected[stateKey]
+    return
+  }
+  if (!next && current !== previous) return
+  update(field.key, next)
+  if (next) autoSelected[stateKey] = next
+  else delete autoSelected[stateKey]
+}
+
+function matchLoadedOptions(field: FieldDef, domains: string[]): string[] {
+  const out: string[] = []
+  for (const option of optionsOf(field)) {
+    if (!deployDomainMatchesSite(option.value, domains) && !deployDomainMatchesSite(option.label, domains)) continue
+    if (option.value && !out.includes(option.value)) out.push(option.value)
+  }
+  return out
+}
+
+function normalizeMatchedValues(values?: string[]): string[] {
+  const out: string[] = []
+  for (const value of values || []) {
+    const item = String(value || '').trim()
+    if (item && !out.includes(item)) out.push(item)
+  }
+  return out
+}
+
+function normalizeDomains(values: string[]): string[] {
+  const out: string[] = []
+  for (const value of values) {
+    const item = String(value || '').trim().toLowerCase().replace(/\.$/, '')
+    if (item && !out.includes(item)) out.push(item)
+  }
+  return out
+}
 
 function optionState(field: FieldDef): OptionState {
   return optionStates[field.key] || emptyOptionState

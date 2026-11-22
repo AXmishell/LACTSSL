@@ -481,6 +481,7 @@ python3 scripts/csr_client.py --manifest ./certs.json --json
 | POST | `/api/deploy-accounts/:id/verify` | 验证已保存目标凭据；可传 `deploy_config` |
 | POST | `/api/deploy-accounts/verify` | 验证未保存的目标凭据配置；必须显式提交密钥 |
 | POST | `/api/deploy-accounts/:id/options` | 使用已保存凭据读取部署字段的动态选项，例如宝塔网站列表 |
+| POST | `/api/deploy-accounts/:id/match` | 按证书域名匹配目标网站；返回 `field`、`multiple`、`values` |
 
 请求示例：
 

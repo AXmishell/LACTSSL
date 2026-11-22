@@ -441,6 +441,7 @@ python3 scripts/csr_client.py --manifest ./certs.json --json
 | POST | `/api/deploy-accounts/:id/verify` | Проверка сохранённых учётных данных цели; можно передать `deploy_config` |
 | POST | `/api/deploy-accounts/verify` | Проверка несохранённой конфигурации учётных данных цели; ключ необходимо передать явно |
 | POST | `/api/deploy-accounts/:id/options` | Получение динамических параметров полей развёртывания с использованием сохранённых учётных данных, например списка сайтов панели Baota |
+| POST | `/api/deploy-accounts/:id/match` | Сопоставление сайтов цели по доменам сертификата; возвращает `field`, `multiple` и `values` |
 
 Пример запроса:
 

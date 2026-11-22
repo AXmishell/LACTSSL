@@ -441,6 +441,7 @@ DNS アカウントやターゲット認証情報を追加または変更した�
 | POST | `/api/deploy-accounts/:id/verify` | 保存済みターゲット認証情報を検証。`deploy_config` を渡せる |
 | POST | `/api/deploy-accounts/verify` | 未保存のターゲット認証情報設定を検証。キーを明示的に送信する必要がある |
 | POST | `/api/deploy-accounts/:id/options` | 保存済み認証情報を使用してデプロイフィールドの動的オプションを読み取る（例: BaoTa のサイト一覧） |
+| POST | `/api/deploy-accounts/:id/match` | 証明書ドメインに一致するターゲットサイトを照合し、`field`、`multiple`、`values` を返す |
 
 リクエスト例:
 

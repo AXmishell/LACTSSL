@@ -376,8 +376,10 @@
                 </el-form-item>
                 <DeployConfigFields
                   v-if="selectedDeployAccount"
+                  :key="selectedNode.id"
                   :account-type="selectedDeployAccount.type"
                   :account-id="selectedDeployAccount.id"
+                  :match-domains="matchDeployDomains"
                   :model-value="selectedNode.config.deploy_config || {}"
                   @update:model-value="selectedNode.config.deploy_config = $event"
                 />
@@ -810,6 +812,10 @@ function normalizeTargetFlowConfig(input?: TargetFlowConfig | null): TargetFlowC
 const selectedNode = computed(() => form.pipeline.find((node) => node.id === selectedNodeId.value) || null)
 const selectedDeployAccount = computed(() =>
   deployAccounts.value.find((item) => item.id === selectedNode.value?.config.deploy_account_id) || null
+)
+// 标准流程的证书域名同时用于部署节点自动匹配网站名称；目标流程 Beta 由预览选择站点。
+const matchDeployDomains = computed(() =>
+  form.flow_mode === 'standard' ? [...new Set(splitLines(form.domainsText))] : []
 )
 const isPrivateCA = computed(() => form.ca_mode === 'single' && form.ca.startsWith('private-ca:'))
 const selectedCAPool = computed(() => (meta.value?.ca_pools || []).find((pool) => pool.id === form.ca_pool_id) || null)

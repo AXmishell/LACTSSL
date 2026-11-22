@@ -460,6 +460,7 @@ When `domain` is omitted, a saved DNS account uses one of its enabled domain bin
 | POST | `/api/deploy-accounts/:id/verify` | Verify a saved target credential; accepts `deploy_config` |
 | POST | `/api/deploy-accounts/verify` | Verify an unsaved target configuration; secrets must be supplied explicitly |
 | POST | `/api/deploy-accounts/:id/options` | Read dynamic deployment field options with a saved credential, such as the BaoTa website list |
+| POST | `/api/deploy-accounts/:id/match` | Match target websites by certificate domains; returns `field`, `multiple` and `values` |
 
 Example:
 
