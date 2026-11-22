@@ -203,22 +203,36 @@ func (m *Manager) sendNotificationTo(subject, body string, channels []string) {
 }
 
 func (m *Manager) sendMailNotification(subject, body string) {
-	to, _ := m.Store.GetSetting("notify.to")
-	if to == "" {
-		if user, err := m.Store.GetUser(); err == nil {
-			to = user.Email
-		}
-	}
-	if to == "" {
-		return
-	}
 	cfg := m.LoadSMTPConfig()
 	if cfg.Host == "" {
 		return
 	}
-	if err := SendMail(cfg, to, subject, body); err != nil {
+	raw, _ := m.Store.GetSetting("notify.to")
+	extra, err := ParseNotifyRecipients(raw)
+	if err != nil {
 		m.Store.AddLogKey("notify", 0, "error", "log.notify.failed", map[string]any{"error": SafeError(err)})
 		return
 	}
-	m.Store.AddLogKey("notify", 0, "info", "log.notify.sent", map[string]any{"subject": subject})
+	accountEmail := ""
+	if user, err := m.Store.GetUser(); err == nil && user != nil {
+		accountEmail = user.Email
+	}
+	recipients := ResolveMailRecipients(accountEmail, extra)
+	if len(recipients) == 0 {
+		return
+	}
+	sent := 0
+	for _, to := range recipients {
+		if err := m.sendMail(cfg, to, subject, body); err != nil {
+			m.Store.AddLogKey("notify", 0, "error", "log.notify.failed", map[string]any{
+				"error": SafeError(err),
+				"to":    to,
+			})
+			continue
+		}
+		sent++
+	}
+	if sent > 0 {
+		m.Store.AddLogKey("notify", 0, "info", "log.notify.sent", map[string]any{"subject": subject})
+	}
 }

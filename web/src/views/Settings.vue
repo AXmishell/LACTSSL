@@ -175,6 +175,7 @@
               <div class="grid grid-2" style="gap: 0 18px">
                 <el-form-item :label="t('notifications.securityTo')">
                   <el-input v-model="security.to" :placeholder="t('notifications.securityToPlaceholder')" />
+                  <div class="form-help">{{ t('notifications.securityToHint') }}</div>
                 </el-form-item>
                 <el-form-item :label="t('notifications.securityRetention')">
                   <el-input-number v-model="security.retention_days" :min="7" :max="365" style="width: 100%" />

@@ -488,3 +488,29 @@ func TestSecurityNotifyAPIContinuesWithoutSMTP(t *testing.T) {
 		t.Fatal("安全事件应进入投递队列")
 	}
 }
+
+func TestSettingsCanonicalizesNotifyRecipients(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	response := sessionRequest(t, router, http.MethodPut, "/api/settings",
+		`{"notify_to":" Ops@Example.com , admin@example.com,ops@example.com "}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if response.Code != http.StatusOK {
+		t.Fatalf("保存通知收件人失败: %d %s", response.Code, response.Body.String())
+	}
+	value, err := st.GetSetting("notify.to")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "ops@example.com,admin@example.com" {
+		t.Fatalf("通知收件人未规范化: %q", value)
+	}
+
+	invalid := sessionRequest(t, router, http.MethodPut, "/api/settings",
+		`{"notify_to":"not-an-email"}`,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("非法通知收件人应被拒绝: %d %s", invalid.Code, invalid.Body.String())
+	}
+}

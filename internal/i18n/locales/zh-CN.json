@@ -1142,6 +1142,8 @@
   "api.error.security_notify_event_invalid": "不支持的安全提醒事件: {event}",
   "api.error.security_notify_recipient_invalid": "安全提醒收件人格式不正确: {email}",
   "api.error.security_notify_recipient_too_many": "安全提醒额外收件人最多 {max} 个",
+  "api.error.notify_recipient_invalid": "通知收件人格式不正确: {email}",
+  "api.error.notify_recipient_too_many": "通知收件人最多 {max} 个",
   "email.security.subject": "[LACTSSL] 安全提醒：{title}",
   "email.security.layout": "<h2>{title}</h2><p><strong>时间：</strong>{time}</p><p><strong>账户：</strong>{account}</p><p><strong>来源 IP：</strong>{ip}</p><p><strong>设备：</strong>{device}</p><p>{detail}</p><p>如果这是你本人的操作，请忽略这封邮件。</p><p>如果不是你，请立即通过邮箱重置密码，并检查登录会话、API 密钥和通知渠道。</p>",
   "email.security.link": "<p><a href=\"{link}\">打开管理台</a></p>",

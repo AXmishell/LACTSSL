@@ -72,6 +72,7 @@
           </el-form-item>
           <el-form-item :label="t('notifications.notifyTo')">
             <el-input v-model="mail.notify_to" :placeholder="t('notifications.notifyToPlaceholder')" />
+            <div class="form-help">{{ t('notifications.notifyToHint') }}</div>
           </el-form-item>
         </div>
       </el-form>

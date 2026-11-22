@@ -190,6 +190,16 @@ func (s *Server) updateSettings(c *gin.Context) {
 			return
 		}
 	}
+	if body.NotifyTo != nil {
+		// 通知收件人与安全提醒额外收件人使用同一语义：账户邮箱始终接收，
+		// 这里保存的是追加地址。写入前先规范化，避免后续每次发送重复解析。
+		canonical, err := service.CanonicalNotifyRecipients(*body.NotifyTo)
+		if err != nil {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+		body.NotifyTo = &canonical
+	}
 	user := getUser(c)
 	oldPolicy := service.DefaultSecurityNotifyPolicy()
 	oldSMTP := s.Manager.LoadSMTPConfig()
@@ -338,16 +348,27 @@ func (s *Server) testMail(c *gin.Context) {
 		rateLimited(c, wait)
 		return
 	}
-	to := strings.TrimSpace(body.To)
-	if to == "" {
-		to = s.setting("notify.to", "")
+	// 与真实运维通知一致：账户邮箱始终接收，body.to 视为额外收件人。
+	raw := strings.TrimSpace(body.To)
+	if raw == "" {
+		raw = s.setting("notify.to", "")
 	}
-	if to == "" {
-		if user, err := s.Store.GetUser(); err == nil {
-			to = user.Email
+	extra, err := service.ParseNotifyRecipients(raw)
+	if err != nil {
+		failErr(c, http.StatusBadRequest, err)
+		return
+	}
+	accountEmail := ""
+	if user := getUser(c); user != nil {
+		accountEmail = user.Email
+	}
+	if accountEmail == "" {
+		if user, err := s.Store.GetUser(); err == nil && user != nil {
+			accountEmail = user.Email
 		}
 	}
-	if to == "" {
+	recipients := service.ResolveMailRecipients(accountEmail, extra)
+	if len(recipients) == 0 {
 		failKey(c, http.StatusBadRequest, "api.error.recipient_required")
 		return
 	}
@@ -358,11 +379,14 @@ func (s *Server) testMail(c *gin.Context) {
 	}
 	current := s.managerLocale()
 	html := i18n.T(current, "email.test.body", nil)
-	if err := service.SendMail(cfg, to, i18n.T(current, "email.test.subject", nil), html); err != nil {
-		failErr(c, http.StatusBadRequest, err)
-		return
+	subject := i18n.T(current, "email.test.subject", nil)
+	for _, to := range recipients {
+		if err := service.SendMail(cfg, to, subject, html); err != nil {
+			failErr(c, http.StatusBadRequest, err)
+			return
+		}
+		s.Store.AddLogKey("settings", 0, "info", "log.settings.test_mail_sent", map[string]any{"to": to})
 	}
-	s.Store.AddLogKey("settings", 0, "info", "log.settings.test_mail_sent", map[string]any{"to": to})
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.test_mail_sent", nil)})
 }
 

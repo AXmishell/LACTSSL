@@ -313,11 +313,17 @@ func (p SecurityNotifyPolicy) EventEnabled(kind string) bool {
 // SecurityPolicyRecipients 返回策略对应的邮件收件人：账户邮箱 + 额外收件人。
 // 不包含 notify.to，因为 notify.to 可能是一个团队群组地址。
 func SecurityPolicyRecipients(policy SecurityNotifyPolicy, accountEmail string) []string {
-	recipients := make([]string, 0, 1+securityNotifyMaxRecipients)
+	extra, _ := parseSecurityRecipients(policy.To)
+	return ResolveMailRecipients(accountEmail, extra)
+}
+
+// ResolveMailRecipients 返回账户邮箱与额外收件人的去重列表。
+// 运维通知与安全提醒都使用同一语义：账户邮箱始终接收，额外收件人只做追加。
+func ResolveMailRecipients(accountEmail string, extra []string) []string {
+	recipients := make([]string, 0, 1+len(extra))
 	if value := strings.ToLower(strings.TrimSpace(accountEmail)); value != "" {
 		recipients = append(recipients, value)
 	}
-	extra, _ := parseSecurityRecipients(policy.To)
 	recipients = append(recipients, extra...)
 	return dedupeSecurityRecipients(recipients)
 }
@@ -405,7 +411,7 @@ func (m *Manager) SendSecurityTest(userID int64, channels []string, to string) e
 	if !m.securityChannelDeliverable(normalized) {
 		return i18n.E("api.error.security_notify_no_delivery")
 	}
-	recipients := dedupeSecurityRecipients(append([]string{user.Email}, extra...))
+	recipients := ResolveMailRecipients(user.Email, extra)
 	event := model.SecurityEvent{
 		UserID:          userID,
 		Kind:            model.SecurityEventTest,
@@ -673,7 +679,7 @@ func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {
 				lastError = "smtp not configured"
 				continue
 			}
-			if err := m.sendSecurityMail(cfg, recipient, subject, htmlBody); err != nil {
+			if err := m.sendMail(cfg, recipient, subject, htmlBody); err != nil {
 				deliveries[key] = "failed"
 				lastError = SafeError(err)
 				continue
@@ -790,7 +796,7 @@ func smtpConfigFromSnapshot(cfg *model.SMTPConfigSnapshot) SMTPConfig {
 	}
 }
 
-func (m *Manager) sendSecurityMail(cfg SMTPConfig, to, subject, body string) error {
+func (m *Manager) sendMail(cfg SMTPConfig, to, subject, body string) error {
 	if m.mailSender != nil {
 		return m.mailSender(cfg, to, subject, body)
 	}
@@ -972,6 +978,29 @@ func validateSecurityChannels(channels []string) ([]string, error) {
 }
 
 func parseSecurityRecipients(value string) ([]string, error) {
+	return parseMailRecipients(value,
+		"api.error.security_notify_recipient_invalid",
+		"api.error.security_notify_recipient_too_many")
+}
+
+// ParseNotifyRecipients 校验并规范化运维通知的额外收件人列表。
+func ParseNotifyRecipients(value string) ([]string, error) {
+	return parseMailRecipients(value,
+		"api.error.notify_recipient_invalid",
+		"api.error.notify_recipient_too_many")
+}
+
+// CanonicalNotifyRecipients 返回去重、小写、逗号分隔的运维通知额外收件人。
+func CanonicalNotifyRecipients(value string) (string, error) {
+	items, err := ParseNotifyRecipients(value)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(items, ","), nil
+}
+
+// parseMailRecipients 解析逗号分隔的邮件收件人，供安全提醒与运维通知共用。
+func parseMailRecipients(value, invalidKey, tooManyKey string) ([]string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, nil
@@ -984,17 +1013,17 @@ func parseSecurityRecipients(value string) ([]string, error) {
 			continue
 		}
 		if len(part) > 320 {
-			return nil, i18n.E("api.error.security_notify_recipient_invalid", "email", part)
+			return nil, i18n.E(invalidKey, "email", part)
 		}
 		address, err := mail.ParseAddress(part)
-		if err != nil || !strings.EqualFold(address.Address, part) || !strings.Contains(part, ".") {
-			return nil, i18n.E("api.error.security_notify_recipient_invalid", "email", part)
+		if err != nil || !strings.EqualFold(address.Address, part) {
+			return nil, i18n.E(invalidKey, "email", part)
 		}
 		out = append(out, strings.ToLower(part))
 	}
 	out = dedupeSecurityRecipients(out)
 	if len(out) > securityNotifyMaxRecipients {
-		return nil, i18n.E("api.error.security_notify_recipient_too_many", "max", securityNotifyMaxRecipients)
+		return nil, i18n.E(tooManyKey, "max", securityNotifyMaxRecipients)
 	}
 	return out, nil
 }

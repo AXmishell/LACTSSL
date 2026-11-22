@@ -1142,6 +1142,8 @@
   "api.error.security_notify_event_invalid": "Неподдерживаемое событие уведомления безопасности: {event}",
   "api.error.security_notify_recipient_invalid": "Некорректный получатель уведомления безопасности: {email}",
   "api.error.security_notify_recipient_too_many": "Допускается не более {max} дополнительных получателей уведомлений безопасности",
+  "api.error.notify_recipient_invalid": "Некорректный получатель уведомления: {email}",
+  "api.error.notify_recipient_too_many": "Допускается не более {max} дополнительных получателей уведомлений",
   "email.security.subject": "[LACTSSL] Уведомление безопасности: {title}",
   "email.security.layout": "<h2>{title}</h2><p><strong>Время:</strong> {time}</p><p><strong>Аккаунт:</strong> {account}</p><p><strong>IP-адрес:</strong> {ip}</p><p><strong>Устройство:</strong> {device}</p><p>{detail}</p><p>Если это были вы, просто проигнорируйте письмо.</p><p>Если нет, немедленно сбросьте пароль и проверьте сеансы, API-ключи и настройки уведомлений.</p>",
   "email.security.link": "<p><a href=\"{link}\">Открыть панель управления</a></p>",

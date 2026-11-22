@@ -1142,6 +1142,8 @@
   "api.error.security_notify_event_invalid": "サポートされていないセキュリティ通知イベントです: {event}",
   "api.error.security_notify_recipient_invalid": "セキュリティ通知の宛先が正しくありません: {email}",
   "api.error.security_notify_recipient_too_many": "セキュリティ通知の追加宛先は最大 {max} 件です",
+  "api.error.notify_recipient_invalid": "通知の宛先が正しくありません: {email}",
+  "api.error.notify_recipient_too_many": "通知の追加宛先は最大 {max} 件です",
   "email.security.subject": "[LACTSSL] セキュリティ通知：{title}",
   "email.security.layout": "<h2>{title}</h2><p><strong>日時：</strong>{time}</p><p><strong>アカウント：</strong>{account}</p><p><strong>接続元 IP：</strong>{ip}</p><p><strong>デバイス：</strong>{device}</p><p>{detail}</p><p>心当たりがある場合は、このメールを無視してください。</p><p>心当たりがない場合は、すぐにメールからパスワードを再設定し、セッション、API キー、通知設定を確認してください。</p>",
   "email.security.link": "<p><a href=\"{link}\">管理画面を開く</a></p>",

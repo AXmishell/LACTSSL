@@ -125,3 +125,47 @@ func TestSecurityDeliveryLeaseScalesWithTargets(t *testing.T) {
 		t.Fatalf("租约应封顶在 %s，实际 %s", securityNotifyDeliveryMaxLease, got)
 	}
 }
+
+func TestSendMailNotificationIncludesAccountAndExtras(t *testing.T) {
+	m, st := newNotifyTestManager(t)
+	if err := st.SetSetting("smtp.host", "smtp.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("smtp.from", "noreply@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateUser("admin@example.com", "hash"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("notify.to", "Ops@Example.com,admin@example.com,backup@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	sent := make([]string, 0, 3)
+	m.mailSender = func(_ SMTPConfig, to, _, _ string) error {
+		sent = append(sent, to)
+		return nil
+	}
+	m.sendMailNotification("subject", "body")
+	if len(sent) != 3 {
+		t.Fatalf("应发送给账户邮箱 + 去重后的额外收件人，实际 %v", sent)
+	}
+	if sent[0] != "admin@example.com" || sent[1] != "ops@example.com" || sent[2] != "backup@example.com" {
+		t.Fatalf("收件人顺序或去重不正确: %v", sent)
+	}
+}
+
+func TestCanonicalNotifyRecipients(t *testing.T) {
+	got, err := CanonicalNotifyRecipients(" Ops@Example.com , admin@example.com,ops@example.com ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ops@example.com,admin@example.com" {
+		t.Fatalf("收件人规范化不正确: %q", got)
+	}
+	if _, err := CanonicalNotifyRecipients("not-an-email"); err == nil {
+		t.Fatal("非法收件人应被拒绝")
+	}
+	if _, err := ParseNotifyRecipients(""); err != nil {
+		t.Fatalf("空值不应报错: %v", err)
+	}
+}
