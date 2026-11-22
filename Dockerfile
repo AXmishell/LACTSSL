@@ -1,5 +1,5 @@
 # 前端构建阶段：固定在构建机平台，多架构构建时只执行一次
-FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS web
+FROM --platform=$BUILDPLATFORM node:26-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS web
 WORKDIR /app/web
 COPY web/package*.json ./
 RUN npm ci
