@@ -521,6 +521,11 @@ func main() {
 	if acmeHTTPServer != nil {
 		_ = acmeHTTPServer.Shutdown(shutdownCtx)
 	}
+	// 数据库切换成功后源库会保持冻结，避免切换完成后还有写入。
+	// 退出前必须解冻：defer 中的系统日志 sink 会把队列刷新到源库，
+	// 冻结状态下写入会永久阻塞，进程无法退出，Docker 等进程管理器
+	// 也就不会按 restart policy 拉起新进程。
+	conn.Unfreeze()
 	if restartReason == "program" || restartReason == "config" {
 		// exec 会跳过 defer，先显式关闭数据库，确保 WAL 正常收尾。
 		_ = conn.Close()

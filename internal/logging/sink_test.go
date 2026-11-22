@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"lactssl/internal/db"
+	"lactssl/internal/model"
 	"lactssl/internal/store"
 	"lactssl/internal/util"
 )
@@ -52,6 +53,21 @@ func TestSinkFiltersAndPersists(t *testing.T) {
 	}
 	if list[1].Fields != `{"task_id":7}` {
 		t.Fatalf("unexpected fields: %s", list[1].Fields)
+	}
+}
+
+func TestSinkCloseDoesNotWaitForever(t *testing.T) {
+	release := make(chan struct{})
+	sink := NewDBSink(blockingDBWriter{release: release}, DBSinkOptions{MinLevel: slog.LevelInfo})
+	defer close(release)
+	sink.closeWait = 50 * time.Millisecond
+	sink.Write(Entry{Time: time.Now().UTC(), Level: slog.LevelInfo, Component: "service", Message: "pending"})
+	start := time.Now()
+	if err := sink.Close(); err == nil {
+		t.Fatal("数据库写入阻塞时 Close 应返回超时错误")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("Close 等待过久: %s", elapsed)
 	}
 }
 
@@ -102,6 +118,15 @@ func TestBuildEntrySanitizesFields(t *testing.T) {
 type testError struct{}
 
 func (e *testError) Error() string { return "test error" }
+
+type blockingDBWriter struct {
+	release chan struct{}
+}
+
+func (w blockingDBWriter) AddSystemLogs([]model.SystemLogEntry) error {
+	<-w.release
+	return nil
+}
 
 func TestBuildEntryExtractsRefAndRequestID(t *testing.T) {
 	entry := buildEntry(Entry{

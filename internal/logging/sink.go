@@ -25,6 +25,9 @@ const (
 	dbFlushInterval = time.Second
 	dbMaxFields     = 32
 	dbMaxFieldsJSON = 32000
+	// dbCloseTimeout 限制退出时等待队列落库的时间，避免数据库不可用或
+	// 写入被门禁冻结时进程永久挂住，导致容器无法退出、也不会被重启。
+	dbCloseTimeout = 5 * time.Second
 )
 
 // DBWriter 是系统日志落库所需的最小接口，*store.Store 满足该接口。
@@ -56,6 +59,8 @@ type DBSink struct {
 	dropped atomic.Int64
 
 	closeOnce sync.Once
+	// closeWait 是 Close 等待队列落库的上限，测试中可缩短。
+	closeWait time.Duration
 	// lastError 仅由 run goroutine 读写，避免数据库异常时刷屏。
 	lastError time.Time
 }
@@ -68,6 +73,7 @@ func NewDBSink(st DBWriter, opts DBSinkOptions) *DBSink {
 		includeAccess: opts.IncludeAccess,
 		queue:         make(chan Entry, dbQueueSize),
 		done:          make(chan struct{}),
+		closeWait:     dbCloseTimeout,
 	}
 	go sink.run()
 	return sink
@@ -100,6 +106,7 @@ func (s *DBSink) Dropped() int64 {
 }
 
 // Close 停止接收新日志，并等待队列中的日志写入数据库。
+// 等待时间有上限，避免数据库不可写时阻塞进程退出。
 func (s *DBSink) Close() error {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
@@ -107,8 +114,18 @@ func (s *DBSink) Close() error {
 		close(s.queue)
 		s.mu.Unlock()
 	})
-	<-s.done
-	return nil
+	wait := s.closeWait
+	if wait <= 0 {
+		wait = dbCloseTimeout
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-s.done:
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("等待系统日志落库超时（%s），已放弃刷新", wait)
+	}
 }
 
 func (s *DBSink) run() {
