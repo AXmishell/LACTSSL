@@ -34,6 +34,15 @@
               <el-tag v-else size="small" type="warning" style="margin-right: 6px">
                 {{ t('plugins.fileUnmanaged') }}
               </el-tag>
+              <el-tooltip
+                v-if="row.file && row.file.source === 'repo' && (row.file.index_revision || row.file.index_digest)"
+                :content="fileAuditText(row.file)"
+                placement="top"
+              >
+                <el-tag size="small" type="info" effect="plain" style="margin-right: 6px">
+                  {{ t('plugins.fileAuditTag') }}
+                </el-tag>
+              </el-tooltip>
               <el-tag
                 v-if="row.file && !row.file.enabled"
                 size="small"
@@ -529,6 +538,26 @@ function fileSourceType(source: PluginFile['source']): 'success' | 'warning' | '
   if (source === 'repo') return 'success'
   if (source === 'legacy') return 'warning'
   return 'info'
+}
+
+function shortDigest(value?: string): string {
+  if (!value) return '-'
+  return value.length > 12 ? `${value.slice(0, 12)}…` : value
+}
+
+// 文件行只显示简短来源，完整审计身份放在 tooltip 里，避免挤占名称列。
+function fileAuditText(file: PluginFile): string {
+  const parts: string[] = []
+  if (file.index_revision) {
+    parts.push(t('plugins.fileAuditRevision', { revision: file.index_revision }))
+  }
+  if (file.index_digest) {
+    parts.push(t('plugins.fileAuditIndex', { digest: shortDigest(file.index_digest) }))
+  }
+  if (file.entry_digest) {
+    parts.push(t('plugins.fileAuditEntry', { digest: shortDigest(file.entry_digest) }))
+  }
+  return parts.join(' · ')
 }
 </script>
 

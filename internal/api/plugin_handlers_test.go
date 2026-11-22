@@ -745,3 +745,26 @@ func TestPluginFileTogglePreservesItemState(t *testing.T) {
 		t.Fatal("re-enabled file should restore the enabled provider state")
 	}
 }
+
+// TestUploadOverwritesRepoInstallationRecord 验证同名上传覆盖仓库 helper 后，
+// 旧安装记录的摘要不会在发现阶段拒绝新文件。
+func TestUploadOverwritesRepoInstallationRecord(t *testing.T) {
+	s, r, dir, _ := newPluginUploadTestServer(t, true)
+	if err := s.Store.UpsertPluginInstallation(model.PluginInstallation{
+		Kind: "dns", ID: "gammadns", Version: "1.0.0",
+		Filename: "uploaded-helper", SHA256: strings.Repeat("a", 64), Source: "repo",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, pluginUploadRequest(t, "dns", "uploaded-helper", "", []byte(dnsUploadHelper), true))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, found, err := s.Store.GetPluginInstallation("dns", "gammadns"); err != nil || found {
+		t.Fatalf("stale installation record should be removed: found=%v err=%v", found, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "uploaded-helper")); err != nil {
+		t.Fatalf("uploaded helper not found: %v", err)
+	}
+}

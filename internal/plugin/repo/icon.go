@@ -90,31 +90,50 @@ func IconSHA256(raw []byte) string {
 // 索引签名仍然覆盖原始条目；这里只影响宿主实际使用的内容，避免
 // 第三方仓库的一张坏图导致整份索引不可用。
 func (i *Index) SanitizeIcons() {
+	_ = i.sanitizeIcons()
+}
+
+// sanitizeIcons 与 SanitizeIcons 行为一致，同时返回结构化问题供索引状态展示。
+func (i *Index) sanitizeIcons() []Issue {
 	if len(i.Icons) == 0 {
-		return
+		return nil
 	}
+	issues := make([]Issue, 0)
 	seen := make(map[string]bool, len(i.Icons))
 	out := make([]Icon, 0, len(i.Icons))
-	for _, icon := range i.Icons {
+	for idx, icon := range i.Icons {
+		path := fmt.Sprintf("icons[%d]", idx)
 		kind := strings.ToLower(strings.TrimSpace(icon.Kind))
 		id := strings.TrimSpace(icon.ID)
+		fail := func(reason string) {
+			issues = append(issues, Issue{
+				Code: "plugin.repo.invalid_icon", Severity: SeverityWarn,
+				Path: path, Kind: kind, Plugin: id,
+				Params: map[string]any{"icon": kind + "/" + id, "error": reason},
+			})
+		}
 		if (kind != "dns" && kind != "deploy" && kind != "notify") || !idPattern.MatchString(id) {
+			fail("图标 kind/id 非法")
 			continue
 		}
 		mime := strings.ToLower(strings.TrimSpace(icon.MIME))
 		if IconExt(mime) == "" {
+			fail("图标 MIME 不受支持")
 			continue
 		}
 		raw, err := DecodeIconDataURI(icon.Data, mime)
 		if err != nil {
+			fail(err.Error())
 			continue
 		}
 		sum := IconSHA256(raw)
 		if icon.SHA256 != "" && !strings.EqualFold(icon.SHA256, sum) {
+			fail("图标 sha256 不符")
 			continue
 		}
 		key := kind + "/" + id
 		if seen[key] {
+			fail("图标重复")
 			continue
 		}
 		seen[key] = true
@@ -134,6 +153,7 @@ func (i *Index) SanitizeIcons() {
 		})
 	}
 	i.Icons = out
+	return issues
 }
 
 // IconMap 把索引图标展开为 kind -> provider -> data URI，包含别名。

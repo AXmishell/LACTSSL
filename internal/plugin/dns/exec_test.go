@@ -431,3 +431,25 @@ esac
 		t.Fatalf("expected ErrVerifyUnsupported, got %v", err)
 	}
 }
+
+func TestValidateManifestRejectsAliasCollisions(t *testing.T) {
+	base := func(providers ...ManifestProvider) Manifest {
+		return Manifest{Protocol: execProtocol, Providers: providers}
+	}
+	cases := []struct {
+		name      string
+		providers []ManifestProvider
+	}{
+		{"alias equals own id", []ManifestProvider{{ID: "a", Aliases: []string{"a"}}}},
+		{"alias equals later id", []ManifestProvider{{ID: "a", Aliases: []string{"b"}}, {ID: "b"}}},
+		{"alias equals earlier id", []ManifestProvider{{ID: "a"}, {ID: "b", Aliases: []string{"a"}}}},
+		{"duplicate alias", []ManifestProvider{{ID: "a", Aliases: []string{"x"}}, {ID: "b", Aliases: []string{"x"}}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateManifest(base(tc.providers...)); err == nil {
+				t.Fatal("expected alias collision to be rejected")
+			}
+		})
+	}
+}

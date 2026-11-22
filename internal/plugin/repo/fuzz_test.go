@@ -51,3 +51,14 @@ func FuzzExtractPackage(f *testing.F) {
 		})
 	})
 }
+
+func FuzzParseIndex(f *testing.F) {
+	f.Add([]byte(`{"schema":1,"channel":"stable","protocol":"v1","plugins":[{"kind":"dns","id":"demo","version":"1.0.0","protocol":"v1","assets":{"linux/amd64":{"url":"https://example.invalid/a.tgz","sha256":"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08","size":1}}}]}`))
+	f.Add([]byte(`{`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		_, _ = ParseIndex(raw, ParseOptions{
+			Channel:  "stable",
+			IndexURL: "https://example.invalid/index.json",
+		})
+	})
+}

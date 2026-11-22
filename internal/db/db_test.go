@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -181,6 +182,51 @@ func TestOpenCreatesCSRRequestTable(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesPluginInstallationAuditColumns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-plugin-installations.db")
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmts := []string{
+		`CREATE TABLE plugin_installations (
+			kind TEXT NOT NULL,
+			id TEXT NOT NULL,
+			version TEXT NOT NULL,
+			filename TEXT NOT NULL,
+			sha256 TEXT NOT NULL,
+			asset_sha256 TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL,
+			repo_url TEXT NOT NULL DEFAULT '',
+			installed_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (kind, id)
+		)`,
+		`PRAGMA user_version = 21`,
+	}
+	for _, stmt := range stmts {
+		if _, err := legacy.Exec(stmt); err != nil {
+			_ = legacy.Close()
+			t.Fatalf("准备旧插件安装表失败: %v", err)
+		}
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	conn, err := Open(path)
+	if err != nil {
+		t.Fatalf("打开旧数据库失败: %v", err)
+	}
+	defer conn.Close()
+	for _, column := range []string{"index_revision", "index_digest", "entry_digest"} {
+		var name string
+		if err := conn.QueryRow(`SELECT name FROM pragma_table_info('plugin_installations') WHERE name=?`, column).Scan(&name); err != nil {
+			t.Fatalf("旧插件安装表未补充 %s: %v", column, err)
+		}
+	}
+}
+
 func TestOpenMigratesLegacyCertificatesTable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy-certificates.db")
 	legacy, err := sql.Open("sqlite", path)
@@ -343,5 +389,27 @@ func TestOpenBackfillsLegacyRevocations(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("旧库吊销记录应回填到 revocations，实际 count=%d", count)
+	}
+}
+
+func TestMySQLStatementsIncludePluginInstallationAuditColumns(t *testing.T) {
+	var ddl string
+	for _, stmt := range mysqlStatements() {
+		if strings.Contains(stmt, "CREATE TABLE IF NOT EXISTS plugin_installations") {
+			ddl = stmt
+			break
+		}
+	}
+	if ddl == "" {
+		t.Fatal("plugin_installations DDL not found")
+	}
+	for _, want := range []string{
+		"`index_revision` BIGINT NOT NULL DEFAULT 0",
+		"`index_digest` VARCHAR(64) CHARACTER SET ascii",
+		"`entry_digest` VARCHAR(64) CHARACTER SET ascii",
+	} {
+		if !strings.Contains(ddl, want) {
+			t.Fatalf("plugin_installations DDL missing %q:\n%s", want, ddl)
+		}
 	}
 }

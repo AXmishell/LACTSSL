@@ -15,6 +15,8 @@ var mysqlTextOverrides = map[string]string{
 	"settings.key":                         "VARCHAR(191)",
 	"plugin_installations.kind":            "VARCHAR(32)",
 	"plugin_installations.id":              "VARCHAR(128)",
+	"plugin_installations.index_digest":    "VARCHAR(64) CHARACTER SET ascii",
+	"plugin_installations.entry_digest":    "VARCHAR(64) CHARACTER SET ascii",
 	"plugin_file_meta.kind":                "VARCHAR(32)",
 	"plugin_file_meta.filename":            "VARCHAR(255)",
 	"plugin_metadata.kind":                 "VARCHAR(32)",

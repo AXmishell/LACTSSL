@@ -30,7 +30,8 @@ import (
 //   - 19：多 DNS 账户按域名路由（tasks.dns_routes / certificate_requests.dns_routes）。
 //   - 20：安全事件保存旧 SMTP 配置快照（security_events.smtp_snapshot）。
 //   - 21：任务可选择不保存证书私钥（tasks.no_key_storage）。
-const schemaVersion = 21
+//   - 22：插件安装记录保存签名索引身份（plugin_installations.index_revision/index_digest/entry_digest）。
+const schemaVersion = 22
 
 func migrate(conn *Handle) error {
 	version, err := conn.SchemaVersion()
@@ -244,6 +245,19 @@ func migrate(conn *Handle) error {
 	// 兼容旧库：通知目标变更事件需要保存旧 SMTP 配置快照（密文）。
 	if err := ensureColumn(conn, "security_events", "smtp_snapshot", `TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
+	// 兼容旧库：插件安装记录保存签名索引 revision 与条目摘要，供审计与回滚排查。
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{"index_revision", `INTEGER NOT NULL DEFAULT 0`},
+		{"index_digest", `TEXT NOT NULL DEFAULT ''`},
+		{"entry_digest", `TEXT NOT NULL DEFAULT ''`},
+	} {
+		if err := ensureColumn(conn, "plugin_installations", column.name, column.definition); err != nil {
+			return fmt.Errorf("升级数据库结构失败: %w", err)
+		}
 	}
 	// 把旧版本中已吊销的证书回填到独立吊销表，后续删除证书不会丢失吊销状态。
 	// 极旧数据库的 certificates 表可能还没有这些列，此时跳过回填（没有可回填的数据）。

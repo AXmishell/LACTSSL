@@ -35,6 +35,7 @@ var (
 	maxProviders  = 512
 	maxFields     = 64
 	maxLocales    = 32
+	maxAliases    = 64
 )
 
 // ExternalProvider 是由 exec helper 提供的服务商元数据。
@@ -346,10 +347,22 @@ func validateManifest(manifest Manifest) error {
 			return fmt.Errorf("服务商 ID 重复: %q", provider.ID)
 		}
 		seen[provider.ID] = true
+		if len(provider.Aliases) > maxAliases {
+			return fmt.Errorf("服务商 %s 的别名数量超过 %d", provider.ID, maxAliases)
+		}
 		for _, alias := range provider.Aliases {
 			if !idPattern.MatchString(alias) {
 				return fmt.Errorf("服务商 %s 的别名非法: %q", provider.ID, alias)
 			}
+			if alias == provider.ID {
+				return fmt.Errorf("服务商 %s 的别名不能与 ID 相同", provider.ID)
+			}
+			// 同一 helper 内的别名也占用运行时注册表，必须与 ID/其他别名
+			// 一起去重，否则发现阶段只会部分注册，文件却已经落盘。
+			if seen[alias] {
+				return fmt.Errorf("服务商 %s 的别名重复: %q", provider.ID, alias)
+			}
+			seen[alias] = true
 		}
 		if len(provider.Fields) > maxFields {
 			return fmt.Errorf("服务商 %s 的字段数量超过 %d", provider.ID, maxFields)

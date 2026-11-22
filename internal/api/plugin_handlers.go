@@ -58,7 +58,8 @@ type uploadedPlugin struct {
 	aliases []string
 }
 
-// expectedPluginDigests 返回仓库安装记录中的文件名到可执行文件摘要映射。
+// expectedPluginDigests 返回 helper 文件名到可执行文件摘要的映射。
+// 仓库安装记录优先；上传文件没有安装记录时回退到 plugin_file_meta 的摘要。
 // 发现阶段先比对摘要再执行 manifest，防止安装后的 helper 被替换。
 func (s *Server) expectedPluginDigests(kind string) map[string]string {
 	out := make(map[string]string)
@@ -74,7 +75,47 @@ func (s *Server) expectedPluginDigests(kind string) map[string]string {
 			out[record.Filename] = record.SHA256
 		}
 	}
+	// 上传的 helper 没有 PluginInstallation，但上传时缓存了 digest。
+	// 合并后，上传文件被替换同样会在执行 manifest 前被发现。
+	if metas, err := s.Store.ListPluginFileMeta(kind); err == nil {
+		for _, meta := range metas {
+			filename := strings.TrimSpace(meta.Filename)
+			digest := strings.TrimSpace(meta.SHA256)
+			if filename == "" || digest == "" {
+				continue
+			}
+			if _, exists := out[filename]; !exists {
+				out[filename] = digest
+			}
+		}
+	}
 	return out
+}
+
+// dropPluginInstallationsForFile 删除与 helper 文件名匹配的仓库安装记录。
+// 上传覆盖后文件不再受仓库安装记录锚定，保留旧记录会让发现阶段按旧摘要
+// 拒绝新文件。
+func (s *Server) dropPluginInstallationsForFile(kind, filename string) {
+	if s.Store == nil {
+		return
+	}
+	records, err := s.Store.ListPluginInstallations()
+	if err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("读取插件安装记录失败", "kind", kind, "file", filename, "error", service.SafeError(err))
+		}
+		return
+	}
+	for _, record := range records {
+		if record.Kind != kind || record.Filename != filename {
+			continue
+		}
+		if err := s.Store.DeletePluginInstallation(kind, record.ID); err != nil {
+			if s.Logger != nil {
+				s.Logger.Warn("删除插件安装记录失败", "kind", kind, "id", record.ID, "error", service.SafeError(err))
+			}
+		}
+	}
 }
 
 // DiscoverPlugins 按当前配置重新扫描外部 DNS 插件目录，并记录最近一次结果。
@@ -224,16 +265,19 @@ func (s *Server) listPlugins(c *gin.Context) {
 
 // pluginFileView 描述插件目录中的单个 helper 文件，供管理界面展示与删除。
 type pluginFileView struct {
-	Kind     string   `json:"kind"`
-	File     string   `json:"file"`
-	Name     string   `json:"name,omitempty"`
-	Size     int64    `json:"size"`
-	Modified string   `json:"modified,omitempty"`
-	Source   string   `json:"source"`
-	PluginID string   `json:"id,omitempty"`
-	Version  string   `json:"version,omitempty"`
-	Enabled  bool     `json:"enabled"`
-	Items    []string `json:"items"`
+	Kind          string   `json:"kind"`
+	File          string   `json:"file"`
+	Name          string   `json:"name,omitempty"`
+	Size          int64    `json:"size"`
+	Modified      string   `json:"modified,omitempty"`
+	Source        string   `json:"source"`
+	PluginID      string   `json:"id,omitempty"`
+	Version       string   `json:"version,omitempty"`
+	Enabled       bool     `json:"enabled"`
+	Items         []string `json:"items"`
+	IndexRevision uint64   `json:"index_revision,omitempty"`
+	IndexDigest   string   `json:"index_digest,omitempty"`
+	EntryDigest   string   `json:"entry_digest,omitempty"`
 }
 
 // pluginFiles 列出指定类型的插件目录中的 helper 文件。
@@ -304,6 +348,9 @@ func (s *Server) pluginFiles(kind string) []pluginFileView {
 			item.Source = "repo"
 			item.PluginID = record.ID
 			item.Version = record.Version
+			item.IndexRevision = record.IndexRevision
+			item.IndexDigest = record.IndexDigest
+			item.EntryDigest = record.EntryDigest
 		} else if isLegacyPluginFile(kind, name) {
 			item.Source = "legacy"
 		} else {
@@ -578,6 +625,9 @@ func (s *Server) uploadPlugin(c *gin.Context) {
 		_ = os.Remove(backup)
 		backup = ""
 	}
+	// 覆盖同名仓库 helper 时，旧安装记录会让发现阶段按旧摘要拒绝新文件；
+	// 上传成功后该文件改由 plugin_file_meta 锚定，因此移除旧的仓库记录。
+	s.dropPluginInstallationsForFile(kind, name)
 	// 先缓存完整清单，再重扫；即使随后发现失败，插件页仍能展示条目并执行清理。
 	s.upsertPluginFileMeta(kind, name, info.name, info.version, info.digest, info.items)
 	s.prunePluginEnabledWhitelist(kind)

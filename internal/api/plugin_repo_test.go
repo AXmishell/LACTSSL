@@ -171,12 +171,16 @@ esac
 	}
 	plugin := pluginrepo.Plugin{Kind: "dns", ID: "cloudflare", Version: "1.0.0", Protocol: "v1", Single: true}
 	asset := pluginrepo.Asset{URL: server.URL + "/plugin.tar.gz", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(archive))}
-	record, _, err := s.installRepoPlugin("dns", plugin, asset)
+	audit := pluginrepo.IndexAudit{Revision: 7, IndexDigest: "index-digest", EntryDigest: pluginrepo.PluginDigest(plugin)}
+	record, _, err := s.installRepoPluginWithAudit("dns", plugin, asset, audit)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if record.Version != "1.0.0" || record.Source != "repo" {
 		t.Fatalf("unexpected record: %+v", record)
+	}
+	if record.IndexRevision != 7 || record.IndexDigest != "index-digest" || record.EntryDigest == "" {
+		t.Fatalf("audit fields = %+v", record)
 	}
 	installed := filepath.Join(dir, "lactssl-dns-cloudflare")
 	info, err := os.Stat(installed)

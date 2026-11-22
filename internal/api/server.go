@@ -141,15 +141,25 @@ type Server struct {
 	// pluginUploadMu 串行化插件上传/安装，避免并发写入同名文件或交错触发热加载。
 	pluginUploadMu sync.Mutex
 
+	// pluginRepoPersistMu 串行化索引持久化与缓存清理，避免清理完成后
+	// 仍在途的刷新把旧索引重新写回数据库。
+	pluginRepoPersistMu sync.Mutex
 	// pluginRepoMu 保护仓库索引缓存。
-	pluginRepoMu        sync.Mutex
-	repoGroup           singleflight.Group
-	pluginRepoGen       uint64
-	pluginRepoIndex     pluginrepo.Index
-	pluginRepoIndexRaw  []byte
-	pluginRepoETag      string
-	pluginRepoCheckedAt time.Time
-	pluginRepoErr       string
+	pluginRepoMu          sync.Mutex
+	repoGroup             singleflight.Group
+	pluginRepoGen         uint64
+	pluginRepoIndex       pluginrepo.Index
+	pluginRepoIndexRaw    []byte
+	pluginRepoETag        string
+	pluginRepoCheckedAt   time.Time
+	pluginRepoErr         string
+	pluginRepoIssues      []pluginrepo.Issue
+	pluginRepoRejected    []pluginrepo.RejectedEntry
+	pluginRepoRevision    uint64
+	pluginRepoIndexDigest string
+	pluginRepoKeyID       string
+	pluginRepoGeneratedAt time.Time
+	pluginRepoExpiresAt   time.Time
 	// pluginRepoVerified 表示当前索引是否已通过 Ed25519 签名校验。
 	pluginRepoVerified bool
 
@@ -713,7 +723,13 @@ func failKey(c *gin.Context, status int, key string, pairs ...any) {
 		if !ok {
 			continue
 		}
-		params[name] = pairs[i+1]
+		value := pairs[i+1]
+		// 错误参数可能来自底层网络/URL 解析，其中包含带 token 的仓库地址。
+		// 在统一出口脱敏，避免 message 和结构化 params 同时泄露凭据。
+		if text, ok := value.(string); ok {
+			value = service.SanitizeErrorText(text)
+		}
+		params[name] = value
 	}
 	// 终止后续处理，避免认证或入口校验失败后仍执行目标接口。
 	c.Abort()

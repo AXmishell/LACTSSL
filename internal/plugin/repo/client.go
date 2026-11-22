@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -54,6 +53,9 @@ type Plugin struct {
 	MinHost          string           `json:"min_host,omitempty"`
 	Bundle           bool             `json:"bundle,omitempty"`
 	Providers        []string         `json:"providers,omitempty"`
+	VariantOf        string           `json:"variant_of,omitempty"`
+	ConflictsWith    []string         `json:"conflicts_with,omitempty"`
+	SDK              string           `json:"sdk,omitempty"`
 	HideIcon         bool             `json:"hide_icon,omitempty"`
 	UncompressedSize int64            `json:"uncompressed_size,omitempty"`
 	Single           bool             `json:"single,omitempty"`
@@ -66,7 +68,10 @@ type Index struct {
 	Schema      int      `json:"schema"`
 	Channel     string   `json:"channel"`
 	Protocol    string   `json:"protocol"`
+	Revision    uint64   `json:"revision,omitempty"`
 	GeneratedAt string   `json:"generated_at"`
+	ExpiresAt   string   `json:"expires_at,omitempty"`
+	RepoID      string   `json:"repo_id,omitempty"`
 	Plugins     []Plugin `json:"plugins"`
 	Icons       []Icon   `json:"icons,omitempty"`
 }
@@ -179,66 +184,146 @@ func NewClientWithProxy(rawURL, channel, publicKey string, timeout time.Duration
 	return client, nil
 }
 
-// Fetch 拉取索引。etag 非空时使用条件请求；notModified 为 true 表示 304。
+// Fetch 拉取索引并只返回可用条目。etag 非空时使用条件请求；
+// notModified 为 true 表示 304。需要保留被隔离条目与问题列表时使用 FetchValidated。
+func (c *Client) Fetch(ctx context.Context, etag string) (Index, []byte, string, []byte, bool, error) {
+	result, raw, newETag, signature, notModified, err := c.FetchValidated(ctx, etag, ParseOptions{})
+	return result.Index, raw, newETag, signature, notModified, err
+}
+
+// FetchValidated 拉取索引，统一执行签名校验、schema/protocol/channel 校验与逐条准入。
 // signature 是索引的 Ed25519 分离签名（未配置公钥时为空），调用方应把它与
 // 原始索引一起缓存，以便 304 时重新验签。
-func (c *Client) Fetch(ctx context.Context, etag string) (Index, []byte, string, []byte, bool, error) {
-	raw, newETag, notModified, err := c.fetchBytes(ctx, c.URL, etag, maxIndexBytes)
+func (c *Client) FetchValidated(ctx context.Context, etag string, opts ParseOptions) (ValidatedIndex, []byte, string, []byte, bool, error) {
+	if opts.Channel == "" {
+		opts.Channel = c.Channel
+	}
+	if opts.IndexURL == "" {
+		opts.IndexURL = c.URL
+	}
+	if opts.MaxBytes <= 0 {
+		opts.MaxBytes = maxIndexBytes
+	}
+	raw, newETag, notModified, err := c.fetchBytes(ctx, c.URL, etag, int64(opts.MaxBytes))
 	if err != nil {
-		return Index{}, nil, "", nil, false, err
+		return ValidatedIndex{}, nil, "", nil, false, err
 	}
 	if notModified {
-		return Index{}, nil, etag, nil, true, nil
+		return ValidatedIndex{}, nil, etag, nil, true, nil
 	}
 	var signature []byte
+	var keyID string
 	if len(c.PublicKeys) > 0 {
-		sigRaw, _, _, err := c.fetchBytes(ctx, c.URL+".sig", "", 4096)
+		signature, keyID, err = c.fetchSignature(ctx, raw)
 		if err != nil {
-			return Index{}, nil, "", nil, false, i18n.E("plugin.repo.signature_read_failed", "error", err.Error())
+			return ValidatedIndex{}, nil, "", nil, false, err
 		}
-		sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sigRaw)))
-		if err != nil {
-			return Index{}, nil, "", nil, false, i18n.E("plugin.repo.signature_parse_failed", "error", err.Error())
-		}
-		if !verifyAny(c.PublicKeys, raw, sig) {
-			return Index{}, nil, "", nil, false, i18n.E("plugin.repo.signature_invalid")
-		}
-		signature = sig
 	}
-	var index Index
-	if err := json.Unmarshal(raw, &index); err != nil {
-		return Index{}, nil, "", nil, false, i18n.E("plugin.repo.index_parse_failed", "error", err.Error())
+	result, err := ParseIndex(raw, opts)
+	if err != nil {
+		return result, nil, "", nil, false, err
 	}
-	if index.Schema != SchemaVersion {
-		return Index{}, nil, "", nil, false, i18n.E("plugin.repo.schema_unsupported", "version", index.Schema)
-	}
-	if index.Protocol != "" && index.Protocol != ProtocolVersion {
-		return Index{}, nil, "", nil, false, i18n.E("plugin.repo.protocol_unsupported", "protocol", index.Protocol)
-	}
-	index.SanitizeIcons()
-	if err := index.Validate(); err != nil {
-		return Index{}, nil, "", nil, false, i18n.E("plugin.repo.index_invalid", "error", err.Error())
-	}
-	return index, raw, newETag, signature, false, nil
+	result.KeyID = keyID
+	return result, raw, newETag, signature, false, nil
 }
 
-// VerifyIndexSignature 使用 base64 编码的 Ed25519 公钥校验索引原始字节。
-// 304 场景必须重新调用它，不能仅因为“配置了公钥”就认为缓存已验签。
-func VerifyIndexSignature(publicKeys string, raw, signature []byte) bool {
-	keys, err := ParsePublicKeys(publicKeys)
-	if err != nil || len(keys) == 0 || len(signature) != ed25519.SignatureSize {
-		return false
-	}
-	return verifyAny(keys, raw, signature)
-}
-
-func verifyAny(keys []ed25519.PublicKey, raw, signature []byte) bool {
-	for _, key := range keys {
-		if ed25519.Verify(key, raw, signature) {
-			return true
+// fetchSignature 优先读取 index.json.sig.json 封套，不存在时回退到
+// 旧格式 index.json.sig。封套存在但校验失败时不会降级到旧签名。
+func (c *Client) fetchSignature(ctx context.Context, raw []byte) ([]byte, string, error) {
+	if envelopeURL, err := withSuffix(c.URL, ".sig.json"); err == nil {
+		body, found, fetchErr := c.fetchOptionalBytes(ctx, envelopeURL, maxSignatureBytes)
+		if fetchErr != nil {
+			// 5xx/401/网络错误不能被当成“封套不存在”而静默回退，
+			// 否则会掩盖仓库权限或代理问题。
+			return nil, "", i18n.E("plugin.repo.signature_read_failed", "error", fetchErr.Error())
+		}
+		if found {
+			keyID, ok := verifySignatureBlob(c.PublicKeys, raw, body)
+			if !ok {
+				return nil, "", i18n.E("plugin.repo.signature_invalid")
+			}
+			return body, keyID, nil
 		}
 	}
-	return false
+	sigURL, err := signatureURL(c.URL)
+	if err != nil {
+		return nil, "", i18n.E("plugin.repo.signature_read_failed", "error", err.Error())
+	}
+	sigRaw, _, _, err := c.fetchBytes(ctx, sigURL, "", 4096)
+	if err != nil {
+		return nil, "", i18n.E("plugin.repo.signature_read_failed", "error", err.Error())
+	}
+	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sigRaw)))
+	if err != nil {
+		return nil, "", i18n.E("plugin.repo.signature_parse_failed", "error", err.Error())
+	}
+	keyID, ok := verifySignatureBlob(c.PublicKeys, raw, sig)
+	if !ok {
+		return nil, "", i18n.E("plugin.repo.signature_invalid")
+	}
+	return sig, keyID, nil
+}
+
+// fetchOptionalBytes 拉取可选文件；不存在（包括 S3 对缺失 key 返回的 403）时 found=false。
+func (c *Client) fetchOptionalBytes(ctx context.Context, rawURL string, limit int64) ([]byte, bool, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, false, err
+	}
+	if parsed.Scheme == "file" {
+		raw, err := os.ReadFile(filepath.FromSlash(parsed.Path))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, false, nil
+			}
+			return nil, false, err
+		}
+		if int64(len(raw)) > limit {
+			return nil, false, errors.New("签名文件超过大小限制")
+		}
+		return raw, true, nil
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	response, err := c.HTTP.Do(request)
+	if err != nil {
+		return nil, false, err
+	}
+	defer response.Body.Close()
+	switch response.StatusCode {
+	case http.StatusOK:
+	case http.StatusForbidden, http.StatusNotFound, http.StatusGone:
+		return nil, false, nil
+	default:
+		return nil, false, fmt.Errorf("仓库返回 HTTP %d", response.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, false, errors.New("签名文件超过大小限制")
+	}
+	return raw, true, nil
+}
+
+// signatureURL 在索引路径后追加 .sig，而不是拼接整个 URL。
+// 私有仓库常把 token 放在 query 中，直接 c.URL+".sig" 会把后缀写进 query。
+func signatureURL(raw string) (string, error) {
+	return withSuffix(raw, ".sig")
+}
+
+func withSuffix(raw, suffix string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", err
+	}
+	parsed.Path += suffix
+	parsed.RawPath = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
 }
 
 // PublicKeysFingerprint 返回多个公钥的稳定指纹串；单密钥时保持旧格式。
@@ -254,55 +339,6 @@ func PublicKeysFingerprint(keys []ed25519.PublicKey) string {
 		parts = append(parts, PublicKeyFingerprint(key))
 	}
 	return strings.Join(parts, ",")
-}
-
-// Validate 校验索引中的插件与资产字段，确保安装前就具备可校验的 sha256。
-func (i Index) Validate() error {
-	seen := make(map[string]bool, len(i.Plugins))
-	for _, plugin := range i.Plugins {
-		if plugin.Kind != "dns" && plugin.Kind != "deploy" && plugin.Kind != "notify" {
-			return fmt.Errorf("未知插件类型 %q", plugin.Kind)
-		}
-		if !idPattern.MatchString(plugin.ID) {
-			return fmt.Errorf("插件 ID 非法: %q", plugin.ID)
-		}
-		key := plugin.Kind + "/" + plugin.ID
-		if seen[key] {
-			return fmt.Errorf("插件重复: %s", key)
-		}
-		seen[key] = true
-		if strings.TrimSpace(plugin.Version) == "" {
-			return fmt.Errorf("插件 %s 缺少版本", key)
-		}
-		if plugin.Bundle {
-			if len(plugin.Providers) == 0 {
-				return fmt.Errorf("合并插件 %s 缺少 providers", key)
-			}
-			providerSeen := make(map[string]bool, len(plugin.Providers))
-			for _, id := range plugin.Providers {
-				id = strings.TrimSpace(id)
-				if !idPattern.MatchString(id) {
-					return fmt.Errorf("合并插件 %s 的 provider ID 非法: %q", key, id)
-				}
-				if providerSeen[id] {
-					return fmt.Errorf("合并插件 %s 的 provider 重复: %s", key, id)
-				}
-				providerSeen[id] = true
-			}
-		}
-		if len(plugin.Assets) == 0 {
-			return i18n.E("plugin.repo.no_asset", "plugin", key)
-		}
-		for platform, asset := range plugin.Assets {
-			if strings.TrimSpace(asset.URL) == "" {
-				return fmt.Errorf("插件 %s 的 %s 资产缺少 URL", key, platform)
-			}
-			if _, err := normalizeSHA256(asset.SHA256); err != nil {
-				return i18n.E("plugin.repo.no_valid_sha256", "plugin", key, "platform", platform)
-			}
-		}
-	}
-	return nil
 }
 
 func (c *Client) fetchBytes(ctx context.Context, rawURL, etag string, limit int64) ([]byte, string, bool, error) {
@@ -364,29 +400,9 @@ func (c *Client) Download(ctx context.Context, asset Asset, dest string) (string
 	if err != nil {
 		return "", err
 	}
-	if parsed.User != nil {
-		return "", errors.New("插件资产地址不能包含凭据")
-	}
-	indexURL, err := url.Parse(c.URL)
-	if err != nil {
+	// 与 ParseIndex 共用同一套协议/凭据规则，避免列表阶段接受、下载阶段才失败。
+	if err := validateAssetURL(asset.URL, c.URL); err != nil {
 		return "", err
-	}
-	switch parsed.Scheme {
-	case "https":
-	case "http":
-		// HTTPS 索引不应把资产降级到明文 HTTP；sha256 只能保证内容
-		// 一致，不能防止链路观察或替换元数据。
-		if indexURL.Scheme == "https" {
-			return "", i18n.E("plugin.repo.asset_http_forbidden")
-		}
-	case "file":
-		// 只允许 file:// 索引使用本地资产，避免 HTTPS 索引被篡改后
-		// 让宿主读取任意本地文件。
-		if indexURL.Scheme != "file" {
-			return "", i18n.E("plugin.repo.asset_file_forbidden")
-		}
-	default:
-		return "", i18n.E("plugin.repo.asset_scheme_unsupported")
 	}
 	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -466,6 +482,9 @@ func SelectAsset(plugin Plugin, goos, goarch string) (Asset, bool) {
 	return asset, ok
 }
 
+// gitDescribeSuffix 匹配 1.2.0-3-gabc 这类构建后缀。
+var gitDescribeSuffix = regexp.MustCompile(`^\d+-g[0-9a-fA-F]+(?:-dirty)?$`)
+
 // Compatible 判断插件是否兼容当前宿主版本与协议。
 func Compatible(plugin Plugin, hostVersion string) bool {
 	if plugin.Protocol != "" && plugin.Protocol != ProtocolVersion {
@@ -475,7 +494,12 @@ func Compatible(plugin Plugin, hostVersion string) bool {
 		return true
 	}
 	// 宿主版本可能带 git describe 后缀（如 1.2.0-3-gabc），
-	// 兼容性只比较数字核心，避免把构建后缀误判为预发布版本。
+	// 这类构建后缀不代表预发布，只比较数字核心；真正的预发布
+	// （如 1.0.0-beta）必须低于同版本正式版。
+	_, hostPre := splitVersion(hostVersion)
+	if hostPre != "" && !gitDescribeSuffix.MatchString(hostPre) {
+		return CompareVersion(hostVersion, plugin.MinHost) >= 0
+	}
 	return compareCore(hostVersion, plugin.MinHost) >= 0
 }
 

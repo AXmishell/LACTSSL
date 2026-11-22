@@ -29,6 +29,9 @@ func sqliteStatements() []string {
 			asset_sha256 TEXT NOT NULL DEFAULT '',
 			source TEXT NOT NULL,
 			repo_url TEXT NOT NULL DEFAULT '',
+			index_revision INTEGER NOT NULL DEFAULT 0,
+			index_digest TEXT NOT NULL DEFAULT '',
+			entry_digest TEXT NOT NULL DEFAULT '',
 			installed_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL,
 			PRIMARY KEY (kind, id)

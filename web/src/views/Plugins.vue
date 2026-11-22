@@ -84,6 +84,9 @@
                 </template>
                 <span v-else>{{ t('plugins.repoPublicKeyUnset') }}</span>
               </div>
+              <div v-if="repo?.signature_key_id" class="sub mono repo-key-id">
+                {{ t('plugins.repoSignatureKeyId') }}: {{ repo.signature_key_id }}
+              </div>
             </el-form-item>
           </el-form>
         </div>
@@ -112,6 +115,15 @@
         </div>
         <div class="sub">{{ t('plugins.repoLegacyHint') }}</div>
       </el-alert>
+      <el-collapse v-if="repo?.issues?.length" class="repo-issues">
+        <el-collapse-item :title="t('plugins.repoIssues', { count: repo.issues.length })" name="issues">
+          <div v-for="(issue, index) in repo.issues" :key="issue.code + ':' + (issue.path || index)" class="repo-issue-row">
+            <el-tag size="small" effect="plain" :type="issueTagType(issue.severity)">{{ issue.severity }}</el-tag>
+            <span class="repo-issue-path mono">{{ issue.path || issue.plugin || '-' }}</span>
+            <span class="repo-issue-message">{{ issue.message }}</span>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
     </div>
 
     <div class="plugin-tabs">
@@ -358,7 +370,10 @@
           </el-table-column>
           <el-table-column :label="t('plugins.providerStatus')" width="150">
             <template #default="{ row }">
-              <el-tag v-if="!row.compatible" type="info" size="small">{{ t('plugins.repoIncompatible') }}</el-tag>
+              <el-tooltip v-if="row.invalid" :content="row.invalid_reason || t('plugins.repoInvalid')" placement="top">
+                <el-tag type="danger" size="small">{{ t('plugins.repoInvalid') }}</el-tag>
+              </el-tooltip>
+              <el-tag v-else-if="!row.compatible" type="info" size="small">{{ t('plugins.repoIncompatible') }}</el-tag>
               <el-tag v-else-if="!row.platform_available" type="info" size="small">{{ t('plugins.repoPlatformUnsupported') }}</el-tag>
               <el-tag v-else-if="marketBusy[row.kind + '/' + row.id]" type="warning" size="small">{{ t('plugins.repoProcessing') }}</el-tag>
               <el-tag v-else-if="row.update_available" type="warning" size="small">{{ t('plugins.repoUpdatable') }}</el-tag>
@@ -372,6 +387,7 @@
                 v-if="row.installed && row.update_available"
                 size="small"
                 type="primary"
+                :disabled="row.invalid"
                 :loading="marketBusy[row.kind + '/' + row.id]"
                 @click="installRepoPlugin(row, true)"
               >{{ t('plugins.repoUpdate') }}</el-button>
@@ -379,7 +395,7 @@
                 v-else-if="!row.installed"
                 size="small"
                 type="primary"
-                :disabled="!row.compatible || !row.platform_available"
+                :disabled="row.invalid || !row.compatible || !row.platform_available"
                 :loading="marketBusy[row.kind + '/' + row.id]"
                 @click="installRepoPlugin(row, false)"
               >{{ t('plugins.repoInstall') }}</el-button>
@@ -466,7 +482,7 @@ import { api, errorText } from '../api'
 import { notifyChannelLabelKey } from '../notifyChannels'
 import { formatSize, formatVersion } from '../utils'
 import PluginGroupTable from '../components/PluginGroupTable.vue'
-import type { LegacyPluginFile, NotifyPluginChannel, PluginConflict, PluginFile, PluginInstallation, PluginProvider, PluginGroup, PluginRepoInstallResult, PluginRepoItem, PluginRepoStatus, PluginRepoUpdateResult, PluginStatus, PluginUploadResult } from '../types'
+import type { LegacyPluginFile, NotifyPluginChannel, PluginConflict, PluginFile, PluginInstallation, PluginProvider, PluginGroup, PluginRepoInstallResult, PluginRepoIssue, PluginRepoItem, PluginRepoStatus, PluginRepoUpdateResult, PluginStatus, PluginUploadResult } from '../types'
 
 const { t } = useI18n()
 // 视口足够高时才启用一屏布局；1366×768 等短屏回退为整页滚动 + 表格内滚动。
@@ -562,11 +578,24 @@ const repoSignature = computed<{ type: 'success' | 'warning' | 'danger' | 'info'
   return { type: 'warning', text: t('plugins.repoSignaturePending') }
 })
 
+function issueTagType(severity: PluginRepoIssue['severity']): 'danger' | 'warning' | 'info' {
+  if (severity === 'fatal' || severity === 'entry') return 'danger'
+  if (severity === 'warn') return 'warning'
+  return 'info'
+}
+
 const repoStatusText = computed(() => {
   if (!repo.value) return '-'
   if (!repo.value.enabled) return t('plugins.off')
   if (repo.value.error) return repo.value.error
   if (!repo.value.checked_at) return t('plugins.repoNotLoaded')
+  if (repo.value.plugins_rejected) {
+    return t('plugins.repoLoadedWithIssues', {
+      count: repo.value.plugins,
+      rejected: repo.value.plugins_rejected,
+      time: repo.value.checked_at
+    })
+  }
   return t('plugins.repoLoaded', { count: repo.value.plugins, time: repo.value.checked_at })
 })
 const uploadTitle = computed(() => {
@@ -1715,6 +1744,30 @@ onUnmounted(() => {
 }
 .repo-alert {
   margin-top: 14px;
+}
+.repo-issues {
+  margin-top: 10px;
+}
+.repo-issue-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.repo-issue-path {
+  flex: 0 0 auto;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--el-text-color-secondary);
+}
+.repo-issue-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
 }
 @media (min-width: 861px) {
   /* 短屏回退：取消整页固定高度，表格恢复 420px 内滚动并允许页面滚动。 */

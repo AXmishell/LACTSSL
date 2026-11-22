@@ -49,6 +49,12 @@ func TestCompatible(t *testing.T) {
 	if !Compatible(Plugin{Protocol: "v1", MinHost: "1.2.0"}, "1.2.0-3-ga28f63b-dirty") {
 		t.Fatal("git describe suffix should not make the host older")
 	}
+	if Compatible(Plugin{Protocol: "v1", MinHost: "1.2.0"}, "1.2.0-beta.1") {
+		t.Fatal("prerelease host must be older than the matching stable version")
+	}
+	if !Compatible(Plugin{Protocol: "v1", MinHost: "1.2.0-beta.1"}, "1.2.0-beta.2") {
+		t.Fatal("newer prerelease host should satisfy a prerelease min_host")
+	}
 }
 
 func TestSelectAsset(t *testing.T) {

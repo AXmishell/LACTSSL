@@ -4,16 +4,21 @@ import "time"
 
 // PluginInstallation 记录由插件仓库安装的插件文件，供升级、卸载与审计使用。
 type PluginInstallation struct {
-	Kind        string    `json:"kind"`
-	ID          string    `json:"id"`
-	Version     string    `json:"version"`
-	Filename    string    `json:"filename"`
-	SHA256      string    `json:"sha256"`
-	AssetSHA256 string    `json:"asset_sha256"`
-	Source      string    `json:"source"`
-	RepoURL     string    `json:"repo_url"`
-	InstalledAt time.Time `json:"installed_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Kind        string `json:"kind"`
+	ID          string `json:"id"`
+	Version     string `json:"version"`
+	Filename    string `json:"filename"`
+	SHA256      string `json:"sha256"`
+	AssetSHA256 string `json:"asset_sha256"`
+	Source      string `json:"source"`
+	RepoURL     string `json:"repo_url"`
+	// IndexRevision / IndexDigest / EntryDigest 记录安装时的签名索引身份。
+	// 旧记录没有这些字段时为空/0，不影响升级与卸载。
+	IndexRevision uint64    `json:"index_revision,omitempty"`
+	IndexDigest   string    `json:"index_digest,omitempty"`
+	EntryDigest   string    `json:"entry_digest,omitempty"`
+	InstalledAt   time.Time `json:"installed_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // PluginFileEntry 是 helper 文件声明的单个条目（服务商、部署目标或通知渠道）。

@@ -386,6 +386,9 @@ export interface PluginFile {
   version?: string
   enabled: boolean
   items: string[]
+  index_revision?: number
+  index_digest?: string
+  entry_digest?: string
 }
 
 // PluginItem 是插件提供的可启用条目（服务商、部署目标或通知渠道）的公共视图。
@@ -491,14 +494,32 @@ export interface PluginRepoStatus {
   public_key_set: boolean
   public_key_valid: boolean
   public_key_fingerprint?: string
+  signature_key_id?: string
   signature_verified: boolean
   timeout_seconds: number
   max_download_mb: number
   platform: string
   host_version: string
   checked_at: string
+  index_schema?: number
+  index_revision?: number
+  index_digest?: string
+  index_generated_at?: string
+  index_expires_at?: string
   plugins: number
+  plugins_rejected?: number
+  issues?: PluginRepoIssue[]
   error?: string
+}
+
+export interface PluginRepoIssue {
+  code: string
+  severity: 'warn' | 'entry' | 'fatal'
+  path?: string
+  kind?: string
+  plugin?: string
+  platform?: string
+  message: string
 }
 
 export interface PluginRepoItem {
@@ -520,6 +541,9 @@ export interface PluginRepoItem {
   update_available: boolean
   size?: number
   download_size?: number
+  invalid?: boolean
+  invalid_code?: string
+  invalid_reason?: string
 }
 
 export interface PluginInstallation {
@@ -529,6 +553,9 @@ export interface PluginInstallation {
   filename: string
   source: string
   repo_url?: string
+  index_revision?: number
+  index_digest?: string
+  entry_digest?: string
   installed_at?: string
   updated_at?: string
 }

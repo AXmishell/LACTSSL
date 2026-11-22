@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -42,17 +41,49 @@ const (
 	repoIndexSigSetting    = "plugins.repo.index_sig"
 	repoETagSetting        = "plugins.repo.index_etag"
 	repoCheckedSetting     = "plugins.repo.checked_at"
+	repoRevisionSetting    = "plugins.repo.revision"
+	repoGeneratedSetting   = "plugins.repo.generated_at"
 	repoVerifiedSetting    = "plugins.repo.signature_verified"
 	repoVerifiedKeySetting = "plugins.repo.verified_key"
 )
 
+// repoCacheIdentity 把本地索引缓存绑定到当前仓库地址与渠道。
+// 密钥变化不进入身份串，由加载缓存时的重新验签负责；URL 或渠道变化后，
+// 旧缓存即使被数据库恢复/并发写回，也会因 HMAC 不匹配而被拒绝。
+func (s *Server) repoCacheIdentity() string {
+	url := strings.TrimSpace(s.PluginRepoURL)
+	channel := strings.TrimSpace(s.PluginRepoChannel)
+	if s.Store != nil {
+		url = strings.TrimSpace(s.setting(repoURLSetting, s.PluginRepoURL))
+		channel = strings.TrimSpace(s.setting(repoChannelSetting, s.PluginRepoChannel))
+	}
+	channel = strings.ToLower(channel)
+	if channel == "" {
+		channel = "stable"
+	}
+	return url + "\n" + channel
+}
+
 // repoIndexMAC 用服务端密钥保护本地缓存的索引，防止数据库被篡改后
 // 直接注入包含恶意资产地址的索引。
 func (s *Server) repoIndexMAC(raw string) string {
+	return s.repoIndexMACFor(raw, s.repoCacheIdentity())
+}
+
+// repoIndexMACFor 使用调用方捕获的身份计算 MAC，避免持久化期间仓库
+// 配置变化导致旧原始字节被错误地签成新身份。
+func (s *Server) repoIndexMACFor(raw, identity string) string {
 	if s.Auth == nil {
 		return ""
 	}
-	return s.Auth.SignValue("plugin-index-cache", raw)
+	return s.Auth.SignValue("plugin-index-cache", identity+"\x00"+raw)
+}
+
+// repoGeneration 返回当前索引缓存代次。清空/切换仓库会递增该值。
+func (s *Server) repoGeneration() uint64 {
+	s.pluginRepoMu.Lock()
+	defer s.pluginRepoMu.Unlock()
+	return s.pluginRepoGen
 }
 
 func (s *Server) cachedRepoIndexRaw() (string, bool) {
@@ -106,6 +137,9 @@ type repoPluginView struct {
 	Icon              string `json:"icon,omitempty"`
 	Size              int64  `json:"size,omitempty"`
 	DownloadSize      int64  `json:"download_size,omitempty"`
+	Invalid           bool   `json:"invalid,omitempty"`
+	InvalidCode       string `json:"invalid_code,omitempty"`
+	InvalidReason     string `json:"invalid_reason,omitempty"`
 }
 
 func (s *Server) repoBool(key string, fallback bool) bool {
@@ -166,6 +200,56 @@ func (s *Server) repoProxy() string {
 
 func (s *Server) repoClient() (*pluginrepo.Client, error) {
 	return pluginrepo.NewClientWithProxy(s.repoURL(), s.repoChannel(), s.repoPublicKey(), s.PluginRepoTimeout, s.PluginRepoMaxDownloadMB, s.repoProxy())
+}
+
+// repoParseOptions 构造索引校验参数，保证网络、缓存与 304 分支使用同一套规则。
+func (s *Server) repoParseOptions() pluginrepo.ParseOptions {
+	return pluginrepo.ParseOptions{
+		Channel:          s.repoChannel(),
+		IndexURL:         s.repoURL(),
+		LastRevision:     s.repoLastRevision(),
+		LastGeneratedAt:  s.repoLastGeneratedAt(),
+		MaxDownloadBytes: int64(s.PluginRepoMaxDownloadMB) << 20,
+	}
+}
+
+// repoExpiredError 在安装/自动更新前拒绝已过期的索引。
+// 列表与状态仍允许展示过期索引，便于管理员排查；只有写入动作严格拒绝。
+func repoExpiredError(validated pluginrepo.ValidatedIndex, now time.Time) error {
+	if !validated.Expired(now) {
+		return nil
+	}
+	return i18n.E("plugin.repo.index_expired", "time", validated.ExpiresAt.UTC().Format(time.RFC3339))
+}
+
+// repoEntryValidationError 在安装前复核条目字段，避免调用方绕过索引过滤
+// 直接安装被隔离的条目。没有资产信息的调用方（测试或自定义流程）由
+// Download 的 sha256 校验兜底。
+func repoEntryValidationError(plugin pluginrepo.Plugin, opts pluginrepo.ParseOptions) error {
+	for _, issue := range pluginrepo.ValidateEntry(plugin, opts) {
+		if issue.Severity == pluginrepo.SeverityEntry || issue.Severity == pluginrepo.SeverityFatal {
+			return issue.Error()
+		}
+	}
+	return nil
+}
+
+func (s *Server) repoLastRevision() uint64 {
+	value := strings.TrimSpace(s.setting(repoRevisionSetting, ""))
+	if value == "" {
+		return 0
+	}
+	revision, _ := strconv.ParseUint(value, 10, 64)
+	return revision
+}
+
+func (s *Server) repoLastGeneratedAt() time.Time {
+	value := strings.TrimSpace(s.setting(repoGeneratedSetting, ""))
+	if value == "" {
+		return time.Time{}
+	}
+	parsed, _ := time.Parse(time.RFC3339, value)
+	return parsed
 }
 
 // repoKeyFingerprint 返回当前配置公钥的指纹；未配置或格式非法时返回空/占位。
@@ -248,7 +332,7 @@ func redactProxyURL(raw string) string {
 	return parsed.String()
 }
 
-func (s *Server) repoStatus() gin.H {
+func (s *Server) repoStatus(contexts ...*gin.Context) gin.H {
 	s.pluginRepoMu.Lock()
 	hasMemoryIndex := len(s.pluginRepoIndexRaw) > 0
 	lastErr := s.pluginRepoErr
@@ -267,10 +351,29 @@ func (s *Server) repoStatus() gin.H {
 	checkedAt := s.pluginRepoCheckedAt
 	lastErr = s.pluginRepoErr
 	verified := s.pluginRepoVerified
+	issues := append([]pluginrepo.Issue(nil), s.pluginRepoIssues...)
+	rejected := len(s.pluginRepoRejected)
+	revision := s.pluginRepoRevision
+	indexDigest := s.pluginRepoIndexDigest
+	keyID := s.pluginRepoKeyID
+	generatedAt := s.pluginRepoGeneratedAt
+	expiresAt := s.pluginRepoExpiresAt
 	s.pluginRepoMu.Unlock()
 	checked := ""
 	if !checkedAt.IsZero() {
 		checked = checkedAt.Format(time.RFC3339)
+	}
+	generated := ""
+	if !generatedAt.IsZero() {
+		generated = generatedAt.Format(time.RFC3339)
+	}
+	expires := ""
+	if !expiresAt.IsZero() {
+		expires = expiresAt.Format(time.RFC3339)
+	}
+	locale := i18n.Default
+	if len(contexts) > 0 && contexts[0] != nil {
+		locale = i18n.FromContext(contexts[0])
 	}
 	// 只返回公钥指纹，不回显公钥本身。
 	publicKey := s.repoPublicKey()
@@ -283,6 +386,10 @@ func (s *Server) repoStatus() gin.H {
 		}
 	}
 	proxy := s.repoProxy()
+	signatureKeyID := ""
+	if publicKeyValid && verified {
+		signatureKeyID = keyID
+	}
 	return gin.H{
 		"enabled":                s.repoEnabled(),
 		"url":                    redactRepoURL(s.repoURL()),
@@ -293,34 +400,86 @@ func (s *Server) repoStatus() gin.H {
 		"public_key_set":         publicKey != "",
 		"public_key_valid":       publicKeyValid,
 		"public_key_fingerprint": fingerprint,
+		"signature_key_id":       signatureKeyID,
 		"signature_verified":     publicKeyValid && verified,
 		"timeout_seconds":        int(s.PluginRepoTimeout.Seconds()),
 		"max_download_mb":        s.PluginRepoMaxDownloadMB,
 		"platform":               runtime.GOOS + "/" + runtime.GOARCH,
 		"host_version":           Version,
 		"checked_at":             checked,
+		"index_schema":           index.Schema,
+		"index_revision":         revision,
+		"index_digest":           indexDigest,
+		"index_generated_at":     generated,
+		"index_expires_at":       expires,
 		"plugins":                len(index.Plugins),
+		"plugins_rejected":       rejected,
+		"issues":                 s.repoIssueViews(locale, issues),
 		"error":                  service.SanitizeErrorText(lastErr),
 	}
 }
 
-// loadRepoIndex 返回仓库索引。内存/本地缓存未命中时才访问网络，
+// repoIssueViews 把索引问题转换为可直接返回给前端的结构，最多保留 20 条。
+func (s *Server) repoIssueViews(locale i18n.Locale, issues []pluginrepo.Issue) []gin.H {
+	if len(issues) == 0 {
+		return nil
+	}
+	limit := len(issues)
+	if limit > 20 {
+		limit = 20
+	}
+	out := make([]gin.H, 0, limit)
+	for _, issue := range issues[:limit] {
+		out = append(out, gin.H{
+			"code":     issue.Code,
+			"severity": issue.Severity,
+			"path":     clipText(issue.Path, 256),
+			"kind":     clipText(issue.Kind, 64),
+			"plugin":   clipText(issue.Plugin, 256),
+			"platform": clipText(issue.Platform, 64),
+			"message":  clipText(service.SanitizeErrorText(issue.Text(locale)), 1024),
+		})
+	}
+	return out
+}
+
+// clipText 限制索引字段长度，避免恶意索引用超长参数放大状态响应。
+func clipText(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + "…"
+}
+
+// loadRepoIndex 返回仓库中可用条目的索引。内存/本地缓存未命中时才访问网络，
 // 网络请求不在 pluginRepoMu 内执行，避免慢仓库阻塞插件页状态与图标接口；
 // 并发刷新通过 singleflight 合并为一次请求。
 func (s *Server) loadRepoIndex(force bool) (pluginrepo.Index, error) {
+	result, err := s.loadRepoValidated(force)
+	return result.Index, err
+}
+
+// loadRepoValidated 返回完整校验结果（可用条目、被隔离条目与问题列表）。
+func (s *Server) loadRepoValidated(force bool) (pluginrepo.ValidatedIndex, error) {
 	if !force {
 		s.pluginRepoMu.Lock()
 		if len(s.pluginRepoIndexRaw) > 0 {
-			index := s.pluginRepoIndex
+			result := s.repoValidatedLocked()
 			s.pluginRepoMu.Unlock()
-			return index, nil
+			return result, nil
 		}
 		s.pluginRepoMu.Unlock()
-		if index, ok := s.loadCachedRepoIndex(); ok {
-			return index, nil
+		if result, ok := s.loadCachedRepoIndex(); ok {
+			return result, nil
 		}
 	}
-	key := "plugin-repo-index"
+	// force 使用独立的 singleflight key，避免强制刷新合入正在进行的
+	// 普通刷新后只拿到 304/缓存结果。
+	key := "plugin-repo-index:normal"
 	if force {
 		key = "plugin-repo-index:force"
 	}
@@ -329,84 +488,114 @@ func (s *Server) loadRepoIndex(force bool) (pluginrepo.Index, error) {
 	})
 	if err != nil {
 		s.setRepoError(err)
-		return pluginrepo.Index{}, err
+		if result, ok := value.(pluginrepo.ValidatedIndex); ok && len(result.Issues) > 0 {
+			s.pluginRepoMu.Lock()
+			s.pluginRepoIssues = append([]pluginrepo.Issue(nil), result.Issues...)
+			s.pluginRepoMu.Unlock()
+		}
+		return pluginrepo.ValidatedIndex{}, err
 	}
-	index, _ := value.(pluginrepo.Index)
-	return index, nil
+	result, _ := value.(pluginrepo.ValidatedIndex)
+	return result, nil
+}
+
+// repoValidatedLocked 把内存缓存拼装为完整校验结果，调用方需持有 pluginRepoMu。
+func (s *Server) repoValidatedLocked() pluginrepo.ValidatedIndex {
+	return pluginrepo.ValidatedIndex{
+		Index:       s.pluginRepoIndex,
+		Revision:    s.pluginRepoRevision,
+		GeneratedAt: s.pluginRepoGeneratedAt,
+		ExpiresAt:   s.pluginRepoExpiresAt,
+		Digest:      s.pluginRepoIndexDigest,
+		KeyID:       s.pluginRepoKeyID,
+		Issues:      append([]pluginrepo.Issue(nil), s.pluginRepoIssues...),
+		Rejected:    append([]pluginrepo.RejectedEntry(nil), s.pluginRepoRejected...),
+	}
 }
 
 // loadCachedRepoIndex 读取数据库中的索引缓存（带服务端 HMAC 校验）。
-func (s *Server) loadCachedRepoIndex() (pluginrepo.Index, bool) {
+func (s *Server) loadCachedRepoIndex() (pluginrepo.ValidatedIndex, bool) {
+	identity := s.repoCacheIdentity()
+	keyFingerprint := s.repoKeyFingerprint()
+	publicKey := s.repoPublicKey()
+	generation := s.repoGeneration()
 	raw, ok := s.cachedRepoIndexRaw()
 	if !ok {
 		// 缓存缺失/被篡改时不能继续带旧 ETag：否则服务端返回 304 后仍会因
 		// 缓存校验失败而无法刷新。
 		_ = s.Store.DeleteSetting(repoETagSetting)
-		return pluginrepo.Index{}, false
+		return pluginrepo.ValidatedIndex{}, false
 	}
-	var index pluginrepo.Index
-	if err := json.Unmarshal([]byte(raw), &index); err != nil {
+	// 缓存索引由服务端 HMAC 保护，但“已验签”必须由当前公钥对缓存原始字节
+	// 重新验签得出，不能信任数据库中的独立布尔位或公钥指纹。
+	verified := false
+	keyID := ""
+	if keyFingerprint != "" {
+		signature, ok := s.cachedRepoIndexSignature()
+		if ok {
+			keyID, ok = pluginrepo.VerifyIndexSignatureKeyID(publicKey, []byte(raw), signature)
+		}
+		if !ok {
+			// 缓存不是由当前公钥签名的（例如升级前未验签的缓存）：丢弃 ETag，
+			// 强制下一次刷新全量重取，而不是让 304 把旧缓存“洗白”。
+			_ = s.Store.DeleteSetting(repoETagSetting)
+			return pluginrepo.ValidatedIndex{}, false
+		}
+		verified = true
+	}
+	// 与网络路径共用 ParseIndex，避免缓存/304 漏掉 schema、channel、revision 等规则。
+	result, err := pluginrepo.ParseIndex([]byte(raw), s.repoParseOptions())
+	if err != nil {
 		_ = s.Store.DeleteSetting(repoETagSetting)
-		return pluginrepo.Index{}, false
+		return pluginrepo.ValidatedIndex{}, false
 	}
-	index.SanitizeIcons()
-	if err := index.Validate(); err != nil {
-		_ = s.Store.DeleteSetting(repoETagSetting)
-		return pluginrepo.Index{}, false
-	}
+	result.KeyID = keyID
 	checkedAt := time.Time{}
 	if ts := s.setting(repoCheckedSetting, ""); ts != "" {
 		checkedAt, _ = time.Parse(time.RFC3339, ts)
 	}
-	// 缓存索引由服务端 HMAC 保护，但“已验签”必须由当前公钥对缓存原始字节
-	// 重新验签得出，不能信任数据库中的独立布尔位或公钥指纹。
-	currentKey := s.repoKeyFingerprint()
-	verified := false
-	if currentKey != "" {
-		signature, ok := s.cachedRepoIndexSignature()
-		if !ok || !pluginrepo.VerifyIndexSignature(s.repoPublicKey(), []byte(raw), signature) {
-			// 缓存不是由当前公钥签名的（例如升级前未验签的缓存）：丢弃 ETag，
-			// 强制下一次刷新全量重取，而不是让 304 把旧缓存“洗白”。
-			_ = s.Store.DeleteSetting(repoETagSetting)
-			return pluginrepo.Index{}, false
-		}
-		verified = true
-	}
 
+	// 与清理/刷新持久化串行，避免读取期间仓库配置已变化、清理完成后
+	// 又把旧缓存写回内存。
+	s.pluginRepoPersistMu.Lock()
+	defer s.pluginRepoPersistMu.Unlock()
 	s.pluginRepoMu.Lock()
 	defer s.pluginRepoMu.Unlock()
+	if s.pluginRepoGen != generation ||
+		s.repoCacheIdentity() != identity ||
+		s.repoKeyFingerprint() != keyFingerprint {
+		return pluginrepo.ValidatedIndex{}, false
+	}
 	// 并发刷新可能已经写入更新的内存缓存，优先使用它。
 	if len(s.pluginRepoIndexRaw) > 0 {
-		return s.pluginRepoIndex, true
+		return s.repoValidatedLocked(), true
 	}
-	s.pluginRepoIndex = index
-	s.pluginRepoIndexRaw = []byte(raw)
-	s.pluginRepoCheckedAt = checkedAt
-	s.pluginRepoErr = ""
-	s.pluginRepoVerified = verified
-	return index, true
+	s.storeRepoValidatedLocked(result, []byte(raw), checkedAt, verified)
+	return result, true
 }
 
 // fetchRepoIndex 执行实际的网络拉取。仅在 singleflight 内调用。
-func (s *Server) fetchRepoIndex(force bool) (pluginrepo.Index, error) {
+func (s *Server) fetchRepoIndex(force bool) (pluginrepo.ValidatedIndex, error) {
 	// 等待 singleflight 期间其他调用可能已完成刷新，这里再检查一次内存缓存。
 	if !force {
 		s.pluginRepoMu.Lock()
 		if len(s.pluginRepoIndexRaw) > 0 {
-			index := s.pluginRepoIndex
+			result := s.repoValidatedLocked()
 			s.pluginRepoMu.Unlock()
-			return index, nil
+			return result, nil
 		}
 		s.pluginRepoMu.Unlock()
 	}
+	identity := s.repoCacheIdentity()
 	client, err := s.repoClient()
 	if err != nil {
-		return pluginrepo.Index{}, err
+		return pluginrepo.ValidatedIndex{}, err
 	}
 	s.pluginRepoMu.Lock()
 	generation := s.pluginRepoGen
 	s.pluginRepoMu.Unlock()
 	etag := s.setting(repoETagSetting, "")
+	publicKey := s.repoPublicKey()
 	currentKey := s.repoKeyFingerprint()
 	storedKey := s.setting(repoVerifiedKeySetting, "")
 	if storedKey != currentKey {
@@ -417,9 +606,10 @@ func (s *Server) fetchRepoIndex(force bool) (pluginrepo.Index, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.PluginRepoTimeout)
 	defer cancel()
-	index, raw, newETag, signature, notModified, err := client.Fetch(ctx, etag)
+	opts := s.repoParseOptions()
+	result, raw, newETag, signature, notModified, err := client.FetchValidated(ctx, etag, opts)
 	if err != nil {
-		return pluginrepo.Index{}, err
+		return result, err
 	}
 	if notModified {
 		rawText, ok := s.cachedRepoIndexRaw()
@@ -428,58 +618,64 @@ func (s *Server) fetchRepoIndex(force bool) (pluginrepo.Index, error) {
 		if cacheValid && currentKey != "" {
 			// 304 不携带签名，必须用当前公钥重新校验缓存字节；否则未验签的
 			// 旧缓存会被错误地标记为“已验签”。
-			cacheValid = sigOK && pluginrepo.VerifyIndexSignature(s.repoPublicKey(), []byte(rawText), cachedSig)
+			cacheValid = sigOK && pluginrepo.VerifyIndexSignature(publicKey, []byte(rawText), cachedSig)
+		}
+		if cacheValid {
+			cachedResult, parseErr := pluginrepo.ParseIndex([]byte(rawText), opts)
+			if parseErr == nil {
+				result = cachedResult
+				raw = []byte(rawText)
+				signature = cachedSig
+			} else {
+				// 缓存无法通过当前规则时不能继续使用 ETag，改为全量重取。
+				cacheValid = false
+			}
 		}
 		if !cacheValid {
-			index, raw, newETag, signature, _, err = client.Fetch(ctx, "")
+			result, raw, newETag, signature, _, err = client.FetchValidated(ctx, "", opts)
 			if err != nil {
-				return pluginrepo.Index{}, err
+				return result, err
 			}
-			rawText = string(raw)
-		} else {
-			signature = cachedSig
-			raw = []byte(rawText)
 		}
-		if err := json.Unmarshal([]byte(rawText), &index); err != nil {
-			return pluginrepo.Index{}, err
-		}
-		index.SanitizeIcons()
-		if err := index.Validate(); err != nil {
-			return pluginrepo.Index{}, err
-		}
-		raw = []byte(rawText)
 	}
 	checkedAt := time.Now().UTC()
 	verified := false
+	keyID := ""
 	if currentKey != "" {
-		// 全量拉取时 Fetch 已验签；304 分支使用缓存签名，这里统一再校验一次，
+		// 全量拉取时 FetchValidated 已验签；304 分支使用缓存签名，这里统一再校验一次，
 		// 避免任何分支仅凭“配置了公钥”就置为已验签。
-		verified = len(signature) > 0 && pluginrepo.VerifyIndexSignature(s.repoPublicKey(), raw, signature)
+		verified = len(signature) > 0
+		if verified {
+			keyID, verified = pluginrepo.VerifyIndexSignatureKeyID(publicKey, raw, signature)
+		}
 		if !verified {
-			return pluginrepo.Index{}, i18n.E("api.error.plugin_repo_signature_required")
+			return pluginrepo.ValidatedIndex{}, i18n.E("api.error.plugin_repo_signature_required")
 		}
 	}
+	result.KeyID = keyID
 	verifiedKey := ""
 	if verified {
 		verifiedKey = currentKey
 	}
 
+	// 持久化与 clearRepoIndexCache 共用一把锁：要么清理先完成、本次刷新
+	// 因代次或身份变化放弃；要么本次刷新先完成、随后清理把缓存整体删除。
+	// 这样不会出现“清理完成后旧索引又被写回”的窗口。
+	s.pluginRepoPersistMu.Lock()
+	defer s.pluginRepoPersistMu.Unlock()
 	s.pluginRepoMu.Lock()
-	if s.pluginRepoGen != generation {
+	if s.pluginRepoGen != generation || s.repoCacheIdentity() != identity {
 		s.pluginRepoMu.Unlock()
-		return pluginrepo.Index{}, i18n.E("api.error.plugin_repo_changed")
+		return pluginrepo.ValidatedIndex{}, i18n.E("api.error.plugin_repo_changed")
 	}
-	s.pluginRepoIndex = index
-	s.pluginRepoIndexRaw = raw
+	s.storeRepoValidatedLocked(result, raw, checkedAt, verified)
 	s.pluginRepoETag = newETag
-	s.pluginRepoCheckedAt = checkedAt
-	s.pluginRepoErr = ""
-	s.pluginRepoVerified = verified
 	s.pluginRepoMu.Unlock()
 
-	// 数据库写入放在锁外，避免 SQLite 短暂阻塞影响其他读缓存请求。
+	// 数据库写入在 persistMu 内完成；不持有 pluginRepoMu，避免 SQLite
+	// 短暂阻塞影响其他读缓存请求。
 	_ = s.Store.SetSetting(repoIndexSetting, string(raw))
-	_ = s.Store.SetSetting(repoIndexMACSetting, s.repoIndexMAC(string(raw)))
+	_ = s.Store.SetSetting(repoIndexMACSetting, s.repoIndexMACFor(string(raw), identity))
 	if len(signature) > 0 {
 		_ = s.Store.SetSetting(repoIndexSigSetting, base64.StdEncoding.EncodeToString(signature))
 	} else {
@@ -491,9 +687,36 @@ func (s *Server) fetchRepoIndex(force bool) (pluginrepo.Index, error) {
 		_ = s.Store.DeleteSetting(repoETagSetting)
 	}
 	_ = s.Store.SetSetting(repoCheckedSetting, checkedAt.Format(time.RFC3339))
+	if result.Revision > 0 {
+		_ = s.Store.SetSetting(repoRevisionSetting, strconv.FormatUint(result.Revision, 10))
+	}
+	if !result.GeneratedAt.IsZero() {
+		_ = s.Store.SetSetting(repoGeneratedSetting, result.GeneratedAt.UTC().Format(time.RFC3339))
+	} else {
+		_ = s.Store.DeleteSetting(repoGeneratedSetting)
+	}
 	_ = s.Store.SetSetting(repoVerifiedSetting, strconv.FormatBool(verified))
 	_ = s.Store.SetSetting(repoVerifiedKeySetting, verifiedKey)
-	return index, nil
+	if len(result.Rejected) > 0 && s.Logger != nil {
+		s.Logger.Warn("插件索引包含被隔离的条目", "count", len(result.Rejected))
+	}
+	return result, nil
+}
+
+// storeRepoValidatedLocked 写入内存索引与校验元数据，调用方需持有 pluginRepoMu。
+func (s *Server) storeRepoValidatedLocked(result pluginrepo.ValidatedIndex, raw []byte, checkedAt time.Time, verified bool) {
+	s.pluginRepoIndex = result.Index
+	s.pluginRepoIndexRaw = raw
+	s.pluginRepoCheckedAt = checkedAt
+	s.pluginRepoErr = ""
+	s.pluginRepoVerified = verified
+	s.pluginRepoRevision = result.Revision
+	s.pluginRepoIndexDigest = result.Digest
+	s.pluginRepoKeyID = result.KeyID
+	s.pluginRepoGeneratedAt = result.GeneratedAt
+	s.pluginRepoExpiresAt = result.ExpiresAt
+	s.pluginRepoIssues = append([]pluginrepo.Issue(nil), result.Issues...)
+	s.pluginRepoRejected = append([]pluginrepo.RejectedEntry(nil), result.Rejected...)
 }
 
 // setRepoError 记录最近一次索引拉取错误。
@@ -507,6 +730,9 @@ func (s *Server) setRepoError(err error) {
 }
 
 func (s *Server) clearRepoIndexCache() {
+	// 与刷新持久化串行，确保清理完成后不会被在途刷新重新写回。
+	s.pluginRepoPersistMu.Lock()
+	defer s.pluginRepoPersistMu.Unlock()
 	s.pluginRepoMu.Lock()
 	s.pluginRepoGen++
 	s.pluginRepoIndex = pluginrepo.Index{}
@@ -515,12 +741,21 @@ func (s *Server) clearRepoIndexCache() {
 	s.pluginRepoCheckedAt = time.Time{}
 	s.pluginRepoErr = ""
 	s.pluginRepoVerified = false
+	s.pluginRepoRevision = 0
+	s.pluginRepoIndexDigest = ""
+	s.pluginRepoKeyID = ""
+	s.pluginRepoGeneratedAt = time.Time{}
+	s.pluginRepoExpiresAt = time.Time{}
+	s.pluginRepoIssues = nil
+	s.pluginRepoRejected = nil
 	s.pluginRepoMu.Unlock()
 	_ = s.Store.DeleteSetting(repoIndexSetting)
 	_ = s.Store.DeleteSetting(repoIndexMACSetting)
 	_ = s.Store.DeleteSetting(repoIndexSigSetting)
 	_ = s.Store.DeleteSetting(repoETagSetting)
 	_ = s.Store.DeleteSetting(repoCheckedSetting)
+	_ = s.Store.DeleteSetting(repoRevisionSetting)
+	_ = s.Store.DeleteSetting(repoGeneratedSetting)
 	_ = s.Store.DeleteSetting(repoVerifiedSetting)
 	_ = s.Store.DeleteSetting(repoVerifiedKeySetting)
 }
@@ -569,7 +804,7 @@ func (s *Server) refreshRepoOnce() {
 	}
 	if _, err := s.loadRepoIndex(true); err != nil {
 		if s.Logger != nil {
-			s.Logger.Warn("插件仓库索引拉取失败", "error", err)
+			s.Logger.Warn("插件仓库索引拉取失败", "error", service.SafeError(err))
 		}
 		return
 	}
@@ -588,8 +823,14 @@ func (s *Server) runRepoAutoUpdate() {
 		}
 		return
 	}
-	index, err := s.loadRepoIndex(false)
+	validated, err := s.loadRepoValidated(false)
 	if err != nil {
+		return
+	}
+	if err := repoExpiredError(validated, time.Now()); err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("插件自动更新已跳过：索引已过期", "error", service.SafeError(err))
+		}
 		return
 	}
 	records, err := s.Store.ListPluginInstallations()
@@ -599,7 +840,7 @@ func (s *Server) runRepoAutoUpdate() {
 	s.pluginUploadMu.Lock()
 	defer s.pluginUploadMu.Unlock()
 	for _, record := range records {
-		plugin, found := s.findRepoPlugin(index, record.Kind, record.ID, "")
+		plugin, found := s.findRepoPlugin(validated.Index, record.Kind, record.ID, "")
 		if !found {
 			continue
 		}
@@ -610,9 +851,9 @@ func (s *Server) runRepoAutoUpdate() {
 		if !repoUpdateAvailable(plugin, asset, record) {
 			continue
 		}
-		if _, _, err := s.installRepoPlugin(record.Kind, plugin, asset); err != nil {
+		if _, _, err := s.installRepoPluginWithAudit(record.Kind, plugin, asset, validated.Audit(plugin)); err != nil {
 			if s.Logger != nil {
-				s.Logger.Warn("插件自动更新失败", "kind", record.Kind, "id", record.ID, "error", err)
+				s.Logger.Warn("插件自动更新失败", "kind", record.Kind, "id", record.ID, "error", service.SafeError(err))
 			}
 		}
 	}
@@ -620,7 +861,7 @@ func (s *Server) runRepoAutoUpdate() {
 
 // getPluginRepo 返回插件仓库配置与当前索引状态。
 func (s *Server) getPluginRepo(c *gin.Context) {
-	ok(c, s.repoStatus())
+	ok(c, s.repoStatus(c))
 }
 
 // updatePluginRepo 修改插件仓库配置。
@@ -726,7 +967,7 @@ func (s *Server) updatePluginRepo(c *gin.Context) {
 		s.clearRepoIndexCache()
 	}
 	s.Store.AddLogKey("settings", 0, "info", "log.settings.plugin_repo_updated", map[string]any{"url": redactRepoURL(s.repoURL())})
-	ok(c, s.repoStatus())
+	ok(c, s.repoStatus(c))
 }
 
 // refreshPluginRepo 强制拉取仓库索引。
@@ -739,7 +980,7 @@ func (s *Server) refreshPluginRepo(c *gin.Context) {
 		failErr(c, http.StatusBadGateway, err)
 		return
 	}
-	ok(c, s.repoStatus())
+	ok(c, s.repoStatus(c))
 }
 
 // listPluginRepoPlugins 返回仓库中的插件与安装状态。
@@ -748,11 +989,12 @@ func (s *Server) listPluginRepoPlugins(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.plugin_repo_disabled")
 		return
 	}
-	index, err := s.loadRepoIndex(false)
+	validated, err := s.loadRepoValidated(false)
 	if err != nil {
 		failErr(c, http.StatusBadGateway, err)
 		return
 	}
+	index := validated.Index
 	kindFilter := strings.ToLower(strings.TrimSpace(c.Query("kind")))
 	query := strings.ToLower(strings.TrimSpace(c.Query("q")))
 	installed := map[string]model.PluginInstallation{}
@@ -761,8 +1003,9 @@ func (s *Server) listPluginRepoPlugins(c *gin.Context) {
 			installed[item.Kind+"/"+item.ID] = item
 		}
 	}
-	out := make([]repoPluginView, 0, len(index.Plugins))
+	out := make([]repoPluginView, 0, len(index.Plugins)+len(validated.Rejected))
 	icons := index.IconMap()
+	locale := i18n.FromContext(c)
 	for _, plugin := range index.Plugins {
 		if kindFilter != "" && plugin.Kind != kindFilter {
 			continue
@@ -791,6 +1034,39 @@ func (s *Server) listPluginRepoPlugins(c *gin.Context) {
 			item.InstalledVersion = record.Version
 			item.Source = record.Source
 			item.UpdateAvailable = repoUpdateAvailable(plugin, asset, record)
+		}
+		out = append(out, item)
+	}
+	// 被隔离条目仍然展示，但明确标记不可安装，避免“插件从市场消失”让管理员无从排查。
+	for _, rejected := range validated.Rejected {
+		plugin := rejected.Plugin
+		if kindFilter != "" && plugin.Kind != kindFilter {
+			continue
+		}
+		if query != "" && !pluginMatchesQuery(plugin, query) {
+			continue
+		}
+		asset, _ := pluginrepo.SelectAsset(plugin, runtime.GOOS, runtime.GOARCH)
+		size := asset.UncompressedSize
+		if size <= 0 {
+			size = plugin.UncompressedSize
+		}
+		if size <= 0 {
+			size = asset.Size
+		}
+		item := repoPluginView{
+			Kind: plugin.Kind, ID: plugin.ID, Name: plugin.Name, Description: plugin.Description,
+			Version: plugin.Version, Protocol: plugin.Protocol, MinHost: plugin.MinHost,
+			Bundle: plugin.Bundle, ProviderCount: len(plugin.Providers),
+			Compatible: false, PlatformAvailable: false,
+			Icon: pluginMarketIcon(plugin, icons), Size: size, DownloadSize: asset.Size,
+			Invalid: true, InvalidCode: rejected.Reason.Code,
+			InvalidReason: service.SanitizeErrorText(rejected.Reason.Text(locale)),
+		}
+		if record, found := installed[plugin.Kind+"/"+plugin.ID]; found {
+			item.Installed = true
+			item.InstalledVersion = record.Version
+			item.Source = record.Source
 		}
 		out = append(out, item)
 	}
@@ -839,6 +1115,19 @@ func (s *Server) findRepoPlugin(index pluginrepo.Index, kind, id, version string
 		}
 	}
 	return pluginrepo.Plugin{}, false
+}
+
+// findRejectedRepoPlugin 返回被隔离条目的原因，用于安装接口给出可诊断的错误。
+func findRejectedRepoPlugin(validated pluginrepo.ValidatedIndex, kind, id, version string) (pluginrepo.RejectedEntry, bool) {
+	for _, rejected := range validated.Rejected {
+		if rejected.Plugin.Kind != kind || rejected.Plugin.ID != id {
+			continue
+		}
+		if version == "" || rejected.Plugin.Version == version {
+			return rejected, true
+		}
+	}
+	return pluginrepo.RejectedEntry{}, false
 }
 
 type inspectResult struct {
@@ -926,8 +1215,29 @@ func (s *Server) rescanPluginKind(kind string) []string {
 }
 
 func (s *Server) installRepoPlugin(kind string, plugin pluginrepo.Plugin, asset pluginrepo.Asset) (model.PluginInstallation, []string, error) {
+	return s.installRepoPluginWithAudit(kind, plugin, asset, s.currentRepoAudit(plugin))
+}
+
+// currentRepoAudit 从内存索引读取审计身份，供没有显式 ValidatedIndex 的调用方使用。
+func (s *Server) currentRepoAudit(plugin pluginrepo.Plugin) pluginrepo.IndexAudit {
+	s.pluginRepoMu.Lock()
+	audit := pluginrepo.IndexAudit{
+		Revision:    s.pluginRepoRevision,
+		IndexDigest: s.pluginRepoIndexDigest,
+		EntryDigest: pluginrepo.PluginDigest(plugin),
+	}
+	s.pluginRepoMu.Unlock()
+	return audit
+}
+
+func (s *Server) installRepoPluginWithAudit(kind string, plugin pluginrepo.Plugin, asset pluginrepo.Asset, audit pluginrepo.IndexAudit) (model.PluginInstallation, []string, error) {
 	if err := s.requireSignedRepoIndex(); err != nil {
 		return model.PluginInstallation{}, nil, err
+	}
+	if len(plugin.Assets) > 0 {
+		if err := repoEntryValidationError(plugin, s.repoParseOptions()); err != nil {
+			return model.PluginInstallation{}, nil, err
+		}
 	}
 	dir, enabled := s.pluginKindDir(kind)
 	if !enabled {
@@ -1011,6 +1321,7 @@ func (s *Server) installRepoPlugin(kind string, plugin pluginrepo.Plugin, asset 
 	record := model.PluginInstallation{
 		Kind: kind, ID: plugin.ID, Version: plugin.Version, Filename: filename,
 		SHA256: inspect.Digest, AssetSHA256: assetDigest, Source: "repo", RepoURL: redactRepoURL(s.repoURL()),
+		IndexRevision: audit.Revision, IndexDigest: audit.IndexDigest, EntryDigest: audit.EntryDigest,
 	}
 	if err := s.Store.UpsertPluginInstallation(record); err != nil {
 		plugininstall.Rollback(dest, backup)
@@ -1200,13 +1511,22 @@ func (s *Server) installPluginFromRepo(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.plugin_repo_disabled")
 		return
 	}
-	index, err := s.loadRepoIndex(false)
+	validated, err := s.loadRepoValidated(false)
 	if err != nil {
 		failErr(c, http.StatusBadGateway, err)
 		return
 	}
-	plugin, found := s.findRepoPlugin(index, kind, id, strings.TrimSpace(body.Version))
+	if err := repoExpiredError(validated, time.Now()); err != nil {
+		failErr(c, http.StatusBadRequest, err)
+		return
+	}
+	plugin, found := s.findRepoPlugin(validated.Index, kind, id, strings.TrimSpace(body.Version))
 	if !found {
+		if rejected, ok := findRejectedRepoPlugin(validated, kind, id, strings.TrimSpace(body.Version)); ok {
+			failErr(c, http.StatusBadRequest, i18n.E("plugin.repo.entry_invalid",
+				"plugin", kind+"/"+id, "reason", rejected.Reason.Text(i18n.FromContext(c))))
+			return
+		}
 		failKey(c, http.StatusNotFound, "api.error.plugin_repo_plugin_missing")
 		return
 	}
@@ -1221,7 +1541,7 @@ func (s *Server) installPluginFromRepo(c *gin.Context) {
 	}
 	s.pluginUploadMu.Lock()
 	defer s.pluginUploadMu.Unlock()
-	record, scanErrors, err := s.installRepoPlugin(kind, plugin, asset)
+	record, scanErrors, err := s.installRepoPluginWithAudit(kind, plugin, asset, validated.Audit(plugin))
 	if err != nil {
 		if failPluginConflict(c, err) {
 			return
@@ -1246,11 +1566,16 @@ func (s *Server) updatePluginFromRepo(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.plugin_repo_disabled")
 		return
 	}
-	index, err := s.loadRepoIndex(false)
+	validated, err := s.loadRepoValidated(false)
 	if err != nil {
 		failErr(c, http.StatusBadGateway, err)
 		return
 	}
+	if err := repoExpiredError(validated, time.Now()); err != nil {
+		failErr(c, http.StatusBadRequest, err)
+		return
+	}
+	index := validated.Index
 	records, err := s.Store.ListPluginInstallations()
 	if err != nil {
 		failErr(c, http.StatusInternalServerError, err)
@@ -1296,7 +1621,7 @@ func (s *Server) updatePluginFromRepo(c *gin.Context) {
 			})
 			continue
 		}
-		updatedRecord, scanErrors, err := s.installRepoPlugin(record.Kind, plugin, asset)
+		updatedRecord, scanErrors, err := s.installRepoPluginWithAudit(record.Kind, plugin, asset, validated.Audit(plugin))
 		item := gin.H{
 			"kind": record.Kind, "id": record.ID, "from": record.Version,
 			"to": plugin.Version, "updated": err == nil, "errors": scanErrors,
@@ -1499,11 +1824,16 @@ func (s *Server) migrateLegacyPlugins(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.plugin_repo_disabled")
 		return
 	}
-	index, err := s.loadRepoIndex(false)
+	validated, err := s.loadRepoValidated(false)
 	if err != nil {
 		failErr(c, http.StatusBadGateway, err)
 		return
 	}
+	if err := repoExpiredError(validated, time.Now()); err != nil {
+		failErr(c, http.StatusBadRequest, err)
+		return
+	}
+	index := validated.Index
 	legacyIDs := s.legacyProviderIDs(kind, legacyPath)
 	required := s.requiredLegacyIDs(kind, legacyIDs)
 	if len(required) == 0 {
@@ -1556,7 +1886,7 @@ func (s *Server) migrateLegacyPlugins(c *gin.Context) {
 		dir, _ := s.pluginKindDir(kind)
 		installed := make([]string, 0, len(items))
 		for _, item := range items {
-			if _, _, err := s.installRepoPlugin(kind, item.plugin, item.asset); err != nil {
+			if _, _, err := s.installRepoPluginWithAudit(kind, item.plugin, item.asset, validated.Audit(item.plugin)); err != nil {
 				for _, id := range installed {
 					record, found, _ := s.Store.GetPluginInstallation(kind, id)
 					if found {
@@ -1631,7 +1961,7 @@ func (s *Server) migrateLegacyPlugins(c *gin.Context) {
 			failErr(c, http.StatusBadRequest, fmt.Errorf("插件 %s/%s 当前平台或宿主版本不兼容", kind, id))
 			return
 		}
-		if _, _, err := s.installRepoPlugin(kind, plugin, asset); err != nil {
+		if _, _, err := s.installRepoPluginWithAudit(kind, plugin, asset, validated.Audit(plugin)); err != nil {
 			rollback()
 			if failPluginConflict(c, err) {
 				return
