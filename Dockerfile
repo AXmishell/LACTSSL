@@ -20,13 +20,20 @@ COPY --from=web /app/web/dist ./internal/webui/dist
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
+# 官方构建传入 32 字节原始公钥（base64）后，镜像内置在线升级验签公钥；
+# 自编译留空即可，由管理员在 config.yaml 中显式配置。
+ARG PROGRAM_PUBLIC_KEY=
 RUN set -eu; \
     build_version="${VERSION:-dev}"; \
     build_os="${TARGETOS:-linux}"; \
     build_arch="${TARGETARCH:-$(go env GOARCH)}"; \
     build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+    ldflags="-s -w -X 'lactssl/internal/api.Version=$build_version' -X 'lactssl/internal/api.BuildTime=$build_time' -X 'lactssl/internal/api.BuildArch=$build_os/$build_arch'"; \
+    if [ -n "${PROGRAM_PUBLIC_KEY:-}" ]; then \
+      ldflags="$ldflags -X 'lactssl/internal/config.OfficialProgramPublicKey=${PROGRAM_PUBLIC_KEY}'"; \
+    fi; \
     CGO_ENABLED=0 GOOS="$build_os" GOARCH="$build_arch" go build -trimpath -tags "embed" \
-      -ldflags "-s -w -X 'lactssl/internal/api.Version=$build_version' -X 'lactssl/internal/api.BuildTime=$build_time' -X 'lactssl/internal/api.BuildArch=$build_os/$build_arch'" \
+      -ldflags "$ldflags" \
       -o /lactssl ./cmd/server
 
 # 运行阶段

@@ -160,6 +160,24 @@ fi
 rm -rf "$STAGE_ROOT"
 mkdir -p "$DIST" "$STAGE_ROOT"
 
+# 官方发布构建从签名私钥派生并嵌入 Ed25519 公钥，使在线升级开箱即用。
+# 未配置签名私钥时保持空值，仍由管理员在 config.yaml 显式配置。
+# 放在构建/镜像之前统一计算，--docker-only 时也能正确注入。
+program_public_key="${LACTSSL_PROGRAM_PUBLIC_KEY:-}"
+if [ -z "$program_public_key" ] && [ -n "${ED25519_PRIVATE_KEY_B64:-}" ]; then
+  if command -v openssl >/dev/null 2>&1; then
+    program_public_key="$(printf '%s' "$ED25519_PRIVATE_KEY_B64" | openssl base64 -d -A 2>/dev/null \
+      | openssl pkey -inform DER -pubout -outform DER 2>/dev/null \
+      | tail -c 32 | openssl base64 -A 2>/dev/null || true)"
+  fi
+  if [ -z "$program_public_key" ]; then
+    warn "无法从 ED25519_PRIVATE_KEY_B64 派生发布公钥；在线升级仍要求手动配置 upgrade.program.public_key"
+  fi
+fi
+if [ -n "$program_public_key" ]; then
+  step "release: 嵌入官方发布公钥 ${program_public_key:0:8}…"
+fi
+
 # ---------- web: 前端构建 ----------
 if [ "$RUN_WEB" -eq 1 ]; then
   require node
@@ -221,23 +239,6 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   step "build: 准备嵌入用的前端资源 (internal/webui/dist)"
   rm -rf internal/webui/dist
   cp -a web/dist internal/webui/dist
-
-  # 官方发布构建从签名私钥派生并嵌入 Ed25519 公钥，使在线升级开箱即用。
-  # 未配置签名私钥时保持空值，仍由管理员在 config.yaml 显式配置。
-  program_public_key="${LACTSSL_PROGRAM_PUBLIC_KEY:-}"
-  if [ -z "$program_public_key" ] && [ -n "${ED25519_PRIVATE_KEY_B64:-}" ]; then
-    if command -v openssl >/dev/null 2>&1; then
-      program_public_key="$(printf '%s' "$ED25519_PRIVATE_KEY_B64" | openssl base64 -d -A 2>/dev/null \
-        | openssl pkey -inform DER -pubout -outform DER 2>/dev/null \
-        | tail -c 32 | openssl base64 -A 2>/dev/null || true)"
-    fi
-    if [ -z "$program_public_key" ]; then
-      warn "无法从 ED25519_PRIVATE_KEY_B64 派生发布公钥；在线升级仍要求手动配置 upgrade.program.public_key"
-    fi
-  fi
-  if [ -n "$program_public_key" ]; then
-    step "build: 嵌入官方发布公钥 ${program_public_key:0:8}…"
-  fi
 
   for target in "${TARGETS[@]}"; do
     read -r goos goarch <<<"$target"
@@ -337,6 +338,7 @@ if [ "$RUN_DOCKER" -eq 1 ]; then
       docker buildx build \
         --platform linux/amd64,linux/arm64 \
         --build-arg "VERSION=${version}" \
+        --build-arg "PROGRAM_PUBLIC_KEY=${program_public_key}" \
         "${proxy_args[@]}" \
         "${tag_args[@]}" \
         --output "type=oci,dest=${DIST}/lactssl_${version}_image.tar" \
@@ -379,6 +381,7 @@ PY
       step "docker: 本地单架构构建（不推送；加 --multiarch 可验证双架构）"
       docker build \
         --build-arg "VERSION=${version}" \
+        --build-arg "PROGRAM_PUBLIC_KEY=${program_public_key}" \
         "${proxy_args[@]}" \
         "${tag_args[@]}" \
         .

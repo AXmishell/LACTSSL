@@ -307,6 +307,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Derive embedded release public key
+        id: release-key
+        env:
+          ED25519_PRIVATE_KEY_B64: ${{ secrets.ED25519_PRIVATE_KEY_B64 }}
+          LACTSSL_PROGRAM_PUBLIC_KEY: ${{ vars.LACTSSL_PROGRAM_PUBLIC_KEY }}
+        run: |
+          key="${LACTSSL_PROGRAM_PUBLIC_KEY:-}"
+          if [ -z "$key" ] && [ -n "$ED25519_PRIVATE_KEY_B64" ]; then
+            printf '%s' "$ED25519_PRIVATE_KEY_B64" | openssl base64 -d -A > "$RUNNER_TEMP/release-key.der"
+            key="$(openssl pkey -inform DER -in "$RUNNER_TEMP/release-key.der" -pubout -outform DER \
+              | tail -c 32 | openssl base64 -A)"
+          fi
+          if [ -z "$key" ]; then
+            echo "::warning::未配置 ED25519_PRIVATE_KEY_B64 或 LACTSSL_PROGRAM_PUBLIC_KEY，容器镜像不会内置发布公钥"
+          fi
+          echo "value=$key" >> "$GITHUB_OUTPUT"
+
       - name: Extract image metadata
         id: image-meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
@@ -330,6 +347,7 @@ jobs:
           labels: ${{ steps.image-meta.outputs.labels }}
           build-args: |
             VERSION=${{ needs.meta.outputs.version }}
+            PROGRAM_PUBLIC_KEY=${{ steps.release-key.outputs.value }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=lactssl
