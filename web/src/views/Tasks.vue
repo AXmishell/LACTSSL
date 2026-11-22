@@ -381,11 +381,6 @@
                   :model-value="selectedNode.config.deploy_config || {}"
                   @update:model-value="selectedNode.config.deploy_config = $event"
                 />
-                <ReauthFields
-                  v-model:password="nodeVerifyReauth.password"
-                  v-model:totp="nodeVerifyReauth.totp"
-                  :totp-enabled="!!currentUser?.totp_enabled"
-                />
                 <div class="flex gap-10 wrap" style="margin-bottom: 12px">
                   <el-button
                     size="small"
@@ -640,10 +635,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Close, Delete, Plus, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
-import { loadMeta, loadSettings, state } from '../store'
+import { loadMeta, loadSettings } from '../store'
 import { enabledNotifyChannels } from '../notifyChannels'
 import DeployConfigFields from '../components/DeployConfigFields.vue'
-import ReauthFields from '../components/ReauthFields.vue'
 import TargetFlowEditor from '../components/TargetFlowEditor.vue'
 import {
   buildCreateDefaults,
@@ -743,8 +737,6 @@ const itemShifts = ref<Record<string, number>>({})
 const settling = ref(false)
 const verifyingNode = ref(false)
 const nodeVerifyResult = ref<VerifyResult | null>(null)
-const nodeVerifyReauth = reactive({ password: '', totp: '' })
-const currentUser = computed(() => state.user)
 
 const logVisible = ref(false)
 const logLoading = ref(false)
@@ -1072,20 +1064,6 @@ function onDeployAccountChange(): void {
 
 function resetNodeVerify(): void {
   nodeVerifyResult.value = null
-  nodeVerifyReauth.password = ''
-  nodeVerifyReauth.totp = ''
-}
-
-function validNodeReauth(): boolean {
-  if (!nodeVerifyReauth.password) {
-    ElMessage.warning(t('settings.reauthPasswordRequired'))
-    return false
-  }
-  if (currentUser.value?.totp_enabled && !/^\d{6}$/.test(nodeVerifyReauth.totp.trim())) {
-    ElMessage.warning(t('settings.reauthTotpRequired'))
-    return false
-  }
-  return true
 }
 
 // 验证具体部署节点：把 account_id 与该节点的 deploy_config 一起提交，
@@ -1097,20 +1075,15 @@ async function verifySelectedNode(): Promise<void> {
     ElMessage.warning(t('tasks.verifyTargetRequired'))
     return
   }
-  if (!validNodeReauth()) return
   verifyingNode.value = true
   nodeVerifyResult.value = null
   try {
     const data = await api.post<VerifyResult>(`/deploy-accounts/${accountID}/verify`, {
       deploy_config: node.config.deploy_config || {},
-      mode: 'auto',
-      password: nodeVerifyReauth.password,
-      totp: nodeVerifyReauth.totp
+      mode: 'auto'
     })
     if (data === null) return
     nodeVerifyResult.value = data
-    nodeVerifyReauth.password = ''
-    nodeVerifyReauth.totp = ''
     if (data.ok) ElMessage.success(t('tasks.verifyPassed'))
     else ElMessage.warning(data.message || t('tasks.verifyFailed'))
   } catch (error: any) {
