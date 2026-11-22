@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
 	"strconv"
 	"strings"
@@ -32,16 +31,12 @@ type Manager struct {
 	signKey []byte // 由 secret 派生的 JWT 专用签名密钥
 }
 
-// MinTokenLength 是安全基线要求的会话、CSRF 等令牌值最小长度。
-// 部分安全基线要求会话标识长度达到 512，这里用随机填充或扩展摘要补足。
-const MinTokenLength = 512
-
 // Claims 是 JWT 载荷，带版本号以便改密后使旧令牌失效。
 type Claims struct {
 	UserID  int64 `json:"uid"`
 	Version int   `json:"ver"`
-	// Pad 是随机填充，只用于把会话 Cookie 补足到安全基线要求的长度。
-	// 它参与签名，但校验时不读取，也不影响任何业务语义。
+	// Pad 仅为兼容旧版本令牌保留。新令牌不再填充；会话 ID 本身已由
+	// 24 字节随机数构成，额外补长只会增大 Cookie，不增加熵。
 	Pad string `json:"pad,omitempty"`
 	jwt.RegisteredClaims
 }
@@ -123,60 +118,13 @@ func (m *Manager) IssueSession(user *model.User) (string, time.Time, string, err
 			Issuer:    "LACTSSL",
 		},
 	}
-	signed, err := m.signSessionToken(claims)
-	return signed, expire, sessionID, err
-}
-
-// signSessionToken 签发令牌，并把最终长度补足到 MinTokenLength。
-//
-// JWT 长度取决于载荷字节数：header 与 signature 段长度固定，payload 每增加
-// 3 字节 base64url 就增加 4 个字符。因此先按真实载荷签发一次，再算出还差
-// 多少字节，用一个随机 pad 字段精确补到下限，避免显著超出目标长度。
-func (m *Manager) signSessionToken(claims Claims) (string, error) {
-	claims.Pad = ""
 	signed, err := m.signClaims(claims)
-	if err != nil || len(signed) >= MinTokenLength {
-		return signed, err
-	}
-	parts := strings.Split(signed, ".")
-	if len(parts) != 3 {
-		return signed, nil
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return signed, nil
-	}
-	// 固定的两段（header、signature）加上两个分隔点，剩余空间全部留给 payload。
-	fixed := len(parts[0]) + len(parts[2]) + 2
-	blocks := (MinTokenLength - fixed + 3) / 4
-	target := 3 * blocks // 3 的整数倍字节恰好编码为 blocks*4 个 base64url 字符（无填充）
-	padLen := target - len(payload) - len(`,"pad":""`)
-	if padLen <= 0 {
-		return signed, nil
-	}
-	pad, err := randomHex(padLen)
-	if err != nil {
-		return "", err
-	}
-	claims.Pad = pad
-	return m.signClaims(claims)
+	return signed, expire, sessionID, err
 }
 
 // signClaims 使用 HMAC-SHA256 对载荷签名。
 func (m *Manager) signClaims(claims Claims) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.signKey)
-}
-
-// randomHex 返回 n 个字符的随机十六进制串，用于会话令牌填充。
-func randomHex(n int) (string, error) {
-	if n <= 0 {
-		return "", nil
-	}
-	buf := make([]byte, (n+1)/2)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(buf)[:n], nil
 }
 
 // newSessionID 生成不可预测的会话标识。
@@ -278,15 +226,47 @@ func GenerateTOTP(email string) (string, string, error) {
 
 // TOTP 验证码在有效窗口内只允许使用一次，避免被重放。
 var (
-	totpReplay      sync.Map // "secret|code" -> 过期 Unix 秒
+	totpReplay      sync.Map // "purpose|secret|code" -> 过期 Unix 秒
 	totpReplaySweep atomic.Int64
 )
 
+// TOTPPurpose 区分验证码的使用场景。登录、再认证和启用确认各自独立消费，
+// 避免同一时间窗口内的一次登录把随后敏感操作的再认证额度一起用掉。
+type TOTPPurpose string
+
+const (
+	TOTPPurposeLogin  TOTPPurpose = "login"
+	TOTPPurposeReauth TOTPPurpose = "reauth"
+	TOTPPurposeEnroll TOTPPurpose = "totp-enroll"
+)
+
+// TOTPResult 区分验证码错误与已被同一用途消费。
+type TOTPResult int
+
+const (
+	// TOTPInvalid 表示验证码错误或已过期。
+	TOTPInvalid TOTPResult = iota
+	// TOTPValid 表示验证码有效且已成功消费。
+	TOTPValid
+	// TOTPReplayed 表示验证码本身有效，但在同一用途内已被使用。
+	TOTPReplayed
+)
+
 // ValidateTOTP 校验动态验证码，允许前后各一个时间窗口，并拒绝窗口内重复使用。
+// 保留该入口用于旧调用方，语义等同 reauth 用途。
 func ValidateTOTP(secret, code string) bool {
+	return ValidateTOTPPurpose(secret, code, TOTPPurposeReauth) == TOTPValid
+}
+
+// ValidateTOTPPurpose 在指定用途内校验并消费动态验证码。
+// 不同用途使用独立的防重放命名空间；同一用途内仍然严格一次性。
+func ValidateTOTPPurpose(secret, code string, purpose TOTPPurpose) TOTPResult {
 	code = strings.TrimSpace(code)
 	if secret == "" || code == "" {
-		return false
+		return TOTPInvalid
+	}
+	if purpose == "" {
+		purpose = TOTPPurposeReauth
 	}
 	ok, err := totp.ValidateCustom(code, secret, time.Now().UTC(), totp.ValidateOpts{
 		Period:    30,
@@ -295,24 +275,24 @@ func ValidateTOTP(secret, code string) bool {
 		Algorithm: otp.AlgorithmSHA1,
 	})
 	if err != nil || !ok {
-		return false
+		return TOTPInvalid
 	}
 	now := time.Now()
-	key := secret + "|" + code
+	key := string(purpose) + "|" + secret + "|" + code
 	expires := now.Add(2 * time.Minute).Unix()
 	// LoadOrStore 原子抢占验证码。仅靠 Load + Store 会让并发请求同时通过，
 	// 使同一个 TOTP 验证码被使用多次。
 	if value, loaded := totpReplay.LoadOrStore(key, expires); loaded {
 		if old, valid := value.(int64); valid && old > now.Unix() {
-			return false
+			return TOTPReplayed
 		}
 		// 过期条目：用 CompareAndSwap 抢占，避免多个请求同时覆盖后都成功。
 		if !totpReplay.CompareAndSwap(key, value, expires) {
-			return false
+			return TOTPReplayed
 		}
 	}
 	sweepTOTPReplay(now)
-	return true
+	return TOTPValid
 }
 
 // sweepTOTPReplay 定期清理过期条目，避免长期运行后内存增长。

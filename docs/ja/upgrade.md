@@ -96,9 +96,9 @@ sudo journalctl -u lactssl -f
 
 - **アップデートを確認**: `upgrade.program.channel` に従って Release を照会します。`stable` は正式版のみを受け入れ、`beta` はプレリリースを含みます。
 - **アップデートをインストール**: `lactssl_<version>_<os>_<arch>.tar.gz`（Windows は `.zip`）をダウンロードし、`checksums.txt` を使って SHA-256 を強制検証してから、`lactssl` を展開して現在の実行ファイルを置き換えます。
-- **リリース署名**: `upgrade.program.public_key` を設定すると、`checksums.txt.sig` の検証が必須になります。署名の欠落や不一致は即座に拒否されます。**公開鍵が未設定の場合、オンラインアップグレードは既定で拒否されます。** 未署名パッケージをインストールするには、管理された環境で `upgrade.program.allow_unsigned: true` を明示的に設定する必要があります。
+- **リリース署名**: 公式ビルドはリリース公開鍵を自動的に埋め込み、既定で `checksums.txt.sig` の検証を必須にします。署名の欠落や不一致は即座に拒否されます。自前ビルドで `upgrade.program.public_key` が未設定の場合、オンラインアップグレードは既定で拒否されます。未署名パッケージをインストールするには、管理された環境で `upgrade.program.allow_unsigned: true` を明示的に設定する必要があります。
 - **バックアップとロールバック**: 置き換え前に旧バイナリを `<data_dir>/upgrade-backups/program/` へコピーし、既定で直近 3 件を保持します。
-- **再起動で反映**: インストール完了後、ページに再起動の案内が表示されます。既定の再起動ではセッションがクリアされます。`security.session_persistence` を有効にすると、元のセッションを引き続き使用できます。
+- **再起動で反映**: インストール完了後、ページに再起動の案内が表示されます。既定ではセッション保持が有効なため、元のセッションを引き続き使用できます。`security.session_persistence: false` にすると再起動時にセッションがクリアされます。
 
 制限:
 
@@ -265,7 +265,7 @@ upgrade:
     check_interval_hours: 6
     max_download_mb: 128
     public_key: ""
-    # public_key が未設定の場合、オンラインアップグレードは既定で拒否。管理された環境のみ未署名パッケージを明示的に許可可能
+    # 公式ビルドは公開鍵を自動的に埋め込みます。自前ビルドで未設定の場合、オンラインアップグレードは既定で拒否。管理された環境のみ未署名パッケージを明示的に許可可能
     allow_unsigned: false
     token: ""
 ```

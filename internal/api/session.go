@@ -83,7 +83,7 @@ func (s *Server) setSessionCookie(c *gin.Context, token string, expire time.Time
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Expires:  expire,
 		MaxAge:   int(time.Until(expire).Seconds()),
 	})
@@ -98,7 +98,7 @@ func (s *Server) expireLegacyCookie(c *gin.Context, base string, httpOnly bool) 
 		Value:    "",
 		Path:     "/",
 		HttpOnly: httpOnly,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
@@ -126,7 +126,7 @@ func (s *Server) clearSessionCookie(c *gin.Context) {
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   s.sessionCookieSecure(c),
-			SameSite: http.SameSiteStrictMode,
+			SameSite: http.SameSiteLaxMode,
 			Expires:  time.Unix(0, 0),
 			MaxAge:   -1,
 		})
@@ -146,7 +146,7 @@ func (s *Server) setCSRFCookie(c *gin.Context, token string, expire time.Time) {
 		Path:     "/",
 		HttpOnly: false,
 		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Expires:  expire,
 		MaxAge:   int(time.Until(expire).Seconds()),
 	})
@@ -174,7 +174,7 @@ func (s *Server) ensureDeviceCookie(c *gin.Context) string {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.sessionCookieSecure(c),
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(deviceCookieTTL),
 		MaxAge:   int(deviceCookieTTL.Seconds()),
 	})
@@ -190,7 +190,7 @@ func (s *Server) clearCSRFCookie(c *gin.Context) {
 			Value:    "",
 			Path:     "/",
 			Secure:   s.sessionCookieSecure(c),
-			SameSite: http.SameSiteStrictMode,
+			SameSite: http.SameSiteLaxMode,
 			Expires:  time.Unix(0, 0),
 			MaxAge:   -1,
 		})
@@ -227,7 +227,7 @@ func (s *Server) setEntryCookie(c *gin.Context) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.sessionCookieSecure(c),
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Expires:  expires,
 		MaxAge:   int(entryCookieTTL.Seconds()),
 	})

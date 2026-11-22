@@ -288,11 +288,24 @@ security:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.SessionPersistence {
-		t.Fatal("会话保持应默认关闭")
+	if !cfg.SessionPersistence {
+		t.Fatal("会话保持应默认开启")
 	}
 
-	content += "  session_persistence: true\n"
+	// 显式关闭仍然生效。
+	content += "  session_persistence: false\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SessionPersistence {
+		t.Fatal("YAML 中显式关闭会话保持未生效")
+	}
+
+	content = strings.Replace(content, "  session_persistence: false\n", "  session_persistence: true\n", 1)
 	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -724,5 +737,15 @@ security:
 	}
 	if strings.Contains(text, `jwt_secret: ""`) || strings.Contains(text, `salt: ""`) {
 		t.Fatalf("密钥未写入:\n%s", text)
+	}
+}
+
+func TestDefaultsEmbedOfficialProgramPublicKey(t *testing.T) {
+	old := OfficialProgramPublicKey
+	OfficialProgramPublicKey = "official-release-key"
+	defer func() { OfficialProgramPublicKey = old }()
+
+	if got := defaults().Upgrade.Program.PublicKey; got != "official-release-key" {
+		t.Fatalf("官方发布公钥未注入默认配置: %q", got)
 	}
 }

@@ -137,8 +137,6 @@ var apiKeyScopeDefs = []apiKeyScopeDef{
 	{apiScopeSettingsRead, "settings", "api.scope.settings_read.label", "api.scope.settings_read.desc", false},
 	{apiScopeSettingsWrite, "settings", "api.scope.settings_write.label", "api.scope.settings_write.desc", true},
 	{apiScopeBackupRead, "backup", "api.scope.backup_read.label", "api.scope.backup_read.desc", false},
-	{apiScopeBackupDownload, "backup", "api.scope.backup_download.label", "api.scope.backup_download.desc", true},
-	{apiScopeBackupRestore, "backup", "api.scope.backup_restore.label", "api.scope.backup_restore.desc", true},
 	{apiScopeUpgradeRead, "upgrade", "api.scope.upgrade_read.label", "api.scope.upgrade_read.desc", false},
 	{apiScopeUpgradeWrite, "upgrade", "api.scope.upgrade_write.label", "api.scope.upgrade_write.desc", true},
 	{apiScopeSecurityWrite, "security", "api.scope.security_write.label", "api.scope.security_write.desc", true},
@@ -154,6 +152,14 @@ var apiKeyScopeValues = func() map[string]bool {
 	return out
 }()
 
+// deprecatedAPIKeyScopeValues 保留给历史密钥：这些能力现在只允许浏览器
+// 会话调用，新建密钥不再提供，但旧密钥更新时仍能原样保留，避免升级后
+// 直接因未知 scope 拒绝保存。
+var deprecatedAPIKeyScopeValues = map[string]bool{
+	apiScopeBackupDownload: true,
+	apiScopeBackupRestore:  true,
+}
+
 // apiKeyRoutePolicy 描述一个受保护接口对 API 密钥的开放策略。
 // Scope 为空表示该接口只能通过浏览器登录会话调用。
 type apiKeyRoutePolicy struct {
@@ -164,6 +170,7 @@ type apiKeyRoutePolicy struct {
 // 新增受保护路由时必须同时补充此表，TestAPIKeyPoliciesCoverAllRoutes 会强制校验。
 var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"GET /api/auth/me":                        {apiScopeProfileRead},
+	"POST /api/auth/reauth":                   {},
 	"POST /api/auth/change-password":          {},
 	"POST /api/auth/change-email":             {},
 	"POST /api/auth/totp/setup":               {},
@@ -223,8 +230,8 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 
 	"GET /api/trusted-cas":         {apiScopeSettingsRead},
 	"GET /api/trusted-cas/bundle":  {apiScopeSettingsRead},
-	"POST /api/trusted-cas/import": {apiScopeSettingsWrite},
-	"DELETE /api/trusted-cas/:id":  {apiScopeSettingsWrite},
+	"POST /api/trusted-cas/import": {apiScopeSecurityWrite},
+	"DELETE /api/trusted-cas/:id":  {apiScopeSecurityWrite},
 
 	"GET /api/acme-endpoints":                    {apiScopeCARead},
 	"POST /api/acme-endpoints":                   {apiScopeCAWrite},
@@ -318,17 +325,17 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	// 不能由只读 scope 触发。
 	"POST /api/upgrade/database/test":                {apiScopeUpgradeWrite},
 	"POST /api/upgrade/database/preflight":           {apiScopeUpgradeWrite},
-	"POST /api/upgrade/database/convert":             {apiScopeUpgradeWrite},
+	"POST /api/upgrade/database/convert":             {},
 	"GET /api/upgrade/database/convert":              {apiScopeUpgradeRead},
 	"POST /api/upgrade/database/convert/cancel":      {apiScopeUpgradeWrite},
-	"POST /api/upgrade/database/rollback":            {apiScopeUpgradeWrite},
+	"POST /api/upgrade/database/rollback":            {},
 	"GET /api/upgrade/program":                       {apiScopeUpgradeRead},
 	"POST /api/upgrade/program/check":                {apiScopeUpgradeRead},
 	"POST /api/upgrade/program/apply":                {apiScopeUpgradeWrite},
 	"POST /api/upgrade/program/restart":              {apiScopeUpgradeWrite},
 	"GET /api/settings/backup":                       {apiScopeBackupRead},
-	"POST /api/settings/backup/download":             {apiScopeBackupDownload},
-	"POST /api/settings/backup/restore":              {apiScopeBackupRestore},
+	"POST /api/settings/backup/download":             {},
+	"POST /api/settings/backup/restore":              {},
 	"GET /api/settings/config":                       {apiScopeSettingsRead},
 	"PUT /api/settings/config":                       {},
 	"GET /api/settings/config/proxy-hints":           {apiScopeSettingsRead},
@@ -338,11 +345,11 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"POST /api/settings/config/backups/:id/restore":  {},
 	"DELETE /api/settings/config/backups/:id":        {},
 	"POST /api/settings/config/restart":              {},
-	"POST /api/settings/test-mail":                   {apiScopeSettingsWrite},
-	"POST /api/settings/test-channel":                {apiScopeSettingsWrite},
-	"POST /api/settings/test-security-notify":        {apiScopeSettingsWrite},
+	"POST /api/settings/test-mail":                   {},
+	"POST /api/settings/test-channel":                {},
+	"POST /api/settings/test-security-notify":        {},
 	"GET /api/security/events":                       {},
-	"POST /api/security/entry":                       {apiScopeSecurityWrite},
+	"POST /api/security/entry":                       {},
 
 	"GET /api/api-keys":             {apiScopeAPIKeysRead},
 	"GET /api/api-keys/scopes":      {apiScopeAPIKeysRead},
@@ -898,6 +905,10 @@ func (s *Server) createAPIKey(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.api_key_scopes_required")
 		return
 	}
+	if scope := newDeprecatedScope(scopes, nil); scope != "" {
+		failKey(c, http.StatusBadRequest, "api.error.api_key_scope_invalid", "scope", scope)
+		return
+	}
 	if !s.allowAPIKeyScopeAssignment(c, scopes) {
 		return
 	}
@@ -1017,6 +1028,10 @@ func (s *Server) updateAPIKey(c *gin.Context) {
 	}
 	if len(scopes) == 0 {
 		failKey(c, http.StatusBadRequest, "api.error.api_key_scopes_required")
+		return
+	}
+	if scope := newDeprecatedScope(scopes, current.Scopes); scope != "" {
+		failKey(c, http.StatusBadRequest, "api.error.api_key_scope_invalid", "scope", scope)
 		return
 	}
 	if !s.allowAPIKeyScopeAssignment(c, scopes) {
@@ -1233,13 +1248,28 @@ func normalizeAPIKeyScopes(input []string) ([]string, error) {
 		if scope == "" || seen[scope] {
 			continue
 		}
-		if !apiKeyScopeValues[scope] {
+		if !apiKeyScopeValues[scope] && !deprecatedAPIKeyScopeValues[scope] {
 			return nil, i18n.E("api.error.api_key_scope_invalid", "scope", scope)
 		}
 		seen[scope] = true
 		out = append(out, scope)
 	}
 	return out, nil
+}
+
+// newDeprecatedScope 返回本次新增的已废弃 scope；existing 中的历史 scope
+// 允许保留，但不能再授予新密钥或给已有密钥追加。
+func newDeprecatedScope(scopes, existing []string) string {
+	kept := make(map[string]bool, len(existing))
+	for _, scope := range existing {
+		kept[scope] = true
+	}
+	for _, scope := range scopes {
+		if deprecatedAPIKeyScopeValues[scope] && !kept[scope] {
+			return scope
+		}
+	}
+	return ""
 }
 
 func parseAPIKeyExpiry(value string, requireFuture bool) (*time.Time, error) {

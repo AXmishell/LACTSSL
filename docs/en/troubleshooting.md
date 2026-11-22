@@ -73,7 +73,7 @@ After changing the entry, previous links stop working immediately. Record the ne
 
 **Possible causes**:
 
-- The service restarted and `security.session_persistence` is not enabled.
+- The service restarted and `security.session_persistence` was explicitly disabled.
 - The password was changed, which deletes all sessions.
 - The service was started with a different `jwt_secret`.
 - The reverse proxy does not pass `X-Forwarded-Proto`, causing incorrect `Secure` cookies.
@@ -84,7 +84,7 @@ After changing the entry, previous links stop working immediately. Record the ne
 1. Confirm whether the service was just restarted or the password was changed.
 2. Check the proxy headers and `trusted_proxies`.
 3. Clear browser cookies and enter again through the secure entry.
-4. If sessions must survive restarts, evaluate and set `security.session_persistence: true`.
+4. Session persistence is enabled by default; if it was set to `security.session_persistence: false`, change it back to `true` to keep sessions across restarts.
 
 ### 2.4 Cookie issues and inaccurate rate limiting
 
@@ -291,7 +291,7 @@ Plugin subprocesses read `<data_dir>/trusted-ca-bundle.pem` through `SSL_CERT_FI
 ### 7.3 Cannot sign in after restore
 
 - Use the administrator account from the backup.
-- By default, a restart clears sessions, so signing in again is required.
+- Session persistence is enabled by default, so a restart does not require signing in again. With `security.session_persistence: false`, a restart clears sessions.
 - The secure entry may have changed; check the startup log.
 - A different `jwt_secret` invalidates old tokens.
 - The restore package is in `data/restore-pending/`; check whether it has been applied.

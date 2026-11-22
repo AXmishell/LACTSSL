@@ -1196,6 +1196,7 @@ export interface ApiError extends Error {
   status?: number
   totpRequired?: boolean
   passkeyRequired?: boolean
+  reauthRequired?: boolean
 }
 
 export interface ACMEEndpoint {

@@ -217,7 +217,16 @@ func TestRestoreBackupRequiresAccountReauth(t *testing.T) {
 		t.Fatalf("下载备份失败: %d %s", download.Code, download.Body.String())
 	}
 
-	wrong := multipartBackupRequest(t, router, "/api/settings/backup/restore", session,
+	// 下载成功会建立 5 分钟会话级再认证有效期；恢复测试必须使用一个
+	// 未提权的新登录会话，才能验证错误密码仍会被拒绝。
+	login := sessionRequest(t, router, http.MethodPost, "/api/auth/login",
+		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("重新登录失败: %d %s", login.Code, login.Body.String())
+	}
+	freshSession := findCookie(t, login.Result().Cookies(), sessionCookieName)
+
+	wrong := multipartBackupRequest(t, router, "/api/settings/backup/restore", freshSession,
 		download.Body.Bytes(), "backup-secret", "wrong-password")
 	if wrong.Code != http.StatusBadRequest || !strings.Contains(wrong.Body.String(), "api.error.current_password_wrong") {
 		t.Fatalf("错误账户密码应拒绝恢复备份: %d %s", wrong.Code, wrong.Body.String())

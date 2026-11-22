@@ -273,7 +273,15 @@ func commandEnv() []string {
 		"CURL_CA_BUNDLE": true, "REQUESTS_CA_BUNDLE": true,
 		"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
 		"http_proxy": true, "https_proxy": true, "no_proxy": true,
-		"KUBECONFIG": true, "DOCKER_HOST": true, "XDG_RUNTIME_DIR": true,
+		// 常见构建/运行工具链与云平台“选择配置/区域”的非密钥变量。
+		// 明确不继承 AWS_SECRET_ACCESS_KEY、ALICLOUD_SECRET_KEY 等凭据。
+		"KUBECONFIG": true, "DOCKER_HOST": true, "DOCKER_CONFIG": true,
+		"XDG_RUNTIME_DIR": true, "XDG_CONFIG_HOME": true, "XDG_CACHE_HOME": true, "XDG_DATA_HOME": true,
+		"AWS_PROFILE": true, "AWS_REGION": true, "AWS_DEFAULT_REGION": true, "AWS_CONFIG_FILE": true,
+		"AZURE_CONFIG_DIR": true, "GOOGLE_APPLICATION_CREDENTIALS": true,
+		"JAVA_HOME": true, "NODE_PATH": true, "NVM_DIR": true, "NVM_BIN": true,
+		"GOPATH": true, "GOROOT": true, "CARGO_HOME": true, "RUSTUP_HOME": true,
+		"VIRTUAL_ENV": true, "CONDA_PREFIX": true, "PYTHONPATH": true,
 	}
 	var env []string
 	for _, item := range os.Environ() {

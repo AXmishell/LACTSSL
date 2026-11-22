@@ -258,7 +258,7 @@ func (s *Server) startDatabaseConvert(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.db_convert_confirm")
 		return
 	}
-	if !s.requireReauth(c, user, body.AccountPassword, strings.TrimSpace(body.TOTP)) {
+	if !s.requireSessionReauth(c, user, body.AccountPassword, strings.TrimSpace(body.TOTP)) {
 		return
 	}
 	if strings.TrimSpace(body.TargetDriver) == "" {
@@ -331,7 +331,7 @@ func (s *Server) rollbackDatabaseConvert(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.db_convert_rollback_confirm")
 		return
 	}
-	if !s.requireReauth(c, user, body.AccountPassword, strings.TrimSpace(body.TOTP)) {
+	if !s.requireSessionReauth(c, user, body.AccountPassword, strings.TrimSpace(body.TOTP)) {
 		return
 	}
 	s.Store.AddLogKey("system", 0, "warning", "log.system.database_convert_started", map[string]any{

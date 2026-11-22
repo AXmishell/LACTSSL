@@ -95,16 +95,19 @@ func (k *APIKey) AllowsDNSAccount(id int64) bool {
 // Session 是一次登录对应的服务端会话记录。
 // ID 与 JWT 的 jti 对应，撤销后该令牌立即失效。
 type Session struct {
-	ID         string     `json:"id"`
-	UserID     int64      `json:"-"`
-	IP         string     `json:"ip"`
-	UserAgent  string     `json:"user_agent"`
-	StrongAuth bool       `json:"-"`
-	CreatedAt  time.Time  `json:"created_at"`
-	LastSeenAt time.Time  `json:"last_seen_at"`
-	ExpiresAt  time.Time  `json:"expires_at"`
-	RevokedAt  *time.Time `json:"-"`
-	Current    bool       `json:"current"`
+	ID         string `json:"id"`
+	UserID     int64  `json:"-"`
+	IP         string `json:"ip"`
+	UserAgent  string `json:"user_agent"`
+	StrongAuth bool   `json:"-"`
+	// ReauthUntil 是本次会话最近一次敏感操作再认证的有效期。
+	// 为空或已过期时，敏感操作需要重新验证密码/TOTP。
+	ReauthUntil *time.Time `json:"-"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastSeenAt  time.Time  `json:"last_seen_at"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	RevokedAt   *time.Time `json:"-"`
+	Current     bool       `json:"current"`
 }
 
 // DNSAccount 保存 DNS 服务商凭据，Config 在落库前会加密。

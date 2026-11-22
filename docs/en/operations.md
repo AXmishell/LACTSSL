@@ -89,7 +89,7 @@ If downtime is not possible, prefer the encrypted UI backup; copying a running S
 #### Restore Considerations
 
 - After restoring, sign in with the administrator account from the backup.
-- By default, every service start clears sessions and rotates the JWT signing subkey, so existing logins become invalid.
+- Session persistence is enabled by default, so restarts keep sessions. With `security.session_persistence: false`, every start clears sessions and rotates the JWT signing subkey.
 - If the `config.yaml` in the backup uses a different `jwt_secret`, old tokens fail validation.
 - If a different `salt` is used, encrypted credentials in the database can only be decrypted with the matching configuration; therefore, always restore from a complete ZIP backup.
 - If the secure entry in the backup differs from the current one, check the startup log for the new entry.

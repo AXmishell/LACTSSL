@@ -33,7 +33,7 @@ func validEmail(email string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(addr.Address, email) && strings.Contains(email, ".")
+	return strings.EqualFold(addr.Address, email)
 }
 
 // minPasswordLength 是账户密码的最小长度；bcrypt 上限仍为 72 字节。
@@ -179,7 +179,7 @@ func (s *Server) handleLogin(c *gin.Context) {
 			return
 		}
 		totpKey := "login:totp:" + acctKey
-		if !auth.ValidateTOTP(user.TOTPSecret, body.TOTP) {
+		if auth.ValidateTOTPPurpose(user.TOTPSecret, body.TOTP, auth.TOTPPurposeLogin) != auth.TOTPValid {
 			s.notifyLoginFailure(c, user.ID, "totp")
 			if allowed, wait := s.allow(ratelimit.LoginTOTP, totpKey); !allowed {
 				rateLimited(c, wait)
@@ -231,7 +231,7 @@ func (s *Server) handleMe(c *gin.Context) {
 	ok(c, user)
 }
 
-// handleChangePassword 修改账户密码。只需要有效的登录会话。
+// handleChangePassword 修改账户密码。必须现场再认证（密码 + 启用时的 TOTP）。
 func (s *Server) handleChangePassword(c *gin.Context) {
 	user := getUser(c)
 	var body struct {
@@ -249,7 +249,7 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 	if reauthPassword == "" {
 		reauthPassword = body.OldPassword
 	}
-	if !s.requireReauth(c, user, reauthPassword, body.TOTP) {
+	if !s.requireReauthFresh(c, user, reauthPassword, body.TOTP) {
 		return
 	}
 	if !validPassword(body.NewPassword) {
@@ -294,7 +294,7 @@ func (s *Server) handleChangeEmail(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	if !s.requireReauthFresh(c, user, body.Password, body.TOTP) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(body.Email))
@@ -353,7 +353,7 @@ func (s *Server) handleTOTPSetup(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	if !s.requireReauthFresh(c, user, body.Password, body.TOTP) {
 		return
 	}
 	if user.TOTPEnabled {
@@ -384,8 +384,8 @@ func (s *Server) handleTOTPEnable(c *gin.Context) {
 		return
 	}
 	// 启用 TOTP 会把账号登录绑定到新的认证器，必须先证明当前身份。
-	// 此时 TOTP 尚未启用，requireReauth 会校验当前密码。
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	// 此时 TOTP 尚未启用，requireReauthFresh 会校验当前密码。
+	if !s.requireReauthFresh(c, user, body.Password, body.TOTP) {
 		return
 	}
 	// 启用前仍需校验一次验证码，确认新密钥已正确导入认证器。
@@ -393,7 +393,7 @@ func (s *Server) handleTOTPEnable(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.totp_secret_missing")
 		return
 	}
-	if !auth.ValidateTOTP(user.TOTPSecret, body.Code) {
+	if auth.ValidateTOTPPurpose(user.TOTPSecret, body.Code, auth.TOTPPurposeEnroll) != auth.TOTPValid {
 		failKey(c, http.StatusBadRequest, "api.error.totp_invalid")
 		return
 	}
@@ -416,7 +416,7 @@ func (s *Server) handleTOTPDisable(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	if !s.requireReauthFresh(c, user, body.Password, body.TOTP) {
 		return
 	}
 	if err := s.Store.SetTOTP(user.ID, "", false); err != nil {

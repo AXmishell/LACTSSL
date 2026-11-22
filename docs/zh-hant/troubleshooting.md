@@ -73,7 +73,7 @@ ss -lntp | grep -E '8080|14000'
 
 **可能原因**：
 
-- 服務重啟且未開啟 `security.session_persistence`。
+- 服務重啟且已明確關閉 `security.session_persistence`。
 - 修改了密碼，全部會話被刪除。
 - 使用了不同的 `jwt_secret` 啟動。
 - 反向代理未傳遞 `X-Forwarded-Proto`，導致 `Secure` Cookie 異常。
@@ -84,7 +84,7 @@ ss -lntp | grep -E '8080|14000'
 1. 確認是否剛重啟或改密。
 2. 檢查代理頭與 `trusted_proxies`。
 3. 清理瀏覽器 Cookie 後重新從門禁入口進入。
-4. 如需重啟保留會話，評估後設定 `security.session_persistence: true`。
+4. 會話保持預設開啟；如曾設為 `security.session_persistence: false`，改回 `true` 可在重啟後保留會話。
 
 ### 2.4 Cookie 異常、限流不準
 

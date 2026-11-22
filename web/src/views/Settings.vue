@@ -204,11 +204,6 @@
                 :closable="false"
                 style="margin-bottom: 14px"
               />
-              <ReauthFields
-                v-model:password="securityReauth.password"
-                v-model:totp="securityReauth.totp"
-                :totp-enabled="!!user?.totp_enabled"
-              />
             </el-form>
           </div>
 
@@ -1143,7 +1138,6 @@ const savingEntry = ref(false)
 const savingAccount = ref(false)
 const savingSecurity = ref(false)
 const testingSecurity = ref(false)
-const securityReauth = reactive({ password: '', totp: '' })
 const security = reactive({
   enabled: true,
   events: [...defaultSecurityEvents] as string[],
@@ -1656,7 +1650,6 @@ function goNotifications(): void {
 }
 
 async function saveSecurity(): Promise<void> {
-  if (!validReauth(securityReauth)) return
   savingSecurity.value = true
   try {
     const saved = await api.put('/settings', {
@@ -1671,13 +1664,9 @@ async function saveSecurity(): Promise<void> {
         failed_window: security.failed_window,
         new_device_days: security.new_device_days,
         channels: [...security.channels]
-      },
-      password: securityReauth.password,
-      totp: securityReauth.totp
+      }
     })
     if (saved === null) return
-    securityReauth.password = ''
-    securityReauth.totp = ''
     ElMessage.success(t('notifications.securitySaved'))
     applySettings(await loadSettings(true))
   } catch (error: any) {
@@ -1688,18 +1677,13 @@ async function saveSecurity(): Promise<void> {
 }
 
 async function sendSecurityTest(): Promise<void> {
-  if (!validReauth(securityReauth)) return
   testingSecurity.value = true
   try {
     const data = await api.post<MessageResult>('/settings/test-security-notify', {
       channels: [...security.channels],
-      to: security.to,
-      password: securityReauth.password,
-      totp: securityReauth.totp
+      to: security.to
     })
     if (data === null) return
-    securityReauth.password = ''
-    securityReauth.totp = ''
     ElMessage.success(data.message || t('notifications.securityTestQueued'))
     applySettings(await loadSettings(true))
   } catch (error: any) {

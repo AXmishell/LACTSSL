@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"lactssl/internal/config"
 	"lactssl/internal/db"
+	"lactssl/internal/model"
 	"lactssl/internal/store"
 	"lactssl/internal/util"
 )
@@ -241,5 +243,35 @@ func TestConfigOptimizeIsIdempotent(t *testing.T) {
 	}
 	if second.Changed {
 		t.Fatalf("配置优化不幂等，仍产生变更: %+v", second.Changes)
+	}
+}
+
+func TestRuntimeCleanupRespectsSessionPersistence(t *testing.T) {
+	manager, st, _, _ := newTestManager(t)
+	session := &model.Session{
+		ID:         "session-keep",
+		UserID:     1,
+		CreatedAt:  time.Now().UTC(),
+		LastSeenAt: time.Now().UTC(),
+		ExpiresAt:  time.Now().UTC().Add(time.Hour),
+	}
+	if err := st.CreateSession(session); err != nil {
+		t.Fatal(err)
+	}
+
+	manager.sessionPersistence = true
+	if _, err := stepRuntimeCleanup(context.Background(), manager); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetSession(session.ID); err != nil {
+		t.Fatalf("会话保持开启时会话不应被清理: %v", err)
+	}
+
+	manager.sessionPersistence = false
+	if _, err := stepRuntimeCleanup(context.Background(), manager); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetSession(session.ID); err == nil {
+		t.Fatal("会话保持关闭时会话应被清理")
 	}
 }

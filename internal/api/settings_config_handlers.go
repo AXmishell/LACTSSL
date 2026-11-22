@@ -109,7 +109,7 @@ func (s *Server) updateSettingsConfig(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	if !s.requireSessionReauth(c, user, body.Password, body.TOTP) {
 		return
 	}
 	if body.Config.Empty() {
@@ -327,9 +327,7 @@ func (s *Server) createSettingsConfigBackup(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
-		return
-	}
+	// 创建配置快照只写本地文件，不导出也不改变运行配置；不再要求再认证。
 	s.configMu.Lock()
 	info, err := config.CreateConfigBackup(s.ConfigFile, s.configDataDir(), "manual", body.Note, user.Email, Version)
 	s.configMu.Unlock()
@@ -366,7 +364,7 @@ func (s *Server) downloadSettingsConfigBackup(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	if !s.requireSessionReauth(c, user, body.Password, body.TOTP) {
 		return
 	}
 	info, data, err := config.LoadConfigBackup(s.ConfigFile, s.configDataDir(), c.Param("id"))
@@ -402,7 +400,7 @@ func (s *Server) restoreSettingsConfigBackup(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	if !s.requireSessionReauth(c, user, body.Password, body.TOTP) {
 		return
 	}
 	s.configMu.Lock()
@@ -460,9 +458,7 @@ func (s *Server) deleteSettingsConfigBackup(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
-		return
-	}
+	// 删除本地配置快照不会导出或改变运行配置；不再要求再认证。
 	s.configMu.Lock()
 	err := config.DeleteConfigBackup(s.configDataDir(), c.Param("id"))
 	s.configMu.Unlock()
@@ -504,7 +500,7 @@ func (s *Server) restartSettingsConfig(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	if !s.requireSessionReauth(c, user, body.Password, body.TOTP) {
 		return
 	}
 	if s.RestartConfig == nil {

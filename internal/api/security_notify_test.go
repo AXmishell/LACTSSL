@@ -230,7 +230,7 @@ func TestSecurityNotifyTestEndpoint(t *testing.T) {
 	}
 }
 
-func TestSecurityNotifySettingsRequireReauth(t *testing.T) {
+func TestSecurityNotifySettingsWithoutReauth(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	session := loginSessionTest(t, router)
 
@@ -241,20 +241,20 @@ func TestSecurityNotifySettingsRequireReauth(t *testing.T) {
 	}
 
 	body := `{"security_notify":{"enabled":false,"events":[],"to":"","retention_days":30}}`
-	denied := sessionRequest(t, router, http.MethodPut, "/api/settings", body,
+	allowed := sessionRequest(t, router, http.MethodPut, "/api/settings", body,
 		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
-	if denied.Code == http.StatusOK {
-		t.Fatalf("未再认证不应修改安全提醒策略: %d %s", denied.Code, denied.Body.String())
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("修改安全提醒策略不应要求再认证: %d %s", allowed.Code, allowed.Body.String())
 	}
 
 	noCSRF := sessionRequest(t, router, http.MethodPut, "/api/settings",
-		`{"security_notify":{"enabled":false,"events":[]},"password":"password1234"}`,
+		`{"security_notify":{"enabled":false,"events":[]}}`,
 		[]*http.Cookie{session}, nil)
 	if noCSRF.Code != http.StatusForbidden {
 		t.Fatalf("缺少 CSRF 不应修改安全提醒策略: %d %s", noCSRF.Code, noCSRF.Body.String())
 	}
 
-	body = `{"security_notify":{"enabled":false,"events":[],"to":"","retention_days":30,"login":"off","failed_login":false,"failed_threshold":3,"failed_window":120,"new_device_days":7,"channels":["mail"],"max_per_hour":25},"password":"password1234"}`
+	body = `{"security_notify":{"enabled":false,"events":[],"to":"","retention_days":30,"login":"off","failed_login":false,"failed_threshold":3,"failed_window":120,"new_device_days":7,"channels":["mail"],"max_per_hour":25}}`
 	saved := sessionRequest(t, router, http.MethodPut, "/api/settings", body,
 		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if saved.Code != http.StatusOK {
@@ -370,7 +370,7 @@ func TestSecurityNotifyCriticalEventsBypassHourlyLimit(t *testing.T) {
 	}
 }
 
-func TestSecurityNotifyEndpointsRejectAPIKeys(t *testing.T) {
+func TestSecurityNotifyAPIKeyRoutePolicies(t *testing.T) {
 	router, _ := newSessionTestServerWithStore(t)
 	session := loginSessionTest(t, router)
 	response := sessionRequest(t, router, http.MethodPost, "/api/api-keys",
@@ -396,14 +396,14 @@ func TestSecurityNotifyEndpointsRejectAPIKeys(t *testing.T) {
 
 	policy := apiKeyRequest(t, router, token, http.MethodPut, "/api/settings",
 		`{"security_notify":{"enabled":false,"events":[]}}`, apiKeyHeader)
-	if policy.Code == http.StatusOK {
-		t.Fatalf("API 密钥不应修改安全提醒策略: %d %s", policy.Code, policy.Body)
+	if policy.Code != http.StatusOK {
+		t.Fatalf("具备 settings:write 的 API 密钥应可修改安全提醒策略: %d %s", policy.Code, policy.Body)
 	}
 
 	test := apiKeyRequest(t, router, token, http.MethodPost, "/api/settings/test-security-notify",
 		`{"channels":["mail"]}`, apiKeyHeader)
-	if test.Code == http.StatusOK {
-		t.Fatalf("API 密钥不应发送测试安全提醒: %d %s", test.Code, test.Body)
+	if test.Code != http.StatusForbidden {
+		t.Fatalf("测试安全提醒仍只允许浏览器会话: %d %s", test.Code, test.Body)
 	}
 }
 

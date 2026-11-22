@@ -76,7 +76,7 @@ func (s *Server) downloadBackup(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.backup_password_too_long")
 		return
 	}
-	if !s.requireReauth(c, user, body.AccountPassword, body.TOTP) {
+	if !s.requireSessionReauth(c, user, body.AccountPassword, body.TOTP) {
 		return
 	}
 	filePath, filename, cleanup, err := s.Backup.Export(password)
@@ -105,7 +105,7 @@ func (s *Server) restoreBackup(c *gin.Context) {
 	}
 	// 在读取/解析 multipart 文件之前完成再认证，避免不知道密码/TOTP 的调用方
 	// 通过反复上传大文件占满临时目录（文件此时尚未落盘）。
-	if !s.requireReauth(c, getUser(c),
+	if !s.requireSessionReauth(c, getUser(c),
 		c.GetHeader(reauthPasswordHeader),
 		strings.TrimSpace(c.GetHeader(reauthTOTPHeader)),
 	) {

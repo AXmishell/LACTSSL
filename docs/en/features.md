@@ -214,7 +214,7 @@ Gotify, ServerChan, ntfy, GoCQHTTP, PushDeer, Bark, Telegram, DingTalk, WeCom bo
 - Messages never contain passwords, TOTP codes, API keys, or full passkey identifiers. The settings page provides a test alert and shows the latest delivery status.
 - An hourly alert limit can be configured (10 by default) for high-frequency sign-in/failure alerts only. Events beyond the limit are still recorded under "Recent security events" (recorded only) but are combined into one digest, sent at most once per hour. Critical credential changes, new-device sign-ins, email changes, policy changes, and test alerts bypass the limit.
 - The "Recent security events" dialog shows event time, type, per-target recipient/channel status, and errors, and can export JSON.
-- Changing the security alert policy requires re-authentication and notifies the previous recipients and channels. It uses the old SMTP configuration snapshot so the old recipients still receive the alert even if the new SMTP settings are wrong or point to an attacker. Events are retained for 90 days by default and can be adjusted.
+- Changing the security alert policy notifies the previous recipients and channels. It uses the old SMTP configuration snapshot so the old recipients still receive the alert even if the new SMTP settings are wrong or point to an attacker. Events are retained for 90 days by default and can be adjusted.
 - If SMTP is not configured and only email is selected, alerts cannot be delivered; the UI shows a warning, and failed events keep the error and retry with backoff.
 
 ## 7. Private CA

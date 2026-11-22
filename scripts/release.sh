@@ -222,6 +222,23 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   rm -rf internal/webui/dist
   cp -a web/dist internal/webui/dist
 
+  # 官方发布构建从签名私钥派生并嵌入 Ed25519 公钥，使在线升级开箱即用。
+  # 未配置签名私钥时保持空值，仍由管理员在 config.yaml 显式配置。
+  program_public_key="${LACTSSL_PROGRAM_PUBLIC_KEY:-}"
+  if [ -z "$program_public_key" ] && [ -n "${ED25519_PRIVATE_KEY_B64:-}" ]; then
+    if command -v openssl >/dev/null 2>&1; then
+      program_public_key="$(printf '%s' "$ED25519_PRIVATE_KEY_B64" | openssl base64 -d -A 2>/dev/null \
+        | openssl pkey -inform DER -pubout -outform DER 2>/dev/null \
+        | tail -c 32 | openssl base64 -A 2>/dev/null || true)"
+    fi
+    if [ -z "$program_public_key" ]; then
+      warn "无法从 ED25519_PRIVATE_KEY_B64 派生发布公钥；在线升级仍要求手动配置 upgrade.program.public_key"
+    fi
+  fi
+  if [ -n "$program_public_key" ]; then
+    step "build: 嵌入官方发布公钥 ${program_public_key:0:8}…"
+  fi
+
   for target in "${TARGETS[@]}"; do
     read -r goos goarch <<<"$target"
     ext=""
@@ -231,8 +248,12 @@ if [ "$RUN_BUILD" -eq 1 ]; then
     mkdir -p "out/$goos-$goarch"
 
     step "build: $goos/$goarch"
+    ldflags="-s -w -X 'lactssl/internal/api.Version=${version}' -X 'lactssl/internal/api.BuildTime=${build_time}' -X 'lactssl/internal/api.BuildArch=${goos}/${goarch}'"
+    if [ -n "$program_public_key" ]; then
+      ldflags="${ldflags} -X 'lactssl/internal/config.OfficialProgramPublicKey=${program_public_key}'"
+    fi
     CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -tags "embed" \
-      -ldflags "-s -w -X 'lactssl/internal/api.Version=${version}' -X 'lactssl/internal/api.BuildTime=${build_time}' -X 'lactssl/internal/api.BuildArch=${goos}/${goarch}'" \
+      -ldflags "$ldflags" \
       -o "out/$goos-$goarch/lactssl${ext}" ./cmd/server
 
     test -f "out/$goos-$goarch/lactssl${ext}"

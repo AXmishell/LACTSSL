@@ -155,6 +155,10 @@ func migrate(conn *Handle) error {
 	if err := ensureColumn(conn, "sessions", "strong_auth", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)
 	}
+	// 兼容旧数据库：为已有 sessions 表补充会话级再认证有效期。
+	if err := ensureColumn(conn, "sessions", "reauth_until", `DATETIME`); err != nil {
+		return fmt.Errorf("升级数据库结构失败: %w", err)
+	}
 	// 兼容旧 ACME 订单表：补充 ARI replaces 字段。
 	if err := ensureColumn(conn, "acme_orders", "replaces", `TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("升级数据库结构失败: %w", err)

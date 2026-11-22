@@ -176,18 +176,19 @@ func main() {
 	// 升级迁移集中到 internal/upgrade：启动时自动执行历史兼容步骤，
 	// 也可以通过 /upgrade 页面手动预检与优化。
 	upgrader, err := upgrade.New(upgrade.Options{
-		DB:               conn,
-		Store:            st,
-		Manager:          manager,
-		ConfigPath:       cfg.File,
-		DataDir:          cfg.DataDir,
-		DBPath:           cfg.DBPath,
-		LegacySecretFile: cfg.LegacySecretFile,
-		AppVersion:       api.Version,
-		Auto:             cfg.Upgrade.Auto,
-		AutoOptimize:     cfg.Upgrade.AutoOptimize,
-		Vacuum:           cfg.Upgrade.Vacuum,
-		Logger:           logger,
+		DB:                 conn,
+		Store:              st,
+		Manager:            manager,
+		ConfigPath:         cfg.File,
+		DataDir:            cfg.DataDir,
+		DBPath:             cfg.DBPath,
+		LegacySecretFile:   cfg.LegacySecretFile,
+		AppVersion:         api.Version,
+		Auto:               cfg.Upgrade.Auto,
+		AutoOptimize:       cfg.Upgrade.AutoOptimize,
+		Vacuum:             cfg.Upgrade.Vacuum,
+		SessionPersistence: cfg.SessionPersistence,
+		Logger:             logger,
 	})
 	if err != nil {
 		log.Fatalf("%s: %v", cliText("cli.error.init_db"), err)
@@ -221,14 +222,13 @@ func main() {
 		if cfg.Upgrade.Program.AllowUnsigned {
 			logger.Warn("程序自升级未配置 upgrade.program.public_key，但已显式允许未签名升级；生产环境不建议")
 		} else {
-			logger.Warn("程序自升级未配置 upgrade.program.public_key：将拒绝在线升级；请配置 Ed25519 发布公钥，或在受控环境显式设置 allow_unsigned")
+			logger.Warn("程序自升级未配置 upgrade.program.public_key：官方构建通常已内置发布公钥；自编译版本将拒绝在线升级，请配置 Ed25519 发布公钥，或在受控环境显式设置 allow_unsigned")
 		}
 	}
 
-	// 默认在进程重启后强制所有登录失效：清空服务端会话记录，
-	// 并配合下面的启动级 JWT 签名密钥，使旧令牌无法再通过校验。
-	// 配置 security.session_persistence: true 时跳过清理，并改用固定密钥签发/校验 JWT，
-	// 使浏览器会话在后台重启后仍可继续使用。
+	// 默认开启会话保持：进程重启后保留服务端会话，并使用固定 jwt_secret 签发/校验 JWT。
+	// 显式设置 security.session_persistence: false 时清空会话，并改用启动级随机子密钥，
+	// 使所有旧令牌在重启后立即失效。
 	if cfg.SessionPersistence {
 		logger.Info("会话保持已启用：进程重启后保留登录会话")
 	} else if err := st.DeleteAllSessions(); err != nil {
@@ -243,8 +243,8 @@ func main() {
 	// 配置保存后写入的“待重启”标记只对当前进程有效；启动成功即视为已生效。
 	_ = st.DeleteSetting("config.pending_restart")
 
-	// 默认每次启动都生成新的 JWT 签名子密钥，旧令牌在重启后必然签名校验失败；
-	// 开启会话保持时使用固定 jwt_secret 派生的子密钥，重启后旧令牌仍可通过校验。
+	// 会话保持开启时使用固定 jwt_secret 派生的子密钥，重启后旧令牌仍可通过校验；
+	// 显式关闭时每次启动生成新的签名子密钥，旧令牌在重启后必然失效。
 	var authManager *auth.Manager
 	if cfg.SessionPersistence {
 		authManager = auth.New(cfg.JWTSecret)

@@ -187,7 +187,7 @@ upgrade:
 		"# 密钥注释也必须保留",
 		`jwt_secret: "` + secret + `"`,
 		`salt: "` + salt + `"`,
-		"session_persistence: false",
+		"session_persistence: true",
 		`public_key: ""`,
 		`token: ""`,
 	} {

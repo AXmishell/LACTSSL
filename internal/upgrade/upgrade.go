@@ -56,23 +56,26 @@ type Options struct {
 	Auto             bool
 	AutoOptimize     bool
 	Vacuum           bool
-	Logger           *slog.Logger
+	// SessionPersistence 为 true 时跨版本升级不清理登录会话。
+	SessionPersistence bool
+	Logger             *slog.Logger
 }
 
 // Manager 是升级工具的运行入口。同一进程内串行执行，避免并发迁移。
 type Manager struct {
-	db               *db.Handle
-	store            *store.Store
-	service          *service.Manager
-	configPath       string
-	dataDir          string
-	dbPath           string
-	legacySecretFile string
-	appVersion       string
-	auto             bool
-	autoOpt          bool
-	vacuum           bool
-	logger           *slog.Logger
+	db                 *db.Handle
+	store              *store.Store
+	service            *service.Manager
+	configPath         string
+	dataDir            string
+	dbPath             string
+	legacySecretFile   string
+	appVersion         string
+	auto               bool
+	autoOpt            bool
+	vacuum             bool
+	sessionPersistence bool
+	logger             *slog.Logger
 
 	mu sync.Mutex
 }
@@ -91,18 +94,19 @@ func New(opts Options) (*Manager, error) {
 		logger = slog.Default()
 	}
 	return &Manager{
-		db:               opts.DB,
-		store:            opts.Store,
-		service:          manager,
-		configPath:       opts.ConfigPath,
-		dataDir:          opts.DataDir,
-		dbPath:           opts.DBPath,
-		legacySecretFile: opts.LegacySecretFile,
-		appVersion:       opts.AppVersion,
-		auto:             opts.Auto,
-		autoOpt:          opts.AutoOptimize,
-		vacuum:           opts.Vacuum,
-		logger:           logger,
+		db:                 opts.DB,
+		store:              opts.Store,
+		service:            manager,
+		configPath:         opts.ConfigPath,
+		dataDir:            opts.DataDir,
+		dbPath:             opts.DBPath,
+		legacySecretFile:   opts.LegacySecretFile,
+		appVersion:         opts.AppVersion,
+		auto:               opts.Auto,
+		autoOpt:            opts.AutoOptimize,
+		vacuum:             opts.Vacuum,
+		sessionPersistence: opts.SessionPersistence,
+		logger:             logger,
 	}, nil
 }
 

@@ -2,7 +2,7 @@
 
 LACTSSL console endpoints can be called through either a browser login session or an API key. API keys are intended for long-running programs such as CI/CD, monitoring inspections, CMDB synchronization, and certificate distribution. Each key can be configured independently with permissions, expiry, and enabled state, avoiding shared administrator passwords.
 
-> Sensitive operations such as account security, passkeys, and session management can only be called through a browser login session; API keys cannot change the login password, register passkeys, or sign out other sessions.
+> Sensitive operations such as account security, passkeys, session management, backup download/restore, entry changes, and database switching can only be called through a browser login session; API keys cannot complete interactive re-authentication. Changing SMTP/notification targets requires `settings:write`, while sending test messages remains browser-session only.
 
 ## 1. Choosing an Integration Approach
 
@@ -130,13 +130,13 @@ Permissions are divided by resource:action. `*` represents all system API capabi
 | `system_logs:read` | View and export process logs; view/download log archives | No |
 | `system_logs:write` | Delete all system logs and log archives | Yes |
 | `settings:read` | View system settings and the internal CA trust chain | No |
-| `settings:write` | Modify system settings, send test notifications, import or remove internal CAs | Yes |
+| `settings:write` | Modify general system settings (SMTP/notification targets; test messages remain browser-session only) | Yes |
 | `backup:read` | View backup status and size | No |
-| `backup:download` | Export encrypted backups | Yes |
-| `backup:restore` | Upload and restore backups; restarts the service | Yes |
+| `backup:download` | Export encrypted backups (browser session only; retained for legacy keys) | Yes |
+| `backup:restore` | Upload and restore backups; restarts the service (browser session only; retained for legacy keys) | Yes |
 | `upgrade:read` | View database migration and program upgrade status | No |
 | `upgrade:write` | Run migrations, optimize the database, and replace the program | Yes |
-| `security:write` | Modify the secure entry | Yes |
+| `security:write` | Modify trust roots and plugin trust anchors (entry changes are browser-session only) | Yes |
 | `api_keys:read` | View the API key list and permissions | No |
 | `api_keys:write` | Create, modify, rotate, and delete API keys | Yes |
 

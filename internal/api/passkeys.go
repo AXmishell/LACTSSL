@@ -327,7 +327,7 @@ func (s *Server) handlePasskeyRegisterBegin(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	if !s.requireReauthFresh(c, user, body.Password, body.TOTP) {
 		return
 	}
 	passkeys, err := s.Store.ListPasskeys(user.ID)
@@ -447,7 +447,7 @@ func (s *Server) handlePasskeyDelete(c *gin.Context) {
 	if !okID {
 		return
 	}
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
+	if !s.requireReauthFresh(c, user, body.Password, body.TOTP) {
 		return
 	}
 	deleted, err := s.Store.DeletePasskey(user.ID, id)

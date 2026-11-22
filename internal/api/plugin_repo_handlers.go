@@ -886,6 +886,13 @@ func (s *Server) updatePluginRepo(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
+	// URL 或公钥实际变更会移动插件索引的信任锚；浏览器会话必须处于再认证
+	// 有效期内。API 密钥仍由 plugins:write/security:write 控制。
+	urlChanged := body.URL != nil && strings.TrimSpace(*body.URL) != s.repoURL()
+	keyChanged := body.PublicKey != nil && strings.TrimSpace(*body.PublicKey) != strings.TrimSpace(s.repoPublicKey())
+	if (urlChanged || keyChanged) && !s.requireReauthElevated(c) {
+		return
+	}
 	changedSource := false
 	if body.URL != nil {
 		value := strings.TrimSpace(*body.URL)

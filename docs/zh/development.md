@@ -192,7 +192,7 @@ ghcr.io/axmishell/lactssl:latest
 - 用 `gh release create <tag> <files>...` 预上传的同名文件会被 workflow 以 `--clobber` 覆盖；建议不要在创建时传文件。
 - Release 发布后资产需要几分钟构建完成；如需“资产就绪后再公开”，应先推送 tag，由 CI 构建完成后再创建 Release（需要另配 tag push 流程）。
 - 重新构建指定 tag：`gh workflow run release.yml -f tag=v1.0.1`。
-- 发布签名：配置 `ED25519_PRIVATE_KEY_B64` 后为 `checksums.txt` 生成分离签名。
+- 发布签名：配置 `ED25519_PRIVATE_KEY_B64` 后为 `checksums.txt` 生成分离签名；release workflow 与本地发布脚本会从私钥派生 32 字节公钥并嵌入官方二进制，使在线升级开箱即用。也可用 `LACTSSL_PROGRAM_PUBLIC_KEY` 直接指定要嵌入的公钥。
 
 本地发布脚本：
 

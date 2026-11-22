@@ -126,7 +126,10 @@ type Server struct {
 	// setupMu 串行化初始化、恢复和初始化配置写入，避免匿名恢复与管理员
 	// 首次创建账户之间的检查-写入竞态。
 	setupMu sync.Mutex
-	limiter *rateLimiter
+	// reauthMu 串行化同一时刻的再认证校验，避免并发请求同时消费同一个
+	// TOTP 后其中一个误报失败，并保证提权有效期先落库再释放。
+	reauthMu sync.Mutex
+	limiter  *rateLimiter
 	// RateLimits 是各接口的限流阈值，零值表示全部使用内置默认值。
 	RateLimits ratelimit.Config
 	startedAt  time.Time
@@ -284,6 +287,7 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/setup/restore", s.handleSetupRestore)
 	g.POST("/auth/login", s.handleLogin)
 	g.POST("/auth/logout", s.handleLogout)
+	g.POST("/auth/reauth", s.handleReauth)
 	g.POST("/auth/forgot", s.handleForgotPassword)
 	g.POST("/auth/reset", s.handleResetPassword)
 	g.GET("/auth/reset/validate", s.handleValidateReset)
@@ -655,7 +659,7 @@ func (s *Server) authenticate(c *gin.Context) bool {
 		return false
 	}
 	// 旧会话的 CSRF Cookie 缺失或长度不正确时顺手补发。
-	// 注意 CSRF 令牌长度是 csrfTokenLength，不能拿会话令牌的 MinTokenLength 比较。
+	// CSRF 令牌长度使用独立的 csrfTokenLength，与会话 JWT 长度无关。
 	if !fromHeader {
 		// 旧版本/明文部署留下的无前缀 Cookie 可能与 __Host- Cookie 并存，
 		// 浏览器会同时发送两者；这里清理被遮蔽的旧值，避免前端读到过期 CSRF。
@@ -686,6 +690,9 @@ func (s *Server) authenticate(c *gin.Context) bool {
 	c.Set("user", user)
 	c.Set("session_id", sessionID)
 	c.Set("session_strong_auth", session.StrongAuth)
+	if session.ReauthUntil != nil {
+		c.Set(sessionReauthUntilKey, *session.ReauthUntil)
+	}
 	return true
 }
 

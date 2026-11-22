@@ -117,13 +117,13 @@ curl -X POST \
 | `system_logs:read` | 檢視和匯出程序日誌，檢視/下載日誌歸檔 | 否 |
 | `system_logs:write` | 刪除全部系統日誌、刪除日誌歸檔 | 是 |
 | `settings:read` | 檢視系統設定與內部 CA 信任鏈 | 否 |
-| `settings:write` | 修改系統設定、傳送測試通知、匯入或移除內部 CA | 是 |
+| `settings:write` | 修改一般系統設定（SMTP/通知目標；測試訊息仍僅瀏覽器會話） | 是 |
 | `backup:read` | 檢視備份狀態與大小 | 否 |
-| `backup:download` | 匯出加密備份 | 是 |
-| `backup:restore` | 上傳並恢復備份，會重啟服務 | 是 |
+| `backup:download` | 匯出加密備份（僅瀏覽器會話；僅保留歷史金鑰相容） | 是 |
+| `backup:restore` | 上傳並恢復備份，會重啟服務（僅瀏覽器會話；僅保留歷史金鑰相容） | 是 |
 | `upgrade:read` | 檢視資料庫遷移與程式升級狀態 | 否 |
 | `upgrade:write` | 執行遷移、最佳化資料庫和替換程式 | 是 |
-| `security:write` | 修改門禁入口 | 是 |
+| `security:write` | 修改信任根與外掛信任錨（門禁入口僅瀏覽器會話） | 是 |
 | `api_keys:read` | 檢視 API 金鑰列表與權限 | 否 |
 | `api_keys:write` | 建立、修改、輪換和刪除 API 金鑰 | 是 |
 

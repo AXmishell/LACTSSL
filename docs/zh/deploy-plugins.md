@@ -240,7 +240,7 @@ deploy-helper verify     # 只读验证认证与目标作用域（可选）
 - 非法 JSON 会视为错误；调试日志请写入 stderr。
 - helper 从 `LACTSSL_PLUGIN_MEMORY_LIMIT`（字节）获得内存预算。
 - 主程序周期性检查 helper 的 `VmRSS`，超过 `memory_limit_mb` 时结束整个进程组并记录错误。
-- 主程序只传递最小环境变量集合，不会泄漏服务端密钥。
+- 主程序只传递最小环境变量集合（包含 `PATH`、代理、`JAVA_HOME`、`NODE_PATH`、`GOPATH`、`AWS_PROFILE` 等常见非密钥变量），不会泄漏服务端密钥。
 - 插件文件必须可执行、不能允许组或其他用户写入；`manifest.sha256` 非空时会校验。
 - 主程序记录扫描时的文件摘要，并在每次部署前重新校验；替换 helper 后需要重扫。
 

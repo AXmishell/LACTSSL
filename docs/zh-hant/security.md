@@ -33,7 +33,8 @@ LACTSSL 按“自託管單例項”設計，信任邊界如下：
 - 單管理員帳戶，不提供多使用者、角色、組織架構或審批流。
 - 密碼使用 bcrypt 雜湊儲存，長度至少 8 位；生產建議 16 位以上隨機密碼。
 - 支援 TOTP 兩步驗證和通行金鑰（WebAuthn/Passkey）。
-- 啟用 TOTP、註冊通行金鑰、修改 SMTP/通知目標以及傳送測試郵件/通知都必須再認證（當前密碼或 TOTP），避免失竊會話直接把帳號繫結到攻擊者的認證器，或把已存 SMTP/通知金鑰轉發到攻擊者主機。
+- 啟用 TOTP、註冊通行金鑰必須現場再認證（目前密碼；啟用 TOTP 時還需動態驗證碼），避免失竊會話直接把帳號繫結到攻擊者的認證器。修改 SMTP/通知目標、傳送測試郵件/通知只要求登入會話或對應 API 權限，不再單獨校驗密碼/TOTP。
+- 一次再認證成功後，同一瀏覽器會話在 5 分鐘內可連續執行敏感操作，無需重複輸入；改密、改信箱、TOTP/通行金鑰變更仍要求現場驗證。
 - 通行金鑰必須透過 HTTPS 網域或 localhost 使用；直接使用 IP 地址不能作為 WebAuthn 來源。
 - 使用通行金鑰登入後不會再次要求 TOTP；通行金鑰本身完成裝置指紋、面容或系統 PIN 驗證。
 - 修改密碼會提升令牌版本並刪除全部服務端會話、API 金鑰與通行金鑰，所有登入立即失效。
@@ -43,7 +44,7 @@ LACTSSL 按“自託管單例項”設計，信任邊界如下：
 
 - 金鑰為 86 位 Base64URL 隨機串（64 位元組熵），不含固定字首，服務端只儲存 SHA-256 摘要。
 - 權限按「資源:動作」劃分；`*` 表示全部系統 API 能力。
-- 敏感權限單獨列出：`certificates:key`、`private_cas:key`、`deploy:execute`、`deploy:command`、`backup:download`、`backup:restore`、`plugins:write`、`settings:write`、`api_keys:write`、`monitors:internal` 等。
+- 敏感權限單獨列出：`certificates:key`、`private_cas:key`、`deploy:execute`、`deploy:command`、`plugins:write`、`settings:write`、`api_keys:write`、`monitors:internal` 等。備份下載/恢復、入口修改與資料庫切換僅瀏覽器會話。
 - 透過 API 金鑰管理其他金鑰時，不能授予自身沒有的權限，也不能修改/輪換/刪除權限高於自身的金鑰。
 - 帳戶安全類操作（改密、通行金鑰、會話管理）只允許瀏覽器登入會話，API 金鑰不能呼叫。
 - 建議為每個自動化系統建立獨立金鑰，設定過期時間，按最小權限授權，並定期輪換。
@@ -117,12 +118,12 @@ https://your-domain/<entry>/
 
 ### 4.2 會話
 
-- 登入會話儲存在 `HttpOnly` Cookie 中，前端腳本無法讀取；Cookie 使用 `SameSite=Strict`。
-- 會話令牌補足到不少於 512 個字元；CSRF 令牌為 32 個字元。
+- 登入會話儲存在 `HttpOnly` Cookie 中，前端腳本無法讀取；Cookie 使用 `SameSite=Lax`，允許從郵件或外部連結直接開啟控制台；寫入操作仍由雙重提交 CSRF 與 Origin 校驗保護。
+- 會話令牌使用緊湊 JWT，會話 ID 為 24 位元組（192 位元）隨機數；CSRF 令牌為 32 個字元。
 - 首次訪問門禁入口或登入時會下發長期有效（1 年）的 `HttpOnly` 裝置標識 Cookie（`lactssl_device`，32 個十六進位制字元）。
 - HTTPS 部署時會話、CSRF 與入口 Cookie 自動使用 `__Host-` 字首，避免共享父域下的兄弟子域覆蓋。
-- 預設每次服務啟動都會清空服務端會話記錄，並把啟動隨機值混入 JWT 簽名子金鑰；重啟後所有舊登入立即失效。
-- 設定 `security.session_persistence: true` 後，啟動不再清空會話並使用固定 `jwt_secret` 簽名，後臺重啟後可繼續使用原會話。
+- 預設開啟會話保持：啟動不清空服務端會話，並使用固定 `jwt_secret` 簽名，背景重啟後可繼續使用原會話。
+- 設定 `security.session_persistence: false` 後會恢復嚴格模式：每次啟動清空服務端會話，並把啟動隨機值混入 JWT 簽名子金鑰，所有舊登入立即失效。
 - 修改密碼會提升令牌版本並刪除全部會話、API 金鑰和通行金鑰。
 
 ### 4.3 CSRF 與跨站防護
@@ -196,7 +197,7 @@ security:
 ## 8. 外掛與供應鏈安全
 
 - 官方外掛倉庫支援 Ed25519 索引簽名；配置公鑰後強制校驗 `index.json.sig`。
-- 程式自升級預設要求配置 `upgrade.program.public_key`；未配置時拒絕線上升級，只有受控環境可顯式開啟 `upgrade.program.allow_unsigned`。
+- 官方釋出建置會自動內建 `upgrade.program.public_key` 並預設校驗釋出簽名；自編譯版本未配置時拒絕線上升級，只有受控環境可顯式開啟 `upgrade.program.allow_unsigned`。
 - 資產必須提供 64 位十六進位制 SHA-256；下載後強制校驗。
 - 安裝時校驗 `plugin.json`、manifest 中的 ID 與版本；任一步失敗都會回滾。
 - 安裝記錄中的檔案摘要會在發現、註冊和每次 DNS/部署/通知呼叫前複核；檔案被替換時拒絕載入或執行。

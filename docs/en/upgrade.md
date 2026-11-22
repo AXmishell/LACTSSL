@@ -96,9 +96,9 @@ The top of the `/upgrade` page provides **Program upgrade**:
 
 - **Check for updates**: queries Releases according to `upgrade.program.channel`; `stable` accepts only final releases, while `beta` includes pre-releases.
 - **Install update**: downloads `lactssl_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows), enforces SHA-256 verification using `checksums.txt`, extracts `lactssl`, and replaces the current executable.
-- **Release signature**: after `upgrade.program.public_key` is configured, verification of `checksums.txt.sig` is enforced; missing or invalid signatures are rejected. **Without a public key, online upgrades are rejected by default**; set `upgrade.program.allow_unsigned: true` only in controlled environments to install unsigned packages.
+- **Release signature**: official builds embed the release public key automatically and enforce `checksums.txt.sig` verification by default; missing or invalid signatures are rejected. Self-built binaries without `upgrade.program.public_key` reject online upgrades by default; set `upgrade.program.allow_unsigned: true` only in controlled environments to install unsigned packages.
 - **Backup and rollback**: before replacement, the old binary is copied to `<data_dir>/upgrade-backups/program/`; the latest 3 are retained by default.
-- **Restart to apply**: after installation, the page prompts for a restart; by default, restarting clears sessions, and with `security.session_persistence` enabled the existing session remains usable.
+- **Restart to apply**: after installation, the page prompts for a restart; session persistence is enabled by default, so the existing session remains usable. Setting `security.session_persistence: false` clears sessions on restart.
 
 Limitations:
 
@@ -208,7 +208,7 @@ upgrade:
     check_interval_hours: 6
     max_download_mb: 128
     public_key: ""
-    # Online upgrades are rejected when public_key is empty; only controlled environments should allow unsigned packages
+    # Official builds embed the public key; self-built binaries without it reject online upgrades unless unsigned packages are explicitly allowed in controlled environments
     allow_unsigned: false
     token: ""
 ```

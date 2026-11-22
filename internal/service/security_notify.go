@@ -198,8 +198,7 @@ func ValidateSecurityNotifyPolicy(policy SecurityNotifyPolicy) error {
 	return err
 }
 
-// SaveSecurityNotifyPolicy 校验并保存策略。策略变更本身属于敏感操作，
-// API 层必须在调用前完成再认证。
+// SaveSecurityNotifyPolicy 校验并保存策略。
 func (m *Manager) SaveSecurityNotifyPolicy(policy SecurityNotifyPolicy) error {
 	if err := ValidateSecurityNotifyPolicy(policy); err != nil {
 		return err

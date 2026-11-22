@@ -29,6 +29,12 @@ const DefaultPath = "config.yaml"
 // 内置该公钥后，默认安装/更新会强制校验索引签名，而不是只依赖 HTTPS。
 const officialPluginRepoPublicKey = "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
 
+// OfficialProgramPublicKey 是官方程序发布校验和签名（checksums.txt.sig）的
+// Ed25519 公钥（32 字节原始公钥 base64）。官方构建通过
+// -ldflags "-X 'lactssl/internal/config.OfficialProgramPublicKey=...'" 注入；
+// 自编译版本可以留空，由管理员在 config.yaml 中显式配置。
+var OfficialProgramPublicKey string
+
 // Config 保存服务运行所需的全部基础配置。
 type Config struct {
 	Addr          string // 监听地址，例如 :8080
@@ -311,6 +317,9 @@ func defaults() *fileConfig {
 	fc.Server.Port = 8080
 	fc.Server.ClientIPMode = "auto"
 	fc.Security.RateLimit.MaxKeys = ratelimit.DefaultMaxKeys
+	// 单管理员自托管场景默认保留登录会话，避免配置保存/升级重启后反复登录。
+	// 安全敏感环境可在 config.yaml 中显式设置 session_persistence: false。
+	fc.Security.SessionPersistence = true
 	fc.DataDir = "data"
 	// 默认仍使用 SQLite；PostgreSQL 需要显式配置 driver 与 dsn。
 	fc.Database.Driver = "sqlite"
@@ -377,6 +386,11 @@ func defaults() *fileConfig {
 	fc.Upgrade.Program.Channel = "stable"
 	fc.Upgrade.Program.CheckIntervalHours = 6
 	fc.Upgrade.Program.MaxDownloadMB = 128
+	// 官方构建通过 ldflags 注入发布公钥后，新配置默认强校验发布签名。
+	// YAML 中显式写 public_key: "" 仍可覆盖，用于自建发布渠道。
+	if key := strings.TrimSpace(OfficialProgramPublicKey); key != "" {
+		fc.Upgrade.Program.PublicKey = key
+	}
 	return fc
 }
 
@@ -513,8 +527,8 @@ func LoadFrom(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// 会话保持默认关闭：保持原有安全策略，重启即让旧登录全部失效。
-	// 显式开启后，进程重启不清空 sessions 表，JWT 也使用固定的 jwt_secret 签名。
+	// 会话保持默认开启：单管理员自托管场景重启后无需重新登录。
+	// 显式关闭时，进程重启清空 sessions 表，JWT 使用启动级随机子密钥。
 	sessionPersistence := fc.Security.SessionPersistence
 
 	// 运行时使用规范化后的值，避免手工配置中的空白或 IPv4-mapped 写法

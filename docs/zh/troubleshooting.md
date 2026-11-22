@@ -73,7 +73,7 @@ ss -lntp | grep -E '8080|14000'
 
 **可能原因**：
 
-- 服务重启且未开启 `security.session_persistence`。
+- 服务重启且显式关闭了 `security.session_persistence`。
 - 修改了密码，全部会话被删除。
 - 使用了不同的 `jwt_secret` 启动。
 - 反向代理未传递 `X-Forwarded-Proto`，导致 `Secure` Cookie 异常。
@@ -84,7 +84,7 @@ ss -lntp | grep -E '8080|14000'
 1. 确认是否刚重启或改密。
 2. 检查代理头与 `trusted_proxies`。
 3. 清理浏览器 Cookie 后重新从门禁入口进入。
-4. 如需重启保留会话，评估后设置 `security.session_persistence: true`。
+4. 会话保持默认开启；如曾被设为 `security.session_persistence: false`，改回 `true` 可在重启后保留会话。
 
 ### 2.4 Cookie 异常、限流不准
 
@@ -291,7 +291,7 @@ data/plugins/notify
 ### 7.3 恢复后登录不上
 
 - 使用备份中的管理员账户。
-- 默认重启会清空会话，需要重新登录。
+- 默认开启会话保持，重启后无需重新登录；如设为 `security.session_persistence: false`，重启会清空会话。
 - 门禁入口可能已变化，查看启动日志。
 - `jwt_secret` 不同会导致旧令牌失效。
 - 恢复包在 `data/restore-pending/`，检查是否已应用。

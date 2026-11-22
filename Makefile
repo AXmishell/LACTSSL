@@ -10,7 +10,9 @@ VERSION := dev
 endif
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_ARCH := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
-LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)'
+# 官方发布构建可注入发布公钥；自编译版本留空，由管理员在 config.yaml 中配置。
+PROGRAM_PUBLIC_KEY ?=
+LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)' $(if $(PROGRAM_PUBLIC_KEY),-X '$(MODULE)/internal/config.OfficialProgramPublicKey=$(PROGRAM_PUBLIC_KEY)')
 TAGS := embed
 .PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test csr-client-check typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve
 

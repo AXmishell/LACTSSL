@@ -332,3 +332,33 @@ func TestExpiredAPIKeyIsRejected(t *testing.T) {
 		t.Fatalf("过期密钥应被拒绝: %d %s", got.Code, got.Body)
 	}
 }
+
+func TestDeprecatedBackupScopesAreSessionOnly(t *testing.T) {
+	router, _ := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	scopes := sessionRequest(t, router, http.MethodGet, "/api/api-keys/scopes", "",
+		[]*http.Cookie{session}, nil)
+	if scopes.Code != http.StatusOK {
+		t.Fatalf("读取权限列表失败: %d %s", scopes.Code, scopes.Body.String())
+	}
+	for _, deprecated := range []string{apiScopeBackupDownload, apiScopeBackupRestore} {
+		if strings.Contains(scopes.Body.String(), `"value":"`+deprecated+`"`) {
+			t.Fatalf("新建密钥不应再提供已废弃的 %s 权限", deprecated)
+		}
+	}
+	createBody := `{"name":"new-backup","scopes":["` + apiScopeBackupDownload + `"],"enabled":true,"expires_at":""}`
+	createResp := sessionRequest(t, router, http.MethodPost, "/api/api-keys", createBody,
+		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if createResp.Code != http.StatusBadRequest || !strings.Contains(createResp.Body.String(), "api.error.api_key_scope_invalid") {
+		t.Fatalf("新建密钥不应接受已废弃 scope: %d %s", createResp.Code, createResp.Body.String())
+	}
+
+	// 历史密钥仍能保留该 scope，但对应路由只允许浏览器会话。
+	token, _ := createAPIKeyForTest(t, router, session, "backup-reader", []string{apiScopeAll})
+	resp := apiKeyRequest(t, router, token, http.MethodPost, "/api/settings/backup/download",
+		`{"password":"backup-secret"}`, "")
+	if resp.Code != http.StatusForbidden || !strings.Contains(resp.Body, "api.error.api_key_route_forbidden") {
+		t.Fatalf("备份下载应只允许浏览器会话: %d %s", resp.Code, resp.Body)
+	}
+}

@@ -120,9 +120,9 @@ func TestPasskeyRegistrationRequiresReauth(t *testing.T) {
 	}
 }
 
-// TestOutboundSettingsRequireReauth 验证修改 SMTP/通知目标以及发送测试消息
-// 都需要再认证，防止 settings:write 把已存储的 SMTP/通知密钥转发到攻击者主机。
-func TestOutboundSettingsRequireReauth(t *testing.T) {
+// TestOutboundSettingsDoNotRequireReauth 验证修改 SMTP/通知目标以及发送测试消息
+// 只依赖登录会话或对应 scope，不再要求密码/TOTP。
+func TestOutboundSettingsDoNotRequireReauth(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	setup := sessionRequest(t, router, http.MethodPost, "/api/setup",
 		`{"email":"admin@example.com","password":"password1234"}`, nil, nil)
@@ -131,49 +131,41 @@ func TestOutboundSettingsRequireReauth(t *testing.T) {
 	}
 	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
 
-	missing := sessionRequest(t, router, http.MethodPut, "/api/settings",
-		`{"smtp_host":"attacker.example.com"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
-	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), "api.error.current_password_wrong") {
-		t.Fatalf("缺少再认证不应允许修改 SMTP 主机: %d %s", missing.Code, missing.Body.String())
+	// 未配置 SMTP 时测试邮件直接返回配置错误，说明已经越过了再认证。
+	testMail := sessionRequest(t, router, http.MethodPost, "/api/settings/test-mail",
+		`{"to":"a@example.com"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if testMail.Code != http.StatusBadRequest || !strings.Contains(testMail.Body.String(), "api.error.smtp_config_required") {
+		t.Fatalf("测试邮件不应要求再认证: %d %s", testMail.Code, testMail.Body.String())
 	}
-	if host, _ := st.GetSetting("smtp.host"); host != "" {
-		t.Fatalf("再认证失败时 SMTP 主机不应被修改: %q", host)
+	testChannel := sessionRequest(t, router, http.MethodPost, "/api/settings/test-channel",
+		`{"channel":"","config":{}}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if testChannel.Code != http.StatusBadRequest || !strings.Contains(testChannel.Body.String(), "api.error.channel_required") {
+		t.Fatalf("测试通知不应要求再认证: %d %s", testChannel.Code, testChannel.Body.String())
 	}
 
 	saved := sessionRequest(t, router, http.MethodPut, "/api/settings",
-		`{"smtp_host":"attacker.example.com","password":"password1234"}`,
+		`{"smtp_host":"attacker.example.com"}`,
 		[]*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if saved.Code != http.StatusOK {
-		t.Fatalf("正确再认证应允许修改 SMTP 主机: %d %s", saved.Code, saved.Body.String())
+		t.Fatalf("修改 SMTP 主机不应要求再认证: %d %s", saved.Code, saved.Body.String())
 	}
 	if host, _ := st.GetSetting("smtp.host"); host != "attacker.example.com" {
 		t.Fatalf("SMTP 主机应已更新: %q", host)
 	}
 
-	// 非出站设置不应被过度限制。
+	// 非出站设置同样保持可用。
 	language := sessionRequest(t, router, http.MethodPut, "/api/settings",
 		`{"language":"en-US"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if language.Code != http.StatusOK {
-		t.Fatalf("只修改语言不应要求再认证: %d %s", language.Code, language.Body.String())
+		t.Fatalf("只修改语言不应失败: %d %s", language.Code, language.Body.String())
 	}
 
-	testMail := sessionRequest(t, router, http.MethodPost, "/api/settings/test-mail",
-		`{"to":"a@example.com"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
-	if testMail.Code != http.StatusBadRequest || !strings.Contains(testMail.Body.String(), "api.error.current_password_wrong") {
-		t.Fatalf("测试邮件必须再认证: %d %s", testMail.Code, testMail.Body.String())
-	}
-	testChannel := sessionRequest(t, router, http.MethodPost, "/api/settings/test-channel",
-		`{"channel":"gotify","config":{}}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
-	if testChannel.Code != http.StatusBadRequest || !strings.Contains(testChannel.Body.String(), "api.error.current_password_wrong") {
-		t.Fatalf("测试通知必须再认证: %d %s", testChannel.Code, testChannel.Body.String())
-	}
-
-	// API 密钥没有密码/TOTP，必须被同一规则拒绝。
+	// API 密钥凭 settings:write 即可修改出站设置。
 	key, _ := createAPIKeyForTest(t, router, session, "settings-only", []string{apiScopeSettingsWrite})
 	keyResp := apiKeyRequest(t, router, key, http.MethodPut, "/api/settings",
 		`{"smtp_host":"attacker2.example.com"}`, "")
-	if keyResp.Code != http.StatusBadRequest || !strings.Contains(keyResp.Body, "api.error.current_password_wrong") {
-		t.Fatalf("settings:write 密钥不应绕过出站设置的再认证: %d %s", keyResp.Code, keyResp.Body)
+	if keyResp.Code != http.StatusOK {
+		t.Fatalf("settings:write 密钥应允许修改出站设置: %d %s", keyResp.Code, keyResp.Body)
 	}
 }
 

@@ -24,7 +24,7 @@ data_dir: "data"
 
 security:
   public_url: "https://ssl.example.com"
-  session_persistence: false
+  session_persistence: true
 
 log:
   level: info
@@ -120,7 +120,7 @@ log:
 security:
   entry: ""             # Secure entry; randomly generated on first startup when empty
   public_url: ""        # External URL, e.g. "https://ssl.example.com"
-  session_persistence: false  # When true, login sessions survive a process restart
+  session_persistence: true  # When false, login sessions are cleared on process restart
   jwt_secret: ""        # JWT signing key; generated and written back when empty; at least 32 characters when configured manually
   salt: ""              # Encryption salt for sensitive fields; generated and written back when empty; at least 32 characters when configured manually
   rate_limit:
@@ -134,7 +134,7 @@ security:
       api_key_ip_denied: {max: 10, window_seconds: 600}
       api_key_dns_denied: {max: 10, window_seconds: 600}
       acme_request: {max: 1200, window_seconds: 60}
-      acme_order: {max: 60, window_seconds: 3600}
+      acme_order: {max: 300, window_seconds: 3600}
 
 acme:
   enabled: true         # Whether to enable the built-in ACME server; enabled by default
@@ -190,7 +190,7 @@ upgrade:
     check_interval_hours: 6
     max_download_mb: 128
     public_key: ""
-    # 未配置 public_key 时默认拒绝在线升级；仅受控环境显式允许未签名包
+    # Official builds embed the release public key automatically; self-built binaries without it reject online upgrades unless unsigned upgrades are explicitly allowed in controlled environments
     allow_unsigned: false
     token: ""
 ```
@@ -250,7 +250,7 @@ Production recommendations: place log files on a dedicated disk or mounted volum
 
 - `entry`: path segment of the secure entry for the admin UI. Manual values must be 8–32 characters from letters, digits, underscores, or hyphens. When empty, a random 20-character combination of upper- and lowercase letters and digits is generated on first startup and saved to the database.
 - `public_url`: external URL, for example `https://ssl.example.com` (without a path). Links in password reset emails are generated from this address to prevent Host header injection; when unset, only local loopback requests may derive the address from the Host header.
-- `session_persistence`: session persistence, defaults to `false`. When `true`, service startup no longer clears the `sessions` table, and JWTs are signed with the fixed `jwt_secret`, so browsers can continue using existing login sessions after the backend process restarts; when `false`, every startup invalidates all previous logins.
+- `session_persistence`: session persistence, defaults to `true`. When `true`, service startup no longer clears the `sessions` table, and JWTs are signed with the fixed `jwt_secret`, so browsers can continue using existing login sessions after the backend process restarts; when `false`, every startup invalidates all previous logins.
 - `jwt_secret`: signing key for login tokens. When empty, a random 32-byte value is generated and written back to the configuration file; manual values must be at least 32 characters, otherwise startup is refused.
 - `salt`: encryption salt for sensitive fields in the database (DNS/deployment credentials, notification keys, private CA and certificate private keys, etc.). When empty, it is generated and written back; manual values must be at least 32 characters, otherwise startup is refused.
 - `rate_limit.max_keys`: maximum number of keys kept by the in-memory token bucket, default `10000`. Each client IP, account, or operation consumes one key; when the limit is reached, the least recently used keys are evicted.
@@ -267,19 +267,19 @@ Common rules and defaults:
 | `api_ip` / `api_anonymous` / `entry` | 600/min, 120/min, 60/min | `/api` total, anonymous requests, and entry probing |
 | `api_key_ip_denied` | 10/10 min | Audit log throttling for API key requests rejected by source IP |
 | `api_key_dns_denied` | 10/10 min | Audit log throttling for API key attempts to use an unauthorized DNS account |
-| `csr_create` | 20/hour | ACME client CSR submissions |
+| `csr_create` | 120/hour | ACME client CSR submissions |
 | `acme_request` / `acme_account` / `acme_pki` | 1200/min, 30/hour, 600/min | ACME protocol entry, account creation, CRL/OCSP |
-| `acme_order` | 60/hour | Order limit when an ACME endpoint does not set its own |
+| `acme_order` | 300/hour | Order limit when an ACME endpoint does not set its own |
 
 > Rate limit changes require a service restart. The per-endpoint "orders per hour" setting in the admin UI takes precedence over `acme_order`.
 
-> **Always back up `config.yaml`.** If `salt` is lost, credentials already encrypted in the database cannot be decrypted; losing or changing `jwt_secret` invalidates existing login sessions. By default, the JWT signing subkey is rotated on every startup and server-side sessions are cleared, so a restart requires signing in again. Set `security.session_persistence: true` to preserve login state.
+> **Always back up `config.yaml`.** If `salt` is lost, credentials already encrypted in the database cannot be decrypted; losing or changing `jwt_secret` invalidates existing login sessions. Session persistence is enabled by default, so a restart keeps server-side sessions. Set `security.session_persistence: false` to restore strict mode, where every startup clears sessions and rotates the JWT signing subkey.
 
 Security recommendations:
 
 - Keep `entry` as a long random string; do not use guessable values such as `admin`, `ssl`, or `panel`.
 - `public_url` must be a fixed HTTPS address and must not depend on the request Host.
-- Choose `session_persistence` according to enterprise session policy. When enabled, a process restart does not force reauthentication, so a longer session lifetime must be acceptable.
+- Choose `session_persistence` according to enterprise session policy. It is enabled by default, so a process restart does not force reauthentication; a longer session lifetime must be acceptable.
 - Generate and store `jwt_secret` and `salt` with a password manager or configuration management system; do not commit them to version control.
 - Changing `salt` makes existing encrypted credentials unusable. A migration plan is mandatory, and the value must never be changed directly.
 

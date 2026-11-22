@@ -172,9 +172,6 @@ func (s *Server) updateSettings(c *gin.Context) {
 		NotifyTo           *string                                `json:"notify_to"`
 		NotifyChannels     map[string]service.NotifyChannelConfig `json:"notify_channels"`
 		SecurityNotify     *service.SecurityNotifyPolicy          `json:"security_notify"`
-		// 出站目标（SMTP/通知）可能携带已存储的密钥，变更时必须再认证。
-		Password string `json:"password"`
-		TOTP     string `json:"totp"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
@@ -186,15 +183,6 @@ func (s *Server) updateSettings(c *gin.Context) {
 		body.CSRAllowedDomains != nil || body.CSRAllowAllDomains != nil
 	if sensitivePolicy && !s.requireAPIKeyScope(c, apiScopeSecurityWrite) {
 		return
-	}
-	if body.SMTPHost != nil || body.SMTPPort != nil || body.SMTPUsername != nil ||
-		body.SMTPPassword != nil || body.SMTPFrom != nil || body.SMTPSSL != nil ||
-		body.NotifyEnable != nil || body.NotifyTo != nil || body.NotifyChannels != nil ||
-		body.SecurityNotify != nil {
-		// 修改 SMTP/通知目标/安全提醒策略等于改变敏感凭据或告警的去向，必须证明当前身份。
-		if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
-			return
-		}
 	}
 	if body.SecurityNotify != nil {
 		if err := service.ValidateSecurityNotifyPolicy(*body.SecurityNotify); err != nil {
@@ -343,16 +331,9 @@ func (s *Server) updateSettings(c *gin.Context) {
 
 func (s *Server) testMail(c *gin.Context) {
 	var body struct {
-		To       string `json:"to"`
-		Password string `json:"password"`
-		TOTP     string `json:"totp"`
+		To string `json:"to"`
 	}
 	_ = c.ShouldBindJSON(&body)
-	// 测试邮件会用已存储的 SMTP 口令连接当前配置的主机，必须再认证，
-	// 防止持有设置权限的调用方把凭据转发到自己的服务器。
-	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
-		return
-	}
 	if allowed, wait := s.allow(ratelimit.NotifyTest, "notifytest:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
@@ -387,16 +368,10 @@ func (s *Server) testMail(c *gin.Context) {
 
 func (s *Server) testChannel(c *gin.Context) {
 	var body struct {
-		Channel  string                      `json:"channel"`
-		Config   service.NotifyChannelConfig `json:"config"`
-		Password string                      `json:"password"`
-		TOTP     string                      `json:"totp"`
+		Channel string                      `json:"channel"`
+		Config  service.NotifyChannelConfig `json:"config"`
 	}
 	_ = c.ShouldBindJSON(&body)
-	// 测试通知会把已存储的渠道密钥按当前 URL 发出，必须再认证。
-	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
-		return
-	}
 	if allowed, wait := s.allow(ratelimit.NotifyTest, "notifytest:"+s.clientRateKey(c)); !allowed {
 		rateLimited(c, wait)
 		return
@@ -426,17 +401,11 @@ func (s *Server) testSecurityNotify(c *gin.Context) {
 	var body struct {
 		Channels []string `json:"channels"`
 		To       string   `json:"to"`
-		Password string   `json:"password"`
-		TOTP     string   `json:"totp"`
 	}
 	_ = c.ShouldBindJSON(&body)
 	user := getUser(c)
 	if user == nil {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
-		return
-	}
-	// 测试提醒会使用当前 SMTP/渠道配置向外部发送消息，必须再认证。
-	if !s.requireReauth(c, user, body.Password, body.TOTP) {
 		return
 	}
 	if allowed, wait := s.allow(ratelimit.NotifyTest, "securitytest:"+s.clientRateKey(c)); !allowed {
@@ -465,7 +434,7 @@ func (s *Server) changeEntry(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
+	if !s.requireSessionReauth(c, getUser(c), body.Password, body.TOTP) {
 		return
 	}
 	entry, err := util.ValidateEntry(body.Entry)

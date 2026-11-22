@@ -64,8 +64,7 @@ Do not send plaintext passwords, API keys, or backup passwords through chat tool
 
 ### 3.2 Sessions
 
-- By default, every service start clears server-side sessions and rotates the JWT subkey; sign-in is required again after a restart.
-- Setting `security.session_persistence: true` keeps sessions across backend restarts. This improves availability but extends session lifetime, so decide in line with enterprise policy.
+- Session persistence is enabled by default, so sessions survive backend restarts. Setting `security.session_persistence: false` clears sessions on every restart. Persistence extends session lifetime, so decide in line with enterprise policy.
 - Periodically review and revoke unknown devices under "Settings → Sessions".
 - A signed-in session is equivalent to administrator privileges; do not stay signed in on shared browsers or untrusted devices.
 - Keep core credential alerts enabled under "Notifications → Security alerts", and enable new-device sign-ins and failed sign-in aggregation as needed; the default threshold is 5 failures within 10 minutes. Changing the email notifies both the old and new addresses, and changing notification targets notifies the previous recipients and channels.

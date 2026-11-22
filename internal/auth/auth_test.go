@@ -37,7 +37,7 @@ func TestPasswordAndJWT(t *testing.T) {
 	}
 }
 
-// TestSessionTokenLength 验证会话 Cookie 值补足到安全基线下限，且令牌仍可正常解析。
+// TestSessionTokenLength 验证会话令牌保持紧凑，且载荷仍可正常解析。
 func TestSessionTokenLength(t *testing.T) {
 	manager := New([]byte("jwt-secret"))
 	user := &model.User{ID: 7, TokenVersion: 3}
@@ -45,18 +45,21 @@ func TestSessionTokenLength(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(token) < MinTokenLength {
-		t.Fatalf("会话令牌长度不足: %d < %d", len(token), MinTokenLength)
+	if len(token) < 100 {
+		t.Fatalf("会话令牌异常偏短: %d", len(token))
 	}
-	if len(token) > MinTokenLength+8 {
-		t.Fatalf("会话令牌不应明显超过目标长度: %d", len(token))
+	if len(token) >= 512 {
+		t.Fatalf("会话令牌不应再填充到 512 字符: %d", len(token))
 	}
 	claims, err := manager.Parse(token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims.UserID != user.ID || claims.ID != sessionID || claims.Pad == "" {
-		t.Fatalf("填充后令牌载荷不正确: %+v", claims)
+	if claims.UserID != user.ID || claims.ID != sessionID {
+		t.Fatalf("令牌载荷不正确: %+v", claims)
+	}
+	if claims.Pad != "" {
+		t.Fatalf("新令牌不应再带填充字段: %q", claims.Pad)
 	}
 }
 
@@ -126,14 +129,15 @@ func TestSignValue(t *testing.T) {
 
 func TestSignValueLong(t *testing.T) {
 	manager := New([]byte("jwt-secret"))
-	value := manager.SignValueLong("csrf", "session-token", MinTokenLength)
-	if len(value) != MinTokenLength {
-		t.Fatalf("签名长度不正确: %d != %d", len(value), MinTokenLength)
+	const length = 128
+	value := manager.SignValueLong("csrf", "session-token", length)
+	if len(value) != length {
+		t.Fatalf("签名长度不正确: %d != %d", len(value), length)
 	}
-	if again := manager.SignValueLong("csrf", "session-token", MinTokenLength); again != value {
+	if again := manager.SignValueLong("csrf", "session-token", length); again != value {
 		t.Fatal("同一会话的 CSRF 签名应保持稳定")
 	}
-	if other := manager.SignValueLong("csrf", "other-token", MinTokenLength); other == value {
+	if other := manager.SignValueLong("csrf", "other-token", length); other == value {
 		t.Fatal("不同会话不应得到相同 CSRF 签名")
 	}
 	if got := manager.SignValueLong("csrf", "session-token", 0); got != "" {
@@ -161,6 +165,29 @@ func TestTOTP(t *testing.T) {
 	}
 	if ValidateTOTP(secret, "000000") {
 		t.Fatal("错误的动态验证码不应通过校验")
+	}
+}
+
+func TestTOTPPurposeIsolation(t *testing.T) {
+	secret, _, err := GenerateTOTP("purpose@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := totp.GenerateCode(secret, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ValidateTOTPPurpose(secret, code, TOTPPurposeLogin); got != TOTPValid {
+		t.Fatalf("登录用途应接受验证码: %v", got)
+	}
+	if got := ValidateTOTPPurpose(secret, code, TOTPPurposeLogin); got != TOTPReplayed {
+		t.Fatalf("同一用途重复使用应返回 TOTPReplayed: %v", got)
+	}
+	if got := ValidateTOTPPurpose(secret, code, TOTPPurposeReauth); got != TOTPValid {
+		t.Fatalf("不同用途应独立消费验证码: %v", got)
+	}
+	if got := ValidateTOTPPurpose(secret, "000000", TOTPPurposeEnroll); got != TOTPInvalid {
+		t.Fatalf("错误验证码应返回 TOTPInvalid: %v", got)
 	}
 }
 

@@ -33,21 +33,22 @@ Key conclusions:
 - Single administrator account; no multi-user, roles, organizational structure, or approval workflow.
 - Passwords are stored as bcrypt hashes and must be at least 8 characters; for production, use random passwords of 16 characters or more.
 - Supports TOTP two-factor authentication and passkeys (WebAuthn/Passkey).
-- Enabling TOTP, registering a passkey, changing SMTP/notification targets, and sending test mail or notifications all require re-authentication (current password or TOTP), preventing a stolen session from binding the account to an attacker-controlled authenticator or forwarding stored SMTP/notification secrets to an attacker host.
+- Enabling TOTP and registering a passkey require on-the-spot re-authentication (current password; TOTP is also required when enabled), preventing a stolen session from binding the account to an attacker-controlled authenticator. Changing SMTP/notification targets and sending test mail or notifications only require a logged-in session or the corresponding API scope; they no longer ask for a separate password/TOTP check.
+- After a successful re-authentication, the same browser session can perform sensitive actions for 5 minutes without re-entering credentials; password, email, TOTP, and passkey changes still require a fresh check.
 - Passkeys must be used through an HTTPS domain or localhost; a bare IP address cannot be used as a WebAuthn origin.
 - Sign-in with a passkey does not ask for TOTP again; the passkey itself performs device fingerprint, face, or system PIN verification.
 - Changing the password increments the token version and deletes all server-side sessions, API keys, and passkeys, immediately invalidating all sign-ins.
 - Resetting the password by email also disables TOTP and deletes passkeys and API keys; the recovery email itself must be secured.
 - Security alerts are sent for password, email, TOTP, passkey, API key, and notification target changes; email changes notify both the old and new addresses. New-device sign-ins are reminded at most once within the configured window (30 days by default); failed sign-ins are aggregated at 5 failures within 10 minutes, at most once per hour.
 - Alerts use email by default. Plugin channels must be explicitly selected, and selecting them sends the sign-in IP, device, and account email to the corresponding third party. Alerts do not replace MFA, strong passwords, or forwarding-rule checks on the mailbox itself.
-- Changing the security alert policy requires re-authentication and notifies the previous recipients and channels using the old SMTP configuration snapshot; a stolen session cannot silently disable alerts or redirect them to attacker-controlled channels.
+- Changing the security alert policy notifies the previous recipients and channels using the old SMTP configuration snapshot, so the old recipients still receive the alert even if the new SMTP settings are wrong or point to an attacker.
 - Security alerts have an hourly limit (10 by default) for high-frequency sign-in/failure alerts only; critical credential changes and new-device sign-ins bypass it, preventing an attacker from drowning critical alerts in noise. The settings page shows per-target delivery status for recent events.
 
 ### 2.2 API keys
 
 - Keys are 86-character Base64URL random strings (64 bytes of entropy) with no fixed prefix; the server stores only a SHA-256 digest.
 - Permissions are divided by "resource:action"; `*` represents all system API capabilities.
-- Sensitive permissions are listed separately: `certificates:key`, `private_cas:key`, `deploy:execute`, `backup:download`, `backup:restore`, `plugins:write`, `settings:write`, `api_keys:write`, and others.
+- Sensitive permissions are listed separately: `certificates:key`, `private_cas:key`, `deploy:execute`, `plugins:write`, `settings:write`, `api_keys:write`, and others. Backup download/restore, entry changes, and database switching are browser-session only.
 - When managing other keys through an API key, a key cannot grant permissions it does not have, nor modify, rotate, or delete keys with higher privileges than its own.
 - Account security operations (password changes, passkeys, session management) are allowed only from browser sign-in sessions and cannot be called with API keys.
 - Create a separate key for each automation system, set an expiration, grant least privilege, and rotate regularly.
@@ -120,12 +121,12 @@ https://your-domain/<entry>/
 
 ### 4.2 Sessions
 
-- Login sessions are stored in `HttpOnly` cookies that frontend scripts cannot read; cookies use `SameSite=Strict`.
-- Session tokens are padded to at least 512 characters; CSRF tokens are 32 characters.
+- Login sessions are stored in `HttpOnly` cookies that frontend scripts cannot read; cookies use `SameSite=Lax`, allowing console deep links from email or external sites; state-changing requests are still protected by double-submit CSRF and Origin checks.
+- Session tokens use compact JWTs with a 24-byte (192-bit) random session ID; CSRF tokens are 32 characters.
 - The first visit to the secure entry or a sign-in issues a long-lived (1 year) `HttpOnly` device identifier cookie (`lactssl_device`, 32 hex characters).
 - On HTTPS deployments, session, CSRF, and entry cookies automatically use the `__Host-` prefix, preventing sibling subdomains under a shared parent domain from overwriting them.
-- By default, every service start clears server-side session records and mixes a startup random value into the JWT signing subkey; all previous sign-ins are invalidated immediately after a restart.
-- With `security.session_persistence: true`, startup no longer clears sessions and uses a fixed `jwt_secret` for signing, so existing sessions remain usable after a backend restart.
+- Session persistence is enabled by default: a restart keeps server-side sessions and uses the fixed `jwt_secret`, so existing sign-ins continue to work.
+- With `security.session_persistence: false`, strict mode is restored: every start clears server-side sessions and mixes a startup random value into the JWT signing subkey, invalidating all previous sign-ins.
 - Changing the password increments the token version and deletes all sessions, API keys, and passkeys.
 
 ### 4.3 CSRF and cross-site protection
@@ -199,7 +200,7 @@ Recommendations:
 ## 8. Plugin and supply chain security
 
 - The official plugin repository supports Ed25519 index signatures; once a public key is configured, `index.json.sig` is verified mandatorily.
-- Program self-upgrade requires `upgrade.program.public_key` by default; without it online upgrades are rejected, and only controlled environments may enable `upgrade.program.allow_unsigned`.
+- Official builds embed `upgrade.program.public_key` and enforce release signature verification by default; self-built binaries without it reject online upgrades, and only controlled environments may enable `upgrade.program.allow_unsigned`.
 - Assets must provide a 64-character hexadecimal SHA-256 digest, which is verified after download.
 - Installation validates `plugin.json`, the ID and version in the manifest, and other attributes; any failure triggers a rollback.
 - File digests from installation records are rechecked during discovery, registration, and before every DNS/deployment/notification call; replaced files are refused for loading or execution.

@@ -14,6 +14,7 @@ import (
 	"lactssl/internal/i18n"
 	"lactssl/internal/logarchive"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/store"
 )
 
@@ -148,7 +149,8 @@ func TestExportLogsRequiresLogin(t *testing.T) {
 
 func TestExportLogsRateLimited(t *testing.T) {
 	router, _, session := setupLogTestServer(t)
-	for i := 0; i < 5; i++ {
+	limit := ratelimit.DefaultRules()[ratelimit.LogExport].Max
+	for i := 0; i < limit; i++ {
 		w := sessionRequest(t, router, http.MethodGet, "/api/logs/export", "", []*http.Cookie{session}, nil)
 		if w.Code != http.StatusOK {
 			t.Fatalf("第 %d 次导出失败: %d %s", i+1, w.Code, w.Body.String())

@@ -175,6 +175,9 @@ func (s *Server) downloadPrivateCA(c *gin.Context) {
 		if !s.requireAPIKeyScope(c, apiScopePrivateCAKey) {
 			return
 		}
+		if !s.requireReauthElevated(c) {
+			return
+		}
 		user := getUser(c)
 		if user == nil {
 			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")

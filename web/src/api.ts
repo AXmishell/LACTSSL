@@ -1,4 +1,5 @@
 import axios, { type AxiosRequestConfig } from 'axios'
+import { reactive } from 'vue'
 import type { ApiError } from './types'
 import { currentLocale, t } from './i18n'
 import { removeStorage } from './storage'
@@ -51,6 +52,63 @@ http.interceptors.request.use((config) => {
   return config
 })
 
+// 会话级再认证：敏感操作返回 403 + reauth_required 时，统一弹出一次
+// 密码/TOTP 对话框，成功后自动重试原请求；5 分钟内不再重复询问。
+export const reauthState = reactive({
+  visible: false,
+  password: '',
+  totp: '',
+  loading: false,
+  error: ''
+})
+
+let reauthPromise: Promise<boolean> | null = null
+let resolveReauth: ((ok: boolean) => void) | null = null
+
+// ensureReauth 打开对话框并等待用户完成或取消；并发请求共享同一次提权。
+export function ensureReauth(): Promise<boolean> {
+  if (reauthPromise) return reauthPromise
+  reauthState.visible = true
+  reauthState.password = ''
+  reauthState.totp = ''
+  reauthState.error = ''
+  reauthPromise = new Promise<boolean>((resolve) => {
+    resolveReauth = resolve
+  })
+  return reauthPromise
+}
+
+// submitReauth 提交再认证；成功后唤醒所有等待中的请求。
+export async function submitReauth(): Promise<void> {
+  if (reauthState.loading) return
+  reauthState.loading = true
+  reauthState.error = ''
+  try {
+    await http.post('/auth/reauth', {
+      password: reauthState.password,
+      totp: reauthState.totp
+    })
+    reauthState.visible = false
+    const resolve = resolveReauth
+    resolveReauth = null
+    reauthPromise = null
+    resolve?.(true)
+  } catch (error: any) {
+    reauthState.error = error?.message || t('common.operationFailed')
+  } finally {
+    reauthState.loading = false
+  }
+}
+
+// cancelReauth 关闭对话框并让等待中的请求按原错误失败。
+export function cancelReauth(): void {
+  reauthState.visible = false
+  const resolve = resolveReauth
+  resolveReauth = null
+  reauthPromise = null
+  resolve?.(false)
+}
+
 http.interceptors.response.use(
   (response) => {
     // 代理或门禁入口配置错误时可能返回 index.html，先校验响应类型，
@@ -66,8 +124,20 @@ http.interceptors.response.use(
     }
     return body
   },
-  (error: any) => {
+  async (error: any) => {
     const data = error.response?.data
+    const url = String(error.config?.url || '')
+    if (
+      error.response?.status === 403 &&
+      data?.reauth_required &&
+      !error.config?._reauthRetried &&
+      !url.includes('/auth/reauth')
+    ) {
+      error.config._reauthRetried = true
+      if (await ensureReauth()) {
+        return http.request(error.config)
+      }
+    }
     return Promise.reject(makeApiError(data, error, undefined))
   }
 )
@@ -90,6 +160,7 @@ function makeApiError(data: any, error: any, fallback?: string, overrideMessage 
   err.status = error.response?.status
   err.totpRequired = !!data?.totp_required
   err.passkeyRequired = !!data?.passkey_required
+  err.reauthRequired = !!data?.reauth_required
   return err
 }
 
@@ -117,7 +188,8 @@ export function errorText(error: unknown): string {
 }
 
 // 统一读取文件下载地址。会话在 HttpOnly Cookie 中，fetch 同源请求会自动携带。
-export async function downloadFile(url: string, filename: string, init?: RequestInit): Promise<void> {
+// 私钥导出等敏感下载返回 reauth_required 时，先完成统一再认证再重试一次。
+export async function downloadFile(url: string, filename: string, init?: RequestInit, retried = false): Promise<void> {
   const headers = new Headers(init?.headers)
   if (init?.method && init.method !== 'GET') {
     headers.set(csrfHeader, csrfToken())
@@ -131,15 +203,21 @@ export async function downloadFile(url: string, filename: string, init?: Request
   if (!response.ok) {
     let message = t('api.downloadFailed')
     let totpRequired = false
+    let reauthRequired = false
     try {
-      const body = await response.json()
+      const body = await response.clone().json()
       if (body?.message) message = body.message
       totpRequired = !!body?.totp_required
+      reauthRequired = !!body?.reauth_required
     } catch (_) {
       // 忽略非 JSON 响应
     }
+    if (reauthRequired && !retried && (await ensureReauth())) {
+      return downloadFile(url, filename, init, true)
+    }
     const error = new Error(message) as ApiError
     error.totpRequired = totpRequired
+    error.reauthRequired = reauthRequired
     throw error
   }
   const blob = await response.blob()

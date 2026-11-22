@@ -20,18 +20,23 @@ func (s *Store) CreateSession(session *model.Session) error {
 // GetSession 按会话 ID 查询记录。
 func (s *Store) GetSession(id string) (*model.Session, error) {
 	var (
-		session    model.Session
-		revoked    sql.NullTime
-		strongAuth int
+		session     model.Session
+		revoked     sql.NullTime
+		reauthUntil sql.NullTime
+		strongAuth  int
 	)
-	err := s.DB.QueryRow(`SELECT id,user_id,ip,user_agent,strong_auth,created_at,last_seen_at,expires_at,revoked_at
+	err := s.DB.QueryRow(`SELECT id,user_id,ip,user_agent,strong_auth,reauth_until,created_at,last_seen_at,expires_at,revoked_at
 		FROM sessions WHERE id=?`, id).
-		Scan(&session.ID, &session.UserID, &session.IP, &session.UserAgent, &strongAuth,
+		Scan(&session.ID, &session.UserID, &session.IP, &session.UserAgent, &strongAuth, &reauthUntil,
 			&session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt, &revoked)
 	if err != nil {
 		return nil, err
 	}
 	session.StrongAuth = strongAuth == 1
+	if reauthUntil.Valid {
+		at := reauthUntil.Time
+		session.ReauthUntil = &at
+	}
 	if revoked.Valid {
 		at := revoked.Time
 		session.RevokedAt = &at
@@ -41,7 +46,7 @@ func (s *Store) GetSession(id string) (*model.Session, error) {
 
 // ListSessions 返回账户下所有未撤销且未过期的会话。
 func (s *Store) ListSessions(userID int64, now time.Time) ([]model.Session, error) {
-	rows, err := s.DB.Query(`SELECT id,user_id,ip,user_agent,strong_auth,created_at,last_seen_at,expires_at
+	rows, err := s.DB.Query(`SELECT id,user_id,ip,user_agent,strong_auth,reauth_until,created_at,last_seen_at,expires_at
 		FROM sessions WHERE user_id=? AND revoked_at IS NULL AND expires_at > ?
 		ORDER BY last_seen_at DESC`, userID, now)
 	if err != nil {
@@ -52,14 +57,19 @@ func (s *Store) ListSessions(userID int64, now time.Time) ([]model.Session, erro
 	sessions := make([]model.Session, 0)
 	for rows.Next() {
 		var (
-			session    model.Session
-			strongAuth int
+			session     model.Session
+			reauthUntil sql.NullTime
+			strongAuth  int
 		)
-		if err := rows.Scan(&session.ID, &session.UserID, &session.IP, &session.UserAgent, &strongAuth,
+		if err := rows.Scan(&session.ID, &session.UserID, &session.IP, &session.UserAgent, &strongAuth, &reauthUntil,
 			&session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt); err != nil {
 			return nil, err
 		}
 		session.StrongAuth = strongAuth == 1
+		if reauthUntil.Valid {
+			at := reauthUntil.Time
+			session.ReauthUntil = &at
+		}
 		sessions = append(sessions, session)
 	}
 	return sessions, rows.Err()
@@ -68,6 +78,14 @@ func (s *Store) ListSessions(userID int64, now time.Time) ([]model.Session, erro
 // TouchSession 更新会话最近活跃时间；cutoff 用于限制写入频率。
 func (s *Store) TouchSession(id string, now, cutoff time.Time) error {
 	_, err := s.DB.Exec(`UPDATE sessions SET last_seen_at=? WHERE id=? AND last_seen_at < ?`, now, id, cutoff)
+	return err
+}
+
+// SetSessionReauthUntil 记录本次会话的再认证有效期。
+// 有效期只作用于单个会话，不影响其他设备或 API 密钥。
+func (s *Store) SetSessionReauthUntil(id string, until time.Time) error {
+	_, err := s.DB.Exec(`UPDATE sessions SET reauth_until=? WHERE id=? AND revoked_at IS NULL`,
+		until.UTC(), id)
 	return err
 }
 
@@ -101,9 +119,8 @@ func (s *Store) DeleteUserSessions(userID int64) error {
 }
 
 // DeleteAllSessions 删除全部服务端会话记录。
-// 默认在进程启动时调用，与启动级 JWT 签名密钥配合，确保重启后旧登录不可恢复，
-// 同时避免设置页继续列出实际已不可用的历史会话。
-// 启用 security.session_persistence 后启动流程不再调用它。
+// 在 security.session_persistence: false 时由启动流程调用，与启动级 JWT
+// 签名密钥配合，确保重启后旧登录不可恢复；默认开启会话保持时不调用。
 func (s *Store) DeleteAllSessions() error {
 	_, err := s.DB.Exec(`DELETE FROM sessions`)
 	return err

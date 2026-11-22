@@ -192,7 +192,7 @@ Notes:
 - Files pre-uploaded with `gh release create <tag> <files>...` that share names with automatic artifacts are overwritten by the workflow with `--clobber`; do not pass files at creation time.
 - Release assets take a few minutes to finish building; if you need to make the release public only after assets are ready, push the tag first and create the Release after CI completes (this requires a separate tag-push flow).
 - Rebuild a specific tag with `gh workflow run release.yml -f tag=v1.0.1`.
-- Release signing: after configuring `ED25519_PRIVATE_KEY_B64`, a detached signature is generated for `checksums.txt`.
+- Release signing: after configuring `ED25519_PRIVATE_KEY_B64`, a detached signature is generated for `checksums.txt`; the release workflow and local release script derive the 32-byte public key and embed it into official binaries so online upgrades work out of the box. You can also set `LACTSSL_PROGRAM_PUBLIC_KEY` to choose the embedded public key.
 
 Local release scripts:
 

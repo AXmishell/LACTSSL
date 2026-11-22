@@ -24,7 +24,7 @@ data_dir: "data"
 
 security:
   public_url: "https://ssl.example.com"
-  session_persistence: false
+  session_persistence: true
 
 log:
   level: info
@@ -126,7 +126,7 @@ log:
 security:
   entry: ""             # 门禁入口，留空则首次启动随机生成
   public_url: ""        # 对外访问地址，如 "https://ssl.example.com"
-  session_persistence: false  # 为 true 时进程重启后保留登录会话
+  session_persistence: true  # 为 false 时进程重启后清空登录会话
   jwt_secret: ""        # JWT 签名密钥，留空自动生成并写回；手动配置至少 32 字符
   salt: ""              # 敏感字段加密盐，留空自动生成并写回；手动配置至少 32 字符
   rate_limit:
@@ -140,7 +140,7 @@ security:
       api_key_ip_denied: {max: 10, window_seconds: 600}
       api_key_dns_denied: {max: 10, window_seconds: 600}
       acme_request: {max: 1200, window_seconds: 60}
-      acme_order: {max: 60, window_seconds: 3600}
+      acme_order: {max: 300, window_seconds: 3600}
 
 acme:
   enabled: true         # 是否启用内置 ACME 服务端，默认开启
@@ -196,7 +196,7 @@ upgrade:
     check_interval_hours: 6
     max_download_mb: 128
     public_key: ""
-    # 未配置 public_key 时默认拒绝在线升级；仅受控环境显式允许未签名包
+    # 官方发布构建会自动内置公钥；自编译版本留空时默认拒绝在线升级，仅受控环境可显式允许未签名包
     allow_unsigned: false
     token: ""
 ```
@@ -276,7 +276,7 @@ database:
 
 - `entry`：管理页面的门禁入口路径段，手工设置要求 8–32 位字母、数字、下划线或中划线。留空时首次启动随机生成 20 位大小写字母与数字组合，并保存到数据库。
 - `public_url`：对外访问地址，例如 `https://ssl.example.com`（不要带路径）。密码重置邮件中的链接基于该地址生成，避免 Host 头注入；未配置时仅允许本机回环请求按 Host 推导。
-- `session_persistence`：会话保持，默认 `false`。为 `true` 时服务启动不再清空 `sessions` 表，JWT 也改用固定的 `jwt_secret` 签名，因此后台进程重启后浏览器仍可继续使用原有登录会话；为 `false` 时每次启动仍会强制所有旧登录失效。
+- `session_persistence`：会话保持，默认 `true`。为 `true` 时服务启动不再清空 `sessions` 表，JWT 也改用固定的 `jwt_secret` 签名，因此后台进程重启后浏览器仍可继续使用原有登录会话；为 `false` 时每次启动仍会强制所有旧登录失效。
 - `jwt_secret`：登录令牌签名密钥。留空时自动生成 32 字节随机值并写回配置文件；手动配置时至少 32 个字符，否则拒绝启动。
 - `salt`：数据库中敏感字段（DNS/部署凭据、通知密钥、私有 CA 与证书私钥等）的加密盐。留空时自动生成并写回；手动配置时至少 32 个字符，否则拒绝启动。
 - `rate_limit.max_keys`：内存令牌桶最多保留的 key 数，默认 `10000`。每个客户端 IP、账户或操作会占用一个 key；超出后按最近未使用顺序淘汰。
@@ -293,19 +293,19 @@ database:
 | `api_ip` / `api_anonymous` / `entry` | 600/分钟、120/分钟、60/分钟 | `/api` 总量、匿名请求与门禁探测 |
 | `api_key_ip_denied` | 10/10 分钟 | API 密钥来源 IP 被拒时的审计日志限频 |
 | `api_key_dns_denied` | 10/10 分钟 | API 密钥使用未授权 DNS 账户时的审计日志限频 |
-| `csr_create` | 20/小时 | ACME 客户端 CSR 提交 |
+| `csr_create` | 120/小时 | ACME 客户端 CSR 提交 |
 | `acme_request` / `acme_account` / `acme_pki` | 1200/分钟、30/小时、600/分钟 | ACME 协议入口、建账户、CRL/OCSP |
-| `acme_order` | 60/小时 | 未在 ACME 端点单独配置时的订单上限 |
+| `acme_order` | 300/小时 | 未在 ACME 端点单独配置时的订单上限 |
 
 > 限流阈值修改后需重启服务生效。ACME 端点自身的「每小时订单数」在管理界面配置，优先级高于 `acme_order`。
 
-> **务必备份 `config.yaml`。** 丢失 `salt` 后，数据库中已加密的凭据无法解密；丢失或更换 `jwt_secret` 会使现有登录会话失效。默认每次启动都会轮换 JWT 签名子密钥并清空服务端会话，因此重启后需要重新登录；设置 `security.session_persistence: true` 可保留登录状态。
+> **务必备份 `config.yaml`。** 丢失 `salt` 后，数据库中已加密的凭据无法解密；丢失或更换 `jwt_secret` 会使现有登录会话失效。默认开启会话保持，重启不会清空服务端会话；设置 `security.session_persistence: false` 可恢复“每次启动清空会话并轮换 JWT 签名子密钥”的严格模式。
 
 安全建议：
 
 - `entry` 保持随机长字符串，不要使用 `admin`、`ssl`、`panel` 等可猜测值。
 - `public_url` 必须是固定 HTTPS 地址，不能依赖请求 Host。
-- `session_persistence` 根据企业会话策略选择；开启后进程重启不强制重新登录，需接受更长的会话生命周期。
+- `session_persistence` 根据企业会话策略选择；默认开启，进程重启不强制重新登录，需接受更长的会话生命周期。
 - `jwt_secret` 和 `salt` 用密码管理器或配置管理系统生成/保管，不要提交到版本库。
 - 更换 `salt` 会导致已有加密凭据不可用，必须配套迁移方案，禁止直接改值。
 

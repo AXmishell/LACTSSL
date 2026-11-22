@@ -101,14 +101,14 @@ var defaultRules = map[string]Rule{
 	PrivateCAKeyExport:     {Max: 30, Window: time.Minute},
 	CertKeyExport:          {Max: 30, Window: time.Minute},
 	CertKeyView:            {Max: 30, Window: time.Minute},
-	CSRCreate:              {Max: 20, Window: time.Hour},
+	CSRCreate:              {Max: 120, Window: time.Hour},
 	CredentialVerify:       {Max: 5, Window: time.Minute},
 	CredentialVerifyClient: {Max: 20, Window: time.Minute},
 	BackupDownload:         {Max: 5, Window: 10 * time.Minute},
-	LogExport:              {Max: 5, Window: 10 * time.Minute},
+	LogExport:              {Max: 30, Window: 10 * time.Minute},
 	LogClear:               {Max: 3, Window: 10 * time.Minute},
 	TaskLogClear:           {Max: 10, Window: 10 * time.Minute},
-	SystemLogExport:        {Max: 5, Window: 10 * time.Minute},
+	SystemLogExport:        {Max: 30, Window: 10 * time.Minute},
 	SystemLogClear:         {Max: 3, Window: 10 * time.Minute},
 	LogArchiveDownload:     {Max: 20, Window: time.Minute},
 	LogArchiveDelete:       {Max: 10, Window: time.Minute},
@@ -125,7 +125,7 @@ var defaultRules = map[string]Rule{
 	ACMERequest:            {Max: 1200, Window: time.Minute},
 	ACMEAccount:            {Max: 30, Window: time.Hour},
 	ACMEPKI:                {Max: 600, Window: time.Minute},
-	ACMEOrder:              {Max: 60, Window: time.Hour},
+	ACMEOrder:              {Max: 300, Window: time.Hour},
 }
 
 // DefaultConfig 返回内置默认限流配置。

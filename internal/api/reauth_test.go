@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pquerna/otp/totp"
+	"lactssl/internal/auth"
 	"lactssl/internal/model"
 	"lactssl/internal/service"
 )
@@ -204,13 +206,15 @@ func TestCertificateDownloadsAndPrivateCAKeyWithSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 证书链/证书下载只依赖登录会话。
+	// 证书链、证书与证书私钥下载都只依赖登录会话。
 	openCases := []struct {
 		path string
 		want string
 	}{
 		{"/api/certificates/" + itoa(cert.ID) + "/download?type=fullchain", "CHAIN"},
 		{"/api/certificates/" + itoa(cert.ID) + "/download?type=cert", "CERT"},
+		{"/api/certificates/" + itoa(cert.ID) + "/pem?type=key", "PRIVATE-KEY"},
+		{"/api/certificates/" + itoa(cert.ID) + "/download?type=key", "PRIVATE-KEY"},
 	}
 	for _, item := range openCases {
 		allowed := sessionRequest(t, router, http.MethodGet, item.path, "", []*http.Cookie{session}, nil)
@@ -219,26 +223,152 @@ func TestCertificateDownloadsAndPrivateCAKeyWithSession(t *testing.T) {
 		}
 	}
 
-	// 证书私钥查看与下载只需要登录会话。
-	keyCases := []string{
-		"/api/certificates/" + itoa(cert.ID) + "/pem?type=key",
-		"/api/certificates/" + itoa(cert.ID) + "/download?type=key",
-	}
-	for _, path := range keyCases {
-		allowed := sessionRequest(t, router, http.MethodGet, path, "", []*http.Cookie{session}, nil)
-		if allowed.Code != http.StatusOK || !strings.Contains(allowed.Body.String(), "PRIVATE-KEY") {
-			t.Fatalf("%s 登录会话应允许访问: %d %s", path, allowed.Code, allowed.Body.String())
-		}
-	}
-
-	// 私有 CA 私钥导出只需要登录会话。
+	// 私有 CA 私钥导出仍需要再认证有效期。
 	caKeyPath := "/api/private-cas/" + itoa(ca.ID) + "/download?type=key"
+	denied := sessionRequest(t, router, http.MethodGet, caKeyPath, "", []*http.Cookie{session}, nil)
+	if denied.Code != http.StatusForbidden || !strings.Contains(denied.Body.String(), "api.error.reauth_required") {
+		t.Fatalf("未再认证时不应允许导出私有 CA 私钥: %d %s", denied.Code, denied.Body.String())
+	}
+	reauth := sessionRequest(t, router, http.MethodPost, "/api/auth/reauth",
+		`{"password":"password1234"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+	if reauth.Code != http.StatusOK {
+		t.Fatalf("再认证失败: %d %s", reauth.Code, reauth.Body.String())
+	}
 	allowed := sessionRequest(t, router, http.MethodGet, caKeyPath, "", []*http.Cookie{session}, nil)
 	if allowed.Code != http.StatusOK || !strings.Contains(allowed.Body.String(), "BEGIN") {
-		t.Fatalf("%s 登录会话应允许访问: %d %s", caKeyPath, allowed.Code, allowed.Body.String())
+		t.Fatalf("%s 再认证后应允许访问: %d %s", caKeyPath, allowed.Code, allowed.Body.String())
 	}
 }
 
 func itoa(value int64) string {
 	return strconv.FormatInt(value, 10)
+}
+
+func TestReauthEndpointGrantsElevation(t *testing.T) {
+	router, _ := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	headers := map[string]string{csrfHeaderName: "1"}
+
+	missing := sessionRequest(t, router, http.MethodPost, "/api/auth/reauth",
+		`{}`, []*http.Cookie{session}, headers)
+	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), "api.error.current_password_wrong") {
+		t.Fatalf("缺少密码不应建立再认证有效期: %d %s", missing.Code, missing.Body.String())
+	}
+
+	granted := sessionRequest(t, router, http.MethodPost, "/api/auth/reauth",
+		`{"password":"password1234"}`, []*http.Cookie{session}, headers)
+	if granted.Code != http.StatusOK || !strings.Contains(granted.Body.String(), `"expires_at"`) {
+		t.Fatalf("正确密码应建立再认证有效期: %d %s", granted.Code, granted.Body.String())
+	}
+
+	// 有效期内低风险敏感操作无需重复输入密码。
+	entry := sessionRequest(t, router, http.MethodPost, "/api/security/entry",
+		`{"entry":"newentry123"}`, []*http.Cookie{session}, headers)
+	if entry.Code != http.StatusOK {
+		t.Fatalf("再认证有效期内应允许修改门禁入口: %d %s", entry.Code, entry.Body.String())
+	}
+
+	// 账户控制权变更仍要求现场验证，不能复用提权窗口。
+	email := sessionRequest(t, router, http.MethodPost, "/api/auth/change-email",
+		`{"email":"new@example.com"}`, []*http.Cookie{session}, headers)
+	if email.Code != http.StatusBadRequest || !strings.Contains(email.Body.String(), "api.error.current_password_wrong") {
+		t.Fatalf("改邮箱必须现场再认证: %d %s", email.Code, email.Body.String())
+	}
+}
+
+func TestTOTPReauthUsesSeparatePurpose(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	user, err := st.GetUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, _, err := auth.GenerateTOTP(user.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetTOTP(user.ID, secret, true); err != nil {
+		t.Fatal(err)
+	}
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	login := sessionRequest(t, router, http.MethodPost, "/api/auth/login",
+		`{"email":"admin@example.com","password":"password1234","totp":"`+code+`"}`, nil, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("使用 TOTP 登录失败: %d %s", login.Code, login.Body.String())
+	}
+	session = findCookie(t, login.Result().Cookies(), sessionCookieName)
+
+	headers := map[string]string{csrfHeaderName: "1"}
+	reauth := sessionRequest(t, router, http.MethodPost, "/api/auth/reauth",
+		`{"password":"password1234","totp":"`+code+`"}`, []*http.Cookie{session}, headers)
+	if reauth.Code != http.StatusOK {
+		t.Fatalf("登录用过的验证码应可在 reauth 用途复用: %d %s", reauth.Code, reauth.Body.String())
+	}
+}
+
+func TestReauthReplayedCodeIsRejected(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+
+	user, err := st.GetUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, _, err := auth.GenerateTOTP(user.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetTOTP(user.ID, secret, true); err != nil {
+		t.Fatal(err)
+	}
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 先消费 reauth 用途的验证码，登录用途仍然可用。
+	if got := auth.ValidateTOTPPurpose(secret, code, auth.TOTPPurposeReauth); got != auth.TOTPValid {
+		t.Fatalf("预消费 reauth 验证码失败: %v", got)
+	}
+	login := sessionRequest(t, router, http.MethodPost, "/api/auth/login",
+		`{"email":"admin@example.com","password":"password1234","totp":"`+code+`"}`, nil, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("使用 TOTP 登录失败: %d %s", login.Code, login.Body.String())
+	}
+	session = findCookie(t, login.Result().Cookies(), sessionCookieName)
+
+	headers := map[string]string{csrfHeaderName: "1"}
+	replay := sessionRequest(t, router, http.MethodPost, "/api/auth/reauth",
+		`{"password":"password1234","totp":"`+code+`"}`, []*http.Cookie{session}, headers)
+	if replay.Code != http.StatusBadRequest || !strings.Contains(replay.Body.String(), "api.error.totp_reused") {
+		t.Fatalf("同一用途重复使用应返回 totp_reused: %d %s", replay.Code, replay.Body.String())
+	}
+}
+
+func TestReauthEndpointRejectsAPIKey(t *testing.T) {
+	router, _ := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	token, _ := createAPIKeyForTest(t, router, session, "reauth-key", []string{apiScopeAll})
+	resp := apiKeyRequest(t, router, token, http.MethodPost, "/api/auth/reauth",
+		`{"password":"password1234"}`, "")
+	if resp.Code != http.StatusForbidden || !strings.Contains(resp.Body, "api.error.api_key_route_forbidden") {
+		t.Fatalf("API 密钥不应调用交互式再认证: %d %s", resp.Code, resp.Body)
+	}
+}
+
+func TestValidEmailAllowsInternalDomain(t *testing.T) {
+	for _, email := range []string{"admin@corp", "admin@example.com", "ops@localhost"} {
+		if !validEmail(email) {
+			t.Fatalf("合法邮箱被拒绝: %s", email)
+		}
+	}
+	for _, email := range []string{"", "admin", "admin@", "@example.com", "Admin <admin@example.com>"} {
+		if validEmail(email) {
+			t.Fatalf("非法邮箱被接受: %s", email)
+		}
+	}
 }

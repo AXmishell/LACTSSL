@@ -61,6 +61,7 @@ func sqliteStatements() []string {
 			ip TEXT NOT NULL DEFAULT '',
 			user_agent TEXT NOT NULL DEFAULT '',
 			strong_auth INTEGER NOT NULL DEFAULT 0,
+			reauth_until DATETIME,
 			created_at DATETIME NOT NULL,
 			last_seen_at DATETIME NOT NULL,
 			expires_at DATETIME NOT NULL,

@@ -411,19 +411,24 @@ func stepSettingsCleanup(ctx context.Context, m *Manager) (StepResult, error) {
 	return result, nil
 }
 
-// stepRuntimeCleanup 在跨版本升级后清空登录会话并恢复中断任务。
-// 这会强制管理员重新登录，避免旧版本令牌或旧 schema 下的会话继续生效。
+// stepRuntimeCleanup 在跨版本升级后清理登录会话并恢复中断任务。
+// 默认会话保持开启时跳过会话清理，避免升级后管理员被迫重新登录。
 func stepRuntimeCleanup(ctx context.Context, m *Manager) (StepResult, error) {
 	result := StepResult{Changed: true}
-	if err := m.store.DeleteAllSessions(); err != nil {
-		return result, fmt.Errorf("清理历史会话失败: %w", err)
+	if !m.sessionPersistence {
+		if err := m.store.DeleteAllSessions(); err != nil {
+			return result, fmt.Errorf("清理历史会话失败: %w", err)
+		}
+		result.Details = append(result.Details, "会话保持未开启，已清空历史会话")
+	} else {
+		result.Details = append(result.Details, "会话保持已开启，跳过会话清理")
 	}
 	m.store.ResetRunningTasks()
 	m.store.ResetProcessingACMEChallenges()
 	if err := m.store.Maintenance(); err != nil {
 		result.Details = append(result.Details, "基础维护部分失败: "+err.Error())
 	}
-	result.Details = append(result.Details, "已清空旧登录会话、重排中断任务并清理过期记录")
+	result.Details = append(result.Details, "已重排中断任务并清理过期记录")
 	return result, nil
 }
 

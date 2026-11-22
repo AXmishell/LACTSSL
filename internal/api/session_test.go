@@ -208,8 +208,11 @@ func TestLoginCookieLengths(t *testing.T) {
 	}
 	session := findCookie(t, setup.Result().Cookies(), sessionCookieName)
 	csrf := findCookie(t, setup.Result().Cookies(), csrfCookieName)
-	if len(session.Value) < auth.MinTokenLength {
-		t.Fatalf("会话 Cookie 长度不足: %d", len(session.Value))
+	if len(session.Value) < 100 || len(session.Value) >= 512 {
+		t.Fatalf("会话 Cookie 长度不正确: %d", len(session.Value))
+	}
+	if session.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("会话 Cookie 应为 SameSite=Lax: %v", session.SameSite)
 	}
 	if len(csrf.Value) != csrfTokenLength {
 		t.Fatalf("CSRF Cookie 长度不正确: %d", len(csrf.Value))
