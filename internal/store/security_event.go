@@ -181,12 +181,22 @@ func (s *Store) UpdateSecurityEventDelivery(id int64, deliveries map[string]stri
 	if err != nil {
 		return err
 	}
+	// nextAttemptAt 为空表示投递已结束（成功或重试耗尽），此时清空 SMTP 快照，
+	// 避免长期保留旧的加密密码。
+	// 不要用 `CASE WHEN ? IS NULL` 来判断：PostgreSQL 无法从该表达式推断
+	// 参数类型，会返回 42P18，导致投递结果永远写不回数据库。
+	if nextAttemptAt == nil {
+		_, err = s.DB.Exec(`UPDATE security_events
+			SET deliveries=?, attempts=?, last_error=?, next_attempt_at=NULL, delivered_at=?,
+				smtp_snapshot=''
+			WHERE id=?`,
+			string(encoded), attempts, lastError, nullableTime(deliveredAt), id)
+		return err
+	}
 	_, err = s.DB.Exec(`UPDATE security_events
-		SET deliveries=?, attempts=?, last_error=?, next_attempt_at=?, delivered_at=?,
-			smtp_snapshot=CASE WHEN ? IS NULL THEN '' ELSE smtp_snapshot END
+		SET deliveries=?, attempts=?, last_error=?, next_attempt_at=?, delivered_at=?
 		WHERE id=?`,
-		string(encoded), attempts, lastError, nullableTime(nextAttemptAt), nullableTime(deliveredAt),
-		nullableTime(nextAttemptAt), id)
+		string(encoded), attempts, lastError, nullableTime(nextAttemptAt), nullableTime(deliveredAt), id)
 	return err
 }
 

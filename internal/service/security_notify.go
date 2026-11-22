@@ -609,6 +609,7 @@ func (m *Manager) processSecurityEvents() {
 	now := time.Now().UTC()
 	events, err := m.Store.ListPendingSecurityEvents(now, 50)
 	if err != nil {
+		logger().Error("读取待投递安全事件失败", "error", err)
 		return
 	}
 	for index := range events {
@@ -618,7 +619,11 @@ func (m *Manager) processSecurityEvents() {
 		// 这里逐条重新取当前时间，避免批量处理耗时把租约算到过去。
 		claimNow := time.Now().UTC()
 		claimed, claimErr := m.Store.ClaimSecurityEvent(event.ID, claimNow, claimNow.Add(securityDeliveryLease(event)))
-		if claimErr != nil || !claimed {
+		if claimErr != nil {
+			logger().Error("抢占安全事件失败", "event_id", event.ID, "error", claimErr)
+			continue
+		}
+		if !claimed {
 			continue
 		}
 		m.deliverSecurityEvent(event)
@@ -729,19 +734,23 @@ func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {
 	}
 	now := time.Now().UTC()
 	if allSent {
-		if err := m.Store.UpdateSecurityEventDelivery(event.ID, deliveries, attempts, "", nil, &now); err == nil {
-			m.Store.AddLogKey("notify", event.UserID, "info", "log.security.notify_delivered", map[string]any{
-				"kind":  event.Kind,
-				"count": len(required),
-			})
+		if err := m.Store.UpdateSecurityEventDelivery(event.ID, deliveries, attempts, "", nil, &now); err != nil {
+			logger().Error("写入安全提醒投递结果失败", "event_id", event.ID, "error", err)
+			return
 		}
+		m.Store.AddLogKey("notify", event.UserID, "info", "log.security.notify_delivered", map[string]any{
+			"kind":  event.Kind,
+			"count": len(required),
+		})
 		return
 	}
 	if lastError == "" {
 		lastError = "delivery failed"
 	}
 	if attempts >= securityNotifyMaxAttempts {
-		_ = m.Store.UpdateSecurityEventDelivery(event.ID, deliveries, attempts, lastError, nil, nil)
+		if err := m.Store.UpdateSecurityEventDelivery(event.ID, deliveries, attempts, lastError, nil, nil); err != nil {
+			logger().Error("写入安全提醒失败结果失败", "event_id", event.ID, "error", err)
+		}
 		m.Store.AddLogKey("notify", event.UserID, "error", "log.security.notify_failed", map[string]any{
 			"kind":  event.Kind,
 			"error": lastError,
@@ -749,12 +758,14 @@ func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {
 		return
 	}
 	next := now.Add(securityRetryDelay(attempts))
-	if err := m.Store.UpdateSecurityEventDelivery(event.ID, deliveries, attempts, lastError, &next, nil); err == nil {
-		m.Store.AddLogKey("notify", event.UserID, "warning", "log.security.notify_failed", map[string]any{
-			"kind":  event.Kind,
-			"error": lastError,
-		})
+	if err := m.Store.UpdateSecurityEventDelivery(event.ID, deliveries, attempts, lastError, &next, nil); err != nil {
+		logger().Error("安排安全提醒重试失败", "event_id", event.ID, "error", err)
+		return
 	}
+	m.Store.AddLogKey("notify", event.UserID, "warning", "log.security.notify_failed", map[string]any{
+		"kind":  event.Kind,
+		"error": lastError,
+	})
 }
 
 func (m *Manager) securityChannelDeliverable(channels []string) bool {
@@ -819,7 +830,9 @@ func securityChannelKey(channel string) string {
 }
 
 func (m *Manager) finishSecurityEvent(event *model.SecurityEvent, attempts int, reason string) {
-	_ = m.Store.UpdateSecurityEventDelivery(event.ID, event.Deliveries, attempts, reason, nil, nil)
+	if err := m.Store.UpdateSecurityEventDelivery(event.ID, event.Deliveries, attempts, reason, nil, nil); err != nil {
+		logger().Error("写入安全提醒失败结果失败", "event_id", event.ID, "error", err)
+	}
 	m.Store.AddLogKey("notify", event.UserID, "error", "log.security.notify_failed", map[string]any{
 		"kind":  event.Kind,
 		"error": reason,

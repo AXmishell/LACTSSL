@@ -95,6 +95,56 @@ func TestPostgresCreateFirstUser(t *testing.T) {
 	}
 }
 
+// TestPostgresSecurityEventTerminalUpdate 回归 PostgreSQL 上投递结果写不回
+// 数据库的问题：旧实现用 `CASE WHEN ? IS NULL` 判断是否清空 SMTP 快照，
+// PostgreSQL 无法推断该参数类型（42P18），导致 delivered_at/attempts 永远
+// 不更新，UI 一直显示“待投递”。
+func TestPostgresSecurityEventTerminalUpdate(t *testing.T) {
+	st := openTestPG(t)
+	if _, err := st.DB.Exec(`DELETE FROM security_events WHERE user_id=?`, 990001); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = st.DB.Exec(`DELETE FROM security_events WHERE user_id=?`, 990001)
+	})
+	event := &model.SecurityEvent{
+		UserID:     990001,
+		Kind:       model.SecurityEventTest,
+		Notify:     true,
+		Recipients: []string{"pg@example.com"},
+		Channels:   []string{"mail"},
+		CreatedAt:  time.Now().UTC(),
+		SMTP: &model.SMTPConfigSnapshot{
+			Host:     "smtp.example.com",
+			Port:     465,
+			From:     "noreply@example.com",
+			Password: "snapshot-secret",
+		},
+	}
+	if err := st.CreateSecurityEvent(event); err != nil {
+		t.Fatal(err)
+	}
+	deliveredAt := time.Now().UTC()
+	if err := st.UpdateSecurityEventDelivery(event.ID, map[string]string{
+		"mail:pg@example.com": "sent",
+	}, 1, "", nil, &deliveredAt); err != nil {
+		t.Fatalf("投递结果写入失败: %v", err)
+	}
+	loaded, err := st.GetSecurityEvent(event.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.DeliveredAt == nil || loaded.DeliveredAt.Sub(deliveredAt).Abs() > time.Microsecond {
+		t.Fatalf("delivered_at 未写入: %+v", loaded)
+	}
+	if loaded.Attempts != 1 {
+		t.Fatalf("attempts 未写入: %+v", loaded)
+	}
+	if loaded.SMTP != nil {
+		t.Fatalf("投递结束后应清空 SMTP 快照: %+v", loaded.SMTP)
+	}
+}
+
 func TestPostgresCAPoolCursorConcurrent(t *testing.T) {
 	st := openTestPG(t)
 	if _, err := st.DB.Exec(`DELETE FROM ca_pool_items`); err != nil {
