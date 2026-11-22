@@ -161,6 +161,7 @@ Resolution:
 
 - Public CAs such as Let's Encrypt impose rate limits on accounts, domains, and failed validations; check the CA status page and error details.
 - ZeroSSL, Google Trust Services, LiteSSL, ZoTrus, Actalis, and SSL.com require EAB; confirm that the EAB KID/HMAC is correct and has not expired (for ZoTrus, the KID is the registered email).
+- ZoTrus derives the dns-01 record name from the server-provided `tokenPath` (usually `_<tokenPath>.<domain>`), not the standard `_acme-challenge`. A task using ZoTrus enters “Waiting for DNS validation” after it runs; add the records shown in the task logs or the “DNS validation” panel, then click “Continue validation”. ZoTrus does not support wildcards, CA pools, or Target Flow Beta yet.
 - Generic ACME upstream directories must use HTTPS; local loopback is exempt.
 - Prepare a backup CA for critical domains so that rate limits at a single CA do not cause total failure.
 

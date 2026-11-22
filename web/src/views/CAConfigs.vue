@@ -619,7 +619,7 @@ function poolCAOptions(index: number): CADef[] {
       .map((item) => item.ca_value)
       .filter((value) => value !== '')
   )
-  return (meta.value?.cas || []).filter((ca) => ca.value === current || !taken.has(ca.value))
+  return (meta.value?.cas || []).filter((ca) => ca.value === current || (ca.value !== 'zotrus' && !taken.has(ca.value)))
 }
 
 function handlePoolCommand(command: string, row: CAPool): void {

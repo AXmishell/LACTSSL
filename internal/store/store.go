@@ -302,6 +302,10 @@ func (s *Store) Maintenance() error {
 	}
 	exec(`DELETE FROM deploy_records WHERE created_at < ?`, nowUTC().AddDate(0, 0, -180))
 	exec(`DELETE FROM certificate_requests WHERE status IN ('issued','failed','cancelled','expired') AND updated_at < ?`, nowUTC().AddDate(0, 0, -90))
+	// 零信待验证订单包含临时私钥：失败/已签发订单保留 30 天供排查，
+	// 长期未完成的 pending 订单也一并清理，避免密钥无限期驻留。
+	exec(`DELETE FROM zotrus_orders WHERE status IN ('issued','failed') AND updated_at < ?`, nowUTC().AddDate(0, 0, -30))
+	exec(`DELETE FROM zotrus_orders WHERE created_at < ?`, nowUTC().AddDate(0, 0, -30))
 	if err := s.CleanupSystemLogs(); err != nil {
 		setErr(err)
 	}
@@ -875,6 +879,9 @@ func (s *Store) DeleteTask(id int64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.Exec(`DELETE FROM task_certificate_links WHERE task_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM zotrus_orders WHERE task_id=?`, id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM tasks WHERE id=?`, id); err != nil {

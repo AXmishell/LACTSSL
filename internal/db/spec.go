@@ -44,5 +44,6 @@ func DataTables() []TableSpec {
 		{Name: "acme_authorizations", PrimaryKey: []string{"id"}, HasID: true},
 		{Name: "acme_challenges", PrimaryKey: []string{"id"}, HasID: true},
 		{Name: "certificate_requests", PrimaryKey: []string{"id"}, HasID: true},
+		{Name: "zotrus_orders", PrimaryKey: []string{"id"}, HasID: true},
 	}
 }

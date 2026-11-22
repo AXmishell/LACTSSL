@@ -32,7 +32,7 @@
 | ZeroSSL | 需要 EAB |
 | Google Trust Services | 需要 EAB |
 | LiteSSL | 需要 EAB |
-| 零信 ZoTrus | 需要 EAB，KID 为注册邮箱 |
+| 零信 ZoTrus | 需要 EAB，KID 为注册邮箱；使用手动 DNS 验证，不支持通配符 |
 | Actalis | 需要 EAB |
 | SSL.com | 需要 EAB，按私钥类型自动选择 ECDSA/RSA 端点 |
 

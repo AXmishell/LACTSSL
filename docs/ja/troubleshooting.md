@@ -161,6 +161,7 @@ proxy_set_header X-Forwarded-Proto $scheme;
 
 - Let's Encrypt などのパブリック CA には、アカウント、ドメイン、検証失敗などに対するレート制限があります。CA のステータスページとエラーの詳細を確認してください。
 - ZeroSSL、Google Trust Services、LiteSSL、ZoTrus、Actalis、SSL.com は EAB が必要です。EAB の KID/HMAC が正しく、有効期限内であることを確認してください（ZoTrus の KID は登録メールアドレスです）。
+- ZoTrus の dns-01 レコード名はサーバーが返す `tokenPath` に基づきます（通常 `_<tokenPath>.<domain>`）。標準の `_acme-challenge` ではありません。ZoTrus を使用するタスクは実行後に「DNS 検証待ち」になり、タスクログまたは「DNS 検証」パネルに表示されるレコードを追加して「検証を続行」をクリックしてください。ZoTrus はワイルドカード、CA プール、ターゲットフロー Beta には未対応です。
 - 汎用 ACME アップストリームのディレクトリは HTTPS である必要があります。ローカルループバックは除きます。
 - 重要なドメインには予備の CA を用意し、単一の CA のレート制限ですべてが失敗するのを避けてください。
 

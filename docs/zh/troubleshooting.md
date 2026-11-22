@@ -161,6 +161,7 @@ proxy_set_header X-Forwarded-Proto $scheme;
 
 - Let's Encrypt 等公共 CA 有账户、域名、失败验证等速率限制；查看 CA 状态页和错误详情。
 - ZeroSSL、Google Trust Services、LiteSSL、零信 ZoTrus、Actalis、SSL.com 需要 EAB；确认 EAB KID/HMAC 正确且未过期（零信 ZoTrus 的 KID 为注册邮箱）。
+- 零信 ZoTrus 的 dns-01 记录名由服务端 `tokenPath` 决定（通常形如 `_<tokenPath>.<domain>`），不是标准的 `_acme-challenge`。选择零信的任务运行后会进入“等待 DNS 验证”，在任务日志或“DNS 验证”面板中添加记录后点击“继续验证”。零信暂不支持通配符、CA 调度组和目标流程 Beta。
 - 通用 ACME 上游目录必须是 HTTPS；本机回环除外。
 - 为关键域名准备备用 CA，避免单一 CA 限流导致全部失败。
 

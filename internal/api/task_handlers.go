@@ -266,33 +266,49 @@ func (s *Server) fillTaskBody(body *taskBody) error {
 			isPrivateCA = true
 		}
 	}
+	isZotrusCA := !isPrivateCA && body.CAPoolID == 0 && strings.TrimSpace(body.CA) == "zotrus"
+	if isZotrusCA && body.FlowMode == model.FlowTargetBeta {
+		return i18n.E("service.zotrus.beta_unsupported")
+	}
+	if isZotrusCA {
+		// 零信使用手动 DNS，不保存 DNS 账户或路由快照。
+		body.DNSAccountID = 0
+		body.DNSRoutes = nil
+		for _, domain := range body.Domains {
+			if strings.HasPrefix(strings.TrimSpace(domain), "*.") {
+				return i18n.E("service.zotrus.wildcard_unsupported")
+			}
+		}
+	}
 	if !isPrivateCA {
-		if body.FlowMode == model.FlowTargetBeta && len(body.Domains) == 0 {
-			// 目标流程的域名在运行时由站点发现结果决定，保存时只校验显式账户。
-			if body.DNSAccountID > 0 {
-				if _, err := s.Store.GetDNSAccount(body.DNSAccountID); err != nil {
-					return i18n.E("task.error.dns_account_required")
+		if !isZotrusCA {
+			if body.FlowMode == model.FlowTargetBeta && len(body.Domains) == 0 {
+				// 目标流程的域名在运行时由站点发现结果决定，保存时只校验显式账户。
+				if body.DNSAccountID > 0 {
+					if _, err := s.Store.GetDNSAccount(body.DNSAccountID); err != nil {
+						return i18n.E("task.error.dns_account_required")
+					}
 				}
-			}
-		} else {
-			routes := preservedRoutes
-			if body.DNSAccountID > 0 || !service.DNSRoutesCoverDomains(routes, body.Domains) {
-				var err error
-				routes, err = s.resolveTaskDNSRoutes(body.Domains, body.DNSAccountID)
-				if err != nil {
-					return err
-				}
-			}
-			body.DNSRoutes = routes
-			accountIDs := service.DNSRouteAccountIDs(routes)
-			if len(accountIDs) == 1 {
-				body.DNSAccountID = accountIDs[0]
 			} else {
-				body.DNSAccountID = 0
-			}
-			for _, accountID := range accountIDs {
-				if _, err := s.Store.GetDNSAccount(accountID); err != nil {
-					return i18n.E("task.error.dns_account_required")
+				routes := preservedRoutes
+				if body.DNSAccountID > 0 || !service.DNSRoutesCoverDomains(routes, body.Domains) {
+					var err error
+					routes, err = s.resolveTaskDNSRoutes(body.Domains, body.DNSAccountID)
+					if err != nil {
+						return err
+					}
+				}
+				body.DNSRoutes = routes
+				accountIDs := service.DNSRouteAccountIDs(routes)
+				if len(accountIDs) == 1 {
+					body.DNSAccountID = accountIDs[0]
+				} else {
+					body.DNSAccountID = 0
+				}
+				for _, accountID := range accountIDs {
+					if _, err := s.Store.GetDNSAccount(accountID); err != nil {
+						return i18n.E("task.error.dns_account_required")
+					}
 				}
 			}
 		}
@@ -782,6 +798,10 @@ func (s *Server) nextRunForTask(task *model.Task) *time.Time {
 	if task == nil || !task.Enabled {
 		return nil
 	}
+	if task.Status == "waiting_dns" {
+		// 等待手动 DNS 验证期间不参与自动续期调度。
+		return nil
+	}
 	if task.FlowMode == model.FlowTargetBeta {
 		if !task.AutoRenew {
 			return nil
@@ -886,6 +906,21 @@ func (s *Server) updateTask(c *gin.Context) {
 	if err := s.Store.UpdateTask(task); err != nil {
 		failErr(c, http.StatusInternalServerError, err)
 		return
+	}
+	resetWaiting := false
+	if strings.TrimSpace(task.CA) != "zotrus" || task.CAPoolID != 0 {
+		// 任务已不再使用零信，丢弃旧的待验证订单，避免残留私钥与记录。
+		_ = s.Manager.ResetZotrusOrder(task.ID)
+		resetWaiting = true
+	} else if s.Manager.ResetStaleZotrusOrder(task) {
+		// 域名或私钥类型变化后旧订单已失效。
+		resetWaiting = true
+	}
+	if resetWaiting && task.Status == "waiting_dns" {
+		// 任务回到待执行状态，让用户可以直接重新运行并生成新的验证记录。
+		_ = s.Store.UpdateTaskResult(task.ID, "pending", i18n.Encode("task.status.pending", nil), task.LastRunAt, nil, task.CertID)
+		task.Status = "pending"
+		task.Message = i18n.Encode("task.status.pending", nil)
 	}
 
 	// 根据启用状态和现有证书重新安排下次执行时间。

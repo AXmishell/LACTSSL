@@ -430,6 +430,25 @@ func sqliteStatements() []string {
 		)`,
 		// certificate_requests 保存客户端提交的 CSR 申请。服务端只保存 CSR
 		// 公钥与域名声明，不保存私钥；证书签发后通过 certificate_id 关联。
+		// zotrus_orders 保存等待用户手动添加 DNS 记录的零信订单。
+		// 私钥在 Store 层加密；CSR 为公开数据，按 DER 的 base64url 保存。
+		`CREATE TABLE IF NOT EXISTS zotrus_orders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL,
+			domains TEXT NOT NULL DEFAULT '[]',
+			key_type TEXT NOT NULL DEFAULT 'ecdsa',
+			order_url TEXT NOT NULL DEFAULT '',
+			account_uri TEXT NOT NULL DEFAULT '',
+			finalize_url TEXT NOT NULL DEFAULT '',
+			certificate_url TEXT NOT NULL DEFAULT '',
+			key_pem TEXT NOT NULL DEFAULT '',
+			csr_der TEXT NOT NULL DEFAULT '',
+			challenges TEXT NOT NULL DEFAULT '[]',
+			status TEXT NOT NULL DEFAULT 'pending',
+			error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS certificate_requests (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			public_id TEXT NOT NULL UNIQUE,
@@ -484,6 +503,7 @@ func sqliteStatements() []string {
 		`CREATE INDEX IF NOT EXISTS idx_acme_authz_order ON acme_authorizations(order_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_acme_challenge_authz ON acme_challenges(authz_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_acme_challenge_next ON acme_challenges(next_check_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_zotrus_orders_task ON zotrus_orders(task_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_request_status_created ON certificate_requests(status, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_cert_request_hash ON certificate_requests(csr_sha256, ca)`,
 		`CREATE INDEX IF NOT EXISTS idx_dns_zone_bindings_account ON dns_zone_bindings(dns_account_id)`,

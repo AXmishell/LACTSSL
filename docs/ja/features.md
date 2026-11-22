@@ -32,7 +32,7 @@
 | ZeroSSL | EAB が必要 |
 | Google Trust Services | EAB が必要 |
 | LiteSSL | EAB が必要 |
-| ZoTrus | EAB が必要（KID は登録メールアドレス） |
+| ZoTrus | EAB が必要（KID は登録メールアドレス）。手動 DNS 検証を使用し、ワイルドカードには未対応 |
 | Actalis | EAB が必要 |
 | SSL.com | EAB が必要（鍵種別に応じて ECDSA/RSA エンドポイントを自動選択） |
 

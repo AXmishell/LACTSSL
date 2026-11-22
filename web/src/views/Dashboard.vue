@@ -280,7 +280,7 @@ function trendColor(count: number): string {
 }
 
 function taskDot(status: string): string {
-  const map: Record<string, string> = { success: '#10b981', partial: '#f59e0b', failed: '#ef4444', running: '#3b82f6' }
+  const map: Record<string, string> = { success: '#10b981', partial: '#f59e0b', failed: '#ef4444', running: '#3b82f6', waiting_dns: '#f59e0b' }
   return map[status] || '#94a3b8'
 }
 

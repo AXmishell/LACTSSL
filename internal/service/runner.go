@@ -19,6 +19,9 @@ import (
 type RunOptions struct {
 	// ForceIssue 强制重新签发，即使已经存在仍在有效期内的证书。
 	ForceIssue bool
+	// ResumeZotrus 表示用户已添加零信要求的 DNS 记录，继续完成已有订单，
+	// 而不是重新创建订单。
+	ResumeZotrus bool
 	// Task 是调用方已完成授权检查的任务快照。非空时 RunTask 直接执行快照，
 	// 不再按 ID 重新读取，避免“检查时任务 A、执行时任务 B”的 TOCTOU。
 	// 调度器等内部触发不传快照，仍读取最新任务。
@@ -60,6 +63,20 @@ func (m *Manager) RunTaskWithOptions(taskID int64, trigger string, opts RunOptio
 
 	err := m.executeTask(task, pipeline, opts)
 	if err != nil {
+		// 零信手动 DNS：订单已创建或本次轮询仍未完成，任务进入等待状态，
+		// 不按失败处理，也不触发失败通知。
+		var pending *ZotrusPendingError
+		var stillPending *ZotrusStillPendingError
+		if errors.As(err, &pending) || errors.As(err, &stillPending) {
+			order := (*model.ZotrusOrder)(nil)
+			if pending != nil {
+				order = pending.Order
+			} else {
+				order, _ = m.Store.GetZotrusOrderByTask(task.ID)
+			}
+			m.markZotrusWaiting(task, order, &start)
+			return nil
+		}
 		// 限流不是普通失败：记录恢复时间并推迟任务，避免 6 小时后再次撞墙。
 		var limited *RateLimitError
 		if errors.As(err, &limited) {
@@ -151,6 +168,24 @@ func (m *Manager) executeTask(task *model.Task, pipeline []model.PipelineNode, o
 	return nil
 }
 
+// markZotrusWaiting 把任务切换到等待手动 DNS 验证状态，并记录待添加的记录。
+func (m *Manager) markZotrusWaiting(task *model.Task, order *model.ZotrusOrder, start *time.Time) {
+	message := i18n.Encode("task.message.waiting_dns", nil)
+	_ = m.Store.UpdateTaskResult(task.ID, "waiting_dns", message, start, nil, task.CertID)
+	m.Store.AddLogKey("task", task.ID, "info", "log.task.zotrus_waiting", nil)
+	if order != nil {
+		for _, challenge := range order.Challenges {
+			m.Store.AddLogKey("task", task.ID, "info", "log.task.zotrus_record", map[string]any{
+				"domain": challenge.Domain,
+				"name":   challenge.RecordName,
+				"type":   challenge.RecordType,
+				"value":  challenge.RecordValue,
+			})
+		}
+	}
+	logger().Info("任务等待零信 DNS 验证", "task_id", task.ID, "records", zotrusSummary(order))
+}
+
 func findPipelineNode(nodes []model.PipelineNode, nodeType string) (model.PipelineNode, bool) {
 	for _, node := range nodes {
 		if node.Type == nodeType && node.Enabled {
@@ -207,6 +242,11 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 		if err != nil {
 			return nil, false, err
 		}
+		for _, candidate := range candidates {
+			if candidate.Value == "zotrus" {
+				return nil, false, i18n.E("service.zotrus.pool_unsupported")
+			}
+		}
 	}
 
 	keyType := cfg.KeyType
@@ -220,6 +260,9 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 		keyType = "ecdsa"
 	}
 	noKeyStorage := cfg.NoKeyStorage || task.NoKeyStorage
+	if strings.TrimSpace(caValue) == "zotrus" && poolID > 0 {
+		return nil, false, i18n.E("service.zotrus.pool_unsupported")
+	}
 
 	nodeName := node.Name
 	if nodeName == "" {
@@ -238,8 +281,13 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 	}
 	// 不存储私钥时不能复用历史证书：部署需要私钥，而复用不会重新生成，
 	// 因此每次执行都重新签发并在本次运行内临时使用私钥。
-	if !opts.ForceIssue && !noKeyStorage {
+	// 零信继续验证必须完成已有订单，不能在这里被证书复用短路。
+	if !opts.ForceIssue && !noKeyStorage && !opts.ResumeZotrus {
 		if cert, ok := m.findReusableCertificate(task, caValue, allowedCAs, keyType, domains); ok {
+			if strings.TrimSpace(caValue) == "zotrus" {
+				// 证书已落库但上次进程可能在删除订单前退出；复用证书时顺手清理。
+				_ = m.Store.DeleteZotrusOrderByTask(task.ID)
+			}
 			m.Store.AddLogKey("task", task.ID, "info", "log.task.reused", map[string]any{
 				"time": cert.NotAfter.Local().Format("2006-01-02 15:04:05"),
 			})
@@ -256,12 +304,70 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 		if err != nil {
 			return nil, false, err
 		}
+		for _, candidate := range candidates {
+			if candidate.Value == "zotrus" {
+				return nil, false, i18n.E("service.zotrus.pool_unsupported")
+			}
+		}
 	}
 
 	var result *ACMEResult
 	usedCA := caValue
 	usedLabel := caValue
-	if caID, isPrivate := ParsePrivateCAValue(caValue); isPrivate {
+	issued := false
+	if strings.TrimSpace(caValue) == "zotrus" {
+		if poolID > 0 {
+			return nil, false, i18n.E("service.zotrus.pool_unsupported")
+		}
+		if task.FlowMode == model.FlowTargetBeta {
+			return nil, false, i18n.E("service.zotrus.beta_unsupported")
+		}
+		email, _ := m.Store.GetSetting("acme.email")
+		if strings.TrimSpace(email) == "" {
+			return nil, false, i18n.E("task.error.acme_email_required")
+		}
+		zotrusCA, caErr := m.ResolveCA(caValue)
+		if caErr != nil {
+			return nil, false, caErr
+		}
+		if label := zotrusCA.Localized(m.Locale()).Label; label != "" {
+			usedLabel = label
+		}
+		zotrusKeyType := certificateKeyType(keyType)
+		if opts.ResumeZotrus {
+			order, orderErr := m.Store.GetZotrusOrderByTask(task.ID)
+			if orderErr != nil {
+				return nil, false, orderErr
+			}
+			if order == nil {
+				return nil, false, i18n.E("service.zotrus.order_missing")
+			}
+			if !sameDomainSet(order.Domains, domains) || order.KeyType != string(zotrusKeyType) {
+				return nil, false, i18n.E("service.zotrus.order_stale")
+			}
+			m.Store.AddLogKey("task", task.ID, "info", "log.task.applying_ca", map[string]any{"node": nodeName, "ca": usedLabel})
+			current, completeErr := m.completeZotrusOrder(zotrusCA, zotrusKeyType, email, order)
+			if completeErr != nil {
+				if limited := rateLimitErrorFrom(completeErr); limited != nil {
+					return nil, false, limited
+				}
+				return nil, false, completeErr
+			}
+			result = current
+			issued = true
+		} else {
+			eabKid, eabHMAC := m.loadCAEABSettings(zotrusCA.Value)
+			m.Store.AddLogKey("task", task.ID, "info", "log.task.applying_ca", map[string]any{"node": nodeName, "ca": usedLabel})
+			pending, createErr := m.createZotrusOrder(task, zotrusCA, domains, zotrusKeyType, email, eabKid, eabHMAC)
+			if createErr != nil {
+				if limited := rateLimitErrorFrom(createErr); limited != nil {
+					return nil, false, limited
+				}
+				return nil, false, createErr
+			}
+			return nil, false, &ZotrusPendingError{Order: pending}
+		}
+	} else if caID, isPrivate := ParsePrivateCAValue(caValue); isPrivate {
 		ca, caErr := m.Store.GetPrivateCA(caID)
 		if caErr != nil {
 			return nil, false, i18n.E("task.error.private_ca_not_found")
@@ -299,7 +405,6 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 			candidates = []CACandidate{{Value: caValue, Label: label}}
 		}
 		attempts := make([]CAFailure, 0, len(candidates))
-		issued := false
 		for index, candidate := range candidates {
 			eabKid, eabHMAC := m.loadCAEABSettings(candidate.Value)
 			m.Store.AddLogKey("task", task.ID, "info", "log.task.applying_ca", map[string]any{"node": nodeName, "ca": candidate.Label})
@@ -365,6 +470,10 @@ func (m *Manager) runApplyForDomains(task *model.Task, node model.PipelineNode, 
 	}
 	if err := m.Store.CreateCertificate(cert); err != nil {
 		return nil, false, i18n.E("task.error.save_cert_failed", "error", err.Error())
+	}
+	if strings.TrimSpace(caValue) == "zotrus" {
+		// 证书已落库，待验证订单不再需要保留私钥。
+		_ = m.Store.DeleteZotrusOrderByTask(task.ID)
 	}
 	if noKeyStorage {
 		// 落库后再把私钥挂到内存对象上，仅供本次任务流程的部署节点使用。

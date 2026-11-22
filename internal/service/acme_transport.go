@@ -26,10 +26,21 @@ type upLinkTransport struct {
 
 	mu               sync.Mutex
 	authzByChallenge map[string]string
+	// authzPayloads 保存 authorization 响应原文，供零信专用流程读取
+	// 非标准的 tokenPath / tokenType 字段。lego 的 Authorization 结构不会
+	// 保留这些未知字段，因此只能在传输层记录。
+	authzPayloads map[string][]byte
 }
 
 // withACMECompatibility 返回带 ACME 上游兼容修复的 HTTP 客户端副本。
 func withACMECompatibility(client *http.Client) *http.Client {
+	compatible, _ := newACMECompatibilityClient(client)
+	return compatible
+}
+
+// newACMECompatibilityClient 返回兼容客户端及其传输层，
+// 便于零信专用流程读取 authorization 原文。
+func newACMECompatibilityClient(client *http.Client) (*http.Client, *upLinkTransport) {
 	if client == nil {
 		client = &http.Client{}
 	}
@@ -38,8 +49,9 @@ func withACMECompatibility(client *http.Client) *http.Client {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	clone.Transport = &upLinkTransport{base: base}
-	return &clone
+	transport := &upLinkTransport{base: base}
+	clone.Transport = transport
+	return &clone, transport
 }
 
 func (t *upLinkTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -86,6 +98,10 @@ func (t *upLinkTransport) rememberAuthorizations(resp *http.Response, authzURL *
 	if t.authzByChallenge == nil {
 		t.authzByChallenge = make(map[string]string)
 	}
+	if t.authzPayloads == nil {
+		t.authzPayloads = make(map[string][]byte)
+	}
+	t.authzPayloads[normalizeACMEURL(authzURL)] = append([]byte(nil), body...)
 	for _, challenge := range payload.Challenges {
 		if strings.TrimSpace(challenge.URL) == "" {
 			continue
@@ -97,6 +113,18 @@ func (t *upLinkTransport) rememberAuthorizations(resp *http.Response, authzURL *
 		absolute := authzURL.ResolveReference(ref)
 		t.authzByChallenge[normalizeACMEURL(absolute)] = authz
 	}
+}
+
+// AuthorizationPayload 返回指定 authorization URL 的原始 JSON。
+// 仅用于读取零信扩展字段；调用方不应长期持有返回切片。
+func (t *upLinkTransport) AuthorizationPayload(authzURL string) []byte {
+	parsed, err := url.Parse(strings.TrimSpace(authzURL))
+	if err != nil || parsed == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]byte(nil), t.authzPayloads[normalizeACMEURL(parsed)]...)
 }
 
 func (t *upLinkTransport) authorizationFor(challengeURL *url.URL) string {

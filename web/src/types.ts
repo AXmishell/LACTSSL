@@ -779,6 +779,36 @@ export interface Task {
   updated_at: string
 }
 
+export interface ZotrusChallenge {
+  domain: string
+  authorization_url: string
+  challenge_url: string
+  token: string
+  token_path: string
+  token_type: string
+  record_name: string
+  record_type: string
+  record_value: string
+  status: string
+  error?: string
+}
+
+export interface ZotrusOrder {
+  id: number
+  task_id: number
+  domains: string[]
+  key_type: string
+  order_url: string
+  account_uri?: string
+  finalize_url: string
+  certificate_url: string
+  challenges: ZotrusChallenge[]
+  status: string
+  error: string
+  created_at: string
+  updated_at: string
+}
+
 export interface Certificate {
   id: number
   task_id: number

@@ -82,6 +82,7 @@
           <el-table-column width="240" :label="t('common.actions')" fixed="right">
             <template #default="{ row }">
               <el-button text type="primary" size="small" :loading="row.status === 'running'" @click="runTask(row)">{{ t('tasks.run') }}</el-button>
+              <el-button v-if="row.status === 'waiting_dns'" text type="warning" size="small" @click="openLogs(row)">{{ t('tasks.zotrusOpen') }}</el-button>
               <el-button text size="small" @click="openLogs(row)">{{ t('tasks.logs') }}</el-button>
               <el-dropdown trigger="click" @command="(cmd: string) => handleMore(cmd, row)">
                 <el-button text size="small">{{ t('tasks.more') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
@@ -269,7 +270,7 @@
                   />
                   <div class="form-help">{{ t('tasks.domainsHelp') }}</div>
                 </el-form-item>
-                <el-form-item v-if="!isPrivateCA" :label="t('tasks.dnsAccount')" required>
+                <el-form-item v-if="!isPrivateCA && !isZotrusCA" :label="t('tasks.dnsAccount')" required>
                   <el-select
                     v-model="form.dns_account_id"
                     :placeholder="t('tasks.dnsPlaceholder')"
@@ -297,6 +298,7 @@
                   </div>
                   <div v-else-if="dnsResolve.status === 'failed'" class="form-help warn">{{ dnsResolve.message }}</div>
                 </el-form-item>
+                <div v-else-if="isZotrusCA" class="config-tip" style="margin-bottom: 16px">{{ t('tasks.zotrusDnsHidden') }}</div>
                 <div v-else class="config-tip" style="margin-bottom: 16px">{{ t('tasks.privateCADnsTip') }}</div>
                 <el-form-item :label="t('tasks.caMode')">
                   <el-radio-group v-model="form.ca_mode" @change="onCAModeChange">
@@ -489,7 +491,7 @@
           <section class="beta-settings">
             <div class="beta-settings-title">{{ t('tasks.betaApplySettings') }}</div>
           <el-form label-position="top" class="config-form">
-            <el-form-item v-if="!isPrivateCA" :label="t('tasks.dnsAccount')" required>
+            <el-form-item v-if="!isPrivateCA && !isZotrusCA" :label="t('tasks.dnsAccount')" required>
               <el-select v-model="form.dns_account_id" :placeholder="t('tasks.dnsPlaceholder')" style="width: 100%">
                 <el-option :label="t('tasks.dnsAutoOption')" :value="0" />
                 <el-option v-for="item in dnsAccounts" :key="item.id" :label="`${item.name} · ${dnsLabel(item.provider)}`" :value="item.id" />
@@ -497,6 +499,7 @@
               <div v-if="!dnsAccounts.length" class="form-help warn">{{ t('tasks.noDns') }}</div>
               <div v-else-if="!form.dns_account_id" class="form-help">{{ t('tasks.dnsAutoBetaHint') }}</div>
             </el-form-item>
+            <div v-else-if="isZotrusCA" class="config-tip" style="margin-bottom: 12px">{{ t('tasks.zotrusBetaUnsupported') }}</div>
             <div v-else class="config-tip" style="margin-bottom: 12px">{{ t('tasks.privateCADnsTip') }}</div>
             <el-form-item :label="t('tasks.caMode')">
               <el-radio-group v-model="form.ca_mode" @change="onCAModeChange">
@@ -522,7 +525,7 @@
               <el-form-item v-else :label="t('tasks.caLabel')">
                 <el-select v-model="form.ca" style="width: 100%" @change="onCAValueChange">
                   <el-option-group :label="t('tasks.publicCA')">
-                    <el-option v-for="ca in meta?.cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
+                    <el-option v-for="ca in meta?.cas || []" :key="ca.value" :label="ca.label" :value="ca.value" :disabled="ca.value === 'zotrus' && form.flow_mode === 'target_beta'" />
                   </el-option-group>
                   <el-option-group v-if="meta?.private_cas?.length" :label="t('tasks.privateCA')">
                     <el-option v-for="ca in meta?.private_cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
@@ -602,6 +605,53 @@
 
     <!-- 任务日志 -->
     <el-drawer v-model="logVisible" :title="t('tasks.logTitle', { name: currentTask?.name || '' })" size="560px">
+      <div v-if="zotrusOrder" class="zotrus-panel">
+        <div class="zotrus-head">
+          <div>
+            <div class="zotrus-title">{{ t('tasks.zotrusTitle') }}</div>
+            <div class="zotrus-hint">{{ t('tasks.zotrusHint') }}</div>
+          </div>
+          <el-tag :type="zotrusOrder.status === 'issued' ? 'success' : zotrusOrder.status === 'failed' ? 'danger' : 'warning'" effect="light" round>
+            {{ zotrusStatusText }}
+          </el-tag>
+        </div>
+        <el-alert v-if="zotrusOrder.error" :title="zotrusOrder.error" type="error" :closable="false" show-icon style="margin-bottom: 12px" />
+        <div v-if="!zotrusOrder.challenges?.length" class="muted" style="padding: 8px 0">{{ t('tasks.zotrusNoRecords') }}</div>
+        <div v-for="(item, index) in zotrusOrder.challenges || []" :key="index" class="zotrus-record">
+          <div class="zotrus-record-head">
+            <span class="zotrus-domain">{{ item.domain }}</span>
+            <el-tag size="small" :type="item.status === 'valid' ? 'success' : item.status === 'invalid' ? 'danger' : 'warning'" effect="plain">
+              {{ item.status }}
+            </el-tag>
+          </div>
+          <template v-if="item.record_name">
+            <div class="zotrus-field">
+              <span class="zotrus-label">{{ t('tasks.zotrusRecordName') }}</span>
+              <code>{{ item.record_name }}</code>
+              <el-button text size="small" @click="copyZotrusValue(item.record_name)">{{ t('common.copy') }}</el-button>
+            </div>
+            <div class="zotrus-field">
+              <span class="zotrus-label">{{ t('tasks.zotrusRecordType') }}</span>
+              <code>{{ item.record_type }}</code>
+            </div>
+            <div class="zotrus-field">
+              <span class="zotrus-label">{{ t('tasks.zotrusRecordValue') }}</span>
+              <code class="zotrus-value">{{ item.record_value }}</code>
+              <el-button text size="small" @click="copyZotrusValue(item.record_value)">{{ t('common.copy') }}</el-button>
+            </div>
+          </template>
+          <div v-if="item.error" class="form-help warn">{{ item.error }}</div>
+        </div>
+        <div class="zotrus-actions">
+          <el-button type="primary" :loading="zotrusContinuing" :disabled="currentTask?.status !== 'waiting_dns' || zotrusOrder.status === 'issued' || zotrusOrder.status === 'failed'" @click="continueZotrus">
+            {{ t('tasks.zotrusContinue') }}
+          </el-button>
+          <el-button :loading="zotrusResetting" :disabled="currentTask?.status === 'running'" @click="resetZotrus">{{ t('tasks.zotrusReset') }}</el-button>
+          <el-button text :loading="zotrusLoading" @click="loadZotrusOrder">{{ t('common.refresh') }}</el-button>
+        </div>
+        <div class="form-help" style="margin-top: 8px">{{ t('tasks.zotrusContinueHint') }}</div>
+        <div class="form-help">{{ t('tasks.zotrusCleanupHint') }}</div>
+      </div>
       <div v-loading="logLoading">
         <div v-if="!logs.length" class="muted" style="text-align: center; padding: 40px 0">{{ t('tasks.noLogs') }}</div>
         <div v-for="log in logs" :key="log.id" class="log-row">
@@ -635,7 +685,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Close, Delete, Plus, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
-import { api } from '../api'
+import { api, copyText } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta, loadSettings } from '../store'
 import { enabledNotifyChannels } from '../notifyChannels'
@@ -672,7 +722,8 @@ import type {
   TaskBatchResult,
   VerifyResult,
   TargetFlowConfig,
-  FlowMode
+  FlowMode,
+  ZotrusOrder
 } from '../types'
 import { deployLabel as deployLabelOf, deployTypeDef as deployTypeDefOf, normalizeDeployConfig as normalizeDeployConfigOf } from '../deployConfig'
 
@@ -745,6 +796,10 @@ const logLoading = ref(false)
 const clearingLogs = ref(false)
 const logs = ref<LogEntry[]>([])
 const currentTask = ref<Task | null>(null)
+const zotrusOrder = ref<ZotrusOrder | null>(null)
+const zotrusLoading = ref(false)
+const zotrusContinuing = ref(false)
+const zotrusResetting = ref(false)
 let logTimer: ReturnType<typeof setInterval> | null = null
 let taskTimer: ReturnType<typeof setInterval> | null = null
 let pollBusy = false
@@ -819,6 +874,14 @@ const matchDeployDomains = computed(() =>
 )
 const isPrivateCA = computed(() => form.ca_mode === 'single' && form.ca.startsWith('private-ca:'))
 const selectedCAPool = computed(() => (meta.value?.ca_pools || []).find((pool) => pool.id === form.ca_pool_id) || null)
+const isZotrusCA = computed(() => form.ca_mode === 'single' && form.ca === 'zotrus')
+const zotrusStatusText = computed(() => {
+  const status = zotrusOrder.value?.status || ''
+  if (status === 'verifying') return t('tasks.zotrusStatusVerifying')
+  if (status === 'issued') return t('tasks.zotrusStatusIssued')
+  if (status === 'failed') return t('tasks.zotrusStatusFailed')
+  return t('tasks.zotrusStatusPending')
+})
 const filteredTasks = computed(() => {
   if (flowFilter.value === 'all') return tasks.value
   return tasks.value.filter((task) => (task.flow_mode || 'standard') === flowFilter.value)
@@ -872,6 +935,7 @@ function scheduleDNSResolve(): void {
     !dialogVisible.value ||
     form.flow_mode !== 'standard' ||
     isPrivateCA.value ||
+    isZotrusCA.value ||
     !dnsAccounts.value.length
   ) {
     resetDNSResolve()
@@ -943,7 +1007,7 @@ async function resolveDNSAccount(domains: string[], seq: number): Promise<void> 
 
 // 保存前把尚未完成的匹配立即跑完，避免用户在防抖窗口内直接提交时用到默认账户。
 async function ensureDNSAccountForSave(domains: string[]): Promise<void> {
-  if (form.flow_mode !== 'standard' || isPrivateCA.value) return
+  if (form.flow_mode !== 'standard' || isPrivateCA.value || isZotrusCA.value) return
   if (!domains.length || !dnsAccounts.value.length || dnsManualSelected.value) return
   if (dnsResolve.status === 'matched' || dnsResolve.status === 'failed') return
   if (dnsResolveTimer) {
@@ -960,7 +1024,7 @@ async function ensureDNSAccountForSave(domains: string[]): Promise<void> {
 }
 
 watch(
-  () => [form.domainsText, form.flow_mode, isPrivateCA.value] as const,
+  () => [form.domainsText, form.flow_mode, isPrivateCA.value, isZotrusCA.value] as const,
   () => {
     if (dnsResolveEnabled.value) scheduleDNSResolve()
   }
@@ -1015,6 +1079,7 @@ function onCAValueChange(value: string): void {
     form.ca_mode = 'single'
     form.ca_pool_id = null
   }
+  if (value === 'zotrus') resetDNSResolve()
 }
 
 function caPoolLabel(id?: number | null): string {
@@ -1797,6 +1862,11 @@ function buildPayload(): Record<string, unknown> {
 
 async function save(): Promise<void> {
   const domains = splitLines(form.domainsText)
+  if (isZotrusCA.value && domains.some((domain) => domain.trim().startsWith('*.'))) {
+    ElMessage.warning(t('tasks.zotrusWildcardUnsupported'))
+    selectedNodeId.value = 'apply'
+    return
+  }
   await ensureDNSAccountForSave(domains)
   if (form.flow_mode === 'target_beta') {
     if (!form.target_flow.sources?.length) {
@@ -1812,7 +1882,7 @@ async function save(): Promise<void> {
     selectedNodeId.value = 'apply'
     return
   }
-  if (!isPrivateCA.value && form.flow_mode !== 'target_beta' && !form.dns_account_id && !form.dns_routes.length) {
+  if (!isPrivateCA.value && !isZotrusCA.value && form.flow_mode !== 'target_beta' && !form.dns_account_id && !form.dns_routes.length) {
     ElMessage.warning(t('tasks.dnsRequired'))
     selectedNodeId.value = 'apply'
     return
@@ -2038,7 +2108,82 @@ async function handleMore(command: string, row: Task): Promise<void> {
 async function openLogs(row: Task): Promise<void> {
   currentTask.value = row
   logVisible.value = true
-  await refreshLogs()
+  await Promise.all([refreshLogs(), loadZotrusOrder()])
+}
+
+async function loadZotrusOrder(): Promise<void> {
+  if (!currentTask.value) {
+    zotrusOrder.value = null
+    return
+  }
+  const status = currentTask.value.status
+  if (status !== 'waiting_dns' && status !== 'running' && status !== 'failed') {
+    zotrusOrder.value = null
+    return
+  }
+  if (currentTask.value.ca !== 'zotrus' && !zotrusOrder.value) {
+    zotrusOrder.value = null
+    return
+  }
+  zotrusLoading.value = true
+  try {
+    zotrusOrder.value = await api.get<ZotrusOrder>(`/tasks/${currentTask.value.id}/zotrus`)
+  } catch {
+    zotrusOrder.value = null
+  } finally {
+    zotrusLoading.value = false
+  }
+}
+
+async function continueZotrus(): Promise<void> {
+  if (!currentTask.value || zotrusContinuing.value) return
+  zotrusContinuing.value = true
+  try {
+    await api.post(`/tasks/${currentTask.value.id}/zotrus/continue`, {})
+    ElMessage.success(t('tasks.zotrusVerifying'))
+    await loadAll()
+    startTaskPolling()
+    await loadZotrusOrder()
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    zotrusContinuing.value = false
+  }
+}
+
+async function resetZotrus(): Promise<void> {
+  if (!currentTask.value || zotrusResetting.value) return
+  try {
+    await ElMessageBox.confirm(
+      t('tasks.zotrusResetConfirm'),
+      t('tasks.zotrusReset'),
+      {
+        confirmButtonText: t('tasks.zotrusReset'),
+        cancelButtonText: t('tasks.cancel'),
+        type: 'warning'
+      }
+    )
+  } catch (_) {
+    return
+  }
+  zotrusResetting.value = true
+  try {
+    await api.post(`/tasks/${currentTask.value.id}/zotrus/reset`, {})
+    ElMessage.success(t('tasks.zotrusReset'))
+    await loadAll()
+    startTaskPolling()
+    await loadZotrusOrder()
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    zotrusResetting.value = false
+  }
+}
+
+async function copyZotrusValue(value: string): Promise<void> {
+  if (await copyText(value || '')) {
+    ElMessage.success(t('common.copied'))
+  }
 }
 
 async function refreshLogs(): Promise<void> {
@@ -2089,7 +2234,18 @@ onMounted(() => {
   loadAll()
   document.addEventListener('visibilitychange', onVisibilityChange)
   logTimer = setInterval(() => {
-    if (logVisible.value) refreshLogs()
+    if (!logVisible.value) return
+    if (currentTask.value) {
+      const latest = tasks.value.find((task) => task.id === currentTask.value?.id)
+      if (latest) currentTask.value = latest
+    }
+    refreshLogs()
+    const status = currentTask.value?.status
+    if (status === 'waiting_dns' || status === 'running' || status === 'failed') {
+      loadZotrusOrder()
+    } else {
+      zotrusOrder.value = null
+    }
   }, 5000)
 })
 onUnmounted(() => {
@@ -2509,6 +2665,76 @@ onUnmounted(() => {
   .pipeline-node--ghost {
     transition: none !important;
   }
+}
+.zotrus-panel {
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid #f5d9a8;
+  border-radius: 12px;
+  background: #fffaf0;
+}
+.zotrus-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.zotrus-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #92400e;
+}
+.zotrus-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #a16207;
+}
+.zotrus-record {
+  padding: 10px 0;
+  border-top: 1px dashed #f2d8a7;
+}
+.zotrus-record-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.zotrus-domain {
+  font-size: 12px;
+  font-weight: 600;
+  color: #78350f;
+}
+.zotrus-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.zotrus-label {
+  flex: none;
+  min-width: 52px;
+  color: #a16207;
+}
+.zotrus-field code {
+  min-width: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid #f2d8a7;
+  word-break: break-all;
+  font-size: 12px;
+}
+.zotrus-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 .log-row {
   display: flex;

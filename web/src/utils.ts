@@ -71,6 +71,7 @@ export function taskState(status?: string | null): StateInfo {
     success: { label: t('status.success'), type: 'success' },
     partial: { label: t('status.partial'), type: 'warning' },
     rate_limited: { label: t('status.rateLimited'), type: 'warning' },
+    waiting_dns: { label: t('status.waitingDNS'), type: 'warning' },
     failed: { label: t('status.failed'), type: 'danger' }
   }
   return (status && map[status]) || { label: status || t('status.unknown'), type: 'info' }

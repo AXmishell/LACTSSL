@@ -111,6 +111,27 @@ func TestACMECompatibilityResolvesRelativeChallengeURL(t *testing.T) {
 	}
 }
 
+func TestACMECompatibilityCapturesAuthorizationPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"pending","identifier":{"type":"dns","value":"example.com"},"challenges":[{"type":"dns-01","url":"`+r.Host+`/chall/1","token":"tok","tokenPath":"path1","tokenType":"TXT"}]}`)
+	}))
+	defer server.Close()
+
+	client, transport := newACMECompatibilityClient(&http.Client{})
+	resp := doPost(t, client, server.URL+"/authz/1")
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	payload := transport.AuthorizationPayload(server.URL + "/authz/1")
+	if !strings.Contains(string(payload), `"tokenPath":"path1"`) {
+		t.Fatalf("未捕获 authorization 原文: %s", payload)
+	}
+	if got := transport.AuthorizationPayload(server.URL + "/authz/missing"); len(got) != 0 {
+		t.Fatalf("未知 authorization 不应返回原文: %s", got)
+	}
+}
+
 func doPost(t *testing.T, client *http.Client, target string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(""))

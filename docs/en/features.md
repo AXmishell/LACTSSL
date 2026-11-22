@@ -32,7 +32,7 @@ This document describes LACTSSL capabilities by business domain, including key p
 | ZeroSSL | Requires EAB |
 | Google Trust Services | Requires EAB |
 | LiteSSL | Requires EAB |
-| ZoTrus | Requires EAB; KID is the registered email |
+| ZoTrus | Requires EAB; KID is the registered email. Uses manual DNS validation and does not support wildcards |
 | Actalis | Requires EAB |
 | SSL.com | Requires EAB; ECDSA/RSA endpoint selected by key type |
 
