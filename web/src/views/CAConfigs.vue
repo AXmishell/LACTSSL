@@ -254,7 +254,7 @@
           <div style="width: 100%">
             <div v-for="(item, index) in poolForm.items" :key="index" class="pool-item">
               <el-select v-model="item.ca_value" filterable style="flex: 1" :placeholder="t('ca.poolSelectCA')">
-                <el-option v-for="ca in meta?.cas || []" :key="ca.value" :label="ca.label" :value="ca.value" />
+                <el-option v-for="ca in poolCAOptions(index)" :key="ca.value" :label="ca.label" :value="ca.value" />
               </el-select>
               <el-input-number v-model="item.priority" :min="0" :max="9999" controls-position="right" style="width: 120px" />
               <el-input-number v-model="item.weight" :min="1" :max="100" controls-position="right" style="width: 110px" />
@@ -364,7 +364,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, InfoFilled, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { loadMeta, loadSettings } from '../store'
-import type { ACMECA, CAConfig, CAPool, CAPoolItem, CAPoolStrategy, MessageResult, Meta, Settings } from '../types'
+import type { ACMECA, CADef, CAConfig, CAPool, CAPoolItem, CAPoolStrategy, MessageResult, Meta, Settings } from '../types'
 
 interface ACMEForm {
   acme_email: string
@@ -607,6 +607,19 @@ function addPoolItem(): void {
 
 function removePoolItem(index: number): void {
   poolForm.items.splice(index, 1)
+}
+
+// 候选下拉框只展示未被其他行占用的 CA，避免同一调度组内重复选择。
+// 保留当前行自身的值，防止已选项被过滤后下拉框无法正常回显。
+function poolCAOptions(index: number): CADef[] {
+  const current = poolForm.items[index]?.ca_value || ''
+  const taken = new Set(
+    poolForm.items
+      .filter((_, itemIndex) => itemIndex !== index)
+      .map((item) => item.ca_value)
+      .filter((value) => value !== '')
+  )
+  return (meta.value?.cas || []).filter((ca) => ca.value === current || !taken.has(ca.value))
 }
 
 function handlePoolCommand(command: string, row: CAPool): void {
