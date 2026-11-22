@@ -2225,6 +2225,7 @@ export default {
     disableTotpTitle: '關閉兩步驗證',
     totpCode: '動態驗證碼',
     confirmDisable: '確認關閉',
+    reauth: '敏感操作再認證',
     reauthPasswordLabel: '當前密碼',
     reauthPasswordPlaceholder: '確認身份後繼續',
     reauthTotpLabel: '動態驗證碼',

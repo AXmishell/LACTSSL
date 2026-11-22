@@ -2223,6 +2223,7 @@ export default {
     disableTotpTitle: '二要素認証を無効にする',
     totpCode: '確認コード',
     confirmDisable: '無効にする',
+    reauth: '重要操作の再認証',
     reauthPasswordLabel: '現在のパスワード',
     reauthPasswordPlaceholder: '続行する前に本人確認を行ってください',
     reauthTotpLabel: '確認コード',

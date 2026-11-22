@@ -2225,6 +2225,7 @@ export default {
     disableTotpTitle: 'Disable two-factor authentication',
     totpCode: 'Verification code',
     confirmDisable: 'Disable',
+    reauth: 'Re-authentication for sensitive actions',
     reauthPasswordLabel: 'Current password',
     reauthPasswordPlaceholder: 'Confirm your identity before continuing',
     reauthTotpLabel: 'Verification code',

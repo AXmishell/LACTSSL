@@ -2223,6 +2223,7 @@ export default {
     disableTotpTitle: 'Отключить двухфакторную аутентификацию',
     totpCode: 'Код подтверждения',
     confirmDisable: 'Отключить',
+    reauth: 'Повторная аутентификация для важных действий',
     reauthPasswordLabel: 'Текущий пароль',
     reauthPasswordPlaceholder: 'Подтвердите личность перед продолжением',
     reauthTotpLabel: 'Код подтверждения',
