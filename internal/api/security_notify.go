@@ -170,20 +170,26 @@ func (s *Server) listSecurityEvents(c *gin.Context) {
 	}
 	out := make([]gin.H, 0, len(events))
 	for _, event := range events {
+		var nextAttempt any
+		if !event.NextAttemptAt.IsZero() {
+			nextAttempt = event.NextAttemptAt
+		}
 		out = append(out, gin.H{
-			"id":           event.ID,
-			"kind":         event.Kind,
-			"notify":       event.Notify,
-			"recipients":   event.Recipients,
-			"channels":     event.Channels,
-			"deliveries":   event.Deliveries,
-			"attempts":     event.Attempts,
-			"last_error":   event.LastError,
-			"ip":           event.IP,
-			"user_agent":   event.UserAgent,
-			"detail":       event.Detail,
-			"created_at":   event.CreatedAt,
-			"delivered_at": event.DeliveredAt,
+			"id":              event.ID,
+			"kind":            event.Kind,
+			"notify":          event.Notify,
+			"status":          event.DeliveryState(),
+			"recipients":      event.Recipients,
+			"channels":        event.Channels,
+			"deliveries":      event.Deliveries,
+			"attempts":        event.Attempts,
+			"last_error":      event.LastError,
+			"ip":              event.IP,
+			"user_agent":      event.UserAgent,
+			"detail":          event.Detail,
+			"created_at":      event.CreatedAt,
+			"next_attempt_at": nextAttempt,
+			"delivered_at":    event.DeliveredAt,
 		})
 	}
 	ok(c, gin.H{"events": out})

@@ -1365,6 +1365,7 @@ export default {
     securityEventRecorded: 'Recorded only',
     securityEventDelivered: 'Delivered',
     securityEventFailed: 'Delivery failed',
+    securityEventRetrying: 'Retrying',
     securityEventPending: 'Pending',
     securityEventSent: 'Sent',
     securityEventTargetFailed: 'Failed',

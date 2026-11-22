@@ -1365,6 +1365,7 @@ export default {
     securityEventRecorded: '僅記錄',
     securityEventDelivered: '已傳送',
     securityEventFailed: '傳送失敗',
+    securityEventRetrying: '重試中',
     securityEventPending: '待傳送',
     securityEventSent: '已送出',
     securityEventTargetFailed: '失敗',

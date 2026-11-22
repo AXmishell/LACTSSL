@@ -1364,6 +1364,7 @@ export default {
     securityEventRecorded: 'Только запись',
     securityEventDelivered: 'Доставлено',
     securityEventFailed: 'Ошибка доставки',
+    securityEventRetrying: 'Повторная попытка',
     securityEventPending: 'В очереди',
     securityEventSent: 'Отправлено',
     securityEventTargetFailed: 'Ошибка',

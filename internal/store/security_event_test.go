@@ -230,6 +230,47 @@ func TestHasRecentSecurityLogin(t *testing.T) {
 	}
 }
 
+// TestUpdateSecurityEventDeliveriesPersistsProgress 验证逐目标进度可以独立
+// 落库，不会改动租约/重试时间，供投递过程中崩溃恢复时跳过已成功目标。
+func TestUpdateSecurityEventDeliveriesPersistsProgress(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now().UTC()
+	event := &model.SecurityEvent{
+		UserID:     1,
+		Kind:       model.SecurityEventTest,
+		Notify:     true,
+		CreatedAt:  now,
+		Recipients: []string{"admin@example.com", "ops@example.com"},
+		Channels:   []string{"mail"},
+		Deliveries: map[string]string{},
+	}
+	if err := st.CreateSecurityEvent(event); err != nil {
+		t.Fatal(err)
+	}
+	leaseUntil := now.Add(5 * time.Minute)
+	if claimed, err := st.ClaimSecurityEvent(event.ID, now, leaseUntil); err != nil || !claimed {
+		t.Fatalf("抢占失败: %v %v", claimed, err)
+	}
+	if err := st.UpdateSecurityEventDeliveries(event.ID, map[string]string{
+		"mail:admin@example.com": "sent",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := st.GetSecurityEvent(event.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Deliveries["mail:admin@example.com"] != "sent" {
+		t.Fatalf("逐目标进度未落库: %+v", loaded.Deliveries)
+	}
+	if loaded.Attempts != 0 || loaded.DeliveredAt != nil {
+		t.Fatalf("进度更新不应改变 attempts/delivered_at: %+v", loaded)
+	}
+	if loaded.NextAttemptAt.Sub(leaseUntil).Abs() > time.Microsecond {
+		t.Fatalf("进度更新不应改变租约: %s", loaded.NextAttemptAt)
+	}
+}
+
 func TestClaimSecurityEventPreventsConcurrentDelivery(t *testing.T) {
 	st := newTestStore(t)
 	now := time.Now().UTC()

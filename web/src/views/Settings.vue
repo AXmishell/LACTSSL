@@ -1239,6 +1239,19 @@ function securityEventLabel(kind: string): string {
 }
 
 function securityEventStatus(event: SecurityEventView): { label: string; type: 'success' | 'danger' | 'warning' | 'info' } {
+  // 后端按逐目标 deliveries 计算状态；这里保留旧字段兜底，兼容缓存的旧响应。
+  switch (event.status) {
+    case 'recorded':
+      return { label: t('notifications.securityEventRecorded'), type: 'info' }
+    case 'delivered':
+      return { label: t('notifications.securityEventDelivered'), type: 'success' }
+    case 'failed':
+      return { label: t('notifications.securityEventFailed'), type: 'danger' }
+    case 'retrying':
+      return { label: t('notifications.securityEventRetrying'), type: 'warning' }
+    case 'pending':
+      return { label: t('notifications.securityEventPending'), type: 'warning' }
+  }
   if (!event.notify) {
     return { label: t('notifications.securityEventRecorded'), type: 'info' }
   }

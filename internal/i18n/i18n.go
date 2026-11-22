@@ -203,14 +203,27 @@ func FromContext(c *gin.Context) Locale {
 }
 
 // T 翻译指定 key。params 使用 {name} 占位符替换。
+// 字符串参数如果是 i18n.Encode 生成的嵌套消息，会按当前语言递归渲染，
+// 便于日志把事件类型等稳定标识作为参数传入而不冻结成写入时的语言。
 func T(locale Locale, key string, params map[string]any) string {
+	return renderTemplate(locale, key, params, 0)
+}
+
+// renderTemplate 是 T 的内部实现，depth 防止异常消息造成无限递归。
+func renderTemplate(locale Locale, key string, params map[string]any, depth int) string {
 	load()
 	text := translate(locale, key)
 	if text == "" {
 		return key
 	}
 	for name, value := range params {
-		text = strings.ReplaceAll(text, "{"+name+"}", fmt.Sprint(value))
+		rendered := fmt.Sprint(value)
+		if depth < 3 {
+			if nested, ok := value.(string); ok && strings.HasPrefix(nested, messagePrefix) {
+				rendered = render(locale, nested, depth+1)
+			}
+		}
+		text = strings.ReplaceAll(text, "{"+name+"}", rendered)
 	}
 	return text
 }
@@ -318,7 +331,7 @@ func Render(locale Locale, text string) string {
 
 func render(locale Locale, text string, depth int) string {
 	if key, params, ok := Decode(text); ok {
-		return T(locale, key, params)
+		return renderTemplate(locale, key, params, depth+1)
 	}
 	if locale == Default || depth >= 3 {
 		return text
@@ -334,7 +347,7 @@ func render(locale Locale, text string, depth int) string {
 			params[name] = render(locale, nested, depth+1)
 		}
 	}
-	return T(locale, key, params)
+	return renderTemplate(locale, key, params, depth+1)
 }
 
 // Error 是带 key 的错误，便于在 API 层按请求语言翻译。

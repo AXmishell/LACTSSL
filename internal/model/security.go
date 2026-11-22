@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // 安全通知事件类型。事件类型一旦发布只增不改，前端策略、i18n 文案和测试
 // 都依赖这些稳定字符串。
@@ -68,6 +71,16 @@ func IsSecurityNotifyEventKind(kind string) bool {
 	return false
 }
 
+// 安全事件投递状态。API 与前端统一使用这些稳定字符串，避免前端自己
+// 根据 delivered_at/last_error 拼状态时把“已发送但结果写库失败”误判为待投递。
+const (
+	SecurityEventStateRecorded  = "recorded"
+	SecurityEventStateDelivered = "delivered"
+	SecurityEventStateFailed    = "failed"
+	SecurityEventStateRetrying  = "retrying"
+	SecurityEventStatePending   = "pending"
+)
+
 // SecurityEvent 记录一条安全事件，同时作为通知发送队列（outbox）。
 // Detail 中的值会在写库前裁剪，渲染邮件时统一做 HTML 转义。
 type SecurityEvent struct {
@@ -99,4 +112,76 @@ type SecurityEvent struct {
 	CreatedAt     time.Time         `json:"created_at"`
 	NextAttemptAt time.Time         `json:"-"`
 	DeliveredAt   *time.Time        `json:"delivered_at"`
+}
+
+// DeliveryState 计算事件当前的投递状态。
+// 判定时以逐目标 deliveries 为准：即使 delivered_at 因历史版本写库失败而
+// 为空，只要所有必需目标都已是 sent，也按已投递展示，避免“邮件已发但界面
+// 一直显示待投递”。skipped 的插件渠道不算必需目标。
+func (e *SecurityEvent) DeliveryState() string {
+	if e == nil || !e.Notify {
+		return SecurityEventStateRecorded
+	}
+	if e.DeliveredAt != nil {
+		return SecurityEventStateDelivered
+	}
+	channels := e.Channels
+	if len(channels) == 0 {
+		// 历史事件可能没有持久化 channels；有收件人时按默认邮件渠道处理。
+		channels = []string{"mail"}
+	}
+	expected := 0
+	sent := 0
+	failed := 0
+	for _, channel := range channels {
+		name := strings.ToLower(strings.TrimSpace(channel))
+		if name == "" {
+			continue
+		}
+		if name == "mail" {
+			for _, recipient := range e.Recipients {
+				key := "mail:" + strings.ToLower(strings.TrimSpace(recipient))
+				if key == "mail:" {
+					continue
+				}
+				expected++
+				switch e.Deliveries[key] {
+				case "sent":
+					sent++
+				case "failed":
+					failed++
+				}
+			}
+			continue
+		}
+		key := "channel:" + name
+		state := e.Deliveries[key]
+		if state == "skipped" {
+			// 未启用的插件渠道不应阻止事件完成，服务层也把它排除在必需目标外。
+			continue
+		}
+		expected++
+		switch state {
+		case "sent":
+			sent++
+		case "failed":
+			failed++
+		}
+	}
+	if expected > 0 && sent == expected {
+		return SecurityEventStateDelivered
+	}
+	if expected == 0 {
+		if e.Attempts > 0 || strings.TrimSpace(e.LastError) != "" {
+			return SecurityEventStateFailed
+		}
+		return SecurityEventStatePending
+	}
+	if e.NextAttemptAt.IsZero() {
+		return SecurityEventStateFailed
+	}
+	if failed > 0 || strings.TrimSpace(e.LastError) != "" {
+		return SecurityEventStateRetrying
+	}
+	return SecurityEventStatePending
 }

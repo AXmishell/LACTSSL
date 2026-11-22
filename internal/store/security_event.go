@@ -173,6 +173,18 @@ func (s *Store) HasSecurityEventKindSince(userID int64, kind string, since time.
 	return count > 0, nil
 }
 
+// UpdateSecurityEventDeliveries 只持久化逐目标投递进度，不改变租约、
+// 重试时间和 attempts。每次目标发送后立即写入，进程崩溃或最终状态写库
+// 失败时，重试可以跳过已成功的收件人/渠道，避免重复发送。
+func (s *Store) UpdateSecurityEventDeliveries(id int64, deliveries map[string]string) error {
+	encoded, err := json.Marshal(deliveries)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(`UPDATE security_events SET deliveries=? WHERE id=?`, string(encoded), id)
+	return err
+}
+
 // UpdateSecurityEventDelivery 更新一次投递尝试的结果。
 // nextAttemptAt 为空且 deliveredAt 为空表示重试已耗尽，不再进入队列。
 func (s *Store) UpdateSecurityEventDelivery(id int64, deliveries map[string]string, attempts int,

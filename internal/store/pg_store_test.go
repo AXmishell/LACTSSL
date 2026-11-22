@@ -145,6 +145,52 @@ func TestPostgresSecurityEventTerminalUpdate(t *testing.T) {
 	}
 }
 
+// TestPostgresSecurityEventProgressUpdate 验证逐目标进度更新在 PostgreSQL
+// 上可独立落库，且不会改变租约/重试时间，作为重复发送的第二道防线。
+func TestPostgresSecurityEventProgressUpdate(t *testing.T) {
+	st := openTestPG(t)
+	if _, err := st.DB.Exec(`DELETE FROM security_events WHERE user_id=?`, 990002); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = st.DB.Exec(`DELETE FROM security_events WHERE user_id=?`, 990002)
+	})
+	now := time.Now().UTC()
+	event := &model.SecurityEvent{
+		UserID:     990002,
+		Kind:       model.SecurityEventTest,
+		Notify:     true,
+		Recipients: []string{"pg@example.com", "ops@example.com"},
+		Channels:   []string{"mail"},
+		CreatedAt:  now,
+	}
+	if err := st.CreateSecurityEvent(event); err != nil {
+		t.Fatal(err)
+	}
+	leaseUntil := now.Add(5 * time.Minute)
+	if claimed, err := st.ClaimSecurityEvent(event.ID, now, leaseUntil); err != nil || !claimed {
+		t.Fatalf("抢占失败: %v %v", claimed, err)
+	}
+	if err := st.UpdateSecurityEventDeliveries(event.ID, map[string]string{
+		"mail:pg@example.com": "sent",
+	}); err != nil {
+		t.Fatalf("逐目标进度写入失败: %v", err)
+	}
+	loaded, err := st.GetSecurityEvent(event.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Deliveries["mail:pg@example.com"] != "sent" {
+		t.Fatalf("逐目标进度未落库: %+v", loaded.Deliveries)
+	}
+	if loaded.Attempts != 0 || loaded.DeliveredAt != nil {
+		t.Fatalf("进度更新不应改变 attempts/delivered_at: %+v", loaded)
+	}
+	if loaded.NextAttemptAt.Sub(leaseUntil).Abs() > time.Microsecond {
+		t.Fatalf("进度更新不应改变租约: %s", loaded.NextAttemptAt)
+	}
+}
+
 func TestPostgresCAPoolCursorConcurrent(t *testing.T) {
 	st := openTestPG(t)
 	if _, err := st.DB.Exec(`DELETE FROM ca_pool_items`); err != nil {

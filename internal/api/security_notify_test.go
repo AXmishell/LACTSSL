@@ -301,6 +301,59 @@ func TestSecurityNotifyRecentEventsEndpoint(t *testing.T) {
 	if !strings.Contains(body, `"deliveries"`) {
 		t.Fatalf("最近安全事件缺少逐目标状态: %s", body)
 	}
+	if !strings.Contains(body, `"status"`) || !strings.Contains(body, `"next_attempt_at"`) {
+		t.Fatalf("最近安全事件缺少统一投递状态字段: %s", body)
+	}
+}
+
+// TestSecurityNotifyRecentEventsReportsDeliveredForLegacyRows 回归“邮件已发
+// 但 delivered_at 因旧版本写库失败为空”时，接口仍应返回 delivered 状态。
+func TestSecurityNotifyRecentEventsReportsDeliveredForLegacyRows(t *testing.T) {
+	router, st := newSessionTestServerWithStore(t)
+	session := loginSessionTest(t, router)
+	user, err := st.GetUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	event := &model.SecurityEvent{
+		UserID:        user.ID,
+		Kind:          model.SecurityEventPasswordChanged,
+		Notify:        true,
+		Recipients:    []string{"admin@example.com"},
+		Channels:      []string{"mail"},
+		Deliveries:    map[string]string{"mail:admin@example.com": "sent"},
+		CreatedAt:     now,
+		NextAttemptAt: now,
+	}
+	if err := st.CreateSecurityEvent(event); err != nil {
+		t.Fatal(err)
+	}
+	response := sessionRequest(t, router, http.MethodGet, "/api/security/events?limit=10", "",
+		[]*http.Cookie{session}, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("读取最近安全事件失败: %d %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Data struct {
+			Events []struct {
+				ID     int64  `json:"id"`
+				Status string `json:"status"`
+			} `json:"events"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range payload.Data.Events {
+		if item.ID == event.ID {
+			if item.Status != model.SecurityEventStateDelivered {
+				t.Fatalf("已发送目标的历史事件应显示 delivered，实际 %q", item.Status)
+			}
+			return
+		}
+	}
+	t.Fatalf("最近安全事件未返回新建事件 %d: %s", event.ID, response.Body.String())
 }
 
 func TestSecurityNotifyPolicyChangeAlertsOldRecipients(t *testing.T) {

@@ -1364,6 +1364,7 @@ export default {
     securityEventRecorded: '記録のみ',
     securityEventDelivered: '送信済み',
     securityEventFailed: '送信失敗',
+    securityEventRetrying: '再試行中',
     securityEventPending: '送信待ち',
     securityEventSent: '送信済み',
     securityEventTargetFailed: '失敗',

@@ -76,6 +76,14 @@ func TestTranslateAndRender(t *testing.T) {
 	if got := Render(EnUS, encoded); got != "Certificate expires in 7 days" {
 		t.Fatalf("unexpected render result: %q", got)
 	}
+	// 嵌套消息参数应按当前语言渲染，日志才能把稳定事件 ID 显示成可读文案。
+	nested := Encode("log.security.notify_delivered", map[string]any{
+		"kind":  Encode("email.security.title.credential.password.changed", nil),
+		"count": 2,
+	})
+	if got := Render(EnUS, nested); got != "Security alert sent: Account password changed, 2 delivery targets" {
+		t.Fatalf("unexpected nested render result: %q", got)
+	}
 	// 历史数据是普通文本，必须原样返回。
 	if got := Render(EnUS, "历史日志"); got != "历史日志" {
 		t.Fatalf("legacy text should be returned as-is, got %q", got)

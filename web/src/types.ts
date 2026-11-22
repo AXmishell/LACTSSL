@@ -267,6 +267,7 @@ export interface SecurityEventView {
   id: number
   kind: string
   notify: boolean
+  status?: string
   recipients: string[]
   channels: string[]
   deliveries: Record<string, string>
@@ -276,6 +277,7 @@ export interface SecurityEventView {
   user_agent: string
   detail: Record<string, string>
   created_at: string
+  next_attempt_at?: string | null
   delivered_at: string | null
 }
 

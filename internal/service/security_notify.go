@@ -378,6 +378,11 @@ func (m *Manager) NotifySecurity(event model.SecurityEvent) error {
 	if err != nil {
 		return err
 	}
+	// 通知日志从“入队”开始留痕，避免投递结果写库失败时日志里完全没有
+	// 这条安全提醒的痕迹。后续成功/失败/重试仍由投递流程补写。
+	m.Store.AddLogKey("notify", event.UserID, "info", "log.security.notify_enqueued", map[string]any{
+		"kind": securityEventLogKind(event),
+	})
 	m.wakeSecurityWorker()
 	return nil
 }
@@ -676,6 +681,13 @@ func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {
 	}
 	lastError := ""
 	required := make([]string, 0, len(event.Recipients)+len(event.Channels))
+	// 每处理完一个目标就落库一次。这样即使进程崩溃或最终状态写库失败，
+	// 下一轮也只会补发尚未成功的目标，不会整条事件重复发送。
+	persistProgress := func() {
+		if err := m.Store.UpdateSecurityEventDeliveries(event.ID, deliveries); err != nil {
+			logger().Error("写入安全提醒投递进度失败", "event_id", event.ID, "error", err)
+		}
+	}
 	if mailEnabled {
 		for _, recipient := range event.Recipients {
 			key := securityDeliveryKey(recipient)
@@ -686,14 +698,17 @@ func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {
 			if cfg.Host == "" || cfg.From == "" {
 				deliveries[key] = "failed"
 				lastError = "smtp not configured"
+				persistProgress()
 				continue
 			}
 			if err := m.sendMail(cfg, recipient, subject, htmlBody); err != nil {
 				deliveries[key] = "failed"
 				lastError = SafeError(err)
+				persistProgress()
 				continue
 			}
 			deliveries[key] = "sent"
+			persistProgress()
 		}
 	}
 	for _, channel := range event.Channels {
@@ -707,22 +722,28 @@ func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {
 		}
 		channelCfg, found := channelConfigs[channel]
 		if !found || !NotifyChannelConfigEnabled(channelCfg) {
+			changed := deliveries[key] != "skipped"
 			deliveries[key] = "skipped"
-			m.Store.AddLogKey("notify", event.UserID, "warning", "log.security.notify_channel_skipped", map[string]any{
-				"channel": channel,
-			})
+			if changed {
+				persistProgress()
+				m.Store.AddLogKey("notify", event.UserID, "warning", "log.security.notify_channel_skipped", map[string]any{
+					"channel": channel,
+				})
+			}
 			continue
 		}
 		required = append(required, key)
 		if err := m.sendSecurityChannel(channel, channelCfg, subject, textBody); err != nil {
 			deliveries[key] = "failed"
 			lastError = SafeError(err)
+			persistProgress()
 			continue
 		}
 		deliveries[key] = "sent"
+		persistProgress()
 	}
 	if len(required) == 0 {
-		m.finishSecurityEvent(event, attempts, "no recipient or channel")
+		m.finishSecurityEvent(event, attempts, "no recipient or channel", "log.security.notify_no_channel")
 		return
 	}
 	allSent := true
@@ -739,7 +760,7 @@ func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {
 			return
 		}
 		m.Store.AddLogKey("notify", event.UserID, "info", "log.security.notify_delivered", map[string]any{
-			"kind":  event.Kind,
+			"kind":  securityEventLogKind(*event),
 			"count": len(required),
 		})
 		return
@@ -752,7 +773,7 @@ func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {
 			logger().Error("写入安全提醒失败结果失败", "event_id", event.ID, "error", err)
 		}
 		m.Store.AddLogKey("notify", event.UserID, "error", "log.security.notify_failed", map[string]any{
-			"kind":  event.Kind,
+			"kind":  securityEventLogKind(*event),
 			"error": lastError,
 		})
 		return
@@ -763,7 +784,7 @@ func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {
 		return
 	}
 	m.Store.AddLogKey("notify", event.UserID, "warning", "log.security.notify_failed", map[string]any{
-		"kind":  event.Kind,
+		"kind":  securityEventLogKind(*event),
 		"error": lastError,
 	})
 }
@@ -829,12 +850,15 @@ func securityChannelKey(channel string) string {
 	return "channel:" + strings.ToLower(strings.TrimSpace(channel))
 }
 
-func (m *Manager) finishSecurityEvent(event *model.SecurityEvent, attempts int, reason string) {
+func (m *Manager) finishSecurityEvent(event *model.SecurityEvent, attempts int, reason, logKey string) {
 	if err := m.Store.UpdateSecurityEventDelivery(event.ID, event.Deliveries, attempts, reason, nil, nil); err != nil {
 		logger().Error("写入安全提醒失败结果失败", "event_id", event.ID, "error", err)
 	}
-	m.Store.AddLogKey("notify", event.UserID, "error", "log.security.notify_failed", map[string]any{
-		"kind":  event.Kind,
+	if logKey == "" {
+		logKey = "log.security.notify_failed"
+	}
+	m.Store.AddLogKey("notify", event.UserID, "error", logKey, map[string]any{
+		"kind":  securityEventLogKind(*event),
 		"error": reason,
 	})
 }
@@ -850,20 +874,33 @@ func securityDeliveryKey(recipient string) string {
 	return "mail:" + strings.ToLower(strings.TrimSpace(recipient))
 }
 
-func (m *Manager) renderSecurityEmail(event model.SecurityEvent) (string, string) {
-	locale := m.Locale()
-	variant := strings.TrimSpace(event.Detail["variant"])
+// securityEventTitleKey 返回事件标题的 i18n key，供邮件和通知日志共用。
+// 登录类事件带 variant（新设备/已知设备、失败方式），需要优先匹配更具体的标题。
+func securityEventTitleKey(event model.SecurityEvent) string {
 	titleKey := "email.security.title." + event.Kind
-	if variant != "" {
+	if variant := strings.TrimSpace(event.Detail["variant"]); variant != "" {
 		variantKey := titleKey + "." + variant
-		if i18n.T(locale, variantKey, nil) != variantKey {
+		if i18n.T(i18n.Default, variantKey, nil) != variantKey {
 			titleKey = variantKey
 		}
 	}
-	title := i18n.T(locale, titleKey, nil)
-	if title == titleKey {
-		title = i18n.T(locale, "email.security.title.default", nil)
+	if i18n.T(i18n.Default, titleKey, nil) == titleKey {
+		return "email.security.title.default"
 	}
+	return titleKey
+}
+
+// securityEventLogKind 把事件类型编码为可翻译消息，通知日志读取时会按
+// 当前界面语言渲染，而不是直接显示 credential.password.changed 这类内部值。
+func securityEventLogKind(event model.SecurityEvent) string {
+	return i18n.Encode(securityEventTitleKey(event), nil)
+}
+
+func (m *Manager) renderSecurityEmail(event model.SecurityEvent) (string, string) {
+	locale := m.Locale()
+	variant := strings.TrimSpace(event.Detail["variant"])
+	titleKey := securityEventTitleKey(event)
+	title := i18n.T(locale, titleKey, nil)
 	subject := i18n.T(locale, "email.security.subject", map[string]any{"title": title})
 	account := strings.TrimSpace(event.AccountEmail)
 	if account == "" {

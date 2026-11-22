@@ -1,10 +1,12 @@
 package service
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"lactssl/internal/i18n"
 	"lactssl/internal/model"
 )
 
@@ -107,6 +109,139 @@ func TestStartSecurityWorkerRecoversPending(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("启动 worker 后未恢复待投递事件")
+}
+
+// TestDeliverSecurityEventPersistsPerTargetProgress 回归“已发出但最终状态
+// 未落库导致整条事件重发”的问题：模拟第二个收件人投递时异常退出，下一轮
+// 只能补发失败目标，已成功收件人不得重复发送。
+func TestDeliverSecurityEventPersistsPerTargetProgress(t *testing.T) {
+	m, st := newNotifyTestManager(t)
+	if err := st.SetSetting("smtp.host", "smtp.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("smtp.from", "noreply@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	adminSends := 0
+	opsSends := 0
+	m.mailSender = func(_ SMTPConfig, to, _, _ string) error {
+		switch to {
+		case "admin@example.com":
+			adminSends++
+			return nil
+		case "ops@example.com":
+			opsSends++
+			panic("simulate process exit during delivery")
+		default:
+			return nil
+		}
+	}
+	event := &model.SecurityEvent{
+		UserID:       1,
+		Kind:         model.SecurityEventPasswordChanged,
+		AccountEmail: "admin@example.com",
+		Recipients:   []string{"admin@example.com", "ops@example.com"},
+		Channels:     []string{"mail"},
+		Notify:       true,
+		CreatedAt:    time.Now().UTC(),
+		Deliveries:   map[string]string{},
+	}
+	if err := st.CreateSecurityEvent(event); err != nil {
+		t.Fatal(err)
+	}
+	func() {
+		defer func() { _ = recover() }()
+		m.deliverSecurityEvent(event)
+	}()
+
+	loaded, err := st.GetSecurityEvent(event.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Deliveries["mail:admin@example.com"] != "sent" {
+		t.Fatalf("成功目标未在崩溃前落库: %+v", loaded.Deliveries)
+	}
+	if loaded.DeliveredAt != nil {
+		t.Fatalf("崩溃时不应标记整条事件已投递: %+v", loaded)
+	}
+
+	m.mailSender = func(_ SMTPConfig, to, _, _ string) error {
+		switch to {
+		case "admin@example.com":
+			adminSends++
+		case "ops@example.com":
+			opsSends++
+		}
+		return nil
+	}
+	m.deliverSecurityEvent(loaded)
+	loaded, err = st.GetSecurityEvent(event.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adminSends != 1 {
+		t.Fatalf("已成功收件人不应重复发送，实际发送 %d 次", adminSends)
+	}
+	if opsSends != 2 {
+		t.Fatalf("失败收件人应在重试时补发，实际发送 %d 次", opsSends)
+	}
+	if loaded.DeliveredAt == nil {
+		t.Fatalf("补发成功后应标记已投递: %+v", loaded)
+	}
+}
+
+// TestSecurityNotifyWritesNotificationLogs 验证安全提醒的入队与投递结果
+// 都写入 source=notify 的操作日志，供“日志 → 通知日志”页签查看。
+func TestSecurityNotifyWritesNotificationLogs(t *testing.T) {
+	m, st := newNotifyTestManager(t)
+	if err := st.SetSetting("smtp.host", "smtp.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("smtp.from", "noreply@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	m.mailSender = func(_ SMTPConfig, _, _, _ string) error { return nil }
+	event := model.SecurityEvent{
+		UserID:       1,
+		Kind:         model.SecurityEventPasswordChanged,
+		AccountEmail: "admin@example.com",
+		Recipients:   []string{"admin@example.com"},
+		Channels:     []string{"mail"},
+		CreatedAt:    time.Now().UTC(),
+		Deliveries:   map[string]string{},
+	}
+	if err := m.NotifySecurity(event); err != nil {
+		t.Fatal(err)
+	}
+	// NotifySecurity 会唤醒后台 worker；这里再主动跑一次，并用轮询等待
+	// 入队/投递两条日志都出现，避免与后台协程竞争导致断言偶发失败。
+	m.processSecurityEvents()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		logs, _, err := st.ListLogs("notify", 20, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys := map[string]bool{}
+		for _, entry := range logs {
+			if key, _, ok := i18n.Decode(entry.Message); ok {
+				keys[key] = true
+				if key == "log.security.notify_delivered" {
+					rendered := i18n.Render(i18n.ZhCN, entry.Message)
+					if !strings.Contains(rendered, "账户密码已修改") || strings.Contains(rendered, "credential.password.changed") {
+						t.Fatalf("通知日志事件类型未渲染为可读文案: %q", rendered)
+					}
+				}
+			}
+		}
+		if keys["log.security.notify_enqueued"] && keys["log.security.notify_delivered"] {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("通知日志缺少安全提醒记录: %+v", keys)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func TestSecurityDeliveryLeaseScalesWithTargets(t *testing.T) {
