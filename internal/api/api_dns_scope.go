@@ -40,6 +40,32 @@ func (s *Server) requireAPIKeyDNSAccountsUse(c *gin.Context, accountIDs []int64)
 	return true
 }
 
+// requireAPIKeyTaskDNSAccess 是任务路径的 DNS 账户授权入口。
+// 与 CSR 路径一致：API Key 必须显式拥有 dns_accounts:read/write，且账户
+// 必须落在 AllowedDNSAccountIDs 内。浏览器会话不受此限制。
+// 这样 tasks:write/run 不再隐式地把管理员保存的全部 DNS 凭据借给受限 Key。
+func (s *Server) requireAPIKeyTaskDNSAccess(c *gin.Context, accountIDs []int64) bool {
+	key := apiKeyFromContext(c)
+	if key == nil {
+		return true
+	}
+	hasAccount := false
+	for _, accountID := range accountIDs {
+		if accountID > 0 {
+			hasAccount = true
+			break
+		}
+	}
+	if !hasAccount {
+		return true
+	}
+	if !key.HasScope(apiScopeDNSRead) && !key.HasScope(apiScopeDNSWrite) {
+		failKey(c, http.StatusForbidden, "api.error.api_key_scope_denied", "scope", apiScopeDNSRead)
+		return false
+	}
+	return s.requireAPIKeyDNSAccountsUse(c, accountIDs)
+}
+
 // denyIfAPIKeyDNSAccountHidden 用于 DNS 账户管理接口：不允许的账户统一按
 // 不存在处理，避免受限密钥通过 403/404 差异枚举管理员保存的账户。
 func (s *Server) denyIfAPIKeyDNSAccountHidden(c *gin.Context, accountID int64) bool {

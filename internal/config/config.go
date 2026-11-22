@@ -132,10 +132,12 @@ type LogArchiveConfig struct {
 
 // PluginRepoConfig 是插件仓库客户端配置。
 type PluginRepoConfig struct {
-	Enabled       bool
-	URL           string
-	Channel       string
-	AutoUpdate    bool
+	Enabled    bool
+	URL        string
+	Channel    string
+	AutoUpdate bool
+	// PublicKey 支持一个或多个 base64 Ed25519 公钥，用逗号/空白分隔，
+	// 用于双密钥过渡；空值表示不校验索引签名。
 	PublicKey     string
 	Proxy         string
 	Timeout       time.Duration
@@ -1343,7 +1345,7 @@ plugins:
     channel: %s
     # 是否自动更新已安装插件
     auto_update: %t
-    # 索引签名公钥（base64 Ed25519）；留空时只校验 HTTPS 与 asset sha256
+    # 索引签名公钥（base64 Ed25519），可用逗号分隔多个以支持密钥轮换；留空时只校验 HTTPS 与 asset sha256
     public_key: %s
     # 拉取索引/下载插件的显式代理；留空沿用 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY 环境变量。
     # 支持 http、https、socks5、socks5h，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080

@@ -107,6 +107,27 @@ func TestVerifyDNSAccountPersistsUnsupportedStatus(t *testing.T) {
 	}
 }
 
+func TestDefaultDNSVerifyDomainUsesEnabledZoneBindings(t *testing.T) {
+	_, st := newSessionTestServerWithStore(t)
+	account := &model.DNSAccount{Name: "binding-dns", Provider: "not-installed", Config: map[string]string{}}
+	if err := st.CreateDNSAccount(account); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{Store: st}
+	if got := server.defaultDNSVerifyDomain(account.ID); got != "" {
+		t.Fatalf("没有域名绑定时应返回空: %q", got)
+	}
+	if err := st.ReplaceDNSZoneBindings(account.ID, []model.DNSZoneBinding{
+		{DNSAccountID: account.ID, Zone: "disabled.example.com", MatchMode: "suffix", Enabled: false},
+		{DNSAccountID: account.ID, Zone: "example.com", MatchMode: "suffix", Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.defaultDNSVerifyDomain(account.ID); got != "example.com" {
+		t.Fatalf("应使用已启用的域名绑定，实际: %q", got)
+	}
+}
+
 func TestProbeDNSZoneWithoutReauth(t *testing.T) {
 	router, st := newSessionTestServerWithStore(t)
 	session := loginSessionTest(t, router)

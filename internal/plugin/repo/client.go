@@ -49,6 +49,7 @@ type Plugin struct {
 	Name             string           `json:"name,omitempty"`
 	Description      string           `json:"description,omitempty"`
 	Version          string           `json:"version"`
+	SourceHash       string           `json:"source_hash,omitempty"`
 	Protocol         string           `json:"protocol"`
 	MinHost          string           `json:"min_host,omitempty"`
 	Bundle           bool             `json:"bundle,omitempty"`
@@ -91,13 +92,13 @@ type Client struct {
 	URL           string
 	Channel       string
 	Proxy         string
-	PublicKey     ed25519.PublicKey
+	PublicKeys    []ed25519.PublicKey
 	Timeout       time.Duration
 	MaxDownloadMB int
 	HTTP          *http.Client
 }
 
-// ParsePublicKey 解析 base64 编码的 Ed25519 公钥，同时接受带填充与无填充格式。
+// ParsePublicKey 解析单个 base64 Ed25519 公钥。
 func ParsePublicKey(value string) (ed25519.PublicKey, error) {
 	value = strings.TrimSpace(value)
 	raw, err := base64.StdEncoding.DecodeString(value)
@@ -108,6 +109,23 @@ func ParsePublicKey(value string) (ed25519.PublicKey, error) {
 		return nil, errors.New("插件仓库公钥格式不正确")
 	}
 	return ed25519.PublicKey(raw), nil
+}
+
+// ParsePublicKeys 解析一个或多个 base64 Ed25519 公钥，支持用逗号、空白或
+// 换行分隔，便于在不改配置结构的情况下做双密钥过渡。
+func ParsePublicKeys(value string) ([]ed25519.PublicKey, error) {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	keys := make([]ed25519.PublicKey, 0, len(fields))
+	for _, field := range fields {
+		key, err := ParsePublicKey(field)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
 }
 
 // PublicKeyFingerprint 返回公钥的 SHA256 指纹（SHA256:base64）。
@@ -149,11 +167,14 @@ func NewClientWithProxy(rawURL, channel, publicKey string, timeout time.Duration
 		HTTP:          httpClient,
 	}
 	if strings.TrimSpace(publicKey) != "" {
-		key, err := ParsePublicKey(publicKey)
+		keys, err := ParsePublicKeys(publicKey)
 		if err != nil {
 			return nil, err
 		}
-		client.PublicKey = key
+		if len(keys) == 0 {
+			return nil, errors.New("插件仓库公钥格式不正确")
+		}
+		client.PublicKeys = keys
 	}
 	return client, nil
 }
@@ -170,7 +191,7 @@ func (c *Client) Fetch(ctx context.Context, etag string) (Index, []byte, string,
 		return Index{}, nil, etag, nil, true, nil
 	}
 	var signature []byte
-	if c.PublicKey != nil {
+	if len(c.PublicKeys) > 0 {
 		sigRaw, _, _, err := c.fetchBytes(ctx, c.URL+".sig", "", 4096)
 		if err != nil {
 			return Index{}, nil, "", nil, false, i18n.E("plugin.repo.signature_read_failed", "error", err.Error())
@@ -179,7 +200,7 @@ func (c *Client) Fetch(ctx context.Context, etag string) (Index, []byte, string,
 		if err != nil {
 			return Index{}, nil, "", nil, false, i18n.E("plugin.repo.signature_parse_failed", "error", err.Error())
 		}
-		if !ed25519.Verify(c.PublicKey, raw, sig) {
+		if !verifyAny(c.PublicKeys, raw, sig) {
 			return Index{}, nil, "", nil, false, i18n.E("plugin.repo.signature_invalid")
 		}
 		signature = sig
@@ -203,12 +224,36 @@ func (c *Client) Fetch(ctx context.Context, etag string) (Index, []byte, string,
 
 // VerifyIndexSignature 使用 base64 编码的 Ed25519 公钥校验索引原始字节。
 // 304 场景必须重新调用它，不能仅因为“配置了公钥”就认为缓存已验签。
-func VerifyIndexSignature(publicKey string, raw, signature []byte) bool {
-	key, err := ParsePublicKey(publicKey)
-	if err != nil || len(signature) != ed25519.SignatureSize {
+func VerifyIndexSignature(publicKeys string, raw, signature []byte) bool {
+	keys, err := ParsePublicKeys(publicKeys)
+	if err != nil || len(keys) == 0 || len(signature) != ed25519.SignatureSize {
 		return false
 	}
-	return ed25519.Verify(key, raw, signature)
+	return verifyAny(keys, raw, signature)
+}
+
+func verifyAny(keys []ed25519.PublicKey, raw, signature []byte) bool {
+	for _, key := range keys {
+		if ed25519.Verify(key, raw, signature) {
+			return true
+		}
+	}
+	return false
+}
+
+// PublicKeysFingerprint 返回多个公钥的稳定指纹串；单密钥时保持旧格式。
+func PublicKeysFingerprint(keys []ed25519.PublicKey) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	if len(keys) == 1 {
+		return PublicKeyFingerprint(keys[0])
+	}
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, PublicKeyFingerprint(key))
+	}
+	return strings.Join(parts, ",")
 }
 
 // Validate 校验索引中的插件与资产字段，确保安装前就具备可校验的 sha256。

@@ -102,7 +102,7 @@ func TestSecurityNotifyTOTPDisableEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := sessionRequest(t, router, http.MethodPost, "/api/auth/totp/disable",
-		`{"totp":"`+code+`"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
+		`{"password":"password1234","totp":"`+code+`"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if response.Code != http.StatusOK {
 		t.Fatalf("关闭 TOTP 失败: %d %s", response.Code, response.Body.String())
 	}

@@ -62,6 +62,60 @@ func TestVerifyDNSAccountWritesAndCleansUp(t *testing.T) {
 	}
 }
 
+func TestVerifyDNSAccountWithoutDomainOnlyChecksPermission(t *testing.T) {
+	fake := &fakeChallengeProvider{}
+	if err := dnsplugin.RegisterExternal(fakeDNSPlugin{provider: fake}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dnsplugin.UnregisterSource(dnsplugin.SourceExec) })
+
+	m := New(nil)
+	result := m.VerifyDNSAccount(context.Background(), i18n.ZhCN, "test-account", "verify-fake", nil, "", "auto")
+	if !result.OK {
+		t.Fatalf("没有测试域名时应降级为权限检查并通过: %+v", result)
+	}
+	if result.Mode != "scope" {
+		t.Fatalf("没有测试域名时应使用 scope 模式: %s", result.Mode)
+	}
+	if result.Message == "" {
+		t.Fatal("权限检查应返回说明消息")
+	}
+	if fake.presentCalls != 0 || fake.cleanupCalls != 0 {
+		t.Fatalf("权限检查不应写入 DNS 记录: present=%d cleanup=%d", fake.presentCalls, fake.cleanupCalls)
+	}
+	status := ""
+	for _, check := range result.Checks {
+		switch check.Key {
+		case "domain":
+			if check.Status != VerifyStatusSkipped {
+				t.Fatalf("domain 检查应为 skipped: %+v", result.Checks)
+			}
+		case "access":
+			status = check.Status
+		}
+	}
+	if status != VerifyStatusOK {
+		t.Fatalf("access 检查应为 ok: %+v", result.Checks)
+	}
+}
+
+func TestVerifyDNSAccountWithoutDomainRejectsWriteMode(t *testing.T) {
+	fake := &fakeChallengeProvider{}
+	if err := dnsplugin.RegisterExternal(fakeDNSPlugin{provider: fake}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dnsplugin.UnregisterSource(dnsplugin.SourceExec) })
+
+	m := New(nil)
+	result := m.VerifyDNSAccount(context.Background(), i18n.ZhCN, "", "verify-fake", nil, "", "write")
+	if result.OK {
+		t.Fatalf("显式写测试没有域名时不能返回通过: %+v", result)
+	}
+	if fake.presentCalls != 0 || fake.cleanupCalls != 0 {
+		t.Fatalf("缺少域名时不应写入 DNS 记录: present=%d cleanup=%d", fake.presentCalls, fake.cleanupCalls)
+	}
+}
+
 func TestVerifyDNSAccountReportsCleanupFailure(t *testing.T) {
 	fake := &fakeChallengeProvider{cleanupErr: os.ErrPermission}
 	if err := dnsplugin.RegisterExternal(fakeDNSPlugin{provider: fake}); err != nil {

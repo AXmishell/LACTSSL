@@ -27,6 +27,9 @@ func (s *Server) setupConfig(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.already_initialized")
 		return
 	}
+	if !s.requireSetupToken(c) {
+		return
+	}
 	cfg, err := config.LoadSetupConfig(s.ConfigFile)
 	if err != nil {
 		s.logger().Warn("读取初始化配置失败", "error", err)

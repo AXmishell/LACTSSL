@@ -19,6 +19,10 @@ import (
 type RunOptions struct {
 	// ForceIssue 强制重新签发，即使已经存在仍在有效期内的证书。
 	ForceIssue bool
+	// Task 是调用方已完成授权检查的任务快照。非空时 RunTask 直接执行快照，
+	// 不再按 ID 重新读取，避免“检查时任务 A、执行时任务 B”的 TOCTOU。
+	// 调度器等内部触发不传快照，仍读取最新任务。
+	Task *model.Task
 }
 
 // RunTask 执行一次证书申请或续期任务。trigger 是 task.trigger.* 翻译 key。
@@ -33,9 +37,15 @@ func (m *Manager) RunTaskWithOptions(taskID int64, trigger string, opts RunOptio
 	}
 	defer m.running.Delete(taskID)
 
-	task, err := m.Store.GetTask(taskID)
-	if err != nil {
-		return i18n.E("task.error.not_found", "error", err.Error())
+	task := opts.Task
+	if task == nil {
+		loaded, err := m.Store.GetTask(taskID)
+		if err != nil {
+			return i18n.E("task.error.not_found", "error", err.Error())
+		}
+		task = loaded
+	} else if task.ID != taskID {
+		return i18n.E("task.error.not_found", "error", "task snapshot id mismatch")
 	}
 	pipeline := task.EffectivePipeline()
 	current := m.Locale()
@@ -48,7 +58,7 @@ func (m *Manager) RunTaskWithOptions(taskID int64, trigger string, opts RunOptio
 	m.Store.AddLogKey("task", task.ID, "info", "log.task.started", map[string]any{"name": task.Name, "domains": strings.Join(task.Domains, ", ")})
 	logger().Info("任务开始", "task_id", task.ID, "trigger", trigger, "domains", strings.Join(task.Domains, ","))
 
-	err = m.executeTask(task, pipeline, opts)
+	err := m.executeTask(task, pipeline, opts)
 	if err != nil {
 		// 限流不是普通失败：记录恢复时间并推迟任务，避免 6 小时后再次撞墙。
 		var limited *RateLimitError
@@ -77,7 +87,7 @@ func (m *Manager) RunTaskWithOptions(taskID int64, trigger string, opts RunOptio
 }
 
 // RunTaskQueued 以受限并发执行任务，供批量触发使用，避免同时发起过多签发。
-func (m *Manager) RunTaskQueued(taskID int64, trigger string) error {
+func (m *Manager) RunTaskQueued(taskID int64, trigger string, opts RunOptions) error {
 	// 排队期间也做去重，避免连续两次批量执行让同一任务重复签发。
 	if _, loaded := m.queued.LoadOrStore(taskID, true); loaded {
 		return i18n.E("task.error.running")
@@ -87,7 +97,7 @@ func (m *Manager) RunTaskQueued(taskID int64, trigger string) error {
 		m.batchSem <- struct{}{}
 		defer func() { <-m.batchSem }()
 	}
-	return m.RunTask(taskID, trigger)
+	return m.RunTaskWithOptions(taskID, trigger, opts)
 }
 
 // executeTask 按任务流程顺序执行申请、部署与通知模块。

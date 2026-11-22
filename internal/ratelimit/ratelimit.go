@@ -56,6 +56,7 @@ const (
 	BackupDownload         = "backup_download"
 	LogExport              = "log_export"
 	LogClear               = "log_clear"
+	TaskLogClear           = "task_log_clear"
 	SystemLogExport        = "system_log_export"
 	SystemLogClear         = "system_log_clear"
 	LogArchiveDownload     = "log_archive_download"
@@ -106,6 +107,7 @@ var defaultRules = map[string]Rule{
 	BackupDownload:         {Max: 5, Window: 10 * time.Minute},
 	LogExport:              {Max: 5, Window: 10 * time.Minute},
 	LogClear:               {Max: 3, Window: 10 * time.Minute},
+	TaskLogClear:           {Max: 10, Window: 10 * time.Minute},
 	SystemLogExport:        {Max: 5, Window: 10 * time.Minute},
 	SystemLogClear:         {Max: 3, Window: 10 * time.Minute},
 	LogArchiveDownload:     {Max: 20, Window: time.Minute},

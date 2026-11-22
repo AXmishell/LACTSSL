@@ -549,6 +549,17 @@
         />
       </el-tab-pane>
     </el-tabs>
+    <el-dialog v-model="programReauthVisible" :title="t('upgrade.program.updateTo', { version: programPendingVersion })" width="420px" destroy-on-close>
+      <ReauthFields
+        v-model:password="programReauth.password"
+        v-model:totp="programReauth.totp"
+        :totp-enabled="!!state.user?.totp_enabled"
+      />
+      <template #footer>
+        <el-button @click="programReauthVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="programApplying" @click="confirmApplyProgram">{{ t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -559,6 +570,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { CopyDocument, Download, MagicStick, Refresh, RefreshRight, SwitchButton } from '@element-plus/icons-vue'
 import { api, apiBase, copyText, errorText } from '../api'
 import { t } from '../i18n'
+import ReauthFields from '../components/ReauthFields.vue'
 import { loadUser, state } from '../store'
 import { formatDate } from '../utils'
 import type {
@@ -581,6 +593,9 @@ const vacuum = ref(true)
 const program = ref<ProgramStatus | null>(null)
 const programChecking = ref(false)
 const programApplying = ref(false)
+const programReauthVisible = ref(false)
+const programPendingVersion = ref('')
+const programReauth = reactive({ password: '', totp: '' })
 const programRestarting = ref(false)
 const dbStatus = ref<DatabaseConvertStatus | null>(null)
 const dbTargetDriver = ref('postgres')
@@ -1118,27 +1133,35 @@ async function applyProgram(): Promise<void> {
   ).catch(() => false)
   if (!confirmed) return
   // 替换当前二进制属于敏感操作，后端要求浏览器会话再次认证。
-  const currentUser = state.user ?? (await loadUser().catch(() => null))
-  const totpEnabled = !!currentUser?.totp_enabled
-  const prompt = await ElMessageBox.prompt(
-    t(totpEnabled ? 'settings.reauthTotpPlaceholder' : 'settings.reauthPasswordPlaceholder'),
-    t(totpEnabled ? 'settings.reauthTotpLabel' : 'settings.reauthPasswordLabel'),
-    {
-      confirmButtonText: t('common.confirm'),
-      cancelButtonText: t('common.cancel'),
-      inputType: totpEnabled ? 'text' : 'password',
-      inputPattern: totpEnabled ? /^\d{6}$/ : undefined,
-      inputErrorMessage: t(totpEnabled ? 'settings.reauthTotpRequired' : 'settings.reauthPasswordRequired')
-    }
-  ).catch(() => null)
-  if (!prompt) return
-  const reauth = totpEnabled
-    ? { totp: prompt.value.trim() }
-    : { password: prompt.value }
+  await loadUser().catch(() => null)
+  programReauth.password = ''
+  programReauth.totp = ''
+  programPendingVersion.value = target.version
+  programReauthVisible.value = true
+}
+
+async function confirmApplyProgram(): Promise<void> {
+  const version = programPendingVersion.value
+  if (!version) return
+  if (!programReauth.password) {
+    ElMessage.warning(t('settings.reauthPasswordRequired'))
+    return
+  }
+  if (state.user?.totp_enabled && !/^\d{6}$/.test(programReauth.totp.trim())) {
+    ElMessage.warning(t('settings.reauthTotpRequired'))
+    return
+  }
   programApplying.value = true
   try {
-    const result = await api.postSlow<ProgramRunReport>('/upgrade/program/apply', { version: target.version, ...reauth })
+    const result = await api.postSlow<ProgramRunReport>('/upgrade/program/apply', {
+      version,
+      password: programReauth.password,
+      totp: programReauth.totp.trim()
+    })
     if (!result) return
+    programReauthVisible.value = false
+    programReauth.password = ''
+    programReauth.totp = ''
     ElMessage.success(t('upgrade.program.applySuccess', { version: result.to_version }))
     await loadProgram()
     if (!result.restart_required) return

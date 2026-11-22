@@ -20,6 +20,9 @@ func (s *Server) listTrustedCAs(c *gin.Context) {
 }
 
 func (s *Server) importTrustedCA(c *gin.Context) {
+	if !s.requireAPIKeyScope(c, apiScopeSecurityWrite) {
+		return
+	}
 	var body struct {
 		Name    string `json:"name"`
 		CertPEM string `json:"cert_pem"`
@@ -81,6 +84,9 @@ func (s *Server) importTrustedCA(c *gin.Context) {
 }
 
 func (s *Server) deleteTrustedCA(c *gin.Context) {
+	if !s.requireAPIKeyScope(c, apiScopeSecurityWrite) {
+		return
+	}
 	id, okID := parseID(c)
 	if !okID {
 		return

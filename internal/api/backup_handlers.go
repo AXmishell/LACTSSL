@@ -93,9 +93,22 @@ func (s *Server) downloadBackup(c *gin.Context) {
 }
 
 // restoreBackup 校验上传的备份包，写入待恢复目录并安排服务重启。
+const (
+	reauthPasswordHeader = "X-LACTSSL-REAUTH-PASSWORD"
+	reauthTOTPHeader     = "X-LACTSSL-REAUTH-TOTP"
+)
+
 func (s *Server) restoreBackup(c *gin.Context) {
 	if s.Backup == nil {
 		failKey(c, http.StatusServiceUnavailable, "api.error.backup_unavailable")
+		return
+	}
+	// 在读取/解析 multipart 文件之前完成再认证，避免不知道密码/TOTP 的调用方
+	// 通过反复上传大文件占满临时目录（文件此时尚未落盘）。
+	if !s.requireReauth(c, getUser(c),
+		c.GetHeader(reauthPasswordHeader),
+		strings.TrimSpace(c.GetHeader(reauthTOTPHeader)),
+	) {
 		return
 	}
 
@@ -125,13 +138,6 @@ func (s *Server) restoreBackup(c *gin.Context) {
 		return
 	}
 	defer file.Close()
-	user := getUser(c)
-	if !s.requireReauth(c, user,
-		c.PostForm("account_password"),
-		strings.TrimSpace(c.PostForm("totp")),
-	) {
-		return
-	}
 	if err := s.Backup.Stage(file, fileHeader.Filename, strings.TrimSpace(c.PostForm("backup_password"))); err != nil {
 		failBackupUpload(c, err)
 		return

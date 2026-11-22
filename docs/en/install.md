@@ -52,7 +52,7 @@ docker compose logs -f lactssl
 ```
 
 !!! note "Image and network"
-    The GHCR image is available starting from the first stable release. If `docker compose pull` reports that the image does not exist, build it locally as described in section 2.4. Compose publishes port 8080 on all host interfaces by default; on a public host, restrict the source with a firewall or change `ports` to `127.0.0.1:8080:8080` so that only a local reverse proxy can reach it.
+    The GHCR image is available starting from the first stable release. If `docker compose pull` reports that the image does not exist, build it locally as described in section 2.4. Compose now publishes port 8080 on `127.0.0.1` by default; if you need LAN exposure, change `ports` explicitly and put a TLS reverse proxy in front. The compose image tag is pinned to a concrete version and can be overridden with `LACTSSL_IMAGE_TAG`.
 
 Default mounts:
 
@@ -171,6 +171,8 @@ Common options:
 | `--no-tls` | Disable TLS in an existing Nginx configuration (TLS is off by default) |
 | `--read-write-path DIR` | Additional directory the service may write to; repeatable, for local certificate deployment targets |
 | `--skip-checksum` | Skip SHA-256 verification (not recommended) |
+| `--release-public-key KEY` | Base64 Ed25519 release public key; used to verify `checksums.txt.sig` (or set `LACTSSL_RELEASE_PUBLIC_KEY`) |
+| `--allow-unsigned` | Allow installation without a release signature (not recommended; controlled environments only) |
 
 With HTTPS:
 
@@ -182,7 +184,7 @@ sudo ./scripts/install.sh \
   --tls-key  /etc/nginx/certs/ssl.example.com.key
 ```
 
-The script verifies `checksums.txt` from the release. Re-running it replaces the binary and restarts the service while preserving the existing `config.yaml` and `data/`; when `--port` is specified, it also updates `server.addr`, `server.host`, and `server.port`. If `--domain` / `--tls-cert` / `--tls-key` are omitted, the domain and certificate from the existing Nginx configuration are reused, so an upgrade does not silently fall back to the default site or disable TLS; pass `--no-tls` to explicitly disable TLS. If Nginx is missing, the script tries to install it through the system package manager. Use `--no-install-deps` to disable automatic installation, or `--no-nginx` to skip Nginx entirely. The service unit uses `ProtectSystem=strict`, so self-upgrade from the web UI may be unavailable because the program directory is read-only; re-run this script to upgrade instead. To let built-in deployment targets write to local directories such as `/etc/nginx`, pass `--read-write-path` (repeatable) and make sure the `lactssl` user has write permission there.
+The script verifies `checksums.txt` from the release and, by default, its Ed25519 signature `checksums.txt.sig`. Set `LACTSSL_RELEASE_PUBLIC_KEY` to the base64 Ed25519 public key (the same key used by `upgrade.program.public_key`), or pass `--release-public-key`; controlled environments can explicitly use `--allow-unsigned` to keep SHA-256-only behavior. Re-running it replaces the binary and restarts the service while preserving the existing `config.yaml` and `data/`; when `--port` is specified, it also updates `server.addr`, `server.host`, and `server.port`. If `--domain` / `--tls-cert` / `--tls-key` are omitted, the domain and certificate from the existing Nginx configuration are reused, so an upgrade does not silently fall back to the default site or disable TLS; pass `--no-tls` to explicitly disable TLS. If Nginx is missing, the script tries to install it through the system package manager. Use `--no-install-deps` to disable automatic installation, or `--no-nginx` to skip Nginx entirely. The service unit uses `ProtectSystem=strict`, so self-upgrade from the web UI may be unavailable because the program directory is read-only; re-run this script to upgrade instead. To let built-in deployment targets write to local directories such as `/etc/nginx`, pass `--read-write-path` (repeatable) and make sure the `lactssl` user has write permission there.
 
 Key generated configuration:
 

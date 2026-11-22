@@ -30,6 +30,7 @@ func newSecurityTestServer(t *testing.T) (*Server, *gin.Engine) {
 		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
 		nil,
 	)
+	s.AllowInsecureSetup = true
 	return s, s.Router()
 }
 

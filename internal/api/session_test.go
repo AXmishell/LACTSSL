@@ -57,6 +57,9 @@ func newSessionTestServerWithAuth(t *testing.T, st *store.Store, authManager *au
 		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
 		nil,
 	)
+	// 测试服务器不经过 main 的启动流程，显式允许无 token 初始化；
+	// 生产路径由 main 设置 token，且默认 fail-closed。
+	s.AllowInsecureSetup = true
 	if archiver, ok := st.Archiver.(*logarchive.Service); ok {
 		s.LogArchives = archiver
 	}
@@ -605,7 +608,7 @@ func TestTOTPIsRequiredForReauthWhenEnabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	disabled := sessionRequest(t, router, http.MethodPost, "/api/auth/totp/disable",
-		`{"totp":"`+code+`"}`, []*http.Cookie{session}, headers)
+		`{"password":"password1234","totp":"`+code+`"}`, []*http.Cookie{session}, headers)
 	if disabled.Code != http.StatusOK {
 		t.Fatalf("正确的 TOTP 验证码应允许关闭 TOTP: %d %s", disabled.Code, disabled.Body.String())
 	}

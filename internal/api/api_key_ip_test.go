@@ -95,6 +95,7 @@ func TestClientIPUsesUnifiedResolver(t *testing.T) {
 		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
 		[]string{"192.0.2.0/24"},
 	)
+	s.AllowInsecureSetup = true
 	router := s.Router()
 	session := loginSessionTest(t, router)
 
@@ -183,6 +184,7 @@ func TestAPIKeyScopesProxyDiagnostics(t *testing.T) {
 		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
 		[]string{"192.0.2.0/24"},
 	)
+	trustedServer.AllowInsecureSetup = true
 	trustedRouter := trustedServer.Router()
 	trustedSession := loginSessionTest(t, trustedRouter)
 	trusted := sessionRequest(t, trustedRouter, http.MethodGet, "/api/api-keys/scopes", "",
@@ -222,6 +224,7 @@ func TestClientIPCloudflareAndMTLSModes(t *testing.T) {
 		[]string{"192.0.2.0/24"},
 	)
 	s.ClientIPMode = "cloudflare"
+	s.AllowInsecureSetup = true
 	router := s.Router()
 	session := loginSessionTest(t, router)
 
@@ -246,6 +249,7 @@ func TestClientIPCloudflareAndMTLSModes(t *testing.T) {
 		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
 		nil,
 	)
+	s2.AllowInsecureSetup = true
 	router2 := s2.Router()
 	session2 := loginSessionTest(t, router2)
 	req = httptest.NewRequest(http.MethodGet, "/api/api-keys/scopes", nil)
@@ -364,6 +368,7 @@ func TestAPIKeyIPRestrictionTrustedProxy(t *testing.T) {
 		fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(sessionIndexHTML)}},
 		[]string{"192.0.2.0/24"},
 	)
+	s.AllowInsecureSetup = true
 	router := s.Router()
 	session := loginSessionTest(t, router)
 	token, _ := createAPIKeyWithIPsForTest(t, router, session, "proxy",

@@ -114,9 +114,15 @@ type Server struct {
 	// SystemLogEnabled 表示是否仍在把进程日志写入数据库。
 	SystemLogEnabled bool
 	entry            atomic.Value
-	// setupToken 是首次初始化使用的一次性令牌。为空表示当前部署未启用
-	// （主要供测试直接构造 Server），生产进程由 main 在启动时设置。
+	// setupToken 是首次初始化使用的一次性令牌。生产进程由 main 在启动时设置；
+	// 为空时默认 fail-closed，只有测试/嵌入式调用可显式打开 AllowInsecureSetup。
 	setupToken atomic.Value
+	// AllowInsecureSetup 仅用于测试/嵌入式场景：未配置 setup token 时仍允许
+	// 初始化。生产入口不得设置该字段。
+	AllowInsecureSetup bool
+	// AllowLoopbackOrigin 仅由本地开发脚本通过 LACTSSL_DEV_ORIGIN=1 开启，
+	// 允许 Vite (:5173) 到后端 (:8080) 的跨端口同源请求。生产默认关闭。
+	AllowLoopbackOrigin bool
 	// setupMu 串行化初始化、恢复和初始化配置写入，避免匿名恢复与管理员
 	// 首次创建账户之间的检查-写入竞态。
 	setupMu sync.Mutex
@@ -124,6 +130,10 @@ type Server struct {
 	// RateLimits 是各接口的限流阈值，零值表示全部使用内置默认值。
 	RateLimits ratelimit.Config
 	startedAt  time.Time
+
+	// taskMu 串行化任务更新与批量启用/停用，避免“检查时任务 A、写入时任务 B”
+	// 的授权竞态。任务执行改用授权时快照，不依赖该锁。
+	taskMu sync.Mutex
 
 	pluginMu     sync.Mutex
 	pluginResult dnsplugin.DiscoverResult
@@ -209,7 +219,13 @@ func (s *Server) SetupToken() string {
 func (s *Server) requireSetupToken(c *gin.Context) bool {
 	expected := s.SetupToken()
 	if expected == "" {
-		return true
+		if s.AllowInsecureSetup {
+			return true
+		}
+		// fail-closed：用户表被清空但启动时没有生成令牌（例如运行期清空）
+		// 也不能让匿名请求重新创建管理员。
+		failKey(c, http.StatusServiceUnavailable, "api.error.setup_token_invalid")
+		return false
 	}
 	provided := strings.TrimSpace(c.GetHeader(setupTokenHeader))
 	if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1 {
@@ -361,6 +377,7 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/tasks/batch/run", s.batchRunTasks)
 	g.POST("/tasks/batch/enabled", s.batchSetTasksEnabled)
 	g.GET("/tasks/:id/logs", s.taskLogs)
+	g.DELETE("/tasks/:id/logs", s.clearTaskLogs)
 	g.GET("/certificates", s.listCertificates)
 	g.POST("/certificates/cleanup", s.cleanupCertificates)
 	g.POST("/certificates/cleanup/preview", s.previewCleanupCertificates)
@@ -543,8 +560,9 @@ func (s *Server) sameOrigin(c *gin.Context) bool {
 	if strings.EqualFold(strings.TrimSpace(c.GetHeader("Sec-Fetch-Site")), "same-origin") {
 		return true
 	}
-	// 开发模式下浏览器在 :5173，而 Vite 把接口代理到 :8080；仅当双方都在本机回环时放行。
-	if isLoopbackRemoteAddr(c.Request.RemoteAddr) && isLoopbackHost(parsed.Host) {
+	// 开发模式下浏览器在 :5173，而 Vite 把接口代理到 :8080；仅当显式开启
+	// LACTSSL_DEV_ORIGIN 且双方都在本机回环时放行。生产默认关闭。
+	if s.AllowLoopbackOrigin && isLoopbackRemoteAddr(c.Request.RemoteAddr) && isLoopbackHost(parsed.Host) {
 		return true
 	}
 	allowed := map[string]bool{}
@@ -1017,20 +1035,48 @@ func (l *rateLimiter) sweepLocked(now time.Time) {
 	}
 }
 
-// evictLocked 在达到容量上限时清理过期项；仍然超限则删除最旧的一项。
+// evictLocked 在达到容量上限时清理过期项；仍然超限时优先淘汰普通 bucket，
+// 避免攻击者用大量唯一 key 把 login/reauth/setup 等安全关键限流状态挤掉。
 func (l *rateLimiter) evictLocked(now time.Time) {
-	var oldestKey string
-	var oldest time.Time
+	var oldestNormal, oldestSensitive string
+	var oldestNormalAt, oldestSensitiveAt time.Time
 	for key, b := range l.buckets {
 		if now.Sub(b.last) > 2*b.window {
 			delete(l.buckets, key)
 			continue
 		}
-		if oldestKey == "" || b.last.Before(oldest) {
-			oldestKey, oldest = key, b.last
+		if isSensitiveRateKey(key) {
+			if oldestSensitive == "" || b.last.Before(oldestSensitiveAt) {
+				oldestSensitive, oldestSensitiveAt = key, b.last
+			}
+			continue
+		}
+		if oldestNormal == "" || b.last.Before(oldestNormalAt) {
+			oldestNormal, oldestNormalAt = key, b.last
 		}
 	}
-	if len(l.buckets) >= l.maxKeys && oldestKey != "" {
-		delete(l.buckets, oldestKey)
+	if len(l.buckets) < l.maxKeys {
+		return
 	}
+	if oldestNormal != "" {
+		delete(l.buckets, oldestNormal)
+		return
+	}
+	if oldestSensitive != "" {
+		delete(l.buckets, oldestSensitive)
+	}
+}
+
+// isSensitiveRateKey 标记不能作为普通 LRU 淘汰目标的限流桶。
+// 这些桶对应登录/TOTP/再认证/初始化等安全入口。
+func isSensitiveRateKey(key string) bool {
+	for _, prefix := range []string{
+		"login:", "reauth:", "setup:", "setup-config:", "setup-restart:",
+		"setup-restore:", "forgot:acct:", "passkey:login:", "entry:",
+	} {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }

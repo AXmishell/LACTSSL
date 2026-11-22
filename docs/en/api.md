@@ -109,7 +109,7 @@ Permissions are divided by resource:action. `*` represents all system API capabi
 | `deploy:execute` | Deploy certificates manually, or create, modify, or run tasks that contain deploy nodes (writes files; command execution requires `deploy:command`) | Yes |
 | `deploy:command` | Allow local/SSH deployments to run reload commands (equivalent to executing arbitrary commands as the service account) | Yes |
 | `tasks:read` | View task lists and task logs | No |
-| `tasks:write` | Create, modify, delete, enable, and disable tasks (creating an enabled task also requires `tasks:run`; deploy nodes require `deploy:execute`; private CAs require `private_cas:write`) | No |
+| `tasks:write` | Create, modify, delete, enable, and disable tasks, and clear task execution logs (creating an enabled task also requires `tasks:run`; deploy nodes require `deploy:execute`; private CAs require `private_cas:write`) | No |
 | `tasks:run` | Run tasks manually or in batches (deploy nodes require `deploy:execute`; private CAs require `private_cas:write`) | No |
 | `monitors:read` | View site certificate monitors | No |
 | `monitors:write` | Create, modify, delete, and immediately check monitors | No |
@@ -247,6 +247,22 @@ curl -fsS -X POST \
 If the task contains enabled deploy nodes, the key must also have `deploy:execute`.
 
 By default, a certificate that is still valid and outside its renewal window is reused, and only deployment nodes are executed; no new order is sent to the CA. Use `?force=1` or send `{"force":true}` to force re-issuance. Forced issuance consumes the CA's certificate quota.
+
+List a task's execution logs (requires `tasks:read`):
+
+```bash
+curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  https://ssl.example.com/api/tasks/123/logs
+```
+
+Clear a task's execution logs (requires `tasks:write`):
+
+```bash
+curl -fsS -X DELETE -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  https://ssl.example.com/api/tasks/123/logs
+```
+
+Clearing removes that task's issuance and deployment logs, returns the number of deleted rows as `deleted`, and leaves an audit record in the operation log.
 
 ### 6.3 Downloading Certificates
 
@@ -432,6 +448,8 @@ The script uploads only the CSR; the private key never leaves the client. Output
 ### 6.7 Verifying Credential Availability
 
 After adding or editing a DNS account or target credential, you can verify that the credential actually works. These endpoints require `dns_accounts:write` / `deploy_accounts:write`. Browser sessions no longer need to re-authenticate with the current password or TOTP. Results are advisory and never block saving or running tasks.
+
+When `domain` is omitted, a saved DNS account uses one of its enabled domain bindings first; if there are none, the response uses `mode: "scope"` and only checks the credential configuration and call permission.
 
 | Method | Path | Description |
 | --- | --- | --- |

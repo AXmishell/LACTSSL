@@ -477,15 +477,12 @@ const user = computed(() => state.user)
 const reauth = reactive({ password: '', totp: '' })
 
 function validReauth(form: { password: string; totp: string }): boolean {
-  if (user.value?.totp_enabled) {
-    if (!/^\d{6}$/.test(form.totp.trim())) {
-      ElMessage.warning(t('settings.reauthTotpRequired'))
-      return false
-    }
-    return true
-  }
   if (!form.password) {
     ElMessage.warning(t('settings.reauthPasswordRequired'))
+    return false
+  }
+  if (user.value?.totp_enabled && !/^\d{6}$/.test(form.totp.trim())) {
+    ElMessage.warning(t('settings.reauthTotpRequired'))
     return false
   }
   return true

@@ -1040,6 +1040,17 @@
         <el-button type="primary" :loading="trustSaving" @click="importTrustedCA">{{ t('settings.trustImport') }}</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="entryReauthVisible" :title="t('settings.updateEntry')" width="420px" destroy-on-close>
+      <ReauthFields
+        v-model:password="entryReauth.password"
+        v-model:totp="entryReauth.totp"
+        :totp-enabled="!!user?.totp_enabled"
+      />
+      <template #footer>
+        <el-button @click="entryReauthVisible = false">{{ t('settings.cancel') }}</el-button>
+        <el-button type="primary" :loading="savingEntry" @click="confirmSaveEntry">{{ t('settings.updateEntry') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1162,6 +1173,8 @@ const securityChannelOptions = computed(() => {
 })
 
 const entryForm = reactive({ entry: '' })
+const entryReauth = reactive({ password: '', totp: '' })
+const entryReauthVisible = ref(false)
 
 const emailVisible = ref(false)
 const emailForm = reactive({ email: '', password: '', totp: '' })
@@ -1839,9 +1852,24 @@ async function saveEntry(): Promise<void> {
   } catch (_) {
     return
   }
+  entryReauth.password = ''
+  entryReauth.totp = ''
+  entryReauthVisible.value = true
+}
+
+async function confirmSaveEntry(): Promise<void> {
+  if (!validReauth(entryReauth)) return
+  const entry = entryForm.entry.trim().replace(/^\/+|\/+$/g, '')
   savingEntry.value = true
   try {
-    await api.post<MessageResult>('/security/entry', { entry })
+    await api.post<MessageResult>('/security/entry', {
+      entry,
+      password: entryReauth.password,
+      totp: entryReauth.totp.trim()
+    })
+    entryReauthVisible.value = false
+    entryReauth.password = ''
+    entryReauth.totp = ''
     ElMessage.success(t('settings.entryUpdated'))
     setTimeout(() => {
       // 入口变更后重新加载，让服务端把新入口注入页面。
@@ -1849,6 +1877,7 @@ async function saveEntry(): Promise<void> {
     }, 700)
   } catch (error: any) {
     ElMessage.error(error.message)
+  } finally {
     savingEntry.value = false
   }
 }
@@ -1945,7 +1974,10 @@ async function restoreBackup(): Promise<void> {
     form.append('backup_password', restoreBackupPassword.value)
     form.append('account_password', restoreReauth.password)
     form.append('totp', restoreReauth.totp)
-    const data = await api.post<MessageResult>('/settings/backup/restore', form)
+    const data = await api.post<MessageResult>('/settings/backup/restore', form, {
+      'X-LACTSSL-REAUTH-PASSWORD': restoreReauth.password,
+      'X-LACTSSL-REAUTH-TOTP': restoreReauth.totp.trim()
+    })
     restoreVisible.value = false
     ElMessage.success(data.message || t('settings.restoreUploaded'))
     if (data.restarting) {
@@ -1971,15 +2003,12 @@ function openEmailDialog(): void {
 }
 
 function validReauth(form: { password: string; totp: string }): boolean {
-  if (user.value?.totp_enabled) {
-    if (!/^\d{6}$/.test(form.totp.trim())) {
-      ElMessage.warning(t('settings.reauthTotpRequired'))
-      return false
-    }
-    return true
-  }
   if (!form.password) {
     ElMessage.warning(t('settings.reauthPasswordRequired'))
+    return false
+  }
+  if (user.value?.totp_enabled && !/^\d{6}$/.test(form.totp.trim())) {
+    ElMessage.warning(t('settings.reauthTotpRequired'))
     return false
   }
   return true

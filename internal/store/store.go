@@ -1617,6 +1617,22 @@ func (s *Store) ListLogsByRef(source string, refID int64, limit int) ([]model.Lo
 	return list, rows.Err()
 }
 
+// DeleteTaskLogs 删除任务关联的执行日志（任务日志与部署日志），返回删除行数。
+// 仅删除操作日志分类，不影响系统日志与其它任务。
+func (s *Store) DeleteTaskLogs(taskID int64) (int64, error) {
+	if taskID <= 0 {
+		return 0, nil
+	}
+	result, err := s.DB.Exec(
+		`DELETE FROM logs WHERE category=? AND ref_id=? AND source IN (?,?)`,
+		model.LogCategoryOperation, taskID, "task", "deploy",
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // LogFilter 是日志查询的过滤条件。
 // Category 为空表示不限制分类；From/To 为左闭右开区间，零值表示不限制。
 type LogFilter struct {

@@ -112,8 +112,8 @@ var apiKeyScopeDefs = []apiKeyScopeDef{
 	{apiScopeDeployExecute, "deploy", "api.scope.deploy_execute.label", "api.scope.deploy_execute.desc", true},
 	{apiScopeDeployCommand, "deploy", "api.scope.deploy_command.label", "api.scope.deploy_command.desc", true},
 	{apiScopeTasksRead, "tasks", "api.scope.tasks_read.label", "api.scope.tasks_read.desc", false},
-	{apiScopeTasksWrite, "tasks", "api.scope.tasks_write.label", "api.scope.tasks_write.desc", false},
-	{apiScopeTasksRun, "tasks", "api.scope.tasks_run.label", "api.scope.tasks_run.desc", false},
+	{apiScopeTasksWrite, "tasks", "api.scope.tasks_write.label", "api.scope.tasks_write.desc", true},
+	{apiScopeTasksRun, "tasks", "api.scope.tasks_run.label", "api.scope.tasks_run.desc", true},
 	{apiScopeMonitorsRead, "monitors", "api.scope.monitors_read.label", "api.scope.monitors_read.desc", false},
 	{apiScopeMonitorsWrite, "monitors", "api.scope.monitors_write.label", "api.scope.monitors_write.desc", false},
 	{apiScopeMonitorsInternal, "monitors", "api.scope.monitors_internal.label", "api.scope.monitors_internal.desc", true},
@@ -269,6 +269,7 @@ var apiKeyRoutePolicies = map[string]apiKeyRoutePolicy{
 	"POST /api/tasks/batch/run":           {apiScopeTasksRun},
 	"POST /api/tasks/batch/enabled":       {apiScopeTasksWrite},
 	"GET /api/tasks/:id/logs":             {apiScopeTasksRead},
+	"DELETE /api/tasks/:id/logs":          {apiScopeTasksWrite},
 
 	"GET /api/certificates":                         {apiScopeCertificatesRead},
 	"POST /api/certificates/cleanup":                {apiScopeCertificatesWrite},

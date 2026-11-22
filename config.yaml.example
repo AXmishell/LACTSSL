@@ -37,7 +37,7 @@ database:
   path: ""
   # PostgreSQL/MySQL 连接串；driver 非 sqlite 时必填
   # PostgreSQL：postgres://user:pass@host:5432/lactssl?sslmode=verify-full
-  # MySQL：mysql://user:pass@host:3306/lactssl?tls=preferred
+  # MySQL：mysql://user:pass@host:3306/lactssl?tls=true（生产推荐校验服务端证书；自签需自定义 CA）
   # 也可用 LACTSSL_DATABASE_DSN 覆盖；MySQL 还需同时设置 LACTSSL_DATABASE_DRIVER=mysql
   dsn: ""
   # PostgreSQL/MySQL 连接池；SQLite 固定为 1
@@ -188,6 +188,7 @@ security:
       setup_restore: {max: 5, window_seconds: 60}
       system_log_clear: {max: 3, window_seconds: 600}
       system_log_export: {max: 5, window_seconds: 600}
+      task_log_clear: {max: 10, window_seconds: 600}
 
 acme:
   # 是否启用内置 ACME 服务端（默认开启）；端点、EAB、域名白名单在管理接口中配置

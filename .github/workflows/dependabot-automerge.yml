@@ -34,7 +34,9 @@ jobs:
 
       # 大版本升级（如 node 25 非 LTS、前端工具链 peer 依赖变化）仍需人工评估。
       - name: Enable auto-merge for minor/patch updates
-        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        # 运行时生产依赖（Go 直接依赖、npm dependencies、Docker 基础镜像）必须人工复核；
+        # 仅开发依赖/间接依赖允许 minor/patch 自动合并。
+        if: steps.meta.outputs.update-type != 'version-update:semver-major' && (steps.meta.outputs.dependency-type == 'direct:development' || steps.meta.outputs.dependency-type == 'indirect')
         shell: bash
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

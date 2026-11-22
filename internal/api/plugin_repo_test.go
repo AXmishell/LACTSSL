@@ -101,8 +101,8 @@ func TestRepoProxyFallbackAndOverride(t *testing.T) {
 		t.Fatalf("runtime proxy not used: %q", got)
 	}
 	status := s.repoStatus()
-	if status["proxy"] != runtimeProxy || status["proxy_set"] != true {
-		t.Fatalf("unexpected proxy status: %+v", status)
+	if status["proxy"] != "socks5://127.0.0.1:1080" || status["proxy_set"] != true {
+		t.Fatalf("status 不应回显代理凭据: %+v", status)
 	}
 
 	// 显式保存空值应关闭代理，而不是回退到配置文件。
@@ -987,5 +987,22 @@ func TestFetchRepoIndexRevalidatesOn304(t *testing.T) {
 	}
 	if notModified == 0 || fullFetch == 0 || sigFetch == 0 {
 		t.Fatalf("304 应触发全量重取并请求签名: 304=%d full=%d sig=%d", notModified, fullFetch, sigFetch)
+	}
+}
+
+func TestRepoUpdateAvailableUsesAssetHashForSameVersion(t *testing.T) {
+	plugin := pluginrepo.Plugin{Kind: "dns", ID: "all-lego", Version: "4.35.2"}
+	asset := pluginrepo.Asset{SHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	record := model.PluginInstallation{Kind: "dns", ID: "all-lego", Version: "4.35.2", AssetSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	if !repoUpdateAvailable(plugin, asset, record) {
+		t.Fatal("same version with a different asset hash must be updateable")
+	}
+	record.AssetSHA256 = asset.SHA256
+	if repoUpdateAvailable(plugin, asset, record) {
+		t.Fatal("same version and same asset hash should be up to date")
+	}
+	record.AssetSHA256 = ""
+	if repoUpdateAvailable(plugin, asset, record) {
+		t.Fatal("missing installed asset hash should not trigger a blind update")
 	}
 }

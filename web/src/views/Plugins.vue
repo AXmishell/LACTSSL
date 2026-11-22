@@ -53,10 +53,10 @@
         <div v-show="repoExpanded" class="repo-expanded">
           <el-form class="repo-form" label-position="top" @submit.prevent>
             <el-form-item :label="t('plugins.repoUrl')">
-              <el-input v-model="repoForm.url" placeholder="https://.../index.json" />
+              <el-input v-model="repoForm.url" :placeholder="repo?.url || 'https://.../index.json'" />
             </el-form-item>
             <el-form-item :label="t('plugins.repoProxy')">
-              <el-input v-model="repoForm.proxy" clearable placeholder="http://127.0.0.1:7890 / socks5://127.0.0.1:1080" />
+              <el-input v-model="repoForm.proxy" clearable :placeholder="repo?.proxy || 'http://127.0.0.1:7890 / socks5://127.0.0.1:1080'" />
               <div class="sub">{{ t('plugins.repoProxyHint') }}</div>
             </el-form-item>
             <div class="repo-inline">
@@ -1111,10 +1111,12 @@ async function loadRepo(): Promise<void> {
     repo.value = await api.get<PluginRepoStatus>('/plugins/repo')
     repoForm.value = {
       enabled: repo.value.enabled,
-      url: repo.value.url,
+      // URL/代理可能含 token 或 user:password，服务端只返回脱敏值。
+      // 输入框保持为空，留空即保留已保存配置；只有输入新值才会覆盖。
+      url: '',
       channel: repo.value.channel || 'stable',
       autoUpdate: repo.value.auto_update,
-      proxy: repo.value.proxy || '',
+      proxy: '',
       publicKey: ''
     }
     await loadLegacy()
@@ -1143,16 +1145,18 @@ async function saveRepo(): Promise<void> {
   try {
     const payload: Record<string, any> = {
       enabled: repoForm.value.enabled,
-      url: repoForm.value.url.trim(),
       channel: repoForm.value.channel,
-      auto_update: repoForm.value.autoUpdate,
-      proxy: repoForm.value.proxy.trim()
+      auto_update: repoForm.value.autoUpdate
     }
-    // 公钥输入框不回显已有值；留空表示保持原公钥不变。
+    // URL/代理/公钥输入框不回显已有值；留空表示保持原值不变。
+    if (repoForm.value.url.trim()) payload.url = repoForm.value.url.trim()
+    if (repoForm.value.proxy.trim()) payload.proxy = repoForm.value.proxy.trim()
     if (repoForm.value.publicKey.trim()) payload.public_key = repoForm.value.publicKey.trim()
     const result = await api.put<PluginRepoStatus>('/plugins/repo', payload)
     if (!result) return
     repo.value = result
+    repoForm.value.url = ''
+    repoForm.value.proxy = ''
     repoForm.value.publicKey = ''
     ElMessage.success(t('plugins.repoSaved'))
   } catch (error) {

@@ -96,7 +96,7 @@ curl -X POST \
 | `deploy:execute` | 証明書を手動でデプロイ、またはデプロイノードを含むタスクの作成/変更/実行（ファイル書き込み。コマンド実行には別途 `deploy:command` が必要） | はい |
 | `deploy:command` | ローカル/SSH デプロイで reload コマンドの実行を許可（サービスアカウントで任意のコマンドを実行するのと同等） | はい |
 | `tasks:read` | タスク一覧とタスクログを表示 | いいえ |
-| `tasks:write` | タスクの作成、変更、削除、有効化/無効化（作成時に即実行するには `tasks:run` も必要。デプロイノードを含む場合は `deploy:execute` も必要。プライベート CA の場合は `private_cas:write` も必要） | いいえ |
+| `tasks:write` | タスクの作成、変更、削除、有効化/無効化、実行ログの消去（作成時に即実行するには `tasks:run` も必要。デプロイノードを含む場合は `deploy:execute` も必要。プライベート CA の場合は `private_cas:write` も必要） | いいえ |
 | `tasks:run` | タスクの手動実行または一括実行（デプロイノードを含む場合は `deploy:execute` も必要。プライベート CA の場合は `private_cas:write` も必要） | いいえ |
 | `monitors:read` | サイト証明書監視を表示 | いいえ |
 | `monitors:write` | 監視の作成、変更、削除、即時チェック | いいえ |
@@ -253,6 +253,22 @@ curl -fsS -X POST \
 タスクに有効なデプロイノードが含まれる場合、キーは `deploy:execute` も持っている必要があります。
 
 デフォルトでは、有効期限内で更新ウィンドウに入っていない証明書を再利用し、デプロイノードのみを再実行して、アップストリーム CA への再注文は行いません。強制的に再発行する必要がある場合は `?force=1` または `{"force":true}` を使用します。強制発行は CA の証明書クォータを消費します。
+
+タスクの実行ログを取得します（`tasks:read` が必要）：
+
+```bash
+curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  https://ssl.example.com/api/tasks/123/logs
+```
+
+タスクの実行ログを消去します（`tasks:write` が必要）：
+
+```bash
+curl -fsS -X DELETE -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  https://ssl.example.com/api/tasks/123/logs
+```
+
+消去すると、そのタスクの発行ログとデプロイログが削除され、削除行数が `deleted` として返されます。操作ログには監査記録が残ります。
 
 ### 6.4 証明書のダウンロード
 
@@ -415,6 +431,8 @@ python3 scripts/csr_client.py --manifest ./certs.json --json
 ### 6.8 認証情報の可用性検証
 
 DNS アカウントやターゲット認証情報を追加または変更した後、認証情報が実際に使用可能かを能動的に検証できます。検証エンドポイントは `dns_accounts:write` / `deploy_accounts:write` 権限を使用します。ブラウザセッションでは現在のパスワードまたは TOTP による再認証は不要です。検証結果は参考情報であり、保存や実行を妨げません。
+
+`domain` を省略した場合、保存済み DNS アカウントは有効なドメイン紐付けを優先して使用します。紐付けがない場合は `mode: "scope"` を返し、認証情報の設定と呼び出し権限のみを確認します。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |

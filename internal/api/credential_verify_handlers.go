@@ -87,23 +87,20 @@ func verifyStatusOf(result service.VerifyResult) string {
 	return "failed"
 }
 
-// defaultDNSVerifyDomain 在用户未填写测试域名时，取引用该账户的第一个任务域名。
+// defaultDNSVerifyDomain 在用户未填写测试域名时，取该账户已启用的域名绑定。
+// 绑定声明的 zone 就是账户允许管理的范围，比任务域名更可靠；没有绑定时返回空，
+// 由服务层降级为仅校验权限，避免用未声明的 zone 做写入测试。
 func (s *Server) defaultDNSVerifyDomain(accountID int64) string {
-	tasks, err := s.Store.ListTasks()
+	bindings, err := s.Store.ListDNSZoneBindingsByAccount(accountID)
 	if err != nil {
 		return ""
 	}
-	for _, task := range tasks {
-		if !taskUsesDNSAccount(&task, accountID) {
+	for _, binding := range bindings {
+		if !binding.Enabled {
 			continue
 		}
-		if len(task.Domains) > 0 {
-			return task.Domains[0]
-		}
-		for _, route := range task.DNSRoutes {
-			if route.DNSAccountID == accountID && route.Domain != "" {
-				return route.Domain
-			}
+		if zone := strings.TrimSpace(binding.Zone); zone != "" {
+			return zone
 		}
 	}
 	return ""

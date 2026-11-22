@@ -618,6 +618,16 @@
       </div>
       <template #footer>
         <el-button @click="refreshLogs" :loading="logLoading">{{ t('tasks.refreshLogs') }}</el-button>
+        <el-button
+          type="danger"
+          plain
+          :icon="Delete"
+          :loading="clearingLogs"
+          :disabled="!logs.length"
+          @click="clearLogs"
+        >
+          {{ t('tasks.clearLogs') }}
+        </el-button>
       </template>
     </el-drawer>
   </div>
@@ -738,6 +748,7 @@ const currentUser = computed(() => state.user)
 
 const logVisible = ref(false)
 const logLoading = ref(false)
+const clearingLogs = ref(false)
 const logs = ref<LogEntry[]>([])
 const currentTask = ref<Task | null>(null)
 let logTimer: ReturnType<typeof setInterval> | null = null
@@ -1066,15 +1077,12 @@ function resetNodeVerify(): void {
 }
 
 function validNodeReauth(): boolean {
-  if (currentUser.value?.totp_enabled) {
-    if (!/^\d{6}$/.test(nodeVerifyReauth.totp.trim())) {
-      ElMessage.warning(t('settings.reauthTotpRequired'))
-      return false
-    }
-    return true
-  }
   if (!nodeVerifyReauth.password) {
     ElMessage.warning(t('settings.reauthPasswordRequired'))
+    return false
+  }
+  if (currentUser.value?.totp_enabled && !/^\d{6}$/.test(nodeVerifyReauth.totp.trim())) {
+    ElMessage.warning(t('settings.reauthTotpRequired'))
     return false
   }
   return true
@@ -2063,6 +2071,33 @@ async function refreshLogs(): Promise<void> {
     ElMessage.error(error.message)
   } finally {
     logLoading.value = false
+  }
+}
+
+async function clearLogs(): Promise<void> {
+  if (!currentTask.value) return
+  try {
+    await ElMessageBox.confirm(
+      t('tasks.clearLogsConfirm', { name: currentTask.value.name }),
+      t('tasks.clearLogsTitle'),
+      {
+        confirmButtonText: t('tasks.clearLogs'),
+        cancelButtonText: t('tasks.cancel'),
+        type: 'warning'
+      }
+    )
+  } catch (_) {
+    return
+  }
+  clearingLogs.value = true
+  try {
+    const data = await api.delete<{ deleted: number }>(`/tasks/${currentTask.value.id}/logs`)
+    ElMessage.success(t('tasks.logsCleared', { count: data?.deleted || 0 }))
+    await refreshLogs()
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    clearingLogs.value = false
   }
 }
 

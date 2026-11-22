@@ -56,6 +56,7 @@ func TestTrustedCAImportAndDelete(t *testing.T) {
 		nil,
 	)
 	s.DataDir = t.TempDir()
+	s.AllowInsecureSetup = true
 	router := s.Router()
 
 	setup := sessionRequest(t, router, http.MethodPost, "/api/setup",
@@ -118,6 +119,7 @@ func TestPrivateCAIncludedInTrustBundle(t *testing.T) {
 		nil,
 	)
 	s.DataDir = t.TempDir()
+	s.AllowInsecureSetup = true
 	router := s.Router()
 
 	setup := sessionRequest(t, router, http.MethodPost, "/api/setup",

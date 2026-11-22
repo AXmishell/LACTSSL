@@ -1,8 +1,10 @@
 services:
   lactssl:
-    image: ghcr.io/axmishell/lactssl:latest
+    # 生产建议固定到具体版本或 digest；升级时显式修改 tag。
+    image: ghcr.io/axmishell/lactssl:${LACTSSL_IMAGE_TAG:-1.0.8}
     restart: unless-stopped
-    ports: ["8080:8080"]
+    # 默认只绑定回环，由本机反向代理终止 TLS；如确需对局域网开放请显式修改。
+    ports: ["127.0.0.1:8080:8080"]
     environment:
       TZ: Asia/Shanghai
       TMPDIR: /app/data/tmp

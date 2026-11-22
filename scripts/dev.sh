@@ -295,7 +295,7 @@ start_panel() {
   printf '\n===== %s starting panel =====\n' "$(date '+%F %T')" >>"$PANEL_LOG"
   (
     cd "$ROOT_DIR"
-    exec "$APP_BIN" -config "$CONFIG"
+    exec env LACTSSL_DEV_ORIGIN=1 "$APP_BIN" -config "$CONFIG"
   ) >>"$PANEL_LOG" 2>&1 &
   printf '%s\n' "$!" >"$PANEL_PID_FILE"
   if wait_http "$(panel_health_url)"; then

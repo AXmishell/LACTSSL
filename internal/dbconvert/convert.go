@@ -577,7 +577,9 @@ func (r *Runner) backupSource(ctx context.Context) (string, error) {
 		if err != nil {
 			return dir, err
 		}
-		cmd := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, r.opts.SourceDSN) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
+		safeDSN, pgEnv := db.PostgresCLIEnv(r.opts.SourceDSN)
+		cmd := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, safeDSN) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
+		cmd.Env = append(os.Environ(), pgEnv...)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return dir, fmt.Errorf("pg_dump 备份失败: %w: %s", err, strings.TrimSpace(string(output)))
 		}

@@ -181,7 +181,22 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 	}
 	domain = NormalizeVerifyDomain(domain)
 	if domain == "" {
-		res.add("domain", VerifyStatusFailed, i18n.T(loc, "service.verify.domain_invalid", nil))
+		// 没有可用测试域名时（例如账户尚未维护域名绑定），不做写入测试，
+		// 只确认插件可用、凭据可以初始化，并保留调用权限检查结果。
+		// 显式要求 write 模式时仍返回域名错误，避免把“跳过”伪装成通过。
+		if mode == "write" {
+			res.add("domain", VerifyStatusFailed, i18n.T(loc, "service.verify.domain_invalid", nil))
+			return *res
+		}
+		res.Mode = "scope"
+		if _, err := plugin.New(cfg); err != nil {
+			res.add("init", VerifyStatusFailed, i18n.T(loc, "service.verify.init_failed", map[string]any{"error": err.Error()}))
+			return *res
+		}
+		res.add("init", VerifyStatusOK, "")
+		res.add("domain", VerifyStatusSkipped, i18n.T(loc, "service.verify.domain_skipped", nil))
+		res.add("access", VerifyStatusOK, i18n.T(loc, "service.verify.permission_only", nil))
+		res.Message = i18n.T(loc, "service.verify.permission_only", nil)
 		return *res
 	}
 	res.add("domain", VerifyStatusOK, domain)

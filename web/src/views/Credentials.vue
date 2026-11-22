@@ -222,10 +222,10 @@
 
         <el-alert
           v-if="verifyResult"
-          :type="verifyResult.ok ? 'success' : 'warning'"
+          :type="verifyResult.ok ? (verifyResult.mode === 'scope' ? 'info' : 'success') : 'warning'"
           :closable="false"
           style="margin-bottom: 12px"
-          :title="verifyResult.ok ? t('credentials.verifyPassed') : t('credentials.verifyFailed')"
+          :title="verifyResultTitle"
         >
           <div v-for="check in visibleVerifyChecks" :key="check.key" class="verify-check">
             <el-tag :type="verifyTagType(check.status === 'ok' ? 'ok' : check.status === 'unsupported' ? 'unsupported' : 'failed')" size="small" effect="light">
@@ -438,6 +438,14 @@ const verifyResult = ref<VerifyResult | null>(null)
 const visibleVerifyChecks = computed(() =>
   (verifyResult.value?.checks || []).filter((check) => !(check.key === 'scope' && check.status === 'skipped'))
 )
+const verifyResultTitle = computed(() => {
+  const result = verifyResult.value
+  if (!result) return ''
+  if (!result.ok) return t('credentials.verifyFailed')
+  // scope 模式只校验凭据配置与调用权限，没有真的探测服务商，不能展示“凭据可用”。
+  if (result.mode === 'scope') return t('credentials.verifyPermissionTitle')
+  return t('credentials.verifyPassed')
+})
 const verifyDomain = ref('')
 
 // 域名绑定：声明式解析 CSR 域名的 DNS 账户归属。
@@ -580,7 +588,8 @@ async function verifyCurrent(): Promise<void> {
     if (data === null) return
     verifyResult.value = data
     await load()
-    if (data.ok) ElMessage.success(t('credentials.verifyPassed'))
+    if (data.ok && data.mode === 'scope') ElMessage.info(data.message || t('credentials.verifyPermissionOnly'))
+    else if (data.ok) ElMessage.success(t('credentials.verifyPassed'))
     else ElMessage.warning(data.message || t('credentials.verifyFailed'))
   } catch (error: any) {
     ElMessage.error(error.message)

@@ -69,6 +69,12 @@ func MySQLConfig(dsn string) (*mysqldriver.Config, error) {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 10 * time.Second
 	}
+	// 未显式配置 TLS 时，TCP 连接默认尝试加密，避免明文传输数据库凭据。
+	// 注意 preferred 不校验证书；生产环境应显式使用 tls=true（系统 CA）
+	// 或注册自定义 CA 的 TLS 配置。
+	if strings.TrimSpace(cfg.TLSConfig) == "" && (cfg.Net == "tcp" || cfg.Net == "tcp4" || cfg.Net == "tcp6") {
+		cfg.TLSConfig = "preferred"
+	}
 	return cfg, nil
 }
 

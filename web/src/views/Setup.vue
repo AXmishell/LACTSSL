@@ -17,7 +17,7 @@
 
         <el-form :model="form" label-position="top" @submit.prevent="submit">
           <el-form-item :label="t('setup.setupToken')">
-            <el-input v-model="setupToken" size="large" autocomplete="off" :placeholder="t('setup.setupTokenPlaceholder')">
+            <el-input v-model="setupToken" size="large" autocomplete="off" :placeholder="t('setup.setupTokenPlaceholder')" @change="loadConfig">
               <template #prefix><el-icon><Key /></el-icon></template>
             </el-input>
             <div class="form-help">{{ t('setup.setupTokenHint') }}</div>
@@ -271,7 +271,7 @@ onMounted(async () => {
 
 async function loadConfig(): Promise<void> {
   try {
-    const data = await api.get<SetupConfigResult>('/setup/config')
+    const data = await api.get<SetupConfigResult>('/setup/config', undefined, setupHeaders())
     configForm.value = data.config
     configReady.value = true
     configLoadError.value = ''

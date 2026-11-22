@@ -31,6 +31,8 @@ REPO="$DEFAULT_REPO"
 ENABLE_NGINX=1
 INSTALL_DEPS=1
 SKIP_CHECKSUM=0
+ALLOW_UNSIGNED=0
+RELEASE_PUBLIC_KEY="${LACTSSL_RELEASE_PUBLIC_KEY:-}"
 TLS_CERT=""
 TLS_KEY=""
 TLS_EXPLICIT=0
@@ -95,6 +97,9 @@ LACTSSL 一键部署脚本
   --no-tls              关闭已有 Nginx TLS 配置（默认本来就不启用 TLS）
   --read-write-path DIR 额外允许服务写入的目录（可重复，用于本机证书部署目标）
   --skip-checksum       跳过 SHA-256 校验（不推荐）
+  --release-public-key KEY
+                       发布签名公钥（base64 Ed25519；也可用 LACTSSL_RELEASE_PUBLIC_KEY）
+  --allow-unsigned      未提供公钥时仍允许安装（不推荐，仅限受控环境）
   -h, --help            显示帮助
 
 说明:
@@ -170,6 +175,15 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skip-checksum)
       SKIP_CHECKSUM=1
+      shift
+      ;;
+    --release-public-key)
+      [ "$#" -ge 2 ] || die "--release-public-key 需要参数"
+      RELEASE_PUBLIC_KEY="$2"
+      shift 2
+      ;;
+    --allow-unsigned)
+      ALLOW_UNSIGNED=1
       shift
       ;;
     -h|--help)
@@ -296,6 +310,9 @@ check_platform() {
   if [ "$SKIP_CHECKSUM" -eq 0 ] && ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
     die "需要 sha256sum 或 shasum 校验发布包；如确有需要可加 --skip-checksum"
   fi
+  if [ "$SKIP_CHECKSUM" -eq 0 ] && [ -n "$RELEASE_PUBLIC_KEY" ] && ! command -v openssl >/dev/null 2>&1; then
+    die "需要 openssl 校验发布签名；如确有需要可加 --allow-unsigned"
+  fi
   if [ "$ENABLE_NGINX" -eq 1 ] && [ "$INSTALL_DEPS" -eq 0 ] && ! command -v nginx >/dev/null 2>&1; then
     die "未安装 Nginx；请先安装，或去掉 --no-install-deps"
   fi
@@ -313,6 +330,40 @@ fetch_url() {
   else
     wget -O "$out" --tries=3 --timeout=30 "$url"
   fi
+}
+
+# verify_release_signature 校验 checksums.txt 的 Ed25519 分离签名。
+# 公钥使用与 config.yaml upgrade.program.public_key 相同的 32 字节原始公钥
+# base64 格式；同时兼容 44 字节 SPKI DER base64，便于从标准工具导出。
+verify_release_signature() {
+  local key="$1" checksums="$2" sig_url="$3" work="$4"
+  if [ -z "$key" ]; then
+    if [ "$ALLOW_UNSIGNED" -eq 1 ]; then
+      warn "未提供发布签名公钥，已按 --allow-unsigned 跳过验签"
+      return 0
+    fi
+    die "缺少发布签名公钥：请设置 LACTSSL_RELEASE_PUBLIC_KEY=<base64 Ed25519 公钥>，或显式加 --allow-unsigned（不推荐）"
+  fi
+  command -v openssl >/dev/null 2>&1 || die "需要 openssl 校验发布签名"
+  log "下载并校验发布签名 checksums.txt.sig"
+  fetch_url "$sig_url" "$work/checksums.txt.sig" || die "下载 checksums.txt.sig 失败"
+  printf '%s' "$key" | tr -d '[:space:]' | openssl base64 -d -A > "$work/release-public.raw" 2>/dev/null || die "发布签名公钥不是合法 base64"
+  local size
+  size="$(wc -c < "$work/release-public.raw" | tr -d ' ')"
+  if [ "$size" = "32" ]; then
+    printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00' > "$work/release-public.der"
+    cat "$work/release-public.raw" >> "$work/release-public.der"
+  elif [ "$size" = "44" ]; then
+    cp "$work/release-public.raw" "$work/release-public.der"
+  else
+    die "发布签名公钥长度不正确（期望 32 或 44 字节，实际 $size）"
+  fi
+  tr -d '[:space:]' < "$work/checksums.txt.sig" | openssl base64 -d -A > "$work/checksums.txt.sig.bin" 2>/dev/null || die "发布签名不是合法 base64"
+  if ! openssl pkeyutl -verify -pubin -inkey "$work/release-public.der" -keyform DER \
+      -rawin -in "$checksums" -sigfile "$work/checksums.txt.sig.bin" >/dev/null 2>&1; then
+    die "发布签名校验失败，拒绝安装"
+  fi
+  ok "发布签名校验通过"
 }
 
 fetch_text() {
@@ -1075,6 +1126,7 @@ main() {
     else
       (cd "$TMP_DIR" && shasum -a 256 -c checksum.line) || die "SHA-256 校验失败: $ASSET"
     fi
+    verify_release_signature "$RELEASE_PUBLIC_KEY" "$TMP_DIR/checksums.txt" "${CHECKSUMS_URL}.sig" "$TMP_DIR"
   fi
 
   if tar -tzf "$TMP_DIR/$ASSET" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null; then

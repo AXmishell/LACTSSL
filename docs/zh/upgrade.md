@@ -197,7 +197,7 @@ data/upgrade-backups/program/
 ./lactssl-dbconvert   -config config.yaml   -source-driver sqlite -source data/lactssl.db   -target-driver postgres -target "postgres://user:pass@host:5432/lactssl?sslmode=verify-full"   -switch -yes
 ```
 
-MySQL 目标使用同样的命令，把 `-target-driver` 改为 `mysql`，DSN 使用 `mysql://user:pass@host:3306/lactssl?tls=preferred`。MySQL 备份与恢复依赖 `mysqldump` / `mysql` 客户端。
+MySQL 目标使用同样的命令，把 `-target-driver` 改为 `mysql`，DSN 使用 `mysql://user:pass@host:3306/lactssl?tls=true`。MySQL 备份与恢复依赖 `mysqldump` / `mysql` 客户端。
 
 `-switch` 会改写 `config.yaml`，但不会自动启动服务。目标库非空时默认拒绝；确认清空时加 `-force`。
 

@@ -20,7 +20,9 @@ func (s *Server) requireReauth(c *gin.Context, user *model.User, password, totpC
 	}
 	ok := false
 	if user.TOTPEnabled {
-		ok = auth.ValidateTOTP(user.TOTPSecret, strings.TrimSpace(totpCode))
+		// 高风险操作要求密码 + TOTP 双因素，避免仅凭一个验证码完成敏感变更。
+		ok = auth.VerifyPassword(user.PasswordHash, password) &&
+			auth.ValidateTOTP(user.TOTPSecret, strings.TrimSpace(totpCode))
 	} else {
 		ok = auth.VerifyPassword(user.PasswordHash, password)
 	}

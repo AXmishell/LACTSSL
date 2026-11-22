@@ -17,7 +17,7 @@ TAGS := embed
 all: build
 
 web:
-	cd web && $(NPM) install && $(NPM) run build
+	cd web && $(NPM) ci && $(NPM) run build
 	rm -rf internal/webui/dist
 	cp -a web/dist internal/webui/dist
 
@@ -58,7 +58,7 @@ dev-logs:
 	./scripts/dev.sh logs
 
 dev-api:
-	$(BUILD_ENV) $(GO) run ./cmd/server
+	LACTSSL_DEV_ORIGIN=1 $(BUILD_ENV) $(GO) run ./cmd/server
 
 dev-web:
 	cd web && $(NPM) run dev

@@ -96,7 +96,7 @@ curl -X POST \
 | `deploy:execute` | 手動部署證書，或建立/修改/執行包含部署節點的任務（寫檔案；命令執行另需 `deploy:command`） | 是 |
 | `deploy:command` | 允許本地/SSH 部署執行 reload 命令（等同於以服務帳號執行任意命令） | 是 |
 | `tasks:read` | 檢視任務列表與任務日誌 | 否 |
-| `tasks:write` | 建立、修改、刪除和啟停任務（建立即執行還需 `tasks:run`；含部署節點還需 `deploy:execute`；私有 CA 還需 `private_cas:write`） | 否 |
+| `tasks:write` | 建立、修改、刪除和啟停任務，清理任務執行日誌（建立即執行還需 `tasks:run`；含部署節點還需 `deploy:execute`；私有 CA 還需 `private_cas:write`） | 否 |
 | `tasks:run` | 手動執行任務或批次執行（含部署節點還需 `deploy:execute`；私有 CA 還需 `private_cas:write`） | 否 |
 | `monitors:read` | 檢視站點證書監控 | 否 |
 | `monitors:write` | 建立、修改、刪除和立即檢查監控 | 否 |
@@ -253,6 +253,22 @@ curl -fsS -X POST \
 如果任務包含啟用的部署節點，金鑰必須同時擁有 `deploy:execute`。
 
 預設會複用仍在有效期內且未進入續期視窗的證書，只重新執行部署節點，不重複向上遊 CA 下單。確需強制重新簽發時使用 `?force=1` 或傳送 `{"force":true}`；強制簽發會消耗 CA 的證書配額。
+
+查詢任務執行日誌（需要 `tasks:read`）：
+
+```bash
+curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  https://ssl.example.com/api/tasks/123/logs
+```
+
+清理任務執行日誌（需要 `tasks:write`）：
+
+```bash
+curl -fsS -X DELETE -H "Authorization: Bearer $LACTSSL_TOKEN" \
+  https://ssl.example.com/api/tasks/123/logs
+```
+
+清理介面會刪除該任務的簽發與部署日誌，回傳刪除行數 `deleted`，並在操作日誌中保留一筆稽核記錄。
 
 ### 6.4 下載證書
 
@@ -415,6 +431,8 @@ python3 scripts/csr_client.py --manifest ./certs.json --json
 ### 6.8 驗證憑據可用性
 
 在新增或修改 DNS 帳戶、目標憑據後，可主動驗證憑據是否真實可用。驗證介面使用 `dns_accounts:write` / `deploy_accounts:write` 權限；瀏覽器會話不再需要透過當前密碼或 TOTP 再認證。驗證結果僅作提示，不會阻止儲存或執行。
+
+未傳 `domain` 時，已儲存的 DNS 帳戶優先使用其已啟用的網域綁定；沒有綁定時回傳 `mode: "scope"`，僅校驗憑據設定與呼叫權限。
 
 | 方法 | 路徑 | 說明 |
 | --- | --- | --- |

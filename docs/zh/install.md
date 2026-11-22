@@ -52,7 +52,7 @@ docker compose logs -f lactssl
 ```
 
 !!! note "镜像与网络"
-    GHCR 镜像从首个正式 Release 起可用；如果 `docker compose pull` 提示镜像不存在，请按 2.4 节在本地构建。Compose 默认把 8080 发布到宿主机所有网卡；公网主机建议用防火墙限制来源，或把 `ports` 改为 `127.0.0.1:8080:8080`，只允许本机反向代理访问。
+    GHCR 镜像从首个正式 Release 起可用；如果 `docker compose pull` 提示镜像不存在，请按 2.4 节在本地构建。Compose 现在默认只把 8080 发布到 `127.0.0.1`；如需局域网访问请显式修改 `ports`，并在前面部署 TLS 反向代理。镜像 tag 固定到具体版本，可用 `LACTSSL_IMAGE_TAG` 覆盖。
 
 默认挂载：
 
@@ -171,6 +171,8 @@ Linux 发布压缩包中也会附带 `install.sh`，解压后可直接运行。
 | `--no-tls` | 关闭已有 Nginx TLS 配置（默认本来就不启用 TLS） |
 | `--read-write-path DIR` | 额外允许服务写入的目录，可重复；用于本机证书部署目标 |
 | `--skip-checksum` | 跳过 SHA-256 校验（不推荐） |
+| `--release-public-key KEY` | base64 Ed25519 发布公钥，用于校验 `checksums.txt.sig`（也可设置 `LACTSSL_RELEASE_PUBLIC_KEY`） |
+| `--allow-unsigned` | 未提供签名公钥时仍允许安装（不推荐，仅限受控环境） |
 
 示例：启用 HTTPS
 
@@ -182,7 +184,7 @@ sudo ./scripts/install.sh \
   --tls-key  /etc/nginx/certs/ssl.example.com.key
 ```
 
-脚本会校验 Release 中的 `checksums.txt`。重复执行时只替换二进制并重启服务，已有 `config.yaml` 和 `data/` 会保留；指定 `--port` 时会同步更新 `server.addr`、`server.host`、`server.port`。未指定 `--domain` / `--tls-cert` / `--tls-key` 时，会沿用已有 Nginx 配置中的域名与证书，避免升级时意外退回默认站点或关闭 TLS；如需关闭 TLS 请显式使用 `--no-tls`。如果 Nginx 未安装，脚本会尝试通过系统的包管理器安装；不希望自动安装时可加 `--no-install-deps`，不配置 Nginx 时可加 `--no-nginx`。服务单元启用了 `ProtectSystem=strict`，程序页面中的自升级可能因目录只读而不可用；升级请重新运行本脚本。如需让内置部署目标写入本机 `/etc/nginx` 等目录，可重复使用 `--read-write-path` 放行，并确保 `lactssl` 用户对这些目录有写权限。
+脚本会校验 Release 中的 `checksums.txt`，并默认校验 `checksums.txt.sig` 的 Ed25519 签名。请通过 `LACTSSL_RELEASE_PUBLIC_KEY` 设置 base64 Ed25519 公钥（与 `upgrade.program.public_key` 相同），或使用 `--release-public-key`；受控环境可显式加 `--allow-unsigned` 退回仅 SHA-256 模式。重复执行时只替换二进制并重启服务，已有 `config.yaml` 和 `data/` 会保留；指定 `--port` 时会同步更新 `server.addr`、`server.host`、`server.port`。未指定 `--domain` / `--tls-cert` / `--tls-key` 时，会沿用已有 Nginx 配置中的域名与证书，避免升级时意外退回默认站点或关闭 TLS；如需关闭 TLS 请显式使用 `--no-tls`。如果 Nginx 未安装，脚本会尝试通过系统的包管理器安装；不希望自动安装时可加 `--no-install-deps`，不配置 Nginx 时可加 `--no-nginx`。服务单元启用了 `ProtectSystem=strict`，程序页面中的自升级可能因目录只读而不可用；升级请重新运行本脚本。如需让内置部署目标写入本机 `/etc/nginx` 等目录，可重复使用 `--read-write-path` 放行，并确保 `lactssl` 用户对这些目录有写权限。
 
 默认生成的关键配置：
 

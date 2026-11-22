@@ -13,6 +13,7 @@ RUN_DOCKER=1
 RUN_PUBLISH=1
 MULTIARCH=0
 UPLOAD=0
+ALLOW_UNSIGNED=0
 TAG_ARG=""
 
 usage() {
@@ -30,6 +31,7 @@ usage() {
   --publish-only    只跑 publish，复用已有 dist/（用于验证上传资产列表）
   --multiarch       用 buildx 构建 linux/amd64 + linux/arm64，导出 OCI 镜像到 dist/（不推送）
   --upload          构建完成后用 gh 把 dist/* 上传到同名 GitHub Release（会覆盖同名资产）
+  --allow-unsigned  稳定版上传时允许未签名产物（不推荐，仅用于受控环境）
   -h, --help        显示帮助
 
 说明:
@@ -61,6 +63,7 @@ while [ "$#" -gt 0 ]; do
     --no-docker) RUN_DOCKER=0 ;;
     --multiarch) MULTIARCH=1 ;;
     --upload) UPLOAD=1 ;;
+    --allow-unsigned) ALLOW_UNSIGNED=1 ;;
     -h|--help)
       usage
       exit 0
@@ -257,6 +260,20 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   step "checksums: 生成 checksums.txt"
   (cd "$DIST" && shopt -s nullglob && sha256sum *.tar.gz *.zip > checksums.txt && cat checksums.txt)
 
+  # 与 release.yml 一致：稳定版上传必须签名；预发布/本地 dry-run 可跳过。
+  if [ -n "${ED25519_PRIVATE_KEY_B64:-}" ]; then
+    require node
+    step "checksums: 生成 Ed25519 分离签名"
+    node scripts/sign-checksums.mjs "$DIST/checksums.txt" "$DIST/checksums.txt.sig"
+  else
+    if [ "$prerelease" = "false" ] && [ "$UPLOAD" -eq 1 ] && [ "$ALLOW_UNSIGNED" -eq 0 ]; then
+      echo "::error::稳定版上传必须配置 ED25519_PRIVATE_KEY_B64；受控环境可显式加 --allow-unsigned。" >&2
+      exit 1
+    fi
+    step "checksums: 未配置 ED25519_PRIVATE_KEY_B64，跳过签名"
+    printf '%s提示: 稳定版发布应配置签名密钥；本次仅生成 SHA-256。%s\n' "$YELLOW" "$RESET" >&2
+  fi
+
   step "校验产物"
   ls -lh "$DIST"
 else
@@ -361,6 +378,9 @@ if [ "$RUN_PUBLISH" -eq 1 ]; then
   step "publish: GitHub Release 资产"
   shopt -s nullglob
   assets=("$DIST"/*.tar.gz "$DIST"/*.zip "$DIST/checksums.txt")
+  if [ -f "$DIST/checksums.txt.sig" ]; then
+    assets+=("$DIST/checksums.txt.sig")
+  fi
   if [ "${#assets[@]}" -eq 0 ]; then
     if [ "$UPLOAD" -eq 1 ]; then
       echo "::error::dist/ 中没有可分发的资产，请先执行构建" >&2
@@ -368,6 +388,10 @@ if [ "$RUN_PUBLISH" -eq 1 ]; then
     fi
     echo "dist/ 中没有可分发的资产，跳过 publish"
   elif [ "$UPLOAD" -eq 1 ]; then
+    if [ "$prerelease" = "false" ] && [ ! -f "$DIST/checksums.txt.sig" ] && [ "$ALLOW_UNSIGNED" -eq 0 ]; then
+      echo "::error::稳定版上传缺少 checksums.txt.sig；请配置 ED25519_PRIVATE_KEY_B64 或显式加 --allow-unsigned。" >&2
+      exit 1
+    fi
     require gh
     if ! gh release view "$tag" >/dev/null 2>&1; then
       echo "::error::找不到 tag '$tag' 对应的 release，请先创建 release" >&2

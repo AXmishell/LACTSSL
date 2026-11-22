@@ -1,4 +1,13 @@
 <template>
+  <el-form-item :label="t('settings.reauthPasswordLabel')">
+    <el-input
+      v-model="passwordValue"
+      type="password"
+      show-password
+      autocomplete="current-password"
+      :placeholder="t('settings.reauthPasswordPlaceholder')"
+    />
+  </el-form-item>
   <el-form-item v-if="totpEnabled" :label="t('settings.reauthTotpLabel')">
     <el-input
       v-model="totpValue"
@@ -6,16 +15,6 @@
       inputmode="numeric"
       autocomplete="one-time-code"
       :placeholder="t('settings.reauthTotpPlaceholder')"
-    />
-    <div class="form-help">{{ t('settings.reauthHint') }}</div>
-  </el-form-item>
-  <el-form-item v-else :label="t('settings.reauthPasswordLabel')">
-    <el-input
-      v-model="passwordValue"
-      type="password"
-      show-password
-      autocomplete="current-password"
-      :placeholder="t('settings.reauthPasswordPlaceholder')"
     />
     <div class="form-help">{{ t('settings.reauthHint') }}</div>
   </el-form-item>

@@ -163,3 +163,27 @@ func TestSupportsMySQLVersion(t *testing.T) {
 		}
 	}
 }
+
+// TestMySQLConfigDefaultsToTLS 验证未显式配置 tls 的 TCP 连接默认尝试加密，
+// 避免 MySQL 凭据与业务数据明文传输；Unix socket 不强制 TLS。
+func TestMySQLConfigDefaultsToTLS(t *testing.T) {
+	for _, dsn := range []string{
+		"mysql://user:pass@127.0.0.1:3306/lactssl",
+		"user:pass@tcp(127.0.0.1:3306)/lactssl",
+	} {
+		cfg, err := MySQLConfig(dsn)
+		if err != nil {
+			t.Fatalf("MySQLConfig(%q): %v", dsn, err)
+		}
+		if cfg.TLSConfig != "preferred" {
+			t.Fatalf("默认 TCP 连接应尝试 TLS，得到 %q", cfg.TLSConfig)
+		}
+	}
+	cfg, err := MySQLConfig("user:pass@unix(/tmp/mysql.sock)/lactssl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLSConfig != "" {
+		t.Fatalf("Unix socket 不应强制 TLS，得到 %q", cfg.TLSConfig)
+	}
+}

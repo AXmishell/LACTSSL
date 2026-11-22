@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 	"lactssl/internal/util"
 )
@@ -712,14 +713,14 @@ func (s *Server) createTask(c *gin.Context) {
 	// 任务流程可以包含本地部署命令与部署路径。
 	// 在 fillTaskBody 校验账户存在性之前先做授权，避免受限密钥通过
 	// “账户不存在/无权使用”的不同响应枚举管理员保存的账户。
-	if !s.requireAPIKeyDNSAccountUse(c, taskBodyDNSAccountID(&body)) {
+	if !s.requireAPIKeyTaskDNSAccess(c, []int64{taskBodyDNSAccountID(&body)}) {
 		return
 	}
 	if err := s.fillTaskBody(&body); err != nil {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
-	if !s.requireAPIKeyDNSAccountsUse(c, s.taskBodyDNSAccountIDs(&body)) {
+	if !s.requireAPIKeyTaskDNSAccess(c, s.taskBodyDNSAccountIDs(&body)) {
 		return
 	}
 	if requiresDeployExecutionFor(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
@@ -728,10 +729,16 @@ func (s *Server) createTask(c *gin.Context) {
 	if body.Enabled && !s.requireAPIKeyScope(c, apiScopeTasksRun) {
 		return
 	}
-	if body.Enabled && pipelineUsesPrivateCA(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+	// 授权检查与 Enabled 解耦：只要流程包含私有 CA、custom/EAB CA 或命令，
+	// 无论任务当前是否启用，都必须具备对应 scope，避免先以禁用状态写入、
+	// 再通过竞态或管理员启用触发执行。
+	if s.taskUsesPrivateCA(body.Pipeline, body.CAPoolID) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
 		return
 	}
-	if body.Enabled && s.taskUsesDeployCommand(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+	if s.taskUsesCustomCA(body.Pipeline, body.CA, body.CAPoolID) && !s.requireAPIKeyCARead(c) {
+		return
+	}
+	if s.taskUsesDeployCommand(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
 	task := &model.Task{
@@ -761,7 +768,10 @@ func (s *Server) createTask(c *gin.Context) {
 	s.Store.AddLogKey("task", task.ID, "info", "log.task.created", map[string]any{"name": task.Name})
 	// 新建任务立即在后台执行一次签发；暂停状态的任务只保存，不触发签发和部署。
 	if task.Enabled {
-		s.goSafe("task-created", func() { _ = s.Manager.RunTask(task.ID, "task.trigger.created") })
+		snapshot := *task
+		s.goSafe("task-created", func() {
+			_ = s.Manager.RunTaskWithOptions(task.ID, "task.trigger.created", service.RunOptions{Task: &snapshot})
+		})
 	}
 	ok(c, localizeTasks(c, []model.Task{*task})[0])
 }
@@ -811,6 +821,9 @@ func (s *Server) updateTask(c *gin.Context) {
 	if !okID {
 		return
 	}
+	// 与批量启用/停用共用一把锁，保证授权检查与写库之间任务不会被另一请求改写。
+	s.taskMu.Lock()
+	defer s.taskMu.Unlock()
 	task, err := s.Store.GetTask(id)
 	if err != nil {
 		failKey(c, http.StatusNotFound, "api.error.task_not_found")
@@ -821,7 +834,7 @@ func (s *Server) updateTask(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
-	if !s.requireAPIKeyDNSAccountUse(c, taskBodyDNSAccountID(&body)) {
+	if !s.requireAPIKeyTaskDNSAccess(c, []int64{taskBodyDNSAccountID(&body)}) {
 		return
 	}
 	// 域名未变化的更新（例如暂停/启用）沿用已保存的多账户快照，
@@ -833,21 +846,25 @@ func (s *Server) updateTask(c *gin.Context) {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
-	if !s.requireAPIKeyDNSAccountsUse(c, s.taskBodyDNSAccountIDs(&body)) {
+	if !s.requireAPIKeyTaskDNSAccess(c, s.taskBodyDNSAccountIDs(&body)) {
 		return
 	}
-	// 修改任务本身不会立即执行；只有把含部署节点的任务设为启用时，
-	// 调度器才可能在之后执行部署命令，因此这时才要求 deploy:execute。
-	if body.Enabled && requiresDeployExecutionFor(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+	// 修改任务本身不会立即执行，但禁用任务仍可被手动/批量运行，且后台执行
+	// 会重新读取任务。因此能力检查必须与 Enabled 解耦：只要流程包含部署、
+	// 命令或私有/custom CA，就必须具备对应 scope。
+	if requiresDeployExecutionFor(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
 		return
 	}
 	if body.Enabled && !s.requireAPIKeyScope(c, apiScopeTasksRun) {
 		return
 	}
-	if body.Enabled && pipelineUsesPrivateCA(body.Pipeline) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+	if s.taskUsesPrivateCA(body.Pipeline, body.CAPoolID) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
 		return
 	}
-	if body.Enabled && s.taskUsesDeployCommand(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+	if s.taskUsesCustomCA(body.Pipeline, body.CA, body.CAPoolID) && !s.requireAPIKeyCARead(c) {
+		return
+	}
+	if s.taskUsesDeployCommand(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
 	task.Name = body.Name
@@ -876,7 +893,10 @@ func (s *Server) updateTask(c *gin.Context) {
 	_ = s.Store.SetTaskNextRun(task.ID, next)
 
 	if task.Enabled && task.CertID == 0 {
-		s.goSafe("task-updated", func() { _ = s.Manager.RunTask(task.ID, "task.trigger.updated") })
+		snapshot := *task
+		s.goSafe("task-updated", func() {
+			_ = s.Manager.RunTaskWithOptions(task.ID, "task.trigger.updated", service.RunOptions{Task: &snapshot})
+		})
 	}
 	task.Message = localize(c, task.Message)
 	ok(c, task)
@@ -909,16 +929,20 @@ func (s *Server) runTask(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.task_running")
 		return
 	}
-	if !s.requireAPIKeyDNSAccountsUse(c, s.taskDNSAccountIDs(task)) {
+	pipeline := task.EffectivePipeline()
+	if !s.requireAPIKeyTaskDNSAccess(c, s.taskDNSAccountIDs(task)) {
 		return
 	}
-	if pipelineUsesPrivateCA(task.EffectivePipeline()) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+	if s.taskUsesPrivateCA(pipeline, task.CAPoolID) && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
 		return
 	}
-	if requiresDeployExecutionFor(task.FlowMode, task.EffectivePipeline(), task.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+	if s.taskUsesCustomCA(pipeline, task.CA, task.CAPoolID) && !s.requireAPIKeyCARead(c) {
 		return
 	}
-	if s.taskUsesDeployCommand(task.FlowMode, task.EffectivePipeline(), task.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+	if requiresDeployExecutionFor(task.FlowMode, pipeline, task.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+		return
+	}
+	if s.taskUsesDeployCommand(task.FlowMode, pipeline, task.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
 	force := c.Query("force") == "1" || strings.EqualFold(c.Query("force"), "true")
@@ -932,8 +956,9 @@ func (s *Server) runTask(c *gin.Context) {
 		}
 		force = body.Force
 	}
+	snapshot := *task
 	s.goSafe("task-manual", func() {
-		_ = s.Manager.RunTaskWithOptions(id, "task.trigger.manual", service.RunOptions{ForceIssue: force})
+		_ = s.Manager.RunTaskWithOptions(id, "task.trigger.manual", service.RunOptions{ForceIssue: force, Task: &snapshot})
 	})
 	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.task_started", nil)})
 }
@@ -984,13 +1009,13 @@ func (s *Server) batchRunTasks(c *gin.Context) {
 	// API 密钥批量运行前先检查是否包含部署节点或命令，避免在循环中启动
 	// 部分任务后才发现缺少 deploy:execute / deploy:command 权限。
 	if apiKeyFromContext(c) != nil {
-		needsExecute, needsCommand, needsPrivateCA := false, false, false
+		needsExecute, needsCommand, needsPrivateCA, needsCARead := false, false, false, false
 		for _, id := range ids {
 			task, err := s.Store.GetTask(id)
 			if err != nil {
 				continue
 			}
-			if !s.requireAPIKeyDNSAccountsUse(c, s.taskDNSAccountIDs(task)) {
+			if !s.requireAPIKeyTaskDNSAccess(c, s.taskDNSAccountIDs(task)) {
 				return
 			}
 			pipeline := task.EffectivePipeline()
@@ -1000,11 +1025,17 @@ func (s *Server) batchRunTasks(c *gin.Context) {
 			if s.taskUsesDeployCommand(task.FlowMode, pipeline, task.TargetFlow) {
 				needsCommand = true
 			}
-			if pipelineUsesPrivateCA(pipeline) {
+			if s.taskUsesPrivateCA(pipeline, task.CAPoolID) {
 				needsPrivateCA = true
+			}
+			if s.taskUsesCustomCA(pipeline, task.CA, task.CAPoolID) {
+				needsCARead = true
 			}
 		}
 		if needsPrivateCA && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+			return
+		}
+		if needsCARead && !s.requireAPIKeyCARead(c) {
 			return
 		}
 		if needsExecute && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
@@ -1024,8 +1055,9 @@ func (s *Server) batchRunTasks(c *gin.Context) {
 		}
 		started++
 		taskID := id
+		snapshot := *task
 		s.goSafe("task-batch", func() {
-			_ = s.Manager.RunTaskQueued(taskID, "task.trigger.manual")
+			_ = s.Manager.RunTaskQueued(taskID, "task.trigger.manual", service.RunOptions{Task: &snapshot})
 		})
 	}
 	message := i18n.T(locale(c), "api.ok.tasks_started", map[string]any{
@@ -1052,19 +1084,22 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 		failErr(c, http.StatusBadRequest, err)
 		return
 	}
+	// 与 updateTask 共用锁，避免检查通过后任务被改成含命令/自定义 CA 的流程。
+	s.taskMu.Lock()
+	defer s.taskMu.Unlock()
 	// API 密钥重新启用含部署节点的任务会交给调度器执行，因此同样需要
 	// deploy:execute / deploy:command；停用任务不会触发部署，不额外限制。
 	if body.Enabled && apiKeyFromContext(c) != nil {
 		if !s.requireAPIKeyScope(c, apiScopeTasksRun) {
 			return
 		}
-		needsExecute, needsCommand, needsPrivateCA := false, false, false
+		needsExecute, needsCommand, needsPrivateCA, needsCARead := false, false, false, false
 		for _, id := range ids {
 			task, err := s.Store.GetTask(id)
 			if err != nil {
 				continue
 			}
-			if !s.requireAPIKeyDNSAccountsUse(c, s.taskDNSAccountIDs(task)) {
+			if !s.requireAPIKeyTaskDNSAccess(c, s.taskDNSAccountIDs(task)) {
 				return
 			}
 			pipeline := task.EffectivePipeline()
@@ -1074,11 +1109,17 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 			if s.taskUsesDeployCommand(task.FlowMode, pipeline, task.TargetFlow) {
 				needsCommand = true
 			}
-			if pipelineUsesPrivateCA(pipeline) {
+			if s.taskUsesPrivateCA(pipeline, task.CAPoolID) {
 				needsPrivateCA = true
+			}
+			if s.taskUsesCustomCA(pipeline, task.CA, task.CAPoolID) {
+				needsCARead = true
 			}
 		}
 		if needsPrivateCA && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+			return
+		}
+		if needsCARead && !s.requireAPIKeyCARead(c) {
 			return
 		}
 		if needsExecute && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
@@ -1137,4 +1178,40 @@ func (s *Server) taskLogs(c *gin.Context) {
 		all = all[:400]
 	}
 	ok(c, localizeLogs(c, all))
+}
+
+// clearTaskLogs 清理指定任务的执行日志（任务日志与部署日志）。
+// 清理属于破坏性操作，单独限流；审计记录写入 settings 来源，避免再次出现在任务日志中。
+func (s *Server) clearTaskLogs(c *gin.Context) {
+	id, okID := parseID(c)
+	if !okID {
+		return
+	}
+	user := getUser(c)
+	if user == nil {
+		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
+		return
+	}
+	if allowed, wait := s.allow(ratelimit.TaskLogClear, "tasks:logs:clear:"+strconv.FormatInt(user.ID, 10)); !allowed {
+		rateLimited(c, wait)
+		return
+	}
+	task, err := s.Store.GetTask(id)
+	if err != nil {
+		failKey(c, http.StatusNotFound, "api.error.task_not_found")
+		return
+	}
+	deleted, err := s.Store.DeleteTaskLogs(id)
+	if err != nil {
+		failErr(c, http.StatusInternalServerError, err)
+		return
+	}
+	if deleted > 0 {
+		s.Store.AddLogKey("settings", 0, "warning", "log.settings.task_logs_cleared", map[string]any{
+			"count":   deleted,
+			"name":    task.Name,
+			"task_id": id,
+		})
+	}
+	ok(c, gin.H{"deleted": deleted})
 }

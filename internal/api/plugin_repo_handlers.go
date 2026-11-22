@@ -174,11 +174,25 @@ func (s *Server) repoKeyFingerprint() string {
 	if value == "" {
 		return ""
 	}
-	parsed, err := pluginrepo.ParsePublicKey(value)
-	if err != nil {
+	keys, err := pluginrepo.ParsePublicKeys(value)
+	if err != nil || len(keys) == 0 {
 		return "invalid"
 	}
-	return pluginrepo.PublicKeyFingerprint(parsed)
+	return pluginrepo.PublicKeysFingerprint(keys)
+}
+
+// repoUpdateAvailable 判断仓库插件是否需要更新。
+// 版本相同时比较当前平台资产的 SHA256，覆盖 all-lego 这类跟随上游版本、
+// 但包装层/共享 SDK 变化后内容可能变化的包。
+func repoUpdateAvailable(plugin pluginrepo.Plugin, asset pluginrepo.Asset, record model.PluginInstallation) bool {
+	cmp := pluginrepo.CompareVersion(plugin.Version, record.Version)
+	if cmp != 0 {
+		return cmp > 0
+	}
+	if record.AssetSHA256 == "" || asset.SHA256 == "" {
+		return false
+	}
+	return !strings.EqualFold(asset.SHA256, record.AssetSHA256)
 }
 
 // repoSignatureVerified 返回当前索引是否已通过 Ed25519 验签。
@@ -195,6 +209,43 @@ func (s *Server) requireSignedRepoIndex() error {
 		return nil
 	}
 	return i18n.E("api.error.plugin_repo_signature_required")
+}
+
+// redactRepoURL 去掉 URL 中的凭据、query 与 fragment，供状态接口和日志展示。
+// 仓库 token 常放在 query 中，不能回显给 plugins:read。
+func redactRepoURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" {
+		return "(invalid url)"
+	}
+	if parsed.Scheme == "file" {
+		return parsed.String()
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+// redactProxyURL 只保留代理的 scheme/host/port，隐藏认证信息和路径/query。
+func redactProxyURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" {
+		return "(invalid proxy)"
+	}
+	parsed.User = nil
+	parsed.Path = ""
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 func (s *Server) repoStatus() gin.H {
@@ -226,18 +277,18 @@ func (s *Server) repoStatus() gin.H {
 	publicKeyValid := false
 	fingerprint := ""
 	if publicKey != "" {
-		if parsed, err := pluginrepo.ParsePublicKey(publicKey); err == nil {
+		if keys, err := pluginrepo.ParsePublicKeys(publicKey); err == nil && len(keys) > 0 {
 			publicKeyValid = true
-			fingerprint = pluginrepo.PublicKeyFingerprint(parsed)
+			fingerprint = pluginrepo.PublicKeysFingerprint(keys)
 		}
 	}
 	proxy := s.repoProxy()
 	return gin.H{
 		"enabled":                s.repoEnabled(),
-		"url":                    s.repoURL(),
+		"url":                    redactRepoURL(s.repoURL()),
 		"channel":                s.repoChannel(),
 		"auto_update":            s.repoAutoUpdate(),
-		"proxy":                  proxy,
+		"proxy":                  redactProxyURL(proxy),
 		"proxy_set":              proxy != "",
 		"public_key_set":         publicKey != "",
 		"public_key_valid":       publicKeyValid,
@@ -249,7 +300,7 @@ func (s *Server) repoStatus() gin.H {
 		"host_version":           Version,
 		"checked_at":             checked,
 		"plugins":                len(index.Plugins),
-		"error":                  lastErr,
+		"error":                  service.SanitizeErrorText(lastErr),
 	}
 }
 
@@ -451,7 +502,7 @@ func (s *Server) setRepoError(err error) {
 		return
 	}
 	s.pluginRepoMu.Lock()
-	s.pluginRepoErr = err.Error()
+	s.pluginRepoErr = service.SanitizeErrorText(err.Error())
 	s.pluginRepoMu.Unlock()
 }
 
@@ -549,11 +600,14 @@ func (s *Server) runRepoAutoUpdate() {
 	defer s.pluginUploadMu.Unlock()
 	for _, record := range records {
 		plugin, found := s.findRepoPlugin(index, record.Kind, record.ID, "")
-		if !found || pluginrepo.CompareVersion(plugin.Version, record.Version) <= 0 {
+		if !found {
 			continue
 		}
 		asset, okAsset := pluginrepo.SelectAsset(plugin, runtime.GOOS, runtime.GOARCH)
 		if !okAsset || !pluginrepo.Compatible(plugin, Version) {
+			continue
+		}
+		if !repoUpdateAvailable(plugin, asset, record) {
 			continue
 		}
 		if _, _, err := s.installRepoPlugin(record.Kind, plugin, asset); err != nil {
@@ -586,6 +640,15 @@ func (s *Server) updatePluginRepo(c *gin.Context) {
 	changedSource := false
 	if body.URL != nil {
 		value := strings.TrimSpace(*body.URL)
+		// 未配置公钥时切换仓库地址会改变“未签名仓库”的信任来源；
+		// API Key 必须具备 security:write。
+		effectiveKey := strings.TrimSpace(s.repoPublicKey())
+		if body.PublicKey != nil {
+			effectiveKey = strings.TrimSpace(*body.PublicKey)
+		}
+		if effectiveKey == "" && !s.requireAPIKeyScope(c, apiScopeSecurityWrite) {
+			return
+		}
 		if err := validateRepoURL(value); err != nil {
 			failErr(c, http.StatusBadRequest, err)
 			return
@@ -613,9 +676,19 @@ func (s *Server) updatePluginRepo(c *gin.Context) {
 	}
 	if body.PublicKey != nil {
 		value := strings.TrimSpace(*body.PublicKey)
+		// 替换或清空仓库公钥都会改变索引信任锚，API Key 必须具备 security:write。
+		// 否则 plugins:write 可以换成攻击者公钥后安装“已签名”的恶意插件。
+		if value != strings.TrimSpace(s.repoPublicKey()) &&
+			!s.requireAPIKeyScope(c, apiScopeSecurityWrite) {
+			return
+		}
 		// 保存前先校验格式，避免写入无法验签的公钥后才发现索引刷新失败。
 		if value != "" {
-			if _, err := pluginrepo.ParsePublicKey(value); err != nil {
+			keys, err := pluginrepo.ParsePublicKeys(value)
+			if err != nil || len(keys) == 0 {
+				if err == nil {
+					err = errors.New("插件仓库公钥格式不正确")
+				}
 				failErr(c, http.StatusBadRequest, err)
 				return
 			}
@@ -652,7 +725,7 @@ func (s *Server) updatePluginRepo(c *gin.Context) {
 	if changedSource {
 		s.clearRepoIndexCache()
 	}
-	s.Store.AddLogKey("settings", 0, "info", "log.settings.plugin_repo_updated", map[string]any{"url": s.repoURL()})
+	s.Store.AddLogKey("settings", 0, "info", "log.settings.plugin_repo_updated", map[string]any{"url": redactRepoURL(s.repoURL())})
 	ok(c, s.repoStatus())
 }
 
@@ -717,7 +790,7 @@ func (s *Server) listPluginRepoPlugins(c *gin.Context) {
 			item.Installed = true
 			item.InstalledVersion = record.Version
 			item.Source = record.Source
-			item.UpdateAvailable = pluginrepo.CompareVersion(plugin.Version, record.Version) > 0
+			item.UpdateAvailable = repoUpdateAvailable(plugin, asset, record)
 		}
 		out = append(out, item)
 	}
@@ -937,7 +1010,7 @@ func (s *Server) installRepoPlugin(kind string, plugin pluginrepo.Plugin, asset 
 	}
 	record := model.PluginInstallation{
 		Kind: kind, ID: plugin.ID, Version: plugin.Version, Filename: filename,
-		SHA256: inspect.Digest, AssetSHA256: assetDigest, Source: "repo", RepoURL: s.repoURL(),
+		SHA256: inspect.Digest, AssetSHA256: assetDigest, Source: "repo", RepoURL: redactRepoURL(s.repoURL()),
 	}
 	if err := s.Store.UpsertPluginInstallation(record); err != nil {
 		plugininstall.Rollback(dest, backup)
@@ -1207,19 +1280,19 @@ func (s *Server) updatePluginFromRepo(c *gin.Context) {
 			})
 			continue
 		}
-		if pluginrepo.CompareVersion(plugin.Version, record.Version) <= 0 {
-			// 保留“无需更新”的结果，前端能区分“已是最新”和“没有找到安装记录”。
-			results = append(results, gin.H{
-				"kind": record.Kind, "id": record.ID, "from": record.Version,
-				"to": record.Version, "updated": false,
-			})
-			continue
-		}
 		asset, okAsset := pluginrepo.SelectAsset(plugin, runtime.GOOS, runtime.GOARCH)
 		if !okAsset || !pluginrepo.Compatible(plugin, Version) {
 			results = append(results, gin.H{
 				"kind": record.Kind, "id": record.ID, "from": record.Version,
 				"to": plugin.Version, "updated": false, "error": "当前平台或宿主版本不兼容",
+			})
+			continue
+		}
+		if !repoUpdateAvailable(plugin, asset, record) {
+			// 保留“无需更新”的结果，前端能区分“已是最新”和“没有找到安装记录”。
+			results = append(results, gin.H{
+				"kind": record.Kind, "id": record.ID, "from": record.Version,
+				"to": record.Version, "updated": false,
 			})
 			continue
 		}

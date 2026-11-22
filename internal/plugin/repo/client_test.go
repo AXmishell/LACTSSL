@@ -333,3 +333,27 @@ func TestIndexValidateBundleProviders(t *testing.T) {
 		t.Fatal("bundle with duplicate providers should be rejected")
 	}
 }
+
+func TestParsePublicKeysAndVerifyAny(t *testing.T) {
+	pubA, privA, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubB, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := base64.StdEncoding.EncodeToString(pubA) + "," + base64.StdEncoding.EncodeToString(pubB)
+	keys, err := ParsePublicKeys(value)
+	if err != nil || len(keys) != 2 {
+		t.Fatalf("ParsePublicKeys = %d, %v", len(keys), err)
+	}
+	raw := []byte("index")
+	sig := ed25519.Sign(privA, raw)
+	if !VerifyIndexSignature(value, raw, sig) {
+		t.Fatal("signature from either key must verify")
+	}
+	if VerifyIndexSignature(base64.StdEncoding.EncodeToString(pubB), raw, sig) {
+		t.Fatal("signature must not verify with an unrelated key")
+	}
+}

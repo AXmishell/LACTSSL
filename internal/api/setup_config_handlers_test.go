@@ -54,6 +54,8 @@ log:
 		nil,
 	)
 	s.ConfigFile = configPath
+	// 该测试辅助函数用于验证白名单逻辑，不模拟 main 的一次性 token。
+	s.AllowInsecureSetup = true
 	return s, configPath
 }
 

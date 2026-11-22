@@ -51,6 +51,7 @@ func newBackupTestServer(t *testing.T) (*gin.Engine, string) {
 		nil,
 	)
 	s.Backup = backup.New(conn, dataDir, dbPath, configPath, "test")
+	s.AllowInsecureSetup = true
 	return s.Router(), dataDir
 }
 
@@ -194,6 +195,11 @@ func multipartBackupRequest(t *testing.T, router *gin.Engine, path string, sessi
 	req.RemoteAddr = "192.0.2.30:1234"
 	if session != nil {
 		req.AddCookie(session)
+		password := "password1234"
+		if len(accountPassword) > 0 {
+			password = accountPassword[0]
+		}
+		req.Header.Set(reauthPasswordHeader, password)
 	}
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "1"})
 	w := httptest.NewRecorder()

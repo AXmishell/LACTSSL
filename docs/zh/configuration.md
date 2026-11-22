@@ -226,7 +226,7 @@ database:
 ```yaml
 database:
   driver: "mysql"
-  dsn: "mysql://user:password@127.0.0.1:3306/lactssl?tls=preferred"
+  dsn: "mysql://user:password@127.0.0.1:3306/lactssl?tls=true"
 ```
 
 - `driver` 为 `postgres` 或 `mysql` 时 `path` 被忽略，`dsn` 必填；也可以用环境变量 `LACTSSL_DATABASE_DSN` 覆盖，避免密码写入配置文件。MySQL 还需同时设置 `LACTSSL_DATABASE_DRIVER=mysql`（未设置时默认按 PostgreSQL 解析）。

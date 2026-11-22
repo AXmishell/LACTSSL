@@ -488,7 +488,9 @@ func (m *Manager) snapshot(target string) error {
 		if err != nil {
 			return err
 		}
-		cmd := exec.CommandContext(context.Background(), pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, m.DB.DSN()) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
+		safeDSN, pgEnv := db.PostgresCLIEnv(m.DB.DSN())
+		cmd := exec.CommandContext(context.Background(), pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, safeDSN) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
+		cmd.Env = append(os.Environ(), pgEnv...)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("pg_dump 失败: %w: %s", err, strings.TrimSpace(string(output)))
 		}
@@ -1187,15 +1189,19 @@ func ApplyPostgresDatabase(dsn, source string) error {
 	}
 	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	rollback := source + ".before-restore-" + suffix
-	dumpCmd := exec.Command(pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", rollback, dsn) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
+	safeDSN, pgEnv := db.PostgresCLIEnv(dsn)
+	dumpCmd := exec.Command(pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", rollback, safeDSN) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
+	dumpCmd.Env = append(os.Environ(), pgEnv...)
 	if output, err := dumpCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("恢复前备份当前 PostgreSQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	defer os.Remove(rollback)
-	restoreCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", dsn, source) // #nosec G204 -- pg_restore 从 PATH 解析，参数由服务端生成
+	restoreCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", safeDSN, source) // #nosec G204 -- pg_restore 从 PATH 解析，参数由服务端生成
+	restoreCmd.Env = append(os.Environ(), pgEnv...)
 	if output, err := restoreCmd.CombinedOutput(); err != nil {
 		// 尝试把恢复前的备份写回，降低半恢复状态的影响。
-		rollbackCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", dsn, rollback) // #nosec G204 -- pg_restore 从 PATH 解析，参数由服务端生成
+		rollbackCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", safeDSN, rollback) // #nosec G204 -- pg_restore 从 PATH 解析，参数由服务端生成
+		rollbackCmd.Env = append(os.Environ(), pgEnv...)
 		_, _ = rollbackCmd.CombinedOutput()
 		return fmt.Errorf("pg_restore 失败: %w: %s", err, strings.TrimSpace(string(output)))
 	}

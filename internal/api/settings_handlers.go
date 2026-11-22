@@ -180,6 +180,13 @@ func (s *Server) updateSettings(c *gin.Context) {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
 		return
 	}
+	// CSR 白名单与默认 CA/调度组属于证书签发策略，而不是普通外观设置。
+	// API Key 必须显式持有 security:write 才能修改；浏览器会话仍由 CSRF/登录态保护。
+	sensitivePolicy := body.ACMECA != nil || body.ACMECAPoolID != nil ||
+		body.CSRAllowedDomains != nil || body.CSRAllowAllDomains != nil
+	if sensitivePolicy && !s.requireAPIKeyScope(c, apiScopeSecurityWrite) {
+		return
+	}
 	if body.SMTPHost != nil || body.SMTPPort != nil || body.SMTPUsername != nil ||
 		body.SMTPPassword != nil || body.SMTPFrom != nil || body.SMTPSSL != nil ||
 		body.NotifyEnable != nil || body.NotifyTo != nil || body.NotifyChannels != nil ||
@@ -450,10 +457,15 @@ func (s *Server) changeEntry(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Entry string `json:"entry"`
+		Entry    string `json:"entry"`
+		Password string `json:"password"`
+		TOTP     string `json:"totp"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		failKey(c, http.StatusBadRequest, "api.error.invalid_params")
+		return
+	}
+	if !s.requireReauth(c, getUser(c), body.Password, body.TOTP) {
 		return
 	}
 	entry, err := util.ValidateEntry(body.Entry)
@@ -467,5 +479,5 @@ func (s *Server) changeEntry(c *gin.Context) {
 	}
 	s.SetEntry(entry)
 	s.Store.AddLogKey("settings", 0, "warning", "log.settings.entry_changed", map[string]any{"entry": util.MaskSecret(entry)})
-	ok(c, gin.H{"entry": entry, "message": i18n.T(locale(c), "api.ok.entry_updated", nil)})
+	ok(c, gin.H{"message": i18n.T(locale(c), "api.ok.entry_updated", nil)})
 }

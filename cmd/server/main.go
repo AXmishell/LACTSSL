@@ -256,6 +256,9 @@ func main() {
 	}
 
 	server := api.New(st, authManager, manager, entry, webui.Assets(), cfg.TrustedProxies, cfg.RateLimit)
+	if os.Getenv("LACTSSL_DEV_ORIGIN") == "1" {
+		server.AllowLoopbackOrigin = true
+	}
 	server.Upgrade = upgrader
 	server.LogArchives = logArchiveService
 	server.Program = programUpdater
