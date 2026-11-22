@@ -282,7 +282,12 @@
                   <div v-if="!dnsAccounts.length" class="form-help warn">{{ t('tasks.noDns') }}</div>
                   <div v-else-if="dnsResolve.status === 'resolving'" class="form-help">{{ t('tasks.dnsAutoResolving') }}</div>
                   <div v-else-if="dnsResolve.status === 'matched' && dnsResolve.routes.length > 1" class="form-help dns-auto-ok">
-                    <div>{{ t('tasks.dnsAutoMulti', { count: dnsResolve.routes.length }) }}</div>
+                    <div v-if="dnsResolvedAccounts.length > 1">
+                      {{ t('tasks.dnsAutoMulti', { accounts: dnsResolvedAccounts.length, domains: dnsResolve.routes.length }) }}
+                    </div>
+                    <div v-else>
+                      {{ t('tasks.dnsAutoMultiSame', { domains: dnsResolve.routes.length, account: dnsAccountName(dnsResolvedAccounts[0]) }) }}
+                    </div>
                     <div v-for="route in dnsResolve.routes" :key="route.domain">
                       {{ route.domain }} → {{ dnsAccountName(route.dns_account_id) }}<span v-if="route.zone"> ({{ route.zone }})</span>
                     </div>
@@ -702,6 +707,8 @@ const dnsResolve = reactive<{
   message: string
   routes: DNSRoute[]
 }>({ status: 'idle', zone: '', account: '', message: '', routes: [] })
+// 自动解析结果中的去重账户，用于区分「多域名同账户」与真正的跨账户签发。
+const dnsResolvedAccounts = computed(() => [...new Set(dnsResolve.routes.map((route) => route.dns_account_id))])
 const dnsResolveEnabled = ref(false)
 // 只清理本功能自动选中的账户；默认值或用户手动选择在匹配失败时保留。
 const dnsAutoApplied = ref(false)

@@ -304,6 +304,8 @@ func (m *Manager) newACMEClient(ca CADef, email string, keyType certcrypto.KeyTy
 	cfg.CADirURL = caDirectoryURL(ca, keyType)
 	cfg.UserAgent = "LACTSSL/1.0"
 	cfg.Certificate.KeyType = keyType
+	// 兼容不返回 challenge `Link: rel="up"` 的上游（如零信 ZoTrus）。
+	cfg.HTTPClient = withACMECompatibility(cfg.HTTPClient)
 
 	client, err := lego.NewClient(cfg)
 	if err != nil {
