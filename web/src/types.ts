@@ -519,6 +519,8 @@ export interface PluginRepoIssue {
   kind?: string
   plugin?: string
   platform?: string
+  detail_code?: string
+  detail_message?: string
   message: string
 }
 

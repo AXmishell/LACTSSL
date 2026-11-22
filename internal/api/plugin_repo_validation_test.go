@@ -128,6 +128,26 @@ func TestFailErrRedactsSecretParams(t *testing.T) {
 	}
 }
 
+// TestRepoIssueViewsIncludesStructuredDetail 验证子原因以 code + 本地化文案
+// 的形式返回，而不是把中文原因塞进 params。
+func TestRepoIssueViewsIncludesStructuredDetail(t *testing.T) {
+	s := &Server{}
+	views := s.repoIssueViews(i18n.ZhCN, []pluginrepo.Issue{{
+		Code:   "plugin.repo.invalid_providers",
+		Params: map[string]any{"plugin": "dns/demo"},
+		Detail: &pluginrepo.IssueDetail{Code: "plugin.repo.detail.providers_missing"},
+	}})
+	if len(views) != 1 {
+		t.Fatalf("views = %+v", views)
+	}
+	if views[0]["detail_code"] != "plugin.repo.detail.providers_missing" {
+		t.Fatalf("detail_code = %v", views[0]["detail_code"])
+	}
+	if detail, _ := views[0]["detail_message"].(string); !strings.Contains(detail, "缺少 providers") {
+		t.Fatalf("detail_message = %q", detail)
+	}
+}
+
 // TestRepoStatusReportsRevisionAndGeneratedAt 验证信任元数据会出现在状态接口。
 func TestRepoStatusReportsRevisionAndGeneratedAt(t *testing.T) {
 	st := newSessionTestStore(t)

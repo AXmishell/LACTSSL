@@ -430,14 +430,22 @@ func (s *Server) repoIssueViews(locale i18n.Locale, issues []pluginrepo.Issue) [
 	}
 	out := make([]gin.H, 0, limit)
 	for _, issue := range issues[:limit] {
+		detailCode := ""
+		detailMessage := ""
+		if issue.Detail != nil {
+			detailCode = issue.Detail.Code
+			detailMessage = clipText(service.SanitizeErrorText(issue.DetailText(locale)), 512)
+		}
 		out = append(out, gin.H{
-			"code":     issue.Code,
-			"severity": issue.Severity,
-			"path":     clipText(issue.Path, 256),
-			"kind":     clipText(issue.Kind, 64),
-			"plugin":   clipText(issue.Plugin, 256),
-			"platform": clipText(issue.Platform, 64),
-			"message":  clipText(service.SanitizeErrorText(issue.Text(locale)), 1024),
+			"code":           issue.Code,
+			"severity":       issue.Severity,
+			"path":           clipText(issue.Path, 256),
+			"kind":           clipText(issue.Kind, 64),
+			"plugin":         clipText(issue.Plugin, 256),
+			"platform":       clipText(issue.Platform, 64),
+			"detail_code":    detailCode,
+			"detail_message": detailMessage,
+			"message":        clipText(service.SanitizeErrorText(issue.Text(locale)), 1024),
 		})
 	}
 	return out

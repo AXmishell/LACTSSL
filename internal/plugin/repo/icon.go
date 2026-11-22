@@ -51,26 +51,50 @@ func IconExt(mime string) string {
 	return ""
 }
 
+// iconDecodeError 携带结构化子原因，Issue 渲染时按语言翻译；
+// message 仅用于兼容直接调用 DecodeIconDataURI 的日志/错误文本。
+type iconDecodeError struct {
+	code    string
+	params  map[string]any
+	message string
+}
+
+func (e *iconDecodeError) Error() string { return e.message }
+
+func iconDecodeDetail(err error) *IssueDetail {
+	var decodeErr *iconDecodeError
+	if errors.As(err, &decodeErr) {
+		return &IssueDetail{Code: decodeErr.code, Params: decodeErr.params}
+	}
+	return issueDetail("plugin.repo.detail.icon_decode_failed", "error", err.Error())
+}
+
 // DecodeIconDataURI 解析并校验 data URI，返回解码后的字节。
 func DecodeIconDataURI(data, mime string) ([]byte, error) {
 	const prefix = "data:"
 	if !strings.HasPrefix(data, prefix) {
-		return nil, errors.New("图标不是 data URI")
+		return nil, &iconDecodeError{code: "plugin.repo.detail.icon_not_data_uri", message: "图标不是 data URI"}
 	}
 	header, payload, found := strings.Cut(strings.TrimPrefix(data, prefix), ",")
 	if !found {
-		return nil, errors.New("图标 data URI 缺少负载")
+		return nil, &iconDecodeError{code: "plugin.repo.detail.icon_payload_missing", message: "图标 data URI 缺少负载"}
 	}
 	parts := strings.Split(header, ";")
 	if len(parts) < 2 || parts[0] != mime || !containsString(parts[1:], "base64") {
-		return nil, errors.New("图标 data URI 头部不合法")
+		return nil, &iconDecodeError{code: "plugin.repo.detail.icon_header_invalid", message: "图标 data URI 头部不合法"}
 	}
 	raw, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil {
-		return nil, fmt.Errorf("图标 base64 解码失败: %w", err)
+		return nil, &iconDecodeError{
+			code: "plugin.repo.detail.icon_base64_invalid", params: map[string]any{"error": err.Error()},
+			message: fmt.Sprintf("图标 base64 解码失败: %v", err),
+		}
 	}
 	if len(raw) == 0 || len(raw) > MaxIconBytes {
-		return nil, fmt.Errorf("图标大小超出限制（最大 %d 字节）", MaxIconBytes)
+		return nil, &iconDecodeError{
+			code: "plugin.repo.detail.icon_size_invalid", params: map[string]any{"limit": MaxIconBytes},
+			message: fmt.Sprintf("图标大小超出限制（最大 %d 字节）", MaxIconBytes),
+		}
 	}
 	return raw, nil
 }
@@ -105,35 +129,36 @@ func (i *Index) sanitizeIcons() []Issue {
 		path := fmt.Sprintf("icons[%d]", idx)
 		kind := strings.ToLower(strings.TrimSpace(icon.Kind))
 		id := strings.TrimSpace(icon.ID)
-		fail := func(reason string) {
+		fail := func(detail *IssueDetail) {
 			issues = append(issues, Issue{
 				Code: "plugin.repo.invalid_icon", Severity: SeverityWarn,
 				Path: path, Kind: kind, Plugin: id,
-				Params: map[string]any{"icon": kind + "/" + id, "error": reason},
+				Params: map[string]any{"icon": kind + "/" + id},
+				Detail: detail,
 			})
 		}
 		if (kind != "dns" && kind != "deploy" && kind != "notify") || !idPattern.MatchString(id) {
-			fail("图标 kind/id 非法")
+			fail(issueDetail("plugin.repo.detail.icon_kind_id_invalid"))
 			continue
 		}
 		mime := strings.ToLower(strings.TrimSpace(icon.MIME))
 		if IconExt(mime) == "" {
-			fail("图标 MIME 不受支持")
+			fail(issueDetail("plugin.repo.detail.icon_mime_unsupported"))
 			continue
 		}
 		raw, err := DecodeIconDataURI(icon.Data, mime)
 		if err != nil {
-			fail(err.Error())
+			fail(iconDecodeDetail(err))
 			continue
 		}
 		sum := IconSHA256(raw)
 		if icon.SHA256 != "" && !strings.EqualFold(icon.SHA256, sum) {
-			fail("图标 sha256 不符")
+			fail(issueDetail("plugin.repo.detail.icon_sha256_mismatch"))
 			continue
 		}
 		key := kind + "/" + id
 		if seen[key] {
-			fail("图标重复")
+			fail(issueDetail("plugin.repo.detail.icon_duplicate"))
 			continue
 		}
 		seen[key] = true

@@ -750,7 +750,7 @@ func failKey(c *gin.Context, status int, key string, pairs ...any) {
 // 避免英文界面混入中文错误；中文界面仍保留完整细节。
 func failErr(c *gin.Context, status int, err error) {
 	if localized, ok := err.(*i18n.Error); ok && localized.Key != "" {
-		failKey(c, status, localized.Key, pairsOf(localized.Params)...)
+		failKey(c, status, localized.Key, pairsOf(localized.ParamsFor(locale(c)))...)
 		return
 	}
 	text := service.SanitizeErrorText(err.Error())

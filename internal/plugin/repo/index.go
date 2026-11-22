@@ -88,8 +88,39 @@ func validPlatformKey(key string) bool {
 	return ok && knownGOOS[goos] && knownGOARCH[goarch]
 }
 
+// IssueDetail 是 Issue 的结构化子原因。宿主只保存 code 与参数，
+// 渲染时再按请求语言翻译，避免把中文文案写进 Params 或日志。
+type IssueDetail struct {
+	Code   string         `json:"code"`
+	Params map[string]any `json:"params,omitempty"`
+}
+
+// issueDetail 构造一个结构化子原因。
+func issueDetail(code string, pairs ...any) *IssueDetail {
+	detail := &IssueDetail{Code: code}
+	if len(pairs) > 0 {
+		detail.Params = make(map[string]any, len(pairs)/2)
+		for i := 0; i+1 < len(pairs); i += 2 {
+			name, ok := pairs[i].(string)
+			if !ok {
+				continue
+			}
+			detail.Params[name] = pairs[i+1]
+		}
+	}
+	return detail
+}
+
+// detailError 把结构化子原因转换为可翻译错误。
+func detailError(detail *IssueDetail) error {
+	if detail == nil {
+		return nil
+	}
+	return &i18n.Error{Key: detail.Code, Params: detail.Params}
+}
+
 // Issue 是一条结构化索引校验问题。
-// Code 是稳定的 i18n key，Path 用于定位到具体字段。
+// Code 是稳定的 i18n key，Path 用于定位到具体字段，Detail 是可翻译子原因。
 type Issue struct {
 	Code     string         `json:"code"`
 	Severity Severity       `json:"severity"`
@@ -98,16 +129,30 @@ type Issue struct {
 	Plugin   string         `json:"plugin,omitempty"`
 	Platform string         `json:"platform,omitempty"`
 	Params   map[string]any `json:"params,omitempty"`
+	Detail   *IssueDetail   `json:"detail,omitempty"`
+}
+
+func (i Issue) toError() *i18n.Error {
+	localized := &i18n.Error{Key: i.Code, Params: i.Params}
+	if i.Detail != nil {
+		localized.Detail = &i18n.Error{Key: i.Detail.Code, Params: i.Detail.Params}
+	}
+	return localized
 }
 
 // Error 把问题转换为可翻译错误，便于 API 层直接返回。
 func (i Issue) Error() error {
-	return &i18n.Error{Key: i.Code, Params: i.Params}
+	return i.toError()
 }
 
 // Text 按语言渲染问题文案。
 func (i Issue) Text(locale i18n.Locale) string {
-	return i18n.T(locale, i.Code, i.Params)
+	return i.toError().Text(locale)
+}
+
+// DetailText 按语言渲染子原因；没有子原因时返回空串。
+func (i Issue) DetailText(locale i18n.Locale) string {
+	return i.toError().DetailText(locale)
 }
 
 // RejectedEntry 是一条被隔离的插件条目及首要原因。
@@ -204,7 +249,7 @@ func ParseIndex(raw []byte, opts ParseOptions) (ValidatedIndex, error) {
 	if len(raw) == 0 {
 		return failIndex(result, Issue{
 			Code: "plugin.repo.index_parse_failed", Severity: SeverityFatal,
-			Params: map[string]any{"error": "空索引"},
+			Detail: issueDetail("plugin.repo.detail.index_empty"),
 		})
 	}
 	if int64(len(raw)) > int64(opts.MaxBytes) {
@@ -214,7 +259,7 @@ func ParseIndex(raw []byte, opts ParseOptions) (ValidatedIndex, error) {
 	if err := json.Unmarshal(raw, &index); err != nil {
 		return failIndex(result, Issue{
 			Code: "plugin.repo.index_parse_failed", Severity: SeverityFatal,
-			Params: map[string]any{"error": err.Error()},
+			Detail: issueDetail("plugin.repo.detail.index_json_invalid", "error", err.Error()),
 		})
 	}
 	result.Index = index
@@ -462,12 +507,15 @@ func validateEntries(index Index, opts ParseOptions) ([]Plugin, []RejectedEntry,
 
 func validatePluginFields(plugin Plugin, path string, opts ParseOptions) []Issue {
 	issues := make([]Issue, 0)
-	add := func(code string, severity Severity, field string, platform string, params map[string]any) {
+	addDetail := func(code string, severity Severity, field string, platform string, params map[string]any, detail *IssueDetail) {
 		issues = append(issues, Issue{
 			Code: code, Severity: severity,
 			Path: path + field, Kind: plugin.Kind, Plugin: plugin.ID,
-			Platform: platform, Params: params,
+			Platform: platform, Params: params, Detail: detail,
 		})
+	}
+	add := func(code string, severity Severity, field string, platform string, params map[string]any) {
+		addDetail(code, severity, field, platform, params, nil)
 	}
 
 	if !versionPattern.MatchString(strings.TrimSpace(plugin.Version)) {
@@ -486,19 +534,22 @@ func validatePluginFields(plugin Plugin, path string, opts ParseOptions) []Issue
 		providerSeen := make(map[string]bool, len(plugin.Providers))
 		switch {
 		case len(plugin.Providers) == 0:
-			add("plugin.repo.invalid_providers", SeverityEntry, ".providers", "",
-				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "error": "缺少 providers"})
+			addDetail("plugin.repo.invalid_providers", SeverityEntry, ".providers", "",
+				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID},
+				issueDetail("plugin.repo.detail.providers_missing"))
 		default:
 			for _, id := range plugin.Providers {
 				id = strings.TrimSpace(id)
 				if !idPattern.MatchString(id) {
-					add("plugin.repo.invalid_providers", SeverityEntry, ".providers", "",
-						map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "error": fmt.Sprintf("provider ID 非法: %q", id)})
+					addDetail("plugin.repo.invalid_providers", SeverityEntry, ".providers", "",
+						map[string]any{"plugin": plugin.Kind + "/" + plugin.ID},
+						issueDetail("plugin.repo.detail.provider_id_invalid", "id", id))
 					break
 				}
 				if providerSeen[id] {
-					add("plugin.repo.invalid_providers", SeverityEntry, ".providers", "",
-						map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "error": fmt.Sprintf("provider 重复: %s", id)})
+					addDetail("plugin.repo.invalid_providers", SeverityEntry, ".providers", "",
+						map[string]any{"plugin": plugin.Kind + "/" + plugin.ID},
+						issueDetail("plugin.repo.detail.provider_duplicate", "id", id))
 					break
 				}
 				providerSeen[id] = true
@@ -512,25 +563,30 @@ func validatePluginFields(plugin Plugin, path string, opts ParseOptions) []Issue
 	if plugin.VariantOf != "" {
 		switch {
 		case !idPattern.MatchString(plugin.VariantOf):
-			add("plugin.repo.invalid_variant", SeverityEntry, ".variant_of", "",
-				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "error": "variant_of 非法"})
+			addDetail("plugin.repo.invalid_variant", SeverityEntry, ".variant_of", "",
+				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID},
+				issueDetail("plugin.repo.detail.variant_invalid", "value", plugin.VariantOf))
 		case plugin.VariantOf == plugin.ID:
-			add("plugin.repo.invalid_variant", SeverityEntry, ".variant_of", "",
-				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "error": "variant_of 不能指向自身"})
+			addDetail("plugin.repo.invalid_variant", SeverityEntry, ".variant_of", "",
+				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID},
+				issueDetail("plugin.repo.detail.variant_self"))
 		}
 	}
 	conflictSeen := make(map[string]bool, len(plugin.ConflictsWith))
 	for _, id := range plugin.ConflictsWith {
 		switch {
 		case !idPattern.MatchString(id):
-			add("plugin.repo.invalid_conflict", SeverityEntry, ".conflicts_with", "",
-				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "error": fmt.Sprintf("ID 非法: %q", id)})
+			addDetail("plugin.repo.invalid_conflict", SeverityEntry, ".conflicts_with", "",
+				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID},
+				issueDetail("plugin.repo.detail.conflict_id_invalid", "id", id))
 		case id == plugin.ID:
-			add("plugin.repo.invalid_conflict", SeverityEntry, ".conflicts_with", "",
-				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "error": "conflicts_with 不能指向自身"})
+			addDetail("plugin.repo.invalid_conflict", SeverityEntry, ".conflicts_with", "",
+				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID},
+				issueDetail("plugin.repo.detail.conflict_self"))
 		case conflictSeen[id]:
-			add("plugin.repo.invalid_conflict", SeverityEntry, ".conflicts_with", "",
-				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "error": fmt.Sprintf("重复引用: %s", id)})
+			addDetail("plugin.repo.invalid_conflict", SeverityEntry, ".conflicts_with", "",
+				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID},
+				issueDetail("plugin.repo.detail.conflict_duplicate", "id", id))
 		}
 		conflictSeen[id] = true
 	}
@@ -562,9 +618,10 @@ func validatePluginFields(plugin Plugin, path string, opts ParseOptions) []Issue
 				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "platform": platform})
 			continue
 		}
-		if err := validateAssetURL(asset.URL, opts.IndexURL); err != nil {
-			add("plugin.repo.invalid_asset_url", SeverityEntry, ".assets", platform,
-				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "platform": platform, "error": err.Error()})
+		if detail := validateAssetURL(asset.URL, opts.IndexURL); detail != nil {
+			addDetail("plugin.repo.invalid_asset_url", SeverityEntry, ".assets", platform,
+				map[string]any{"plugin": plugin.Kind + "/" + plugin.ID, "platform": platform},
+				detail)
 		}
 		if _, err := normalizeSHA256(asset.SHA256); err != nil {
 			add("plugin.repo.no_valid_sha256", SeverityEntry, ".assets", platform,
@@ -597,38 +654,39 @@ func isSHA256Hex(value string) bool {
 
 // validateAssetURL 校验资产地址是否允许在给定索引来源下使用。
 // Fetch/ParseIndex 与 Download 共用同一套规则，避免列表阶段接受、下载阶段失败。
-func validateAssetURL(raw, indexURL string) error {
+// 返回结构化子原因，便于索引问题按语言渲染，也便于下载路径转换为错误。
+func validateAssetURL(raw, indexURL string) *IssueDetail {
 	if strings.TrimSpace(raw) == "" {
-		return i18n.E("plugin.repo.asset_url_empty")
+		return issueDetail("plugin.repo.asset_url_empty")
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return err
+		return issueDetail("plugin.repo.detail.asset_url_parse_failed", "error", err.Error())
 	}
 	if parsed.User != nil {
-		return i18n.E("plugin.repo.asset_url_credentials")
+		return issueDetail("plugin.repo.asset_url_credentials")
 	}
 	index, _ := url.Parse(strings.TrimSpace(indexURL))
 	switch parsed.Scheme {
 	case "https":
 		if parsed.Host == "" {
-			return i18n.E("plugin.repo.asset_url_invalid")
+			return issueDetail("plugin.repo.asset_url_invalid")
 		}
 	case "http":
 		if parsed.Host == "" {
-			return i18n.E("plugin.repo.asset_url_invalid")
+			return issueDetail("plugin.repo.asset_url_invalid")
 		}
 		// HTTPS 索引不应把资产降级到明文 HTTP。
 		if index != nil && index.Scheme == "https" {
-			return i18n.E("plugin.repo.asset_http_forbidden")
+			return issueDetail("plugin.repo.asset_http_forbidden")
 		}
 	case "file":
 		// 只允许 file:// 索引使用本地资产。
 		if index == nil || index.Scheme != "file" {
-			return i18n.E("plugin.repo.asset_file_forbidden")
+			return issueDetail("plugin.repo.asset_file_forbidden")
 		}
 	default:
-		return i18n.E("plugin.repo.asset_scheme_unsupported")
+		return issueDetail("plugin.repo.asset_scheme_unsupported")
 	}
 	return nil
 }

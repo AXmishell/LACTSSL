@@ -401,8 +401,8 @@ func (c *Client) Download(ctx context.Context, asset Asset, dest string) (string
 		return "", err
 	}
 	// 与 ParseIndex 共用同一套协议/凭据规则，避免列表阶段接受、下载阶段才失败。
-	if err := validateAssetURL(asset.URL, c.URL); err != nil {
-		return "", err
+	if detail := validateAssetURL(asset.URL, c.URL); detail != nil {
+		return "", detailError(detail)
 	}
 	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {

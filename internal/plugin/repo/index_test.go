@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"lactssl/internal/i18n"
 )
 
 const testSHA = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
@@ -187,6 +189,56 @@ func TestParseIndexHTTPAssetUnderHTTPSIndex(t *testing.T) {
 	}
 	if len(result.Rejected) != 1 || result.Rejected[0].Reason.Code != "plugin.repo.invalid_asset_url" {
 		t.Fatalf("HTTP asset should be rejected under HTTPS index: %+v", result)
+	}
+	if detail := result.Rejected[0].Reason.Detail; detail == nil || detail.Code != "plugin.repo.asset_http_forbidden" {
+		t.Fatalf("unexpected asset URL detail: %+v", detail)
+	}
+}
+
+func TestParseIndexIssueDetailsAreStructured(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Plugin)
+		detail string
+	}{
+		{"missing providers", func(p *Plugin) { p.Bundle = true; p.Providers = nil }, "plugin.repo.detail.providers_missing"},
+		{"invalid provider id", func(p *Plugin) { p.Bundle = true; p.Providers = []string{"BAD ID"} }, "plugin.repo.detail.provider_id_invalid"},
+		{"variant self", func(p *Plugin) { p.VariantOf = p.ID }, "plugin.repo.detail.variant_self"},
+		{"conflict self", func(p *Plugin) { p.ConflictsWith = []string{p.ID} }, "plugin.repo.detail.conflict_self"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plugin := testPlugin("dns", "cloudflare", "1.0.0")
+			tc.mutate(&plugin)
+			result, err := ParseIndex(testIndex(t, plugin), ParseOptions{
+				Channel: "stable", IndexURL: "https://example.invalid/index.json",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Rejected) != 1 || result.Rejected[0].Reason.Detail == nil {
+				t.Fatalf("expected structured detail: %+v", result.Rejected)
+			}
+			if got := result.Rejected[0].Reason.Detail.Code; got != tc.detail {
+				t.Fatalf("detail = %q, want %q", got, tc.detail)
+			}
+		})
+	}
+}
+
+func TestIssueDetailLocalization(t *testing.T) {
+	issue := Issue{
+		Code:   "plugin.repo.invalid_providers",
+		Params: map[string]any{"plugin": "dns/cloudflare"},
+		Detail: issueDetail("plugin.repo.detail.providers_missing"),
+	}
+	en := issue.Text(i18n.EnUS)
+	if !strings.Contains(en, "providers is missing") {
+		t.Fatalf("English detail missing: %q", en)
+	}
+	zh := issue.Text(i18n.ZhCN)
+	if !strings.Contains(zh, "缺少 providers") {
+		t.Fatalf("Chinese detail missing: %q", zh)
 	}
 }
 

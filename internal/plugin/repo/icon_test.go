@@ -120,3 +120,14 @@ func TestIconDataURIRoundTrip(t *testing.T) {
 		t.Fatalf("round trip = %q, %v", decoded, err)
 	}
 }
+
+func TestSanitizeIconsReturnsStructuredDetail(t *testing.T) {
+	index := Index{Icons: []Icon{{Kind: "dns", ID: "demo", MIME: "text/html", Data: "data:text/html;base64,AAAA"}}}
+	issues := index.sanitizeIcons()
+	if len(issues) != 1 || issues[0].Detail == nil {
+		t.Fatalf("expected one structured icon issue: %+v", issues)
+	}
+	if issues[0].Detail.Code != "plugin.repo.detail.icon_mime_unsupported" {
+		t.Fatalf("unexpected icon detail: %+v", issues[0].Detail)
+	}
+}

@@ -341,21 +341,54 @@ func render(locale Locale, text string, depth int) string {
 type Error struct {
 	Key    string
 	Params map[string]any
+	// Detail 是可翻译的嵌套子原因。渲染时作为 {error} 参数注入主消息，
+	// 这样主错误码保持稳定，子原因也能按请求语言翻译。
+	Detail *Error
 	Raw    string
 	// Cause 保留底层错误链，便于调用方用 errors.Is/errors.As 做类型判断，
 	// 同时仍然按 Key 给用户展示可翻译消息。
 	Cause error
 }
 
-// Error 返回默认语言文本，满足 error 接口。
-func (e *Error) Error() string {
+// ParamsFor 返回指定语言下用于渲染的参数；有 Detail 时把翻译后的
+// 子原因写入 {error}。返回新 map，避免修改共享参数。
+func (e *Error) ParamsFor(locale Locale) map[string]any {
+	if e == nil {
+		return nil
+	}
+	if e.Detail == nil {
+		return e.Params
+	}
+	params := make(map[string]any, len(e.Params)+1)
+	for key, value := range e.Params {
+		params[key] = value
+	}
+	params["error"] = e.Detail.Text(locale)
+	return params
+}
+
+// Text 按指定语言渲染错误。
+func (e *Error) Text(locale Locale) string {
 	if e == nil {
 		return ""
 	}
-	if e.Key != "" {
-		return T(Default, e.Key, e.Params)
+	if e.Key == "" {
+		return e.Raw
 	}
-	return e.Raw
+	return T(locale, e.Key, e.ParamsFor(locale))
+}
+
+// DetailText 渲染子原因；没有子原因时返回空串。
+func (e *Error) DetailText(locale Locale) string {
+	if e == nil || e.Detail == nil {
+		return ""
+	}
+	return e.Detail.Text(locale)
+}
+
+// Error 返回默认语言文本，满足 error 接口。
+func (e *Error) Error() string {
+	return e.Text(Default)
 }
 
 // E 构造一个可翻译错误。
@@ -437,7 +470,7 @@ func ErrorText(locale Locale, err error) string {
 	}
 	var keyed *Error
 	if errors.As(err, &keyed) && keyed.Key != "" {
-		return T(locale, keyed.Key, keyed.Params)
+		return T(locale, keyed.Key, keyed.ParamsFor(locale))
 	}
 	return err.Error()
 }
