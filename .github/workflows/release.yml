@@ -79,6 +79,17 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "本次发布: tag=$tag, version=$version, prerelease=$prerelease, image=$image"
 
+      # 稳定版必须先有签名密钥：在构建与推镜像之前失败，避免白跑构建。
+      - name: Require signing key for stable release
+        env:
+          ED25519_PRIVATE_KEY_B64: ${{ secrets.ED25519_PRIVATE_KEY_B64 }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" != "true" ] && [ -z "$ED25519_PRIVATE_KEY_B64" ]; then
+            echo "::error::稳定版发布必须配置 ED25519_PRIVATE_KEY_B64；预发布版可留空。"
+            exit 1
+          fi
+
   web:
     name: Build frontend
     needs: meta
@@ -249,17 +260,7 @@ jobs:
           sha256sum *.tar.gz *.zip > checksums.txt
           cat checksums.txt
 
-      - name: Require signing key for stable release
-        env:
-          ED25519_PRIVATE_KEY_B64: ${{ secrets.ED25519_PRIVATE_KEY_B64 }}
-          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
-        run: |
-          if [ "$PRERELEASE" != "true" ] && [ -z "$ED25519_PRIVATE_KEY_B64" ]; then
-            echo "::error::稳定版发布必须配置 ED25519_PRIVATE_KEY_B64；预发布版可留空。"
-            exit 1
-          fi
-
-      # 稳定版必须签名；预发布版未配置密钥时跳过。
+      # 稳定版密钥已在 meta 阶段强制校验；预发布版未配置密钥时跳过签名。
       - name: Sign checksums.txt
         # step 级 if 不允许直接引用 secrets，先注入 env 再判断
         env:
@@ -279,7 +280,9 @@ jobs:
 
   docker:
     name: Build and push GHCR image
-    needs: [meta, build]
+    # checksums 成功后才会推镜像：稳定版缺少签名等发布前置失败时，不产生
+    # “Release 无资产但 GHCR 已更新”的不一致状态。
+    needs: [meta, build, checksums]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
