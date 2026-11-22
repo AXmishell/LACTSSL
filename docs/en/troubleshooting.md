@@ -223,7 +223,7 @@ Resolution:
 - Does SMTP use implicit TLS? Sending is rejected when the server does not support STARTTLS.
 - Is the task notification node enabled, and does the trigger condition match?
 - Check operation logs and system logs for send errors; sensitive values are masked.
-- Security alerts not delivered: check the master switch, sign-in mode, failed sign-in aggregation, event toggles, and channels under "Notifications → Security alerts". Review the per-target status and errors in the "Recent security events" dialog. Beyond the hourly limit only a digest is sent; when SMTP or channels change, previous recipients receive the alert through the old SMTP configuration snapshot. Security alerts are independent of certificate notifications.
+- Security alerts not delivered: check the master switch, sign-in mode, failed sign-in aggregation, event toggles, and channels under "Settings → Security alerts". Review the per-target status and errors in the "Recent security events" dialog. Beyond the hourly limit only a digest is sent; when SMTP or channels change, previous recipients receive the alert through the old SMTP configuration snapshot. Security alerts are independent of certificate notifications.
 
 ### 5.2 False positives in site monitoring
 

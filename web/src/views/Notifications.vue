@@ -24,133 +24,7 @@
       style="margin-bottom: 14px"
     />
 
-    <div v-if="channel === 'security'" class="k-card notify-card">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('notifications.securityTitle') }}</h3>
-          <div class="sub">{{ t('notifications.securitySub') }}</div>
-        </div>
-      </div>
-      <div class="notify-scroll">
-        <el-form :model="security" label-position="top">
-          <el-form-item :label="t('notifications.securityEnabled')">
-            <div class="flex gap-10" style="height: 32px">
-              <el-switch v-model="security.enabled" />
-            </div>
-          </el-form-item>
-          <el-form-item :label="t('notifications.securityLogin')">
-            <el-radio-group v-model="security.login">
-              <el-radio-button value="off">{{ t('notifications.securityLoginOff') }}</el-radio-button>
-              <el-radio-button value="new">{{ t('notifications.securityLoginNew') }}</el-radio-button>
-              <el-radio-button value="always">{{ t('notifications.securityLoginAlways') }}</el-radio-button>
-            </el-radio-group>
-            <div class="form-help">{{ t('notifications.securityLoginHint') }}</div>
-          </el-form-item>
-          <div class="grid grid-3" style="gap: 0 18px">
-            <el-form-item :label="t('notifications.securityNewDeviceDays')">
-              <el-input-number v-model="security.new_device_days" :min="1" :max="365" style="width: 100%" />
-            </el-form-item>
-            <el-form-item :label="t('notifications.securityFailedLogin')">
-              <div class="flex gap-10" style="height: 32px">
-                <el-switch v-model="security.failed_login" />
-              </div>
-            </el-form-item>
-            <el-form-item :label="t('notifications.securityFailedThreshold')">
-              <el-input-number
-                v-model="security.failed_threshold"
-                :min="1"
-                :max="100"
-                :disabled="!security.failed_login"
-                style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item :label="t('notifications.securityFailedWindow')">
-              <el-input-number
-                v-model="security.failed_window"
-                :min="60"
-                :max="86400"
-                :step="60"
-                :disabled="!security.failed_login"
-                style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item :label="t('notifications.securityMaxPerHour')">
-              <el-input-number v-model="security.max_per_hour" :min="1" :max="1000" style="width: 100%" />
-              <div class="form-help">{{ t('notifications.securityMaxPerHourHint') }}</div>
-            </el-form-item>
-          </div>
-          <el-form-item :label="t('notifications.securityChannels')">
-            <el-select v-model="security.channels" multiple style="width: 100%">
-              <el-option
-                v-for="item in securityChannelOptions"
-                :key="item.value"
-                :value="item.value"
-                :label="item.label"
-              />
-            </el-select>
-            <div class="form-help">{{ t('notifications.securityChannelsHint') }}</div>
-          </el-form-item>
-          <el-form-item :label="t('notifications.securityEvents')">
-            <el-checkbox-group v-model="security.events" class="security-events">
-              <el-checkbox v-for="item in securityEventOptions" :key="item.value" :value="item.value">
-                {{ t(item.labelKey) }}
-              </el-checkbox>
-            </el-checkbox-group>
-            <div class="form-help">{{ t('notifications.securityEventsHint') }}</div>
-          </el-form-item>
-          <div class="grid grid-2" style="gap: 0 18px">
-            <el-form-item :label="t('notifications.securityTo')">
-              <el-input v-model="security.to" :placeholder="t('notifications.securityToPlaceholder')" />
-            </el-form-item>
-            <el-form-item :label="t('notifications.securityRetention')">
-              <el-input-number v-model="security.retention_days" :min="7" :max="365" style="width: 100%" />
-            </el-form-item>
-          </div>
-          <el-alert
-            v-if="!security.channels.length"
-            :title="t('notifications.securityNoChannel')"
-            type="warning"
-            :closable="false"
-            style="margin-bottom: 14px"
-          />
-          <el-alert
-            v-else-if="security.channels.includes('mail') && !mail.smtp_host"
-            :title="t('notifications.securityNoSmtp')"
-            type="warning"
-            :closable="false"
-            style="margin-bottom: 14px"
-          />
-          <el-alert
-            v-else-if="security.last_error"
-            :title="t('notifications.securityLastError', { error: security.last_error })"
-            type="error"
-            :closable="false"
-            style="margin-bottom: 14px"
-          />
-          <el-alert
-            v-else-if="security.last_delivered_at"
-            :title="t('notifications.securityLastDelivered', { time: formatDate(security.last_delivered_at) })"
-            type="success"
-            :closable="false"
-            style="margin-bottom: 14px"
-          />
-        </el-form>
-      </div>
-      <div class="notify-footer">
-        <div class="footer-actions">
-          <el-button type="primary" :loading="savingSecurity" @click="saveSecurity">
-            {{ t('notifications.securitySave') }}
-          </el-button>
-          <el-button :loading="testingSecurity" @click="sendSecurityTest">
-            {{ t('notifications.securitySendTest') }}
-          </el-button>
-          <el-button @click="openSecurityEvents">{{ t('notifications.securityEventsOpen') }}</el-button>
-          <span class="muted test-hint">{{ t('notifications.securityHint') }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="channel === 'mail'" class="k-card notify-card">
+    <div v-if="channel === 'mail'" class="k-card notify-card">
       <div class="card-head">
         <div>
           <h3>{{ t('notifications.smtpTitle') }}</h3>
@@ -284,51 +158,6 @@
         <el-empty :description="t('notifications.noPluginChannels')" />
       </div>
     </div>
-
-    <el-dialog
-      v-model="securityEventsVisible"
-      :title="t('notifications.securityEventsTitle')"
-      width="min(1040px, 94vw)"
-      top="6vh"
-    >
-      <div class="security-events-toolbar">
-        <el-button :icon="Refresh" circle :loading="securityEventsLoading" @click="loadSecurityEvents" />
-        <el-button text @click="exportSecurityEvents">{{ t('notifications.securityEventsExport') }}</el-button>
-      </div>
-      <el-table :data="securityEvents" v-loading="securityEventsLoading" max-height="520" size="small">
-        <el-table-column :label="t('notifications.securityEventsTime')" width="150">
-          <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
-        </el-table-column>
-        <el-table-column :label="t('notifications.securityEventsKind')" min-width="150">
-          <template #default="{ row }">{{ securityEventLabel(row.kind) }}</template>
-        </el-table-column>
-        <el-table-column :label="t('notifications.securityEventsStatus')" width="120">
-          <template #default="{ row }">
-            <el-tag :type="securityEventStatus(row).type" size="small">
-              {{ securityEventStatus(row).label }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('notifications.securityEventsTargets')" min-width="240">
-          <template #default="{ row }">
-            <div v-for="target in securityEventTargets(row)" :key="target.key" class="security-target">
-              <span class="mono">{{ target.label }}</span>
-              <span class="muted">{{ target.state }}</span>
-            </div>
-            <span v-if="!securityEventTargets(row).length" class="muted">{{ t('common.none') }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('notifications.securityEventsError')" min-width="200">
-          <template #default="{ row }">
-            <span v-if="row.last_error" class="security-error">{{ row.last_error }}</span>
-            <span v-else class="muted">{{ t('common.none') }}</span>
-          </template>
-        </el-table-column>
-      </el-table>
-      <template #footer>
-        <el-button @click="securityEventsVisible = false">{{ t('common.close') }}</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -340,8 +169,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { loadSettings } from '../store'
 import { notifyChannelLabelKey } from '../notifyChannels'
-import { formatDate } from '../utils'
-import type { MessageResult, NotifyChannelField, SecurityEventView, Settings as AppSettings } from '../types'
+import type { MessageResult, NotifyChannelField, Settings as AppSettings } from '../types'
 
 interface MailForm {
   smtp_host: string
@@ -424,35 +252,13 @@ const legacyFieldDefs: Record<string, NotifyChannelField[]> = {
   custom: [text('url', 'notifications.fieldUrl'), text('method', 'notifications.fieldMethod'), { key: 'headers', label_key: 'notifications.fieldHeaders', type: 'textarea' }, { key: 'body', label_key: 'notifications.fieldBody', type: 'textarea' }]
 }
 
-const securityEventOptions = [
-  { value: 'credential.password.changed', labelKey: 'notifications.securityEventPassword' },
-  { value: 'credential.email.changed', labelKey: 'notifications.securityEventEmail' },
-  { value: 'credential.totp.enabled', labelKey: 'notifications.securityEventTOTPEnabled' },
-  { value: 'credential.totp.disabled', labelKey: 'notifications.securityEventTOTPDisabled' },
-  { value: 'credential.passkey.added', labelKey: 'notifications.securityEventPasskeyAdded' },
-  { value: 'credential.passkey.deleted', labelKey: 'notifications.securityEventPasskeyDeleted' },
-  { value: 'credential.recovery.reset', labelKey: 'notifications.securityEventReset' },
-  { value: 'apikey.created', labelKey: 'notifications.securityEventAPIKeyCreated' },
-  { value: 'apikey.updated', labelKey: 'notifications.securityEventAPIKeyUpdated' },
-  { value: 'apikey.deleted', labelKey: 'notifications.securityEventAPIKeyDeleted' },
-  { value: 'apikey.rotated', labelKey: 'notifications.securityEventAPIKeyRotated' },
-  { value: 'settings.notify.changed', labelKey: 'notifications.securityEventNotify' }
-]
-
-const defaultSecurityEvents = securityEventOptions.map((item) => item.value)
-
 const { t } = useI18n()
-const channel = ref('security')
+const channel = ref('mail')
 const settings = ref<AppSettings | null>(null)
 const savingMail = ref(false)
 const testingMail = ref(false)
 const savingGeneric = ref(false)
 const testingGeneric = ref(false)
-const savingSecurity = ref(false)
-const testingSecurity = ref(false)
-const securityEventsVisible = ref(false)
-const securityEventsLoading = ref(false)
-const securityEvents = ref<SecurityEventView[]>([])
 const mail = reactive<MailForm>({
   smtp_host: '',
   smtp_port: 465,
@@ -464,25 +270,8 @@ const mail = reactive<MailForm>({
   notify_to: ''
 })
 
-const security = reactive({
-  enabled: true,
-  events: [...defaultSecurityEvents] as string[],
-  to: '',
-  retention_days: 90,
-  login: 'new' as 'off' | 'new' | 'always',
-  failed_login: true,
-  failed_threshold: 5,
-  failed_window: 600,
-  new_device_days: 30,
-  channels: ['mail'] as string[],
-  max_per_hour: 10,
-  last_error: '',
-  last_delivered_at: '' as string | null
-})
-
 const channelDefs = computed<ChannelDef[]>(() => {
   const defs: ChannelDef[] = [
-    { value: 'security', labelKey: 'notifications.channelSecurity' },
     { value: 'mail', labelKey: 'notifications.channelMail' }
   ]
   for (const def of settings.value?.notify_channel_defs || []) {
@@ -498,105 +287,8 @@ const channelDefs = computed<ChannelDef[]>(() => {
 
 const currentDef = computed(() => {
   const def = channelDefs.value.find((item) => item.value === channel.value)
-  return def && def.value !== 'mail' && def.value !== 'security' ? def : undefined
+  return def && def.value !== 'mail' ? def : undefined
 })
-
-const securityChannelOptions = computed(() => {
-  const options = [{ value: 'mail', label: t('notifications.channelMail') }]
-  for (const def of settings.value?.notify_channel_defs || []) {
-    if (def.id === 'mail') continue
-    const labelKey = notifyChannelLabelKey(def.id)
-    options.push({
-      value: def.id,
-      label: def.name || (labelKey ? t(labelKey) : def.id)
-    })
-  }
-  return options
-})
-
-const securityEventLabelKeys: Record<string, string> = {}
-for (const item of securityEventOptions) {
-  securityEventLabelKeys[item.value] = item.labelKey
-}
-securityEventLabelKeys['login.password'] = 'notifications.securityEventLoginPassword'
-securityEventLabelKeys['login.passkey'] = 'notifications.securityEventLoginPasskey'
-securityEventLabelKeys['login.failed'] = 'notifications.securityEventLoginFailed'
-securityEventLabelKeys['security.test'] = 'notifications.securityEventTest'
-securityEventLabelKeys['security.digest'] = 'notifications.securityEventDigest'
-
-function securityEventLabel(kind: string): string {
-  const key = securityEventLabelKeys[kind]
-  return key ? t(key) : kind
-}
-
-function securityEventStatus(event: SecurityEventView): { label: string; type: 'success' | 'danger' | 'warning' | 'info' } {
-  if (!event.notify) {
-    return { label: t('notifications.securityEventRecorded'), type: 'info' }
-  }
-  if (event.delivered_at) {
-    return { label: t('notifications.securityEventDelivered'), type: 'success' }
-  }
-  if (event.last_error) {
-    return { label: t('notifications.securityEventFailed'), type: 'danger' }
-  }
-  return { label: t('notifications.securityEventPending'), type: 'warning' }
-}
-
-function securityTargetState(state?: string): string {
-  switch (state) {
-    case 'sent':
-      return t('notifications.securityEventSent')
-    case 'failed':
-      return t('notifications.securityEventTargetFailed')
-    case 'skipped':
-      return t('notifications.securityEventSkipped')
-    default:
-      return t('notifications.securityEventPending')
-  }
-}
-
-function securityEventTargets(event: SecurityEventView): Array<{ key: string; label: string; state: string }> {
-  if (!event.notify) return []
-  const targets: Array<{ key: string; label: string; state: string }> = []
-  for (const recipient of event.recipients || []) {
-    const key = `mail:${recipient.toLowerCase()}`
-    targets.push({ key, label: recipient, state: securityTargetState(event.deliveries?.[key]) })
-  }
-  for (const channel of event.channels || []) {
-    if (channel === 'mail') continue
-    const key = `channel:${channel.toLowerCase()}`
-    const label = securityChannelOptions.value.find((item) => item.value === channel)?.label || channel
-    targets.push({ key, label, state: securityTargetState(event.deliveries?.[key]) })
-  }
-  return targets
-}
-
-async function loadSecurityEvents(): Promise<void> {
-  securityEventsLoading.value = true
-  try {
-    const data = await api.get<{ events: SecurityEventView[] }>('/security/events?limit=30')
-    securityEvents.value = data?.events || []
-  } catch (error: any) {
-    ElMessage.error(error.message)
-  } finally {
-    securityEventsLoading.value = false
-  }
-}
-
-function openSecurityEvents(): void {
-  securityEventsVisible.value = true
-  void loadSecurityEvents()
-}
-
-function exportSecurityEvents(): void {
-  const blob = new Blob([JSON.stringify(securityEvents.value, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `lactssl-security-events-${new Date().toISOString().slice(0, 10)}.json`
-  link.click()
-  URL.revokeObjectURL(url)
-}
 
 const genericForms = ref<Record<string, Record<string, any>>>({})
 const currentForm = computed(() => genericForms.value[channel.value] || {})
@@ -637,23 +329,6 @@ function applySettings(data: AppSettings): void {
     notify_to: data.notify_to || ''
   })
 
-  const policy = data.security_notify
-  Object.assign(security, {
-    enabled: policy?.enabled !== false,
-    events: Array.isArray(policy?.events) ? [...policy.events] : [...defaultSecurityEvents],
-    to: policy?.to || '',
-    retention_days: policy?.retention_days || 90,
-    login: policy?.login === 'off' || policy?.login === 'always' ? policy.login : 'new',
-    failed_login: policy?.failed_login !== false,
-    failed_threshold: policy?.failed_threshold || 5,
-    failed_window: policy?.failed_window || 600,
-    new_device_days: policy?.new_device_days || 30,
-    channels: Array.isArray(policy?.channels) && policy.channels.length ? [...policy.channels] : ['mail'],
-    max_per_hour: policy?.max_per_hour || 10,
-    last_error: policy?.last_error || '',
-    last_delivered_at: policy?.last_delivered_at || null
-  })
-
   const storedChannels = data.notify_channels || {}
   const nextForms: Record<string, Record<string, any>> = {}
   for (const def of channelDefs.value) {
@@ -685,51 +360,6 @@ async function reload(): Promise<void> {
     applySettings(await loadSettings(true))
   } catch (error: any) {
     ElMessage.error(error.message)
-  }
-}
-
-async function saveSecurity(): Promise<void> {
-  savingSecurity.value = true
-  try {
-    const saved = await api.put('/settings', {
-      security_notify: {
-        enabled: security.enabled,
-        events: [...security.events],
-        to: security.to,
-        retention_days: security.retention_days,
-        login: security.login,
-        failed_login: security.failed_login,
-        failed_threshold: security.failed_threshold,
-        failed_window: security.failed_window,
-        new_device_days: security.new_device_days,
-        channels: [...security.channels],
-        max_per_hour: security.max_per_hour
-      }
-    })
-    if (saved === null) return
-    ElMessage.success(t('notifications.securitySaved'))
-    await reload()
-  } catch (error: any) {
-    ElMessage.error(error.message)
-  } finally {
-    savingSecurity.value = false
-  }
-}
-
-async function sendSecurityTest(): Promise<void> {
-  testingSecurity.value = true
-  try {
-    const data = await api.post<MessageResult>('/settings/test-security-notify', {
-      channels: [...security.channels],
-      to: security.to
-    })
-    if (data === null) return
-    ElMessage.success(data.message || t('notifications.securityTestQueued'))
-    await reload()
-  } catch (error: any) {
-    ElMessage.error(error.message)
-  } finally {
-    testingSecurity.value = false
   }
 }
 
@@ -839,36 +469,6 @@ onMounted(reload)
 }
 
 .test-hint {
-  font-size: 12px;
-}
-
-.security-events {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 6px 18px;
-  width: 100%;
-}
-
-.security-events-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.security-target {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.security-error {
-  color: var(--el-color-danger);
-  word-break: break-all;
   font-size: 12px;
 }
 

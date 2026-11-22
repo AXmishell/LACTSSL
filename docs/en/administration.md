@@ -67,7 +67,7 @@ Do not send plaintext passwords, API keys, or backup passwords through chat tool
 - Session persistence is enabled by default, so sessions survive backend restarts. Setting `security.session_persistence: false` clears sessions on every restart. Persistence extends session lifetime, so decide in line with enterprise policy.
 - Periodically review and revoke unknown devices under "Settings → Sessions".
 - A signed-in session is equivalent to administrator privileges; do not stay signed in on shared browsers or untrusted devices.
-- Keep core credential alerts enabled under "Notifications → Security alerts", and enable new-device sign-ins and failed sign-in aggregation as needed; the default threshold is 5 failures within 10 minutes. Changing the email notifies both the old and new addresses, and changing notification targets notifies the previous recipients and channels.
+- Keep core credential alerts enabled under "Settings → Security alerts", and enable new-device sign-ins and failed sign-in aggregation as needed; the default threshold is 5 failures within 10 minutes. Changing the email notifies both the old and new addresses, and changing notification targets notifies the previous recipients and channels.
 - The default hourly limit is 10 alerts for high-frequency sign-in/failure alerts only; critical credential changes and new-device sign-ins bypass it. Beyond the limit events are combined into a digest. The "Recent security events" dialog shows per-target delivery status and errors and can export JSON.
 - Security alerts are independent of certificate notifications; do not disable them by turning off certificate email. If plugin channels are used, select only trusted channels because they receive the sign-in IP, device, and account email.
 

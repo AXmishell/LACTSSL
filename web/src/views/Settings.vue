@@ -148,6 +148,10 @@
                     style="width: 100%"
                   />
                 </el-form-item>
+                <el-form-item :label="t('notifications.securityMaxPerHour')">
+                  <el-input-number v-model="security.max_per_hour" :min="1" :max="1000" style="width: 100%" />
+                  <div class="form-help">{{ t('notifications.securityMaxPerHourHint') }}</div>
+                </el-form-item>
               </div>
               <el-form-item :label="t('notifications.securityChannels')">
                 <el-select v-model="security.channels" multiple style="width: 100%">
@@ -215,6 +219,7 @@
               <el-button :loading="testingSecurity" @click="sendSecurityTest">
                 {{ t('notifications.securitySendTest') }}
               </el-button>
+              <el-button @click="openSecurityEvents">{{ t('notifications.securityEventsOpen') }}</el-button>
               <span class="muted test-hint">{{ t('notifications.securityHint') }}</span>
             </div>
           </div>
@@ -562,6 +567,52 @@
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 最近安全事件 -->
+    <el-dialog
+      v-model="securityEventsVisible"
+      :title="t('notifications.securityEventsTitle')"
+      width="min(1040px, 94vw)"
+      top="6vh"
+    >
+      <div class="security-events-toolbar">
+        <el-button :icon="Refresh" circle :loading="securityEventsLoading" @click="loadSecurityEvents" />
+        <el-button text @click="exportSecurityEvents">{{ t('notifications.securityEventsExport') }}</el-button>
+      </div>
+      <el-table :data="securityEvents" v-loading="securityEventsLoading" max-height="520" size="small">
+        <el-table-column :label="t('notifications.securityEventsTime')" width="150">
+          <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('notifications.securityEventsKind')" min-width="150">
+          <template #default="{ row }">{{ securityEventLabel(row.kind) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('notifications.securityEventsStatus')" width="120">
+          <template #default="{ row }">
+            <el-tag :type="securityEventStatus(row).type" size="small">
+              {{ securityEventStatus(row).label }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('notifications.securityEventsTargets')" min-width="240">
+          <template #default="{ row }">
+            <div v-for="target in securityEventTargets(row)" :key="target.key" class="security-target">
+              <span class="mono">{{ target.label }}</span>
+              <span class="muted">{{ target.state }}</span>
+            </div>
+            <span v-if="!securityEventTargets(row).length" class="muted">{{ t('common.none') }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('notifications.securityEventsError')" min-width="200">
+          <template #default="{ row }">
+            <span v-if="row.last_error" class="security-error">{{ row.last_error }}</span>
+            <span v-else class="muted">{{ t('common.none') }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="securityEventsVisible = false">{{ t('common.close') }}</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 修改邮箱 -->
     <el-dialog v-model="emailVisible" :title="t('settings.changeEmailTitle')" width="440px">
@@ -1075,6 +1126,7 @@ import type {
   Meta,
   PasskeyInfo,
   PendingConfigRestart,
+  SecurityEventView,
   Settings as AppSettings,
   SettingsConfigResult,
   SettingsConfigSaveResult,
@@ -1138,6 +1190,9 @@ const savingEntry = ref(false)
 const savingAccount = ref(false)
 const savingSecurity = ref(false)
 const testingSecurity = ref(false)
+const securityEventsVisible = ref(false)
+const securityEventsLoading = ref(false)
+const securityEvents = ref<SecurityEventView[]>([])
 const security = reactive({
   enabled: true,
   events: [...defaultSecurityEvents] as string[],
@@ -1149,6 +1204,7 @@ const security = reactive({
   failed_window: 600,
   new_device_days: 30,
   channels: ['mail'] as string[],
+  max_per_hour: 10,
   last_error: '',
   last_delivered_at: '' as string | null
 })
@@ -1165,6 +1221,90 @@ const securityChannelOptions = computed(() => {
   }
   return options
 })
+
+const securityEventLabelKeys: Record<string, string> = {}
+for (const item of securityEventOptions) {
+  securityEventLabelKeys[item.value] = item.labelKey
+}
+securityEventLabelKeys['login.password'] = 'notifications.securityEventLoginPassword'
+securityEventLabelKeys['login.passkey'] = 'notifications.securityEventLoginPasskey'
+securityEventLabelKeys['login.failed'] = 'notifications.securityEventLoginFailed'
+securityEventLabelKeys['security.test'] = 'notifications.securityEventTest'
+securityEventLabelKeys['security.digest'] = 'notifications.securityEventDigest'
+
+function securityEventLabel(kind: string): string {
+  const key = securityEventLabelKeys[kind]
+  return key ? t(key) : kind
+}
+
+function securityEventStatus(event: SecurityEventView): { label: string; type: 'success' | 'danger' | 'warning' | 'info' } {
+  if (!event.notify) {
+    return { label: t('notifications.securityEventRecorded'), type: 'info' }
+  }
+  if (event.delivered_at) {
+    return { label: t('notifications.securityEventDelivered'), type: 'success' }
+  }
+  if (event.last_error) {
+    return { label: t('notifications.securityEventFailed'), type: 'danger' }
+  }
+  return { label: t('notifications.securityEventPending'), type: 'warning' }
+}
+
+function securityTargetState(state?: string): string {
+  switch (state) {
+    case 'sent':
+      return t('notifications.securityEventSent')
+    case 'failed':
+      return t('notifications.securityEventTargetFailed')
+    case 'skipped':
+      return t('notifications.securityEventSkipped')
+    default:
+      return t('notifications.securityEventPending')
+  }
+}
+
+function securityEventTargets(event: SecurityEventView): Array<{ key: string; label: string; state: string }> {
+  if (!event.notify) return []
+  const targets: Array<{ key: string; label: string; state: string }> = []
+  for (const recipient of event.recipients || []) {
+    const key = `mail:${recipient.toLowerCase()}`
+    targets.push({ key, label: recipient, state: securityTargetState(event.deliveries?.[key]) })
+  }
+  for (const channel of event.channels || []) {
+    if (channel === 'mail') continue
+    const key = `channel:${channel.toLowerCase()}`
+    const label = securityChannelOptions.value.find((item) => item.value === channel)?.label || channel
+    targets.push({ key, label, state: securityTargetState(event.deliveries?.[key]) })
+  }
+  return targets
+}
+
+async function loadSecurityEvents(): Promise<void> {
+  securityEventsLoading.value = true
+  try {
+    const data = await api.get<{ events: SecurityEventView[] }>('/security/events?limit=30')
+    securityEvents.value = data?.events || []
+  } catch (error: any) {
+    ElMessage.error(error.message)
+  } finally {
+    securityEventsLoading.value = false
+  }
+}
+
+function openSecurityEvents(): void {
+  securityEventsVisible.value = true
+  void loadSecurityEvents()
+}
+
+function exportSecurityEvents(): void {
+  const blob = new Blob([JSON.stringify(securityEvents.value, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `lactssl-security-events-${new Date().toISOString().slice(0, 10)}.json`
+  link.click()
+  URL.revokeObjectURL(url)
+}
 
 const entryForm = reactive({ entry: '' })
 const entryReauth = reactive({ password: '', totp: '' })
@@ -1640,6 +1780,7 @@ function applySettings(data: AppSettings): void {
     failed_window: policy?.failed_window || 600,
     new_device_days: policy?.new_device_days || 30,
     channels: Array.isArray(policy?.channels) && policy.channels.length ? [...policy.channels] : ['mail'],
+    max_per_hour: policy?.max_per_hour || 10,
     last_error: policy?.last_error || '',
     last_delivered_at: policy?.last_delivered_at || null
   })
@@ -1663,7 +1804,8 @@ async function saveSecurity(): Promise<void> {
         failed_threshold: security.failed_threshold,
         failed_window: security.failed_window,
         new_device_days: security.new_device_days,
-        channels: [...security.channels]
+        channels: [...security.channels],
+        max_per_hour: security.max_per_hour
       }
     })
     if (saved === null) return
@@ -1677,6 +1819,7 @@ async function saveSecurity(): Promise<void> {
 }
 
 async function sendSecurityTest(): Promise<void> {
+  if (testingSecurity.value) return
   testingSecurity.value = true
   try {
     const data = await api.post<MessageResult>('/settings/test-security-notify', {
@@ -2410,6 +2553,29 @@ onUnmounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 6px 18px;
   width: 100%;
+}
+
+.security-events-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.security-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.security-error {
+  color: var(--el-color-danger);
+  word-break: break-all;
+  font-size: 12px;
 }
 
 .settings-section {
