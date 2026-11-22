@@ -192,6 +192,7 @@ After an external site is added, the service periodically reads its certificate 
 ### 6.1 Built-in channels
 
 - **Email (SMTP)**: server, port, username, password, sender, and SSL support.
+- Notification recipients default to the system account email and can be replaced with custom recipients. After saving, email is delivered only to the configured recipients; the account email is not appended automatically.
 - Implicit TLS is used by default (`smtp.ssl=true`); when implicit TLS is disabled and the server does not support STARTTLS, the service refuses to send, preventing sensitive email such as reset tokens from being transmitted in plaintext.
 
 ### 6.2 Plugin channels
@@ -209,7 +210,7 @@ Gotify, ServerChan, ntfy, GoCQHTTP, PushDeer, Bark, Telegram, DingTalk, WeCom bo
 - Alerts are sent for password changes, email changes, TOTP enable/disable, passkey add/delete, password resets, API key create/update/delete/rotate, and notification setting changes.
 - A **new device** sign-in is reported by default; the same browser is reminded at most once within the configured quiet window (30 days by default). The window can be adjusted, or the mode changed to “every sign-in”.
 - Failed sign-ins are aggregated per account: 5 failures within 10 minutes trigger an alert, at most once per hour. Unknown emails are aggregated by source IP.
-- Email goes to the account email plus up to 10 additional recipients. Changing the email notifies both the old and new addresses, preventing account takeover through “change email, then reset password”.
+- Email is sent only to the configured recipients (up to 10). The system account email is filled in by default and can be replaced with custom recipients; later account email changes do not silently change it. Changing the email notifies both the old and new addresses, preventing account takeover through “change email, then reset password”.
 - Email and enabled notification plugin channels are supported. Email is the default; selecting plugin channels sends the sign-in IP, device, and account email to the corresponding third party, so select only trusted channels.
 - Messages never contain passwords, TOTP codes, API keys, or full passkey identifiers. The settings page provides a test alert and shows the latest delivery status.
 - An hourly alert limit can be configured (10 by default) for high-frequency sign-in/failure alerts only. Events beyond the limit are still recorded under "Recent security events" (recorded only) but are combined into one digest, sent at most once per hour. Critical credential changes, new-device sign-ins, email changes, policy changes, and test alerts bypass the limit.

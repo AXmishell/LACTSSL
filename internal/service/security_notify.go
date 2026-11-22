@@ -310,22 +310,26 @@ func (p SecurityNotifyPolicy) EventEnabled(kind string) bool {
 	return false
 }
 
-// SecurityPolicyRecipients 返回策略对应的邮件收件人：账户邮箱 + 额外收件人。
+// SecurityPolicyRecipients 返回策略对应的邮件收件人。
+// 策略配置了收件人时只使用配置值；未配置时回退到系统账户邮箱。
 // 不包含 notify.to，因为 notify.to 可能是一个团队群组地址。
 func SecurityPolicyRecipients(policy SecurityNotifyPolicy, accountEmail string) []string {
-	extra, _ := parseSecurityRecipients(policy.To)
-	return ResolveMailRecipients(accountEmail, extra)
+	configured, _ := parseSecurityRecipients(policy.To)
+	return ResolveMailRecipients(accountEmail, configured)
 }
 
-// ResolveMailRecipients 返回账户邮箱与额外收件人的去重列表。
-// 运维通知与安全提醒都使用同一语义：账户邮箱始终接收，额外收件人只做追加。
-func ResolveMailRecipients(accountEmail string, extra []string) []string {
-	recipients := make([]string, 0, 1+len(extra))
-	if value := strings.ToLower(strings.TrimSpace(accountEmail)); value != "" {
-		recipients = append(recipients, value)
+// ResolveMailRecipients 返回实际投递的邮件收件人。
+// 运维通知与安全提醒都使用同一语义：配置了收件人时只使用配置值，
+// 不再自动追加系统账户邮箱；未配置时回退到系统账户邮箱作为默认收件人。
+func ResolveMailRecipients(accountEmail string, configured []string) []string {
+	recipients := dedupeSecurityRecipients(configured)
+	if len(recipients) > 0 {
+		return recipients
 	}
-	recipients = append(recipients, extra...)
-	return dedupeSecurityRecipients(recipients)
+	if value := strings.ToLower(strings.TrimSpace(accountEmail)); value != "" {
+		return []string{value}
+	}
+	return nil
 }
 
 // NotifySecurity 写入一条需要投递的安全事件并唤醒后台 worker。
@@ -400,7 +404,7 @@ func (m *Manager) SendSecurityTest(userID int64, channels []string, to string) e
 	if user == nil {
 		return i18n.E("api.error.unauthorized")
 	}
-	extra, err := parseSecurityRecipients(to)
+	configured, err := parseSecurityRecipients(to)
 	if err != nil {
 		return err
 	}
@@ -411,7 +415,7 @@ func (m *Manager) SendSecurityTest(userID int64, channels []string, to string) e
 	if !m.securityChannelDeliverable(normalized) {
 		return i18n.E("api.error.security_notify_no_delivery")
 	}
-	recipients := ResolveMailRecipients(user.Email, extra)
+	recipients := ResolveMailRecipients(user.Email, configured)
 	event := model.SecurityEvent{
 		UserID:          userID,
 		Kind:            model.SecurityEventTest,
@@ -983,14 +987,14 @@ func parseSecurityRecipients(value string) ([]string, error) {
 		"api.error.security_notify_recipient_too_many")
 }
 
-// ParseNotifyRecipients 校验并规范化运维通知的额外收件人列表。
+// ParseNotifyRecipients 校验并规范化运维通知的收件人列表。
 func ParseNotifyRecipients(value string) ([]string, error) {
 	return parseMailRecipients(value,
 		"api.error.notify_recipient_invalid",
 		"api.error.notify_recipient_too_many")
 }
 
-// CanonicalNotifyRecipients 返回去重、小写、逗号分隔的运维通知额外收件人。
+// CanonicalNotifyRecipients 返回去重、小写、逗号分隔的运维通知收件人。
 func CanonicalNotifyRecipients(value string) (string, error) {
 	items, err := ParseNotifyRecipients(value)
 	if err != nil {

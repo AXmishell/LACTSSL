@@ -126,7 +126,7 @@ func TestSecurityDeliveryLeaseScalesWithTargets(t *testing.T) {
 	}
 }
 
-func TestSendMailNotificationIncludesAccountAndExtras(t *testing.T) {
+func TestSendMailNotificationUsesConfiguredRecipients(t *testing.T) {
 	m, st := newNotifyTestManager(t)
 	if err := st.SetSetting("smtp.host", "smtp.example.com"); err != nil {
 		t.Fatal(err)
@@ -147,10 +147,32 @@ func TestSendMailNotificationIncludesAccountAndExtras(t *testing.T) {
 	}
 	m.sendMailNotification("subject", "body")
 	if len(sent) != 3 {
-		t.Fatalf("应发送给账户邮箱 + 去重后的额外收件人，实际 %v", sent)
+		t.Fatalf("应只发送给配置的收件人，实际 %v", sent)
 	}
-	if sent[0] != "admin@example.com" || sent[1] != "ops@example.com" || sent[2] != "backup@example.com" {
+	if sent[0] != "ops@example.com" || sent[1] != "admin@example.com" || sent[2] != "backup@example.com" {
 		t.Fatalf("收件人顺序或去重不正确: %v", sent)
+	}
+}
+
+func TestSendMailNotificationFallsBackToAccountEmail(t *testing.T) {
+	m, st := newNotifyTestManager(t)
+	if err := st.SetSetting("smtp.host", "smtp.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting("smtp.from", "noreply@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateUser("admin@example.com", "hash"); err != nil {
+		t.Fatal(err)
+	}
+	sent := make([]string, 0, 1)
+	m.mailSender = func(_ SMTPConfig, to, _, _ string) error {
+		sent = append(sent, to)
+		return nil
+	}
+	m.sendMailNotification("subject", "body")
+	if len(sent) != 1 || sent[0] != "admin@example.com" {
+		t.Fatalf("未配置收件人时应默认引用账户邮箱，实际 %v", sent)
 	}
 }
 

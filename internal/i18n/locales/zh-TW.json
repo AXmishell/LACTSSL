@@ -1141,7 +1141,7 @@
   "log.task.target_flow_warning": "目標流程提示：{message}",
   "api.error.security_notify_event_invalid": "不支援的安全提醒事件: {event}",
   "api.error.security_notify_recipient_invalid": "安全提醒收件者格式不正確: {email}",
-  "api.error.security_notify_recipient_too_many": "安全提醒額外收件者最多 {max} 個",
+  "api.error.security_notify_recipient_too_many": "安全提醒收件者最多 {max} 個",
   "api.error.notify_recipient_invalid": "通知收件者格式不正確: {email}",
   "api.error.notify_recipient_too_many": "通知收件者最多 {max} 個",
   "email.security.subject": "[LACTSSL] 安全提醒：{title}",

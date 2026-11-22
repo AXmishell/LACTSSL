@@ -1773,7 +1773,8 @@ function applySettings(data: AppSettings): void {
   Object.assign(security, {
     enabled: policy?.enabled !== false,
     events: Array.isArray(policy?.events) ? [...policy.events] : [...defaultSecurityEvents],
-    to: policy?.to || '',
+    // 默认引用系统账户邮箱填写；用户保存后即成为独立的收件人配置。
+    to: (policy?.to || '').trim() || state.user?.email || '',
     retention_days: policy?.retention_days || 90,
     login: policy?.login === 'off' || policy?.login === 'always' ? policy.login : 'new',
     failed_login: policy?.failed_login !== false,
@@ -1951,10 +1952,10 @@ async function downloadTrustBundle(): Promise<void> {
 
 async function reload(): Promise<void> {
   try {
-    const [metaData, settingData] = await Promise.all([loadMeta(true), loadSettings(true)])
+    const [metaData, settingData] = await Promise.all([loadMeta(true), loadSettings(true), loadUser(true)])
     meta.value = metaData
     applySettings(settingData)
-    await Promise.all([loadStatus(), loadUser(true), loadBackupInfo(), loadPasskeys(), loadTrustedCAs(), loadConfig()])
+    await Promise.all([loadStatus(), loadBackupInfo(), loadPasskeys(), loadTrustedCAs(), loadConfig()])
   } catch (error: any) {
     ElMessage.error(error.message)
   }

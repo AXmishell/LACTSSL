@@ -191,8 +191,8 @@ func (s *Server) updateSettings(c *gin.Context) {
 		}
 	}
 	if body.NotifyTo != nil {
-		// 通知收件人与安全提醒额外收件人使用同一语义：账户邮箱始终接收，
-		// 这里保存的是追加地址。写入前先规范化，避免后续每次发送重复解析。
+		// 通知收件人与安全提醒收件人使用同一语义：配置优先，空值时默认
+		// 使用系统账户邮箱。写入前先规范化，避免后续每次发送重复解析。
 		canonical, err := service.CanonicalNotifyRecipients(*body.NotifyTo)
 		if err != nil {
 			failErr(c, http.StatusBadRequest, err)
@@ -348,12 +348,12 @@ func (s *Server) testMail(c *gin.Context) {
 		rateLimited(c, wait)
 		return
 	}
-	// 与真实运维通知一致：账户邮箱始终接收，body.to 视为额外收件人。
+	// 与真实运维通知一致：有配置时使用配置的收件人，未配置时回退到账户邮箱。
 	raw := strings.TrimSpace(body.To)
 	if raw == "" {
 		raw = s.setting("notify.to", "")
 	}
-	extra, err := service.ParseNotifyRecipients(raw)
+	configured, err := service.ParseNotifyRecipients(raw)
 	if err != nil {
 		failErr(c, http.StatusBadRequest, err)
 		return
@@ -367,7 +367,7 @@ func (s *Server) testMail(c *gin.Context) {
 			accountEmail = user.Email
 		}
 	}
-	recipients := service.ResolveMailRecipients(accountEmail, extra)
+	recipients := service.ResolveMailRecipients(accountEmail, configured)
 	if len(recipients) == 0 {
 		failKey(c, http.StatusBadRequest, "api.error.recipient_required")
 		return

@@ -336,8 +336,8 @@ func TestSecurityNotifyPolicyChangeAlertsOldRecipients(t *testing.T) {
 	for _, item := range latest.Recipients {
 		recipients[item] = true
 	}
-	if !recipients["old@example.com"] || !recipients["admin@example.com"] {
-		t.Fatalf("策略变更应通知旧收件人: %+v", latest.Recipients)
+	if !recipients["old@example.com"] || recipients["admin@example.com"] {
+		t.Fatalf("策略变更应只通知旧策略中配置的收件人: %+v", latest.Recipients)
 	}
 	if recipients["new@example.com"] {
 		t.Fatalf("策略变更不应只通知新收件人: %+v", latest.Recipients)

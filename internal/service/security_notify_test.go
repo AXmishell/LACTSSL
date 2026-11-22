@@ -254,8 +254,14 @@ func TestDeliverSecurityEventPluginChannel(t *testing.T) {
 func TestSecurityPolicyRecipients(t *testing.T) {
 	policy := SecurityNotifyPolicy{To: "ops@example.com, Admin@Example.com"}
 	recipients := SecurityPolicyRecipients(policy, "admin@example.com")
-	if len(recipients) != 2 || recipients[0] != "admin@example.com" || recipients[1] != "ops@example.com" {
-		t.Fatalf("收件人去重/排序不正确: %+v", recipients)
+	if len(recipients) != 2 || recipients[0] != "ops@example.com" || recipients[1] != "admin@example.com" {
+		t.Fatalf("配置收件人未按配置值投递: %+v", recipients)
+	}
+	if got := SecurityPolicyRecipients(SecurityNotifyPolicy{}, "admin@example.com"); len(got) != 1 || got[0] != "admin@example.com" {
+		t.Fatalf("未配置收件人时应默认引用账户邮箱: %+v", got)
+	}
+	if got := SecurityPolicyRecipients(SecurityNotifyPolicy{}, ""); len(got) != 0 {
+		t.Fatalf("无配置且无账户邮箱时不应有收件人: %+v", got)
 	}
 }
 
@@ -786,8 +792,8 @@ func TestNotifySecurityStoresRecipients(t *testing.T) {
 	if event.Kind != model.SecurityEventPasswordChanged || !event.Notify {
 		t.Fatalf("事件内容不正确: %+v", event)
 	}
-	if len(event.Recipients) != 2 || event.Recipients[0] != "admin@example.com" || event.Recipients[1] != "ops@example.com" {
-		t.Fatalf("收件人快照不正确: %+v", event.Recipients)
+	if len(event.Recipients) != 1 || event.Recipients[0] != "ops@example.com" {
+		t.Fatalf("收件人快照应只包含配置值: %+v", event.Recipients)
 	}
 	if len(event.Channels) != 1 || event.Channels[0] != "mail" {
 		t.Fatalf("阶段 0 只应投递邮件: %+v", event.Channels)

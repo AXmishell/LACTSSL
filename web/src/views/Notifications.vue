@@ -168,7 +168,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
-import { loadSettings } from '../store'
+import { loadSettings, state } from '../store'
 import { notifyChannelLabelKey } from '../notifyChannels'
 import type { MessageResult, NotifyChannelField, Settings as AppSettings } from '../types'
 
@@ -327,7 +327,8 @@ function applySettings(data: AppSettings): void {
     smtp_from: data.smtp_from || '',
     smtp_ssl: data.smtp_ssl !== false,
     notify_enabled: !!data.notify_enabled,
-    notify_to: data.notify_to || ''
+    // 默认引用系统账户邮箱填写；用户保存后即成为独立的收件人配置。
+    notify_to: (data.notify_to || '').trim() || state.user?.email || ''
   })
 
   const storedChannels = data.notify_channels || {}

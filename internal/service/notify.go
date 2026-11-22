@@ -208,7 +208,7 @@ func (m *Manager) sendMailNotification(subject, body string) {
 		return
 	}
 	raw, _ := m.Store.GetSetting("notify.to")
-	extra, err := ParseNotifyRecipients(raw)
+	configured, err := ParseNotifyRecipients(raw)
 	if err != nil {
 		m.Store.AddLogKey("notify", 0, "error", "log.notify.failed", map[string]any{"error": SafeError(err)})
 		return
@@ -217,7 +217,7 @@ func (m *Manager) sendMailNotification(subject, body string) {
 	if user, err := m.Store.GetUser(); err == nil && user != nil {
 		accountEmail = user.Email
 	}
-	recipients := ResolveMailRecipients(accountEmail, extra)
+	recipients := ResolveMailRecipients(accountEmail, configured)
 	if len(recipients) == 0 {
 		return
 	}
