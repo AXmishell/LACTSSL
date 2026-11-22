@@ -242,6 +242,9 @@ func main() {
 	ensureDefaults(st)
 	// 配置保存后写入的“待重启”标记只对当前进程有效；启动成功即视为已生效。
 	_ = st.DeleteSetting("config.pending_restart")
+	// 恢复上次进程退出时尚未完成的安全提醒投递，避免队列一直等到下一条
+	// 新事件写入后才被 worker 处理。
+	manager.StartSecurityWorker()
 
 	// 会话保持开启时使用固定 jwt_secret 派生的子密钥，重启后旧令牌仍可通过校验；
 	// 显式关闭时每次启动生成新的签名子密钥，旧令牌在重启后必然失效。

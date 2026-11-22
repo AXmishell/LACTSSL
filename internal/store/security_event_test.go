@@ -229,3 +229,82 @@ func TestHasRecentSecurityLogin(t *testing.T) {
 		t.Fatalf("超出窗口不应命中: %v %v", ok, err)
 	}
 }
+
+func TestClaimSecurityEventPreventsConcurrentDelivery(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now().UTC()
+	event := &model.SecurityEvent{
+		UserID:     1,
+		Kind:       model.SecurityEventTest,
+		Notify:     true,
+		CreatedAt:  now,
+		Recipients: []string{"admin@example.com"},
+		Channels:   []string{"mail"},
+	}
+	if err := st.CreateSecurityEvent(event); err != nil {
+		t.Fatal(err)
+	}
+
+	// 第一个 worker 抢到租约。
+	claimed, err := st.ClaimSecurityEvent(event.ID, now, now.Add(5*time.Minute))
+	if err != nil || !claimed {
+		t.Fatalf("首个 worker 应抢到事件: %v %v", claimed, err)
+	}
+	// 租约未到期时，其他 worker 不能再次投递。
+	claimed, err = st.ClaimSecurityEvent(event.ID, now, now.Add(5*time.Minute))
+	if err != nil || claimed {
+		t.Fatalf("租约内不应重复抢占: %v %v", claimed, err)
+	}
+	// 租约到期后事件重新可投递，保证进程崩溃后能恢复。
+	claimed, err = st.ClaimSecurityEvent(event.ID, now.Add(6*time.Minute), now.Add(10*time.Minute))
+	if err != nil || !claimed {
+		t.Fatalf("租约到期后应重新可抢占: %v %v", claimed, err)
+	}
+	// 投递完成后不再进入队列。
+	deliveredAt := now.Add(7 * time.Minute)
+	if err := st.UpdateSecurityEventDelivery(event.ID, map[string]string{"mail:admin@example.com": "sent"},
+		1, "", nil, &deliveredAt); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = st.ClaimSecurityEvent(event.ID, now.Add(20*time.Minute), now.Add(25*time.Minute))
+	if err != nil || claimed {
+		t.Fatalf("已投递事件不应再被抢占: %v %v", claimed, err)
+	}
+}
+
+func TestHasPendingSecurityEventsIncludesScheduledRetry(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now().UTC()
+	event := &model.SecurityEvent{
+		UserID:     1,
+		Kind:       model.SecurityEventTest,
+		Notify:     true,
+		CreatedAt:  now,
+		Recipients: []string{"admin@example.com"},
+		Channels:   []string{"mail"},
+	}
+	if err := st.CreateSecurityEvent(event); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := st.HasPendingSecurityEvents(); err != nil || !pending {
+		t.Fatalf("新事件应视为积压: %v %v", pending, err)
+	}
+
+	next := now.Add(time.Hour)
+	if err := st.UpdateSecurityEventDelivery(event.ID, map[string]string{"mail:admin@example.com": "failed"},
+		1, "smtp down", &next, nil); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := st.HasPendingSecurityEvents(); err != nil || !pending {
+		t.Fatalf("等待重试的事件仍应视为积压: %v %v", pending, err)
+	}
+
+	deliveredAt := now.Add(2 * time.Hour)
+	if err := st.UpdateSecurityEventDelivery(event.ID, map[string]string{"mail:admin@example.com": "sent"},
+		1, "", nil, &deliveredAt); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := st.HasPendingSecurityEvents(); err != nil || pending {
+		t.Fatalf("已投递事件不应视为积压: %v %v", pending, err)
+	}
+}

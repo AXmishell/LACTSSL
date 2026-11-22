@@ -49,6 +49,13 @@ const (
 	securityNotifyMaxAttempts            = 3
 	securityNotifyRetryBase              = time.Minute
 	securityNotifyRetryStep              = 4 * time.Minute
+
+	// 投递租约：一个事件被 worker 抢占后，在租约到期前其他 worker（包括
+	// 多实例部署或重启后的新进程）不会重复处理。租约按收件人和渠道数量
+	// 放大，覆盖最慢的 SMTP/插件超时；进程崩溃时最多等待租约到期后重试。
+	securityNotifyDeliveryBaseLease      = 5 * time.Minute
+	securityNotifyDeliveryLeasePerTarget = time.Minute
+	securityNotifyDeliveryMaxLease       = time.Hour
 )
 
 // SecurityNotifyPolicy 是安全提醒策略。策略存 settings 表，与证书通知开关
@@ -556,11 +563,20 @@ func (m *Manager) wakeSecurityWorker() {
 	}
 }
 
+// StartSecurityWorker 在进程启动时检查是否有上次未完成的投递（含等待重试
+// 的事件），并唤醒 worker 恢复队列。没有积压时保持懒启动，避免只为证书
+// 功能的部署常驻协程。
+func (m *Manager) StartSecurityWorker() {
+	if pending, err := m.Store.HasPendingSecurityEvents(); err == nil && pending {
+		m.wakeSecurityWorker()
+	}
+}
+
 func (m *Manager) securityLoop() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
-		m.processSecurityEvents()
+		m.processSecurityEventsSafely()
 		select {
 		case <-m.securityWake:
 		case <-ticker.C:
@@ -568,16 +584,50 @@ func (m *Manager) securityLoop() {
 	}
 }
 
+// processSecurityEventsSafely 保证单个事件投递异常不会让后台协程退出，
+// 否则后续所有安全提醒都会静默积压。
+func (m *Manager) processSecurityEventsSafely() {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logger().Error("安全提醒 worker 投递异常", "panic", recovered)
+		}
+	}()
+	m.processSecurityEvents()
+}
+
 func (m *Manager) processSecurityEvents() {
-	events, err := m.Store.ListPendingSecurityEvents(time.Now().UTC(), 50)
+	now := time.Now().UTC()
+	events, err := m.Store.ListPendingSecurityEvents(now, 50)
 	if err != nil {
 		return
 	}
 	for index := range events {
-		m.deliverSecurityEvent(&events[index])
+		event := &events[index]
+		// 先原子抢占再投递：多实例或并发 worker 同时读到同一条事件时，
+		// 只有抢到租约的一方会真正发送，避免重复邮件/渠道消息。
+		// 这里逐条重新取当前时间，避免批量处理耗时把租约算到过去。
+		claimNow := time.Now().UTC()
+		claimed, claimErr := m.Store.ClaimSecurityEvent(event.ID, claimNow, claimNow.Add(securityDeliveryLease(event)))
+		if claimErr != nil || !claimed {
+			continue
+		}
+		m.deliverSecurityEvent(event)
 	}
 	policy := m.LoadSecurityNotifyPolicy(0)
 	_, _ = m.Store.CleanupSecurityEvents(time.Now().UTC().AddDate(0, 0, -policy.RetentionDays))
+}
+
+// securityDeliveryLease 按目标数量计算投递租约，给慢速 SMTP 和插件留出余量。
+func securityDeliveryLease(event *model.SecurityEvent) time.Duration {
+	if event == nil {
+		return securityNotifyDeliveryBaseLease
+	}
+	targets := len(event.Recipients) + len(event.Channels)
+	lease := securityNotifyDeliveryBaseLease + time.Duration(targets)*securityNotifyDeliveryLeasePerTarget
+	if lease > securityNotifyDeliveryMaxLease {
+		return securityNotifyDeliveryMaxLease
+	}
+	return lease
 }
 
 func (m *Manager) deliverSecurityEvent(event *model.SecurityEvent) {

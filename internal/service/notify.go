@@ -145,10 +145,14 @@ func SendMail(cfg SMTPConfig, to, subject, html string) error {
 	if _, err := writer.Write(message); err != nil {
 		return err
 	}
+	// writer.Close 会提交正文并等待服务器返回接收结果，成功后邮件已经
+	// 被服务器接受。QUIT 只是礼貌关闭连接，失败（例如服务端读完正文后
+	// 直接断开）不能让上层把已投递的邮件当成失败并重试，否则会重复发送。
 	if err := writer.Close(); err != nil {
 		return err
 	}
-	return client.Quit()
+	_ = client.Quit()
+	return nil
 }
 
 func extractAddress(value string) string {
