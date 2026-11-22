@@ -32,6 +32,11 @@ const FeatureDynamicOptions = "dynamic-options-v1"
 // 旧流程处理（DNS 回退写测试，部署目标显示不支持验证）。
 const FeatureVerify = "verify-v1"
 
+// FeatureVerifyWrite 表示 verify 子命令支持 mode=write：在同一个 helper 进程内
+// 完成临时 TXT 记录的写入与清理，复用 provider 实例、鉴权结果与连接。
+// 未声明该能力的旧 helper 仍由宿主使用 present + cleanup 两个进程的兼容路径。
+const FeatureVerifyWrite = "verify-write-v1"
+
 // FeaturePlan 告知 helper 宿主支持 plan 子命令，用于批量部署前读取
 // 网站等部署对象的清单，按证书域名完成匹配后再决定是否写入。
 const FeaturePlan = "plan-v1"

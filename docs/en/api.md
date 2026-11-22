@@ -451,6 +451,8 @@ After adding or editing a DNS account or target credential, you can verify that 
 
 When `domain` is omitted, a saved DNS account uses one of its enabled domain bindings first; if there are none, the response uses `mode: "scope"` and only checks the credential configuration and call permission.
 
+`mode` accepts `auto` (default), `read`, and `write`. `auto` prefers a read-only probe and falls back to a write test. A new DNS helper performs the temporary TXT create and delete in a single helper process, reusing the provider instance, authentication, and connections; older helpers that do not advertise `verify-write-v1` still use separate `present`/`cleanup` processes. The write test only creates a random TXT record under `_acme-challenge` and deletes it immediately; it never deploys or runs reload commands.
+
 | Method | Path | Description |
 | --- | --- | --- |
 | POST | `/api/dns-accounts/:id/verify` | Verify a saved DNS account; accepts `domain` and `mode` |

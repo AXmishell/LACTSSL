@@ -398,6 +398,75 @@ esac
 			t.Fatalf("verify request missing %s: %s", want, data)
 		}
 	}
+
+	// 只声明只读能力的旧 helper 不能被用于单进程写验证。
+	if _, err := verifier.Verify(context.Background(), nil, "example.com", "write", "zh-CN"); !errors.Is(err, ErrVerifyUnsupported) {
+		t.Fatalf("write 模式应返回 ErrVerifyUnsupported, got %v", err)
+	}
+}
+
+// TestVerifyWriteCapability 验证声明 verify-write-v1 的 helper 会收到
+// mode=write，并由宿主按结构化结果解析。
+func TestVerifyWriteCapability(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "verify-write.json")
+	envOutput := filepath.Join(dir, "verify-write.env")
+	manifest := `{"protocol":"v1","capabilities":["verify-v1","verify-write-v1"],"name":"write verify helper","version":"1.0.0","providers":[{"id":"writedns","name":"Write DNS","capabilities":["verify-write-v1"]}]}`
+	script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+manifest)
+  cat <<'JSON'
+%s
+JSON
+  ;;
+verify)
+  cat > %q
+  printf '%%s' "$LACTSSL_DNS_PLUGIN_FEATURES" > %q
+  printf '{"ok":true,"checks":[{"key":"write","status":"ok"},{"key":"cleanup","status":"ok"}]}'
+  ;;
+*)
+  exit 2
+  ;;
+esac
+`, manifest, output, envOutput)
+	writeHelper(t, dir, "write-verify-helper", script)
+
+	result := Discover(DiscoverConfig{Dir: dir, MemoryLimitMB: 128, Timeout: 2 * time.Second, EnabledProviders: []string{"writedns"}})
+	t.Cleanup(func() { UnregisterSource(SourceExec) })
+	if result.Providers != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	plugin, ok := Lookup("writedns")
+	if !ok {
+		t.Fatal("provider not registered")
+	}
+	verifier, ok := plugin.(Verifier)
+	if !ok {
+		t.Fatal("plugin should implement Verifier")
+	}
+	response, err := verifier.Verify(context.Background(), map[string]string{"api_token": "secret"}, "example.com", "write", "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || len(response.Checks) != 2 || response.Checks[0].Key != "write" || response.Checks[1].Key != "cleanup" {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"action":"verify"`, `"mode":"write"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("verify request missing %s: %s", want, data)
+		}
+	}
+	env, err := os.ReadFile(envOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(env), pluginproto.FeatureVerifyWrite) {
+		t.Fatalf("helper feature env missing %s: %s", pluginproto.FeatureVerifyWrite, env)
+	}
 }
 
 // TestVerifyUnsupportedWithoutCapability 验证旧 helper 不会被调用 verify。

@@ -26,7 +26,8 @@ type DNSProvider struct {
 	DescriptionI18n map[string]string `json:"description_i18n,omitempty"`
 	Aliases         []string          `json:"aliases,omitempty"`
 	Fields          []DNSField        `json:"fields,omitempty"`
-	// Capabilities 非空表示该服务商支持 verify 子命令中的只读探测。
+	// Capabilities 声明该服务商支持的 verify 能力：
+	// verify-v1 表示只读探测，verify-write-v1 表示可在单个进程内完成写测试。
 	Capabilities []string `json:"capabilities,omitempty"`
 }
 

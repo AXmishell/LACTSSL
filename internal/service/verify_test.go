@@ -219,17 +219,21 @@ func TestVerifyPluginDeployReturnsUnsupported(t *testing.T) {
 
 type fakeVerifyingDNSPlugin struct {
 	fakeDNSPlugin
-	response  pluginproto.VerifyResponse
-	err       error
-	readCalls int
+	response   pluginproto.VerifyResponse
+	readErr    error
+	readCalls  int
+	writeCalls int
+	// writeErr 非空时模拟不支持单进程写验证的旧 helper。
+	writeErr error
 }
 
 func (p *fakeVerifyingDNSPlugin) Verify(_ context.Context, _ map[string]string, domain, mode, locale string) (pluginproto.VerifyResponse, error) {
-	p.readCalls++
-	if mode != "read" {
-		return pluginproto.VerifyResponse{}, nil
+	if mode == "write" {
+		p.writeCalls++
+		return p.response, p.writeErr
 	}
-	return p.response, p.err
+	p.readCalls++
+	return p.response, p.readErr
 }
 
 func TestVerifyDNSAccountUsesReadOnlyWhenAvailable(t *testing.T) {
@@ -263,13 +267,73 @@ func TestVerifyDNSAccountUsesReadOnlyWhenAvailable(t *testing.T) {
 		t.Fatalf("auto 模式应优先只读: %+v", result)
 	}
 
-	// helper 声明了能力但实际返回 unsupported 时，auto 模式回退到写测试。
+	// helper 声明了只读能力但实际返回 unsupported 时，auto 模式应回退到写测试。
 	plugin.response = pluginproto.VerifyResponse{OK: true, Checks: []pluginproto.VerifyCheck{
 		{Key: "verify", Status: pluginproto.VerifyStatusUnsupported},
 	}}
+	// 旧 helper 不声明 verify-write-v1，宿主必须继续走 present/cleanup。
+	plugin.writeErr = dnsplugin.ErrVerifyUnsupported
 	result = m.VerifyDNSAccount(context.Background(), i18n.ZhCN, "", "verify-fake", nil, "example.com", "auto")
 	if !result.OK || result.Mode != "write" || fake.presentCalls != 1 || fake.cleanupCalls != 1 {
 		t.Fatalf("unsupported 应回退到写测试: %+v present=%d cleanup=%d", result, fake.presentCalls, fake.cleanupCalls)
+	}
+}
+
+// 新 helper 在 verify 子命令内完成 present/cleanup 时，宿主不应再启动
+// 额外的 present/cleanup 进程。
+func TestVerifyDNSAccountUsesSingleProcessWriteWhenAvailable(t *testing.T) {
+	fake := &fakeChallengeProvider{}
+	plugin := &fakeVerifyingDNSPlugin{
+		fakeDNSPlugin: fakeDNSPlugin{provider: fake},
+		response: pluginproto.VerifyResponse{OK: true, Checks: []pluginproto.VerifyCheck{
+			{Key: "write", Status: pluginproto.VerifyStatusOK},
+			{Key: "cleanup", Status: pluginproto.VerifyStatusOK},
+		}},
+		// 只读探测不可用时 auto 会直接走单进程写验证。
+		readErr: dnsplugin.ErrVerifyUnsupported,
+	}
+	if err := dnsplugin.RegisterExternal(plugin); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dnsplugin.UnregisterSource(dnsplugin.SourceExec) })
+
+	m := New(nil)
+	result := m.VerifyDNSAccount(context.Background(), i18n.ZhCN, "", "verify-fake", nil, "example.com", "auto")
+	if !result.OK || result.Mode != "write" {
+		t.Fatalf("单进程写验证应通过: %+v", result)
+	}
+	if plugin.writeCalls != 1 {
+		t.Fatalf("writeCalls = %d", plugin.writeCalls)
+	}
+	if fake.presentCalls != 0 || fake.cleanupCalls != 0 {
+		t.Fatalf("不应再启动独立的 present/cleanup: present=%d cleanup=%d", fake.presentCalls, fake.cleanupCalls)
+	}
+}
+
+func TestVerifyDNSAccountSingleProcessWriteReportsCleanupFailure(t *testing.T) {
+	fake := &fakeChallengeProvider{}
+	plugin := &fakeVerifyingDNSPlugin{
+		fakeDNSPlugin: fakeDNSPlugin{provider: fake},
+		response: pluginproto.VerifyResponse{OK: false, Checks: []pluginproto.VerifyCheck{
+			{Key: "write", Status: pluginproto.VerifyStatusOK},
+			{Key: "cleanup", Status: pluginproto.VerifyStatusFailed, Message: "cleanup failed"},
+		}},
+	}
+	if err := dnsplugin.RegisterExternal(plugin); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dnsplugin.UnregisterSource(dnsplugin.SourceExec) })
+
+	m := New(nil)
+	result := m.VerifyDNSAccount(context.Background(), i18n.ZhCN, "", "verify-fake", nil, "example.com", "write")
+	if result.OK {
+		t.Fatalf("清理失败时不能返回通过: %+v", result)
+	}
+	if plugin.writeCalls != 1 || fake.presentCalls != 0 || fake.cleanupCalls != 0 {
+		t.Fatalf("应使用单进程写验证: write=%d present=%d cleanup=%d", plugin.writeCalls, fake.presentCalls, fake.cleanupCalls)
+	}
+	if got := verifyCheckMessage(result, "cleanup"); got != "cleanup failed" {
+		t.Fatalf("cleanup message = %q", got)
 	}
 }
 

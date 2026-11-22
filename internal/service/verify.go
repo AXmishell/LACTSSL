@@ -161,7 +161,8 @@ func NormalizeVerifyDomain(input string) string {
 	return domain
 }
 
-// VerifyDNSAccount 验证 DNS 凭据：构造 provider、写入随机 TXT、再删除。
+// VerifyDNSAccount 验证 DNS 凭据：优先让 helper 在单个进程内写入随机 TXT
+// 并立即删除；旧 helper 未声明 verify-write-v1 时回退到 present/cleanup。
 // lockKey 用于按账户串行化，避免两次写测试同时操作同一 zone。
 func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey, provider string, cfg map[string]string, domain, mode string) (result VerifyResult) {
 	if ctx == nil {
@@ -210,9 +211,7 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 			if err == nil {
 				// helper 声明了能力但该服务商实际返回 unsupported 时，
 				// auto 模式仍回退到写测试，避免把“不支持”当成最终结论。
-				if onlyUnsupportedChecks(response.Checks) && mode != "read" {
-					// fall through to write
-				} else {
+				if !onlyUnsupportedChecks(response.Checks) || mode == "read" {
 					appendVerifyChecks(res, response.Checks, response.OK)
 					return *res
 				}
@@ -225,6 +224,37 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 			res.add("read", VerifyStatusUnsupported, i18n.T(loc, "service.verify.read_unsupported", nil))
 			return *res
 		}
+	}
+
+	// auto 回退或显式 write：优先让 helper 在同一个进程内完成写入与清理，
+	// 复用 provider 实例、鉴权结果与连接。旧 helper 未声明该能力时返回
+	// ErrVerifyUnsupported，继续走下面的 present/cleanup 兼容路径。
+	if verifier, ok := plugin.(dnsplugin.Verifier); ok {
+		if err := ctx.Err(); err != nil {
+			res.add("write", VerifyStatusError, i18n.T(loc, "service.verify.canceled", nil))
+			return *res
+		}
+		res.Mode = "write"
+		var response pluginproto.VerifyResponse
+		var err error
+		// 与兼容写测试共用同一把账户锁，避免并发验证同时操作同一 zone。
+		func() {
+			if lockKey != "" {
+				unlock := m.dnsLocks.Lock(lockKey)
+				defer unlock()
+			}
+			response, err = verifier.Verify(ctx, cfg, domain, "write", string(loc))
+		}()
+		if err == nil && !onlyUnsupportedChecks(response.Checks) {
+			appendVerifyChecks(res, response.Checks, response.OK)
+			return *res
+		}
+		if err != nil && !errors.Is(err, dnsplugin.ErrVerifyUnsupported) {
+			res.add("write", VerifyStatusFailed, i18n.T(loc, "service.verify.write_failed", map[string]any{"error": err.Error()}))
+			return *res
+		}
+		// err 为 ErrVerifyUnsupported，或 helper 声明能力但实际只返回
+		// unsupported 检查项时，继续走下面的兼容写测试。
 	}
 
 	res.Mode = "write"

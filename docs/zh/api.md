@@ -472,6 +472,8 @@ python3 scripts/csr_client.py --manifest ./certs.json --json
 
 未传 `domain` 时，已保存的 DNS 账户优先使用其已启用的域名绑定；没有绑定时返回 `mode: "scope"`，仅校验凭据配置与调用权限。
 
+`mode` 支持 `auto`（默认）、`read`、`write`。`auto` 优先只读探测，不可用时回退写测试。新版 DNS 插件会在同一个 helper 进程内完成临时 TXT 的写入与清理，复用 provider 实例、鉴权结果与连接；未声明 `verify-write-v1` 的旧插件仍使用 `present`/`cleanup` 两个进程。写测试只在 `_acme-challenge` 下创建随机 TXT 并立即删除，不执行部署或 reload。
+
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/dns-accounts/:id/verify` | 验证已保存 DNS 账户；可传 `domain`、`mode` |

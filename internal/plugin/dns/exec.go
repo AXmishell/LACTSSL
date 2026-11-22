@@ -494,9 +494,16 @@ func hasCapability(values []string, target string) bool {
 	return false
 }
 
-// Verify 调用外部 helper 的 verify 子命令，执行只读的认证与 zone 检查。
+// Verify 调用外部 helper 的 verify 子命令。
+// mode=read 执行只读的认证与 zone 检查；mode=write 请求 helper 在单个进程内
+// 完成临时 TXT 的写入与清理，避免 present/cleanup 两次进程启动与重复鉴权。
 func (p *externalPlugin) Verify(ctx context.Context, cfg map[string]string, domain, mode, locale string) (pluginproto.VerifyResponse, error) {
-	if !hasCapability(p.provider.Capabilities, pluginproto.FeatureVerify) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	feature := pluginproto.FeatureVerify
+	if mode == "write" {
+		feature = pluginproto.FeatureVerifyWrite
+	}
+	if !hasCapability(p.provider.Capabilities, feature) {
 		return pluginproto.VerifyResponse{}, ErrVerifyUnsupported
 	}
 	if p.digest != "" {
@@ -520,16 +527,34 @@ func (p *externalPlugin) Verify(ctx context.Context, cfg map[string]string, doma
 		return pluginproto.VerifyResponse{}, fmt.Errorf("编码插件验证请求失败: %w", err)
 	}
 	timeout := p.settings.timeout
-	if timeout <= 0 || timeout > 30*time.Second {
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	runCtx := ctx
+	if mode == "write" {
+		// 写测试必须保证 Present 成功后一定执行 CleanUp，不能因为浏览器关闭
+		// 或请求取消而在 DNS 上留下临时记录。与旧 present/cleanup 路径一致，
+		// 这里脱离请求上下文，只受单次执行超时约束；启动前仍检查一次取消状态，
+		// 避免已经放弃的请求再触发写入。
+		if err := ctx.Err(); err != nil {
+			return pluginproto.VerifyResponse{}, err
+		}
+		runCtx = context.Background()
+		// 一个进程内完成写入和清理，超时预算按两次旧调用计算。
+		timeout *= 2
+		if timeout > 120*time.Second {
+			timeout = 120 * time.Second
+		}
+	} else if timeout > 30*time.Second {
 		timeout = 30 * time.Second
 	}
-	stdout, stderr, err := pluginexec.Run(ctx, p.helper, []string{"verify"}, body, pluginexec.Options{
+	stdout, stderr, err := pluginexec.Run(runCtx, p.helper, []string{"verify"}, body, pluginexec.Options{
 		Timeout:       timeout,
 		MemoryLimitMB: p.settings.memoryLimitMB,
 		MaxOutputKB:   p.settings.maxOutputKB,
 		Env: []string{
 			"LACTSSL_PLUGIN_PROTOCOL=" + execProtocol,
-			"LACTSSL_DNS_PLUGIN_FEATURES=" + pluginproto.FeatureVerify,
+			"LACTSSL_DNS_PLUGIN_FEATURES=" + pluginproto.FeatureVerify + "," + pluginproto.FeatureVerifyWrite,
 		},
 	})
 	if errors.Is(err, pluginexec.ErrTimeout) {
@@ -627,7 +652,7 @@ func runHelper(path, action string, stdin []byte, timeout time.Duration, cfg Dis
 		MaxOutputKB:   cfg.MaxOutputKB,
 		Env: []string{
 			"LACTSSL_PLUGIN_PROTOCOL=" + execProtocol,
-			"LACTSSL_DNS_PLUGIN_FEATURES=" + pluginproto.FeatureVerify,
+			"LACTSSL_DNS_PLUGIN_FEATURES=" + pluginproto.FeatureVerify + "," + pluginproto.FeatureVerifyWrite,
 		},
 	})
 	if errors.Is(err, pluginexec.ErrTimeout) {
