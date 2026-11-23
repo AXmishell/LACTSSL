@@ -244,11 +244,24 @@ jobs:
             -o bin/lactssl ./cmd/server
 
       - name: Verify binary
+        env:
+          # 默认构建内置全部 lego v5 DNS provider，体积约 80 MiB；32 MiB 预算只适用于
+          # `nobuiltin_dns` 等裁剪变体，不要用它卡默认发布构建。
+          BINARY_SIZE_BUDGET_MIB: "96"
         run: |
           test -x bin/lactssl
           ls -lh bin/lactssl
-          # 体积预算守住 validator_novalidatefn 等瘦身成果（当前约 29 MB）。
-          test "$(wc -c < bin/lactssl)" -le $((32 * 1024 * 1024))
+          size_bytes=$(wc -c < bin/lactssl)
+          budget_bytes=$((BINARY_SIZE_BUDGET_MIB * 1024 * 1024))
+          if [ "$size_bytes" -gt "$budget_bytes" ]; then
+            awk -v s="$size_bytes" -v b="$budget_bytes" 'BEGIN {
+              printf "二进制体积 %.2f MiB 超过 %d MiB 预算（超出 %.2f MiB）；请运行 make size 定位增长来源。\n", s / 1048576, b / 1048576, (s - b) / 1048576
+            }' >&2
+            exit 1
+          fi
+          awk -v s="$size_bytes" -v b="$budget_bytes" 'BEGIN {
+            printf "二进制体积 %.2f MiB（预算 %d MiB）\n", s / 1048576, b / 1048576
+          }'
 
       - name: Upload binary
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

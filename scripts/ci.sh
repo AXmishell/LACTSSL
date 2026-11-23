@@ -188,14 +188,18 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   fi
 
   # 体积预算用于守住 validator_novalidatefn 等瘦身成果；超出时请先看 make size。
+  # 默认构建内置全部 lego v5 DNS provider，体积约 80 MiB；32 MiB 预算只适用于
+  # `make backend-no-dns` 这类裁剪变体，可用 BINARY_SIZE_BUDGET_MIB 覆盖。
   size_bytes=$(wc -c < bin/lactssl)
-  budget_bytes=$((32 * 1024 * 1024))
+  budget_mib=${BINARY_SIZE_BUDGET_MIB:-96}
+  budget_bytes=$((budget_mib * 1024 * 1024))
   size_mib=$(awk -v b="$size_bytes" 'BEGIN { printf "%.2f", b / 1048576 }')
   if [ "$size_bytes" -gt "$budget_bytes" ]; then
-    echo "二进制体积 ${size_mib} MiB 超过 32 MiB 预算；请运行 make size 定位增长来源。" >&2
+    over_mib=$(awk -v s="$size_bytes" -v b="$budget_bytes" 'BEGIN { printf "%.2f", (s - b) / 1048576 }')
+    echo "二进制体积 ${size_mib} MiB 超过 ${budget_mib} MiB 预算（超出 ${over_mib} MiB）；请运行 make size 定位增长来源。" >&2
     exit 1
   fi
-  echo "二进制体积 ${size_mib} MiB（预算 32 MiB）"
+  echo "二进制体积 ${size_mib} MiB（预算 ${budget_mib} MiB）"
 
 fi
 
