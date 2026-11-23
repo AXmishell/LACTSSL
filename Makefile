@@ -24,6 +24,7 @@ web:
 	cd web && $(NPM) ci && $(NPM) run build
 	rm -rf internal/webui/dist
 	cp -a web/dist internal/webui/dist
+	$(GO) run ./scripts/compress-assets.go internal/webui/dist
 
 backend:
 	mkdir -p bin
@@ -36,7 +37,7 @@ dbconvert:
 
 server-dev:
 	mkdir -p bin
-	$(BUILD_ENV) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(APP)-dev ./cmd/server
+	$(BUILD_ENV) $(GO) build -trimpath -tags "nomsgpack" -ldflags "$(LDFLAGS)" -o bin/$(APP)-dev ./cmd/server
 
 build: web backend
 
@@ -51,7 +52,7 @@ docker: docker-context
 	docker build --build-arg VERSION=$(VERSION) -t lactssl:local .
 
 run:
-	$(BUILD_ENV) $(GO) run ./cmd/server
+	$(BUILD_ENV) $(GO) run -tags "nomsgpack" ./cmd/server
 
 dev:
 	./scripts/dev.sh start

@@ -160,6 +160,7 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   step "构建二进制（前端资源嵌入）"
   rm -rf internal/webui/dist
   cp -a web/dist internal/webui/dist
+  go run ./scripts/compress-assets.go internal/webui/dist
   mkdir -p bin
   build_version="$(./scripts/version.sh)"
   build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

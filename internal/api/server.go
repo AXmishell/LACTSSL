@@ -3,11 +3,13 @@ package api
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"math"
@@ -953,20 +955,107 @@ func (s *Server) serveAsset(c *gin.Context, name string) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	data, err := fs.ReadFile(s.WebFS, clean)
-	name = clean
+	// .gz 是构建期的内部表示，不允许直接请求，避免绕过 Content-Encoding 协商。
+	if strings.HasSuffix(clean, ".gz") {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	contentType := mime.TypeByExtension(path.Ext(clean))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	if strings.HasPrefix(clean, "assets/") {
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	}
+	// 同一 URL 会按 Accept-Encoding 返回不同表示，必须声明 Vary。
+	c.Header("Vary", "Accept-Encoding")
+	c.Header("Content-Type", contentType)
+
+	// 生产构建把资源预压缩为 <name>.gz 并删除原文件；开发模式仍读取原始文件。
+	if compressed, err := s.WebFS.Open(clean + ".gz"); err == nil {
+		defer compressed.Close()
+		if acceptsGzipEncoding(c.Request.Header.Get("Accept-Encoding")) {
+			c.Header("Content-Encoding", "gzip")
+			// ServeContent 在存在 Content-Encoding 时不会自动设置长度（担心
+			// 外层再压缩），这里显式给出压缩表示的大小；Range 请求会由
+			// ServeContent 覆盖为实际区间长度。
+			if info, err := compressed.Stat(); err == nil {
+				c.Header("Content-Length", strconv.FormatInt(info.Size(), 10))
+			}
+			serveAssetFile(c, clean, compressed)
+			return
+		}
+		// 客户端不接受 gzip 时流式解压，避免把整个资源读入内存。
+		reader, err := gzip.NewReader(compressed)
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		defer reader.Close()
+		c.Status(http.StatusOK)
+		if c.Request.Method == http.MethodHead {
+			return
+		}
+		_, _ = io.Copy(c.Writer, reader)
+		return
+	}
+
+	raw, err := s.WebFS.Open(clean)
 	if err != nil {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	contentType := mime.TypeByExtension(path.Ext(name))
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	defer raw.Close()
+	serveAssetFile(c, clean, raw)
+}
+
+// serveAssetFile 用 ServeContent 流式返回资源，避免每次请求整文件进堆。
+// name 是原始资源名，用于推断 MIME 与处理 Range，不包含 .gz 后缀。
+func serveAssetFile(c *gin.Context, name string, file fs.File) {
+	info, err := file.Stat()
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
 	}
-	if strings.HasPrefix(name, "assets/") {
-		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	if seeker, ok := file.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer, c.Request, name, info.ModTime(), seeker)
+		return
 	}
-	c.Data(http.StatusOK, contentType, data)
+	c.Status(http.StatusOK)
+	if c.Request.Method == http.MethodHead {
+		return
+	}
+	_, _ = io.Copy(c.Writer, file)
+}
+
+// acceptsGzipEncoding 解析 Accept-Encoding，显式 gzip 声明优先于通配符。
+// q=0 表示不接受；缺少 q 参数时按 q=1 处理。
+func acceptsGzipEncoding(header string) bool {
+	wildcard := false
+	for _, part := range strings.Split(header, ",") {
+		fields := strings.Split(part, ";")
+		name := strings.ToLower(strings.TrimSpace(fields[0]))
+		if name == "" {
+			continue
+		}
+		quality := 1.0
+		for _, param := range fields[1:] {
+			param = strings.TrimSpace(param)
+			if strings.HasPrefix(param, "q=") {
+				if value, err := strconv.ParseFloat(strings.TrimSpace(param[2:]), 64); err == nil {
+					quality = value
+				}
+			}
+		}
+		switch name {
+		case "gzip":
+			return quality > 0
+		case "*":
+			wildcard = quality > 0
+		}
+	}
+	return wildcard
 }
 
 // rateLimiter 是基于令牌桶的内存限流器，按 key 维护少量状态。

@@ -220,6 +220,9 @@ jobs:
           name: web-dist
           path: internal/webui/dist
 
+      - name: Compress web assets
+        run: go run ./scripts/compress-assets.go internal/webui/dist
+
       - name: Build
         run: |
           BUILD_VERSION=$(./scripts/version.sh)

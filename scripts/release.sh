@@ -239,6 +239,7 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   step "build: 准备嵌入用的前端资源 (internal/webui/dist)"
   rm -rf internal/webui/dist
   cp -a web/dist internal/webui/dist
+  go run ./scripts/compress-assets.go internal/webui/dist
 
   for target in "${TARGETS[@]}"; do
     read -r goos goarch <<<"$target"
