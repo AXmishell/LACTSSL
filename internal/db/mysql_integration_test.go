@@ -126,6 +126,77 @@ func TestMySQLIntegration(t *testing.T) {
 	}
 }
 
+// TestMySQLUpgradeRepairsLegacySchema 验证从 schemaVersion 23 升级时，
+// 历史上被写成 VARCHAR(2048) 的文本列会恢复为 LONGTEXT，不透明列改为二进制排序规则。
+func TestMySQLUpgradeRepairsLegacySchema(t *testing.T) {
+	dsn := os.Getenv("LACTSSL_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("未设置 LACTSSL_TEST_MYSQL_DSN，跳过 MySQL 升级测试")
+	}
+	conn, err := db.OpenWithOptions(db.Options{Driver: db.MySQL, DSN: dsn, Migrate: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Migrate(); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`DELETE FROM tasks`,
+		`DELETE FROM logs`,
+		`ALTER TABLE tasks MODIFY COLUMN pipeline VARCHAR(2048) NOT NULL`,
+		`ALTER TABLE logs MODIFY COLUMN fields VARCHAR(2048) NOT NULL`,
+		`ALTER TABLE logs DROP COLUMN request_id`,
+		`ALTER TABLE acme_orders MODIFY COLUMN public_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL`,
+		`INSERT INTO logs(category,source,ref_type,ref_id,level,message,fields,created_at)
+			VALUES('operation','compat','',0,'info','upgrade','',UTC_TIMESTAMP(6))`,
+	} {
+		if _, err := conn.Exec(stmt); err != nil {
+			_ = conn.Close()
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	if err := conn.SetSchemaVersion(23); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+
+	conn, err = db.OpenWithOptions(db.Options{Driver: db.MySQL, DSN: dsn, Migrate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	checks := []struct {
+		table, column string
+		wantType      string
+		wantCollation string
+		wantNullable  string
+	}{
+		{"tasks", "pipeline", "longtext", "", ""},
+		{"logs", "fields", "longtext", "", ""},
+		{"logs", "request_id", "longtext", "", "NO"},
+		{"acme_orders", "public_id", "varchar(64)", "ascii_bin", ""},
+	}
+	for _, check := range checks {
+		var columnType, collation, nullable string
+		if err := conn.QueryRow(`SELECT column_type,COALESCE(collation_name,''),is_nullable FROM information_schema.columns
+			WHERE table_schema=DATABASE() AND table_name=? AND column_name=?`, check.table, check.column).
+			Scan(&columnType, &collation, &nullable); err != nil {
+			t.Fatalf("%s.%s: %v", check.table, check.column, err)
+		}
+		if columnType != check.wantType {
+			t.Fatalf("%s.%s 类型=%s，期望 %s", check.table, check.column, columnType, check.wantType)
+		}
+		if check.wantCollation != "" && collation != check.wantCollation {
+			t.Fatalf("%s.%s 排序规则=%s，期望 %s", check.table, check.column, collation, check.wantCollation)
+		}
+		if check.wantNullable != "" && nullable != check.wantNullable {
+			t.Fatalf("%s.%s is_nullable=%s，期望 %s", check.table, check.column, nullable, check.wantNullable)
+		}
+	}
+}
+
 func cleanupMySQL(t *testing.T, conn *db.Handle) {
 	t.Helper()
 	pinned, err := conn.Conn(context.Background())

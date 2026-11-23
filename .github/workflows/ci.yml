@@ -54,6 +54,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check SQL dialect usage
+        run: ./scripts/check-sql-dialect.sh
+
       - name: go vet
         run: go vet ./...
 
@@ -74,6 +77,77 @@ jobs:
           name: coverage
           path: coverage.out
           retention-days: 7
+
+  database:
+    name: Database compatibility (PostgreSQL 18 + MySQL 5.7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: lactssl
+          POSTGRES_PASSWORD: lactsslpass
+          POSTGRES_DB: lactssl_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lactssl -d lactssl_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: lactssl_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -prootpass"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Create compatibility databases
+        shell: bash
+        run: |
+          docker exec "$(docker ps -q --filter ancestor=postgres:18)" \
+            psql -U lactssl -d lactssl_db -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE lactssl_p1" \
+            -c "CREATE DATABASE lactssl_p2" \
+            -c "CREATE DATABASE lactssl_p3"
+          docker exec "$(docker ps -q --filter ancestor=mysql:5.7)" \
+            mysql -uroot -prootpass \
+            -e "CREATE DATABASE lactssl_m1 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" \
+            -e "CREATE DATABASE lactssl_m2 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" \
+            -e "CREATE DATABASE lactssl_m3 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" \
+            -e "CREATE USER 'lactssl'@'%' IDENTIFIED BY 'lactsslpass'" \
+            -e "GRANT ALL PRIVILEGES ON lactssl_db.* TO 'lactssl'@'%'" \
+            -e "GRANT ALL PRIVILEGES ON lactssl_m1.* TO 'lactssl'@'%'" \
+            -e "GRANT ALL PRIVILEGES ON lactssl_m2.* TO 'lactssl'@'%'" \
+            -e "GRANT ALL PRIVILEGES ON lactssl_m3.* TO 'lactssl'@'%'" \
+            -e "FLUSH PRIVILEGES"
+
+      - name: Run database compatibility tests
+        env:
+          LACTSSL_TEST_PG_DSN: postgres://lactssl:lactsslpass@127.0.0.1:5432/lactssl_db?sslmode=disable
+          LACTSSL_TEST_PG_DSN_B: postgres://lactssl:lactsslpass@127.0.0.1:5432/lactssl_p2?sslmode=disable
+          LACTSSL_TEST_PG_DSN_SAME: postgres://lactssl:lactsslpass@127.0.0.1:5432/lactssl_p3?sslmode=disable
+          LACTSSL_TEST_MYSQL_DSN: mysql://lactssl:lactsslpass@127.0.0.1:3306/lactssl_db?tls=disable
+          LACTSSL_TEST_MYSQL_DSN_B: mysql://lactssl:lactsslpass@127.0.0.1:3306/lactssl_m2?tls=disable
+          LACTSSL_TEST_MYSQL_DSN_SAME: mysql://lactssl:lactsslpass@127.0.0.1:3306/lactssl_m3?tls=disable
+          LACTSSL_TEST_MYSQL_CONVERT_DSN: mysql://lactssl:lactsslpass@127.0.0.1:3306/lactssl_m3?tls=disable
+        run: go test -race -count=1 -p 1 ./internal/db ./internal/store ./internal/dbconvert
 
   frontend:
     name: Frontend (typecheck + build)

@@ -14,7 +14,7 @@ BUILD_ARCH := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
 PROGRAM_PUBLIC_KEY ?=
 LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)' $(if $(PROGRAM_PUBLIC_KEY),-X '$(MODULE)/internal/config.OfficialProgramPublicKey=$(PROGRAM_PUBLIC_KEY)')
 TAGS := embed
-.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test csr-client-check typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve
+.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test sql-check csr-client-check typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve
 
 all: build
 
@@ -67,6 +67,9 @@ dev-web:
 
 test:
 	$(GO) test ./...
+
+sql-check:
+	./scripts/check-sql-dialect.sh
 
 csr-client-check:
 	python3 -m py_compile scripts/csr_client.py scripts/check-csr-client-i18n.py scripts/tests/test_csr_client.py

@@ -105,6 +105,9 @@ if [ "$RUN_BACKEND" -eq 1 ]; then
     exit 1
   fi
 
+  step "SQL 方言检查"
+  ./scripts/check-sql-dialect.sh
+
   step "go vet"
   go vet ./...
 

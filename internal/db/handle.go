@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -119,6 +120,7 @@ type Handle struct {
 	dsn       string
 	lockConn  *sql.Conn
 	lockMySQL bool
+	lockName  string
 }
 
 // Close 释放单实例锁并关闭连接池。
@@ -129,7 +131,7 @@ func (h *Handle) Close() error {
 	if h.lockConn != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		if h.lockMySQL {
-			_, _ = h.lockConn.ExecContext(ctx, `SELECT RELEASE_LOCK(?)`, mysqlLockName)
+			_, _ = h.lockConn.ExecContext(ctx, `SELECT RELEASE_LOCK(?)`, h.lockName)
 		} else {
 			_, _ = h.lockConn.ExecContext(ctx, `SELECT pg_advisory_unlock($1, hashtext(current_database()))`, int32(0x4c414353))
 		}
@@ -225,14 +227,11 @@ func openPostgres(opts Options) (*Handle, error) {
 		cfg.RuntimeParams["application_name"] = "lactssl"
 	}
 	conn := stdlib.OpenDB(*cfg)
-	maxOpen := opts.MaxOpenConns
-	if maxOpen <= 0 {
-		maxOpen = 10
+	minOpen := 1
+	if opts.SingleInstance {
+		minOpen = 2
 	}
-	maxIdle := opts.MaxIdleConns
-	if maxIdle <= 0 {
-		maxIdle = 5
-	}
+	maxOpen, maxIdle := poolLimits(opts, minOpen)
 	conn.SetMaxOpenConns(maxOpen)
 	conn.SetMaxIdleConns(maxIdle)
 	if opts.ConnMaxLifetime > 0 {
@@ -283,8 +282,37 @@ func openPostgres(opts Options) (*Handle, error) {
 	return h, nil
 }
 
-// mysqlLockName 是 MySQL 单实例锁名称（GET_LOCK 上限 64 字符）。
+// mysqlLockName 是 MySQL 单实例锁名称前缀（GET_LOCK 上限 64 字符）。
 const mysqlLockName = "lactssl-single-instance"
+
+// mysqlLockNameFor 把数据库名纳入锁名，避免同一 MySQL 实例上的不同库互相阻塞。
+func mysqlLockNameFor(database string) string {
+	name := mysqlLockName + ":" + strings.TrimSpace(database)
+	if len(name) <= 64 {
+		return name
+	}
+	sum := sha256.Sum256([]byte(database))
+	return fmt.Sprintf("%s:%x", mysqlLockName, sum[:12])
+}
+
+// poolLimits 计算连接池上下限，并保证单实例锁连接不会耗尽连接池。
+func poolLimits(opts Options, minOpen int) (int, int) {
+	maxOpen := opts.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 10
+	}
+	if maxOpen < minOpen {
+		maxOpen = minOpen
+	}
+	maxIdle := opts.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 5
+	}
+	if maxIdle > maxOpen {
+		maxIdle = maxOpen
+	}
+	return maxOpen, maxIdle
+}
 
 func openMySQL(opts Options) (*Handle, error) {
 	cfg, err := MySQLConfig(opts.DSN)
@@ -295,14 +323,12 @@ func openMySQL(opts Options) (*Handle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开 MySQL 失败: %w", err)
 	}
-	maxOpen := opts.MaxOpenConns
-	if maxOpen <= 0 {
-		maxOpen = 10
+	minOpen := 2
+	if opts.SingleInstance {
+		// 单实例锁长期占用一个连接；首次初始化还需要“锁连接 + 事务连接”。
+		minOpen = 3
 	}
-	maxIdle := opts.MaxIdleConns
-	if maxIdle <= 0 {
-		maxIdle = 5
-	}
+	maxOpen, maxIdle := poolLimits(opts, minOpen)
 	conn.SetMaxOpenConns(maxOpen)
 	conn.SetMaxIdleConns(maxIdle)
 	if opts.ConnMaxLifetime > 0 {
@@ -325,13 +351,14 @@ func openMySQL(opts Options) (*Handle, error) {
 	}
 	h := &Handle{DB: conn, dialect: MySQL, gate: NewGate(), dsn: opts.DSN}
 	if opts.SingleInstance {
+		lockName := mysqlLockNameFor(cfg.DBName)
 		lockConn, err := conn.Conn(ctx)
 		if err != nil {
 			_ = conn.Close()
 			return nil, fmt.Errorf("获取单实例锁连接失败: %w", err)
 		}
 		var locked sql.NullInt64
-		if err := lockConn.QueryRowContext(ctx, `SELECT GET_LOCK(?, 0)`, mysqlLockName).Scan(&locked); err != nil {
+		if err := lockConn.QueryRowContext(ctx, `SELECT GET_LOCK(?, 0)`, lockName).Scan(&locked); err != nil {
 			_ = lockConn.Close()
 			_ = conn.Close()
 			return nil, fmt.Errorf("获取 MySQL 单实例锁失败: %w", err)
@@ -343,6 +370,7 @@ func openMySQL(opts Options) (*Handle, error) {
 		}
 		h.lockConn = lockConn
 		h.lockMySQL = true
+		h.lockName = lockName
 	}
 	if opts.Migrate {
 		if err := migrate(h); err != nil {
@@ -412,13 +440,41 @@ func (h *Handle) gatedExec(query string) bool {
 	return h != nil && h.gate != nil && isWriteSQL(query)
 }
 
+// normalizeTimeArgs 把时间参数统一为 UTC。SQLite 以文本保存时间，
+// 混合时区会让字符串比较和排序出错；MySQL/PG 也统一按 UTC 读写。
+func normalizeTimeArgs(args []any) []any {
+	var out []any
+	for index, arg := range args {
+		var value time.Time
+		switch typed := arg.(type) {
+		case time.Time:
+			value = typed
+		case *time.Time:
+			if typed == nil {
+				continue
+			}
+			value = *typed
+		default:
+			continue
+		}
+		if out == nil {
+			out = append([]any(nil), args...)
+		}
+		out[index] = value.UTC()
+	}
+	if out == nil {
+		return args
+	}
+	return out
+}
+
 // Exec 执行语句，写语句受门禁保护。
 func (h *Handle) Exec(query string, args ...any) (sql.Result, error) {
 	if h.gatedExec(query) {
 		h.gate.RLock()
 		defer h.gate.RUnlock()
 	}
-	return h.DB.Exec(h.Dialect().Rebind(query), args...)
+	return h.DB.Exec(h.Dialect().Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // ExecContext 执行语句，写语句受门禁保护。
@@ -427,7 +483,7 @@ func (h *Handle) ExecContext(ctx context.Context, query string, args ...any) (sq
 		h.gate.RLock()
 		defer h.gate.RUnlock()
 	}
-	return h.DB.ExecContext(ctx, h.Dialect().Rebind(query), args...)
+	return h.DB.ExecContext(ctx, h.Dialect().Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // Query 执行查询。
@@ -436,7 +492,7 @@ func (h *Handle) Query(query string, args ...any) (*sql.Rows, error) {
 		h.gate.RLock()
 		defer h.gate.RUnlock()
 	}
-	return h.DB.Query(h.Dialect().Rebind(query), args...)
+	return h.DB.Query(h.Dialect().Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // QueryContext 执行查询。
@@ -445,7 +501,7 @@ func (h *Handle) QueryContext(ctx context.Context, query string, args ...any) (*
 		h.gate.RLock()
 		defer h.gate.RUnlock()
 	}
-	return h.DB.QueryContext(ctx, h.Dialect().Rebind(query), args...)
+	return h.DB.QueryContext(ctx, h.Dialect().Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // Row 包装 *sql.Row，并在 Scan 后释放写门禁。
@@ -469,7 +525,7 @@ func (h *Handle) QueryRow(query string, args ...any) *Row {
 		h.gate.RLock()
 		row.unlock = h.gate.RUnlock
 	}
-	row.row = h.DB.QueryRow(h.Dialect().Rebind(query), args...)
+	row.row = h.DB.QueryRow(h.Dialect().Rebind(query), normalizeTimeArgs(args)...)
 	return row
 }
 
@@ -480,7 +536,7 @@ func (h *Handle) QueryRowContext(ctx context.Context, query string, args ...any)
 		h.gate.RLock()
 		row.unlock = h.gate.RUnlock
 	}
-	row.row = h.DB.QueryRowContext(ctx, h.Dialect().Rebind(query), args...)
+	row.row = h.DB.QueryRowContext(ctx, h.Dialect().Rebind(query), normalizeTimeArgs(args)...)
 	return row
 }
 
@@ -524,7 +580,7 @@ func (h *Handle) InsertID(query string, args ...any) (int64, error) {
 	}
 	h.gate.RLock()
 	defer h.gate.RUnlock()
-	res, err := h.DB.Exec(h.Dialect().Rebind(query), args...)
+	res, err := h.DB.Exec(h.Dialect().Rebind(query), normalizeTimeArgs(args)...)
 	if err != nil {
 		return 0, err
 	}
@@ -558,32 +614,32 @@ func (tx *Tx) PrepareContext(ctx context.Context, query string) (*sql.Stmt, erro
 
 // Exec 执行语句。
 func (tx *Tx) Exec(query string, args ...any) (sql.Result, error) {
-	return tx.Tx.Exec(tx.dialect.Rebind(query), args...)
+	return tx.Tx.Exec(tx.dialect.Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // ExecContext 执行语句。
 func (tx *Tx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return tx.Tx.ExecContext(ctx, tx.dialect.Rebind(query), args...)
+	return tx.Tx.ExecContext(ctx, tx.dialect.Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // Query 执行查询。
 func (tx *Tx) Query(query string, args ...any) (*sql.Rows, error) {
-	return tx.Tx.Query(tx.dialect.Rebind(query), args...)
+	return tx.Tx.Query(tx.dialect.Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // QueryContext 执行查询。
 func (tx *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return tx.Tx.QueryContext(ctx, tx.dialect.Rebind(query), args...)
+	return tx.Tx.QueryContext(ctx, tx.dialect.Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // QueryRow 执行单行查询。
 func (tx *Tx) QueryRow(query string, args ...any) *sql.Row {
-	return tx.Tx.QueryRow(tx.dialect.Rebind(query), args...)
+	return tx.Tx.QueryRow(tx.dialect.Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // QueryRowContext 执行单行查询。
 func (tx *Tx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return tx.Tx.QueryRowContext(ctx, tx.dialect.Rebind(query), args...)
+	return tx.Tx.QueryRowContext(ctx, tx.dialect.Rebind(query), normalizeTimeArgs(args)...)
 }
 
 // InsertID 执行 INSERT 并返回自增 id。

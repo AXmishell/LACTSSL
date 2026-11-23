@@ -35,7 +35,7 @@ func MySQLConfig(dsn string) (*mysqldriver.Config, error) {
 	if strings.Contains(dsn, "://") {
 		cfg, err = parseMySQLURL(dsn)
 	} else {
-		cfg, err = mysqldriver.ParseDSN(dsn)
+		cfg, err = mysqldriver.ParseDSN(normalizeMySQLNativeDSN(dsn))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("解析 MySQL DSN 失败: %w", err)
@@ -184,6 +184,34 @@ func normalizeMySQLTLS(value string) string {
 	default:
 		return value
 	}
+}
+
+// normalizeMySQLNativeDSN 让 go-sql-driver 原生 DSN 也接受页面上的 tls/sslmode 写法。
+// 原生格式里 tls 是保留参数，直接传 tls=disable 会在 ParseDSN 阶段失败。
+func normalizeMySQLNativeDSN(dsn string) string {
+	slash := strings.LastIndexByte(dsn, '/')
+	if slash < 0 {
+		return dsn
+	}
+	queryIndex := strings.IndexByte(dsn[slash:], '?')
+	if queryIndex < 0 {
+		return dsn
+	}
+	index := slash + queryIndex
+	query, err := url.ParseQuery(dsn[index+1:])
+	if err != nil {
+		return dsn
+	}
+	tlsValue := query.Get("tls")
+	if tlsValue == "" {
+		tlsValue = query.Get("sslmode")
+	}
+	if tlsValue == "" {
+		return dsn
+	}
+	query.Del("sslmode")
+	query.Set("tls", normalizeMySQLTLS(tlsValue))
+	return dsn[:index] + "?" + query.Encode()
 }
 
 // MySQLCLIConnection 是 mysql / mysqldump 客户端可用的连接参数。

@@ -68,6 +68,29 @@ func (d Dialect) QuoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
+// DateKeyExpr 返回把时间列格式化为 YYYY-MM-DD 的方言表达式。
+// 调用方传入的 column 必须是代码内的固定列名，不能拼接用户输入。
+func (d Dialect) DateKeyExpr(column string) string {
+	switch d {
+	case Postgres:
+		// 统一按 UTC 取日期，避免会话时区影响趋势统计。
+		return "to_char(" + column + " AT TIME ZONE 'UTC', 'YYYY-MM-DD')"
+	case MySQL:
+		return "DATE_FORMAT(" + column + ", '%Y-%m-%d')"
+	default:
+		return "substr(" + column + ",1,10)"
+	}
+}
+
+// ContainsFoldExpr 返回大小写不敏感的包含判断表达式。
+// 表达式内含一个 ? 占位符，交由方言层统一重绑定。
+func (d Dialect) ContainsFoldExpr(column string) string {
+	if d == Postgres {
+		return "strpos(lower(" + column + "), lower(?)) > 0"
+	}
+	return "instr(lower(" + column + "), lower(?)) > 0"
+}
+
 var (
 	onConflictNothingPattern = regexp.MustCompile(`(?is)\s+ON\s+CONFLICT\s*\(([^)]*)\)\s+DO\s+NOTHING\s*$`)
 	onConflictUpdatePattern  = regexp.MustCompile(`(?is)\s+ON\s+CONFLICT\s*\(([^)]*)\)\s+DO\s+UPDATE\s+SET\s+(.+)$`)

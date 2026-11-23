@@ -36,9 +36,9 @@ func TestMySQLSchemaStatements(t *testing.T) {
 		"ENGINE=InnoDB",
 		"`id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY",
 		"`email` VARCHAR(255) NOT NULL UNIQUE",
-		"`key` VARCHAR(191) PRIMARY KEY",
+		"`key` VARCHAR(191) COLLATE utf8mb4_bin PRIMARY KEY",
 		"DATETIME(6)",
-		"`serial` VARCHAR(128) CHARACTER SET ascii",
+		"`serial` VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin",
 	} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("MySQL DDL 缺少 %q", required)
@@ -125,6 +125,67 @@ func TestMySQLConflictRewrite(t *testing.T) {
 	}
 	if got := Postgres.Rebind(`SELECT ?`); got != `SELECT $1` {
 		t.Fatalf("Postgres Rebind = %q", got)
+	}
+}
+
+func TestMySQLNativeDSNNormalizesTLS(t *testing.T) {
+	cases := []struct {
+		dsn  string
+		want string
+	}{
+		{"user:pass@tcp(127.0.0.1:3306)/lactssl?tls=disable", "false"},
+		{"user:pass@tcp(127.0.0.1:3306)/lactssl?sslmode=disable", "false"},
+		{"user:pass@tcp(127.0.0.1:3306)/lactssl?tls=preferred", "preferred"},
+		{"user:pass@tcp(127.0.0.1:3306)/lactssl?sslmode=require", "true"},
+	}
+	for _, item := range cases {
+		cfg, err := MySQLConfig(item.dsn)
+		if err != nil {
+			t.Fatalf("MySQLConfig(%q): %v", item.dsn, err)
+		}
+		if cfg.TLSConfig != item.want {
+			t.Fatalf("MySQLConfig(%q) tls=%q, want %q", item.dsn, cfg.TLSConfig, item.want)
+		}
+	}
+}
+
+func TestMySQLColumnDefinitionUsesBinaryCollations(t *testing.T) {
+	cases := []struct {
+		table, column, definition string
+		wantContains              []string
+		wantAbsent                []string
+	}{
+		{
+			table: "acme_accounts", column: "public_id", definition: `TEXT NOT NULL DEFAULT ''`,
+			wantContains: []string{"VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin", "NOT NULL"},
+		},
+		{
+			table: "settings", column: "key", definition: `TEXT PRIMARY KEY`,
+			wantContains: []string{"VARCHAR(191) COLLATE utf8mb4_bin", "PRIMARY KEY"},
+		},
+		{
+			table: "users", column: "email", definition: `TEXT NOT NULL UNIQUE`,
+			wantContains: []string{"VARCHAR(255) NOT NULL UNIQUE"},
+			wantAbsent:   []string{"_bin"},
+		},
+		{
+			table: "tasks", column: "pipeline", definition: `TEXT NOT NULL DEFAULT '[]'`,
+			wantContains: []string{"LONGTEXT NOT NULL"},
+			wantAbsent:   []string{"DEFAULT", "VARCHAR(2048)"},
+		},
+	}
+	for _, item := range cases {
+		got := mysqlColumnDefinition(item.table, item.column, item.definition)
+		for _, want := range item.wantContains {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s.%s = %q, want contains %q", item.table, item.column, got, want)
+			}
+		}
+		for _, absent := range item.wantAbsent {
+			if strings.Contains(got, absent) {
+				t.Fatalf("%s.%s = %q, want absent %q", item.table, item.column, got, absent)
+			}
+		}
 	}
 }
 

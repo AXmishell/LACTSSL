@@ -32,7 +32,8 @@ import (
 //   - 21：任务可选择不保存证书私钥（tasks.no_key_storage）。
 //   - 22：插件安装记录保存签名索引身份（plugin_installations.index_revision/index_digest/entry_digest）。
 //   - 23：零信手动 DNS 申请订单（zotrus_orders）。
-const schemaVersion = 23
+//   - 24：MySQL 不透明 ID 改为 ascii_bin，并修复历史升级产生的 VARCHAR(2048) 文本列。
+const schemaVersion = 24
 
 func migrate(conn *Handle) error {
 	version, err := conn.SchemaVersion()
@@ -91,6 +92,12 @@ func migrate(conn *Handle) error {
 	}
 	if conn.Dialect().IsMySQL() {
 		if err := ensureMySQLActiveIndex(context.Background(), conn); err != nil {
+			return err
+		}
+		if err := ensureMySQLLegacyTextColumns(context.Background(), conn); err != nil {
+			return err
+		}
+		if err := ensureMySQLBinaryCollations(context.Background(), conn); err != nil {
 			return err
 		}
 	}
@@ -411,22 +418,48 @@ func ensureColumn(conn *Handle, table, column, definition string) error {
 		}
 	}
 	if conn.Dialect().IsMySQL() {
-		definition = datetimePattern.ReplaceAllString(definition, "DATETIME(6)")
-		definition = strings.ReplaceAll(definition, "INTEGER", "BIGINT")
-		if strings.Contains(strings.ToUpper(definition), "TEXT") {
-			if replacement, ok := mysqlTextOverrides[table+"."+column]; ok {
-				definition = mysqlTextTypePattern.ReplaceAllString(definition, replacement)
-			} else if strings.Contains(strings.ToUpper(definition), "DEFAULT") {
-				// 迁移新增列使用带默认值的 VARCHAR，避免 MySQL 5.7 拒绝 TEXT DEFAULT。
-				definition = mysqlTextTypePattern.ReplaceAllString(definition, "VARCHAR(2048)")
-			} else {
-				definition = mysqlTextTypePattern.ReplaceAllString(definition, "LONGTEXT")
-			}
+		final := mysqlColumnDefinition(table, column, definition)
+		if _, overridden := mysqlTextOverrides[table+"."+column]; !overridden && mysqlTextTypePattern.MatchString(definition) {
+			return addMySQLTextColumn(conn, table, column, final, definition)
 		}
+		definition = final
 	}
-	_, err = conn.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
+	stmt := `ALTER TABLE ` + conn.Dialect().QuoteIdent(table) + ` ADD COLUMN ` + conn.Dialect().QuoteIdent(column) + ` ` + definition
+	_, err = conn.Exec(stmt)
 	if err != nil {
 		return fmt.Errorf("为 %s 添加列 %s 失败: %w", table, column, err)
+	}
+	return nil
+}
+
+// addMySQLTextColumn 用三步法添加 LONGTEXT 列：先允许 NULL，回填默认值，再收紧 NOT NULL。
+// MySQL 5.7 不允许 LONGTEXT 带 DEFAULT，也不能直接向已有数据的表加 NOT NULL 文本列。
+func addMySQLTextColumn(conn *Handle, table, column, final, base string) error {
+	tableIdent := conn.Dialect().QuoteIdent(table)
+	columnIdent := conn.Dialect().QuoteIdent(column)
+	if _, err := conn.Exec(`ALTER TABLE ` + tableIdent + ` ADD COLUMN ` + columnIdent + ` LONGTEXT NULL`); err != nil {
+		return fmt.Errorf("为 %s 添加列 %s 失败: %w", table, column, err)
+	}
+	var sqlErr error
+	defer func() {
+		if sqlErr != nil {
+			_, _ = conn.Exec(`ALTER TABLE ` + tableIdent + ` DROP COLUMN ` + columnIdent)
+		}
+	}()
+	notNull := strings.Contains(strings.ToUpper(final), "NOT NULL")
+	if notNull {
+		value, ok := mysqlDefaultValue(base)
+		if !ok {
+			value = ""
+		}
+		if _, err := conn.Exec(`UPDATE `+tableIdent+` SET `+columnIdent+`=? WHERE `+columnIdent+` IS NULL`, value); err != nil {
+			sqlErr = fmt.Errorf("回填 %s.%s 失败: %w", table, column, err)
+			return sqlErr
+		}
+		if _, err := conn.Exec(`ALTER TABLE ` + tableIdent + ` MODIFY COLUMN ` + columnIdent + ` LONGTEXT NOT NULL`); err != nil {
+			sqlErr = fmt.Errorf("收紧 %s.%s 非空约束失败: %w", table, column, err)
+			return sqlErr
+		}
 	}
 	return nil
 }

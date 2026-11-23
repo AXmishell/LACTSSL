@@ -439,3 +439,12 @@ func TestAPIKeyAllowedDNSAccountsPersistence(t *testing.T) {
 		t.Fatalf("DNS 账户集合未正确更新: %+v %v", loaded, err)
 	}
 }
+
+func TestEscapeLikeUsesPortableEscapeCharacter(t *testing.T) {
+	if got, want := escapeLike(`a!b%c_d\e`), `a!!b!%c!_d\e`; got != want {
+		t.Fatalf("escapeLike = %q, want %q", got, want)
+	}
+	if got, want := (&Store{}).likeEscapeClause(), `ESCAPE '!'`; got != want {
+		t.Fatalf("likeEscapeClause = %q, want %q", got, want)
+	}
+}

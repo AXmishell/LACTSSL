@@ -84,6 +84,60 @@ func boolInt(b bool) int {
 	return 0
 }
 
+const deleteChunkSize = 500
+
+type rowQuerier interface {
+	Query(string, ...any) (*sql.Rows, error)
+}
+
+// selectInt64IDs 先取出待修改的主键，再分批执行 DELETE/UPDATE。
+// MySQL 5.7 不允许在 UPDATE/DELETE 的子查询里引用目标表，也不允许
+// LIMIT 出现在 IN 子查询中；两阶段写法可同时兼容三种数据库。
+func selectInt64IDs(queryer rowQuerier, query string, args ...any) ([]int64, error) {
+	rows, err := queryer.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func chunkInt64s(ids []int64, size int) [][]int64 {
+	if size <= 0 {
+		size = deleteChunkSize
+	}
+	chunks := make([][]int64, 0, (len(ids)+size-1)/size)
+	for len(ids) > 0 {
+		end := size
+		if end > len(ids) {
+			end = len(ids)
+		}
+		chunks = append(chunks, ids[:end:end])
+		ids = ids[end:]
+	}
+	return chunks
+}
+
+func int64Placeholders(count int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
+}
+
+func int64Args(ids []int64) []any {
+	args := make([]any, len(ids))
+	for index, id := range ids {
+		args[index] = id
+	}
+	return args
+}
+
 // ---------------------------- 用户 ----------------------------
 
 // CountUsers 返回账户数量，用于判断是否需要初始化。
@@ -1250,7 +1304,7 @@ type CertCleanupFilter struct {
 }
 
 // where 生成清理条件与参数。
-func (f CertCleanupFilter) where(now time.Time) (string, []any) {
+func (f CertCleanupFilter) where(dialect db.Dialect, now time.Time) (string, []any) {
 	conditions := make([]string, 0, 6)
 	args := make([]any, 0, 8)
 	switch f.Scope {
@@ -1273,7 +1327,7 @@ func (f CertCleanupFilter) where(now time.Time) (string, []any) {
 		args = append(args, now.UTC().AddDate(0, 0, -f.OlderThanDays))
 	}
 	if domain := strings.TrimSpace(f.Domain); domain != "" {
-		conditions = append(conditions, `(instr(lower(primary_domain), lower(?)) > 0 OR instr(lower(domains), lower(?)) > 0)`)
+		conditions = append(conditions, `(`+dialect.ContainsFoldExpr("primary_domain")+` OR `+dialect.ContainsFoldExpr("domains")+`)`)
 		args = append(args, domain, domain)
 	}
 	if ca := strings.TrimSpace(f.CA); ca != "" {
@@ -1321,7 +1375,7 @@ func (s *Store) CountCertificatesForCleanup(filter CertCleanupFilter, now time.T
 	if !filter.valid() {
 		return 0, fmt.Errorf("非法的证书清理范围: %q", filter.Scope)
 	}
-	where, args := filter.where(now)
+	where, args := filter.where(s.DB.Dialect(), now)
 	var count int64
 	err := s.DB.QueryRow(`SELECT COUNT(*) FROM certificates WHERE `+where, args...).Scan(&count)
 	return count, err
@@ -1332,36 +1386,47 @@ func (s *Store) CleanupCertificates(filter CertCleanupFilter, now time.Time) (in
 	if !filter.valid() {
 		return 0, fmt.Errorf("非法的证书清理范围: %q", filter.Scope)
 	}
-	where, args := filter.where(now)
+	where, args := filter.where(s.DB.Dialect(), now)
 	return s.deleteCertificatesWhere(where, args...)
 }
 
 // deleteCertificatesWhere 在事务中删除符合条件的证书，避免任务仍引用已删除的证书。
+// 先查主键再分批修改引用表，兼容 MySQL 不允许在修改语句里引用目标表的限制。
 func (s *Store) deleteCertificatesWhere(where string, args ...any) (int64, error) {
 	tx, err := s.DB.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(`UPDATE tasks SET cert_id=0 WHERE cert_id IN (SELECT id FROM certificates WHERE `+where+`)`, args...); err != nil {
-		return 0, err
-	}
-	if _, err := tx.Exec(`UPDATE acme_orders SET certificate_id=0 WHERE certificate_id IN (SELECT id FROM certificates WHERE `+where+`)`, args...); err != nil {
-		return 0, err
-	}
-	if _, err := tx.Exec(`UPDATE certificate_requests SET certificate_id=0 WHERE certificate_id IN (SELECT id FROM certificates WHERE `+where+`)`, args...); err != nil {
-		return 0, err
-	}
-	if _, err := tx.Exec(`DELETE FROM task_certificate_links WHERE cert_id IN (SELECT id FROM certificates WHERE `+where+`)`, args...); err != nil {
-		return 0, err
-	}
-	res, err := tx.Exec(`DELETE FROM certificates WHERE `+where, args...)
+	ids, err := selectInt64IDs(tx, `SELECT id FROM certificates WHERE `+where, args...)
 	if err != nil {
 		return 0, err
 	}
-	deleted, err := res.RowsAffected()
-	if err != nil {
-		return 0, err
+	var deleted int64
+	for _, chunk := range chunkInt64s(ids, deleteChunkSize) {
+		placeholders := int64Placeholders(len(chunk))
+		chunkArgs := int64Args(chunk)
+		if _, err := tx.Exec(`UPDATE tasks SET cert_id=0 WHERE cert_id IN (`+placeholders+`)`, chunkArgs...); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(`UPDATE acme_orders SET certificate_id=0 WHERE certificate_id IN (`+placeholders+`)`, chunkArgs...); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(`UPDATE certificate_requests SET certificate_id=0 WHERE certificate_id IN (`+placeholders+`)`, chunkArgs...); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(`DELETE FROM task_certificate_links WHERE cert_id IN (`+placeholders+`)`, chunkArgs...); err != nil {
+			return 0, err
+		}
+		res, err := tx.Exec(`DELETE FROM certificates WHERE id IN (`+placeholders+`)`, chunkArgs...)
+		if err != nil {
+			return 0, err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		deleted += affected
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -1653,13 +1718,11 @@ type LogFilter struct {
 	To       *time.Time
 }
 
-// likeEscapeClause 返回 LIKE 的转义字符声明。MySQL 默认把反斜杠作为
-// 字符串转义符，SQL 字面量需要写成 '\\'；SQLite/PostgreSQL 使用 '\'。
+// likeEscapeClause 返回 LIKE 的转义字符声明。使用 '!' 而不是反斜杠，
+// 避免 MySQL NO_BACKSLASH_ESCAPES 与 PostgreSQL standard_conforming_strings
+// 等 sql_mode/会话设置改变字符串字面量语义。
 func (s *Store) likeEscapeClause() string {
-	if s.DB != nil && s.DB.Dialect().IsMySQL() {
-		return `ESCAPE '\\'`
-	}
-	return `ESCAPE '\'`
+	return `ESCAPE '!'`
 }
 
 func (s *Store) likeOperator() string {
@@ -2146,10 +2209,16 @@ func (s *Store) CleanupSystemLogs() error {
 		}
 	}
 	if s.SystemLogMaxRows > 0 {
-		if _, err := s.DB.Exec(`DELETE FROM logs WHERE category=? AND id NOT IN (
-			SELECT id FROM logs WHERE category=? ORDER BY id DESC LIMIT ?)`,
-			model.LogCategoryRuntime, model.LogCategoryRuntime, s.SystemLogMaxRows); err != nil && firstErr == nil {
-			firstErr = err
+		boundary, err := s.LogBoundaryID(model.LogCategoryRuntime, s.SystemLogMaxRows)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else if boundary > 0 {
+			if _, err := s.DB.Exec(`DELETE FROM logs WHERE category=? AND id<?`,
+				model.LogCategoryRuntime, boundary); err != nil && firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 	return firstErr
@@ -2157,9 +2226,9 @@ func (s *Store) CleanupSystemLogs() error {
 
 // escapeLike 转义 LIKE 通配符，避免用户输入被当作模式。
 func escapeLike(value string) string {
-	value = strings.ReplaceAll(value, `\`, `\\`)
-	value = strings.ReplaceAll(value, `%`, `\%`)
-	value = strings.ReplaceAll(value, `_`, `\_`)
+	value = strings.ReplaceAll(value, `!`, `!!`)
+	value = strings.ReplaceAll(value, `%`, `!%`)
+	value = strings.ReplaceAll(value, `_`, `!_`)
 	return value
 }
 
@@ -2218,7 +2287,7 @@ func (s *Store) Dashboard() (*model.Dashboard, error) {
 
 	// 最近 14 天签发趋势
 	trendMap := map[string]int64{}
-	rows, err := s.DB.Query(`SELECT substr(created_at,1,10) AS d, COUNT(*) FROM certificates GROUP BY d`)
+	rows, err := s.DB.Query(`SELECT ` + s.DB.Dialect().DateKeyExpr("created_at") + ` AS d, COUNT(*) FROM certificates GROUP BY d`)
 	if err == nil {
 		for rows.Next() {
 			var day string
@@ -2230,7 +2299,7 @@ func (s *Store) Dashboard() (*model.Dashboard, error) {
 		_ = rows.Close()
 	}
 	for i := 13; i >= 0; i-- {
-		day := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
+		day := time.Now().UTC().AddDate(0, 0, -i).Format("2006-01-02")
 		d.Trend = append(d.Trend, model.TrendPoint{Date: day, Count: trendMap[day]})
 	}
 

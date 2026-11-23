@@ -433,23 +433,12 @@ func VerifyStarted(ctx context.Context, conn *db.Handle, cipher *util.Cipher) er
 			return fmt.Errorf("目标库缺少表 %s 或无法读取: %w", table, err)
 		}
 	}
-	if conn.Dialect().IsPostgres() || conn.Dialect().IsMySQL() {
-		query := `SELECT value FROM schema_meta WHERE key='schema.version'`
-		if conn.Dialect().IsMySQL() {
-			query = "SELECT `value` FROM schema_meta WHERE `key`='schema.version'"
-		}
-		var version string
-		if err := conn.QueryRowContext(ctx, query).Scan(&version); err != nil {
-			return fmt.Errorf("目标库缺少结构版本: %w", err)
-		}
-	} else {
-		version, err := conn.SchemaVersion()
-		if err != nil {
-			return err
-		}
-		if version != db.CurrentSchemaVersion() {
-			return fmt.Errorf("目标库结构版本为 %d，期望 %d", version, db.CurrentSchemaVersion())
-		}
+	version, err := conn.SchemaVersion()
+	if err != nil {
+		return fmt.Errorf("读取目标库结构版本失败: %w", err)
+	}
+	if version != db.CurrentSchemaVersion() {
+		return fmt.Errorf("目标库结构版本为 %d，期望 %d", version, db.CurrentSchemaVersion())
 	}
 	if cipher != nil {
 		checks := []struct{ table, column string }{

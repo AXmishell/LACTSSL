@@ -849,47 +849,63 @@ func (s *Store) CountACMECleanup(filter ACMECleanupFilter, now time.Time) (ACMEC
 }
 
 // CleanupACME 按条件删除 ACME 订单、授权、挑战与账户。
+// 通过“先查 ID、再按 ID 删除”的两阶段流程兼容 MySQL 5.7 对目标表子查询的限制。
 func (s *Store) CleanupACME(filter ACMECleanupFilter, now time.Time) (ACMECleanupResult, error) {
 	var result ACMECleanupResult
 	orderWhere, orderArgs := filter.orderCondition(now)
-	if orderWhere != "0=1" {
-		tx, err := s.DB.Begin()
-		if err != nil {
-			return result, err
-		}
-		defer func() { _ = tx.Rollback() }()
-		orderSubquery := `SELECT o.id FROM acme_orders o WHERE ` + orderWhere
-		if _, err := tx.Exec(`DELETE FROM acme_challenges WHERE authz_id IN (SELECT az.id FROM acme_authorizations az WHERE az.order_id IN (`+orderSubquery+`))`, orderArgs...); err != nil {
-			return result, err
-		}
-		if _, err := tx.Exec(`DELETE FROM acme_authorizations WHERE order_id IN (`+orderSubquery+`)`, orderArgs...); err != nil {
-			return result, err
-		}
-		res, err := tx.Exec(`DELETE FROM acme_orders WHERE id IN (`+orderSubquery+`)`, orderArgs...)
-		if err != nil {
-			return result, err
-		}
-		result.Orders, _ = res.RowsAffected()
-		if filter.Accounts {
-			accountWhere, accountArgs := filter.accountCondition(now)
-			res, err := tx.Exec(`DELETE FROM acme_accounts WHERE id IN (SELECT a.id FROM acme_accounts a WHERE `+accountWhere+`)`, accountArgs...)
-			if err != nil {
-				return result, err
-			}
-			result.Accounts, _ = res.RowsAffected()
-		}
-		return result, tx.Commit()
-	}
-	if !filter.Accounts {
-		return result, nil
-	}
-	accountWhere, accountArgs := filter.accountCondition(now)
-	res, err := s.DB.Exec(`DELETE FROM acme_accounts WHERE id IN (SELECT a.id FROM acme_accounts a WHERE `+accountWhere+`)`, accountArgs...)
+	tx, err := s.DB.Begin()
 	if err != nil {
 		return result, err
 	}
-	result.Accounts, _ = res.RowsAffected()
-	return result, nil
+	defer func() { _ = tx.Rollback() }()
+
+	if orderWhere != "0=1" {
+		orderIDs, err := selectInt64IDs(tx, `SELECT o.id FROM acme_orders o WHERE `+orderWhere, orderArgs...)
+		if err != nil {
+			return result, err
+		}
+		for _, chunk := range chunkInt64s(orderIDs, deleteChunkSize) {
+			placeholders := int64Placeholders(len(chunk))
+			chunkArgs := int64Args(chunk)
+			authzIDs, err := selectInt64IDs(tx,
+				`SELECT id FROM acme_authorizations WHERE order_id IN (`+placeholders+`)`, chunkArgs...)
+			if err != nil {
+				return result, err
+			}
+			for _, authzChunk := range chunkInt64s(authzIDs, deleteChunkSize) {
+				authzPlaceholders := int64Placeholders(len(authzChunk))
+				if _, err := tx.Exec(`DELETE FROM acme_challenges WHERE authz_id IN (`+authzPlaceholders+`)`, int64Args(authzChunk)...); err != nil {
+					return result, err
+				}
+			}
+			if _, err := tx.Exec(`DELETE FROM acme_authorizations WHERE order_id IN (`+placeholders+`)`, chunkArgs...); err != nil {
+				return result, err
+			}
+			res, err := tx.Exec(`DELETE FROM acme_orders WHERE id IN (`+placeholders+`)`, chunkArgs...)
+			if err != nil {
+				return result, err
+			}
+			affected, _ := res.RowsAffected()
+			result.Orders += affected
+		}
+	}
+
+	if filter.Accounts {
+		accountWhere, accountArgs := filter.accountCondition(now)
+		accountIDs, err := selectInt64IDs(tx, `SELECT a.id FROM acme_accounts a WHERE `+accountWhere, accountArgs...)
+		if err != nil {
+			return result, err
+		}
+		for _, chunk := range chunkInt64s(accountIDs, deleteChunkSize) {
+			res, err := tx.Exec(`DELETE FROM acme_accounts WHERE id IN (`+int64Placeholders(len(chunk))+`)`, int64Args(chunk)...)
+			if err != nil {
+				return result, err
+			}
+			affected, _ := res.RowsAffected()
+			result.Accounts += affected
+		}
+	}
+	return result, tx.Commit()
 }
 
 // UpdateACMEAccountKey 更新账户公钥与 thumbprint。
