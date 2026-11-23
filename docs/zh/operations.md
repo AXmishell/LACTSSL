@@ -38,7 +38,7 @@ LACTSSL 不附带 SLA。企业应在内部明确：
 
 「系统设置 → 备份与恢复」提供在线操作：
 
-- **下载备份**：生成 ZIP，包含数据库快照（SQLite 为文件快照，PostgreSQL 为 `pg_dump` custom 格式，MySQL 为 `mysqldump` SQL 格式）、当前 `config.yaml` 和 `manifest.json` 版本信息。PostgreSQL 模式要求运行环境提供匹配主版本的 `pg_dump`/`pg_restore`；MySQL 模式要求提供 `mysqldump`/`mysql` 客户端。
+- **下载备份**：生成 ZIP，包含数据库快照（SQLite 为文件快照，PostgreSQL 为原生 go dump（ZIP + COPY 数据），MySQL 为原生 SQL 格式）、当前 `config.yaml` 和 `manifest.json` 版本信息。PostgreSQL/MySQL 备份由 Go 直接生成和恢复，不依赖 `pg_dump`、`pg_restore`、`mysqldump` 或 `mysql` 客户端；旧版 PostgreSQL custom 格式备份仍需 `pg_restore` 才能恢复。
 - 下载前需要重新输入当前账户密码；启用 TOTP 时还需动态验证码。
 - 备份加密密码与账户密码相互独立，至少 12 位。
 - 备份内容使用 PBKDF2-HMAC-SHA256（600,000 次迭代）+ AES-256-GCM 加密；恢复时必须输入同一密码。

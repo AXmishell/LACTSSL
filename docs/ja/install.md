@@ -73,7 +73,7 @@ image: ghcr.io/axmishell/lactssl:1.2.3
 
 ### 2.4 ローカルでイメージをビルドする
 
-Dockerfile は外部でビルドした Linux バイナリをコピーするだけで、イメージ内にはバックアップ/復元に必要な `pg_dump`/`pg_restore`/`mysqldump`/`mysql` クライアントだけを残します。先にフロントエンドと現在のアーキテクチャ向けのバイナリを用意してからイメージをビルドします：
+Dockerfile は外部でビルドした Linux バイナリをコピーするだけで、データベースのバックアップ/復元は Go でネイティブに実装されているため `pg_dump`/`mysqldump` は不要です。先にフロントエンドと現在のアーキテクチャ向けのバイナリを用意してからイメージをビルドします：
 
 ```bash
 VERSION=1.2.3 make docker-context
@@ -99,6 +99,9 @@ sudo chown -R lactssl:lactssl /opt/lactssl
 sudo chmod 600 /opt/lactssl/config.yaml
 sudo chmod 700 /opt/lactssl/data
 ```
+
+!!! note "ネイティブデータベースバックアップ"
+    PostgreSQL/MySQL の論理バックアップと復元は LACTSSL の Go コードで直接実装されており、`pg_dump`、`pg_restore`、`mysqldump`、`mysql` クライアントは不要です。SQLite は引き続き `VACUUM INTO` スナップショットを使用します。
 
 ### 3.2 systemd ユニット
 

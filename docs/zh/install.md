@@ -73,7 +73,7 @@ image: ghcr.io/axmishell/lactssl:1.2.3
 
 ### 2.4 本地构建镜像
 
-Dockerfile 只复制外部构建好的 Linux 二进制，不在镜像内编译前端/后端；镜像内仅保留备份/恢复所需的精简 `pg_dump`/`pg_restore`/`mysqldump`/`mysql` 客户端。先准备前端和当前架构的程序产物，再构建镜像：
+Dockerfile 只复制外部构建好的 Linux 二进制，不在镜像内编译前端/后端；数据库备份/恢复由 Go 原生实现，不需要安装 `pg_dump`/`mysqldump`。先准备前端和当前架构的程序产物，再构建镜像：
 
 ```bash
 VERSION=1.2.3 make docker-context
@@ -99,6 +99,9 @@ sudo chown -R lactssl:lactssl /opt/lactssl
 sudo chmod 600 /opt/lactssl/config.yaml
 sudo chmod 700 /opt/lactssl/data
 ```
+
+!!! note "原生数据库备份"
+    PostgreSQL/MySQL 的逻辑备份与恢复由 LACTSSL 的 Go 代码直接完成，不再依赖 `pg_dump`、`pg_restore`、`mysqldump` 或 `mysql` 客户端。SQLite 仍使用 `VACUUM INTO` 快照。
 
 ### 3.2 systemd 单元
 

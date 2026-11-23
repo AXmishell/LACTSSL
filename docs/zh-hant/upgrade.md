@@ -169,7 +169,7 @@ data/upgrade-backups/program/
 - 目標 PostgreSQL 建議 18；應用會檢查服務端版本。
 - 目標 PostgreSQL 預設必須是空庫；非空時必須在頁面勾選“清空當前 schema”，該操作只刪除當前 schema 中的表。
 - 預設不允許第二個例項共享同一個 PostgreSQL 資料庫（`database.allow_multi_instance: false`），切換前也會檢查。
-- 切換前會強制備份源庫：SQLite 使用 `VACUUM INTO`，PostgreSQL 使用 `pg_dump --format=custom`，備份位於 `data/db-convert/backups/<時間>/`。
+- 切換前會強制備份源庫：SQLite 使用 `VACUUM INTO`，PostgreSQL/MySQL 使用 Go 原生邏輯備份，備份位於 `data/db-convert/backups/<時間>/`。
 - 服務需要由 systemd、Docker restart policy 或類似程序管理器託管，否則切換後需要手動啟動。
 
 ### 7.2 執行流程

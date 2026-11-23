@@ -73,7 +73,7 @@ image: ghcr.io/axmishell/lactssl:1.2.3
 
 ### 2.4 Локальная сборка образа
 
-Dockerfile только копирует Linux-бинарник, собранный вне Docker; в образе остаются только урезанные клиенты `pg_dump`/`pg_restore`/`mysqldump`/`mysql`, необходимые для резервного копирования и восстановления. Сначала подготовьте фронтенд и бинарник для текущей архитектуры, затем соберите образ:
+Dockerfile только копирует Linux-бинарник, собранный вне Docker; резервное копирование и восстановление баз данных реализованы нативно на Go, поэтому `pg_dump`/`mysqldump` не требуются. Сначала подготовьте фронтенд и бинарник для текущей архитектуры, затем соберите образ:
 
 ```bash
 VERSION=1.2.3 make docker-context
@@ -99,6 +99,9 @@ sudo chown -R lactssl:lactssl /opt/lactssl
 sudo chmod 600 /opt/lactssl/config.yaml
 sudo chmod 700 /opt/lactssl/data
 ```
+
+!!! note "Нативное резервное копирование"
+    Логическое резервное копирование и восстановление PostgreSQL/MySQL реализованы непосредственно в Go-коде LACTSSL; клиенты `pg_dump`, `pg_restore`, `mysqldump` и `mysql` больше не требуются. SQLite по-прежнему использует снимок `VACUUM INTO`.
 
 ### 3.2 Модуль systemd
 

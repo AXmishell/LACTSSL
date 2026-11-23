@@ -20,7 +20,7 @@ import (
 //	SQLite → PG → MySQL → SQLite
 //	SQLite → MySQL → PG → SQLite
 //
-// 需要本机提供 pg_dump/pg_restore、mysqldump/mysql，以及两个可写的测试库：
+// 需要本机提供两个可写的测试库：
 //
 //	LACTSSL_TEST_PG_DSN       postgres://lactssl:pass@127.0.0.1:5432/lactssl_p1?sslmode=disable
 //	LACTSSL_TEST_PG_DSN_B     postgres://lactssl:pass@127.0.0.1:5432/lactssl_p2?sslmode=disable

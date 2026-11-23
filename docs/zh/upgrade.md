@@ -169,7 +169,7 @@ data/upgrade-backups/program/
 - 目标 PostgreSQL 建议 18，MySQL 要求 5.7+；应用会检查服务端版本。
 - 目标 PostgreSQL/MySQL 默认必须是空库；非空时必须在页面勾选“清空当前 schema”，该操作只删除当前 schema 中的表。
 - 默认不允许第二个实例共享同一个 PostgreSQL/MySQL 数据库（`database.allow_multi_instance: false`），切换前也会检查。
-- 切换前会强制备份源库：SQLite 使用 `VACUUM INTO`，PostgreSQL 使用 `pg_dump --format=custom`，MySQL 使用 `mysqldump`，备份位于 `data/db-convert/backups/<时间>/`。
+- 切换前会强制备份源库：SQLite 使用 `VACUUM INTO`，PostgreSQL/MySQL 使用 Go 原生逻辑备份，备份位于 `data/db-convert/backups/<时间>/`。
 - 服务需要由 systemd、Docker restart policy 或类似进程管理器托管，否则切换后需要手动启动。
 
 ### 7.2 执行流程
@@ -197,7 +197,7 @@ data/upgrade-backups/program/
 ./lactssl-dbconvert   -config config.yaml   -source-driver sqlite -source data/lactssl.db   -target-driver postgres -target "postgres://user:pass@host:5432/lactssl?sslmode=verify-full"   -switch -yes
 ```
 
-MySQL 目标使用同样的命令，把 `-target-driver` 改为 `mysql`，DSN 使用 `mysql://user:pass@host:3306/lactssl?tls=true`。MySQL 备份与恢复依赖 `mysqldump` / `mysql` 客户端。
+MySQL 目标使用同样的命令，把 `-target-driver` 改为 `mysql`，DSN 使用 `mysql://user:pass@host:3306/lactssl?tls=true`。MySQL 备份与恢复由 Go 原生实现，不再依赖 `mysqldump` / `mysql` 客户端。
 
 `-switch` 会改写 `config.yaml`，但不会自动启动服务。目标库非空时默认拒绝；确认清空时加 `-force`。
 

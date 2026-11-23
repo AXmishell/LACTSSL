@@ -73,7 +73,7 @@ Stable tags include `<version>`, `<major>.<minor>`, `<major>`, and `latest`; pre
 
 ### 2.4 Build the image locally
 
-The Dockerfile only copies a Linux binary built outside Docker; the image keeps only the trimmed `pg_dump`/`pg_restore`/`mysqldump`/`mysql` clients required for backup and restore. Prepare the frontend and the program binary for the current architecture first, then build the image:
+The Dockerfile only copies a Linux binary built outside Docker; database backup and restore are implemented natively in Go, so `pg_dump`/`mysqldump` are not required. Prepare the frontend and the program binary for the current architecture first, then build the image:
 
 ```bash
 VERSION=1.2.3 make docker-context
@@ -99,6 +99,9 @@ sudo chown -R lactssl:lactssl /opt/lactssl
 sudo chmod 600 /opt/lactssl/config.yaml
 sudo chmod 700 /opt/lactssl/data
 ```
+
+!!! note "Native database backup"
+    PostgreSQL/MySQL logical backup and restore are implemented directly in LACTSSL's Go code; `pg_dump`, `pg_restore`, `mysqldump`, and `mysql` clients are no longer required. SQLite still uses a `VACUUM INTO` snapshot.
 
 ### 3.2 systemd unit
 

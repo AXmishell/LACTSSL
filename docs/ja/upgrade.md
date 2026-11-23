@@ -169,7 +169,7 @@ data/upgrade-backups/program/
 - 対象の PostgreSQL は 18 を推奨します。アプリケーションはサーバーのバージョンを検査します。
 - 対象の PostgreSQL は既定で空のデータベースである必要があります。空でない場合はページで「現在の schema をクリア」をチェックする必要があります。この操作は現在の schema 内のテーブルのみを削除します。
 - 既定では 2 つ目のインスタンスが同じ PostgreSQL データベースを共有することは許可されません（`database.allow_multi_instance: false`）。切り替え前にも検査されます。
-- 切り替え前には元のデータベースのバックアップが強制されます。SQLite は `VACUUM INTO`、PostgreSQL は `pg_dump --format=custom` を使用し、バックアップは `data/db-convert/backups/<時刻>/` に置かれます。
+- 切り替え前には元のデータベースのバックアップが強制されます。SQLite は `VACUUM INTO`、PostgreSQL/MySQL は Go ネイティブの論理バックアップを使用し、バックアップは `data/db-convert/backups/<時刻>/` に置かれます。
 - サービスは systemd、Docker の restart policy、または同様のプロセス管理下で動作している必要があります。そうでない場合、切り替え後に手動で起動する必要があります。
 
 ### 7.2 実行フロー

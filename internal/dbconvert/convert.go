@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"lactssl/internal/db"
+	"lactssl/internal/dbdump"
 )
 
 // Preflight 检查源/目标、表结构与预估数据量，不修改任何数据。
@@ -555,33 +555,26 @@ func (r *Runner) backupSource(ctx context.Context) (string, error) {
 		_ = os.Chmod(target, 0o600)
 	case r.opts.SourceDriver.IsMySQL():
 		target := filepath.Join(dir, "source.sql")
-		mysqlDump, err := findMySQLDump()
+		conn, err := db.OpenWithOptions(db.Options{Driver: db.MySQL, DSN: r.opts.SourceDSN, Migrate: false})
 		if err != nil {
-			return dir, err
+			return dir, fmt.Errorf("连接 MySQL 源库失败: %w", err)
 		}
-		connection, err := db.MySQLCLI(r.opts.SourceDSN)
-		if err != nil {
-			return dir, err
-		}
-		args := db.MySQLDumpArgs(mysqlDump, connection, target)
-		env := []string{"MYSQL_PWD=" + connection.Password}
-		cmd := exec.CommandContext(ctx, mysqlDump, args...) // #nosec G204 -- mysqldump 从 PATH 解析，参数由服务端生成
-		cmd.Env = append(os.Environ(), env...)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return dir, fmt.Errorf("mysqldump 备份失败: %w: %s", err, strings.TrimSpace(string(output)))
+		dumpErr := dbdump.DumpMySQL(ctx, conn.Raw(), target)
+		_ = conn.Close()
+		if dumpErr != nil {
+			return dir, fmt.Errorf("备份 MySQL 源库失败: %w", dumpErr)
 		}
 		_ = os.Chmod(target, 0o600)
 	default:
 		target := filepath.Join(dir, "source.dump")
-		pgDump, err := findPgDump()
+		conn, err := db.OpenWithOptions(db.Options{Driver: db.Postgres, DSN: r.opts.SourceDSN, Migrate: false})
 		if err != nil {
-			return dir, err
+			return dir, fmt.Errorf("连接 PostgreSQL 源库失败: %w", err)
 		}
-		safeDSN, pgEnv := db.PostgresCLIEnv(r.opts.SourceDSN)
-		cmd := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, safeDSN) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
-		cmd.Env = append(os.Environ(), pgEnv...)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return dir, fmt.Errorf("pg_dump 备份失败: %w: %s", err, strings.TrimSpace(string(output)))
+		dumpErr := dbdump.DumpPostgresFromSQL(ctx, conn.Raw(), target)
+		_ = conn.Close()
+		if dumpErr != nil {
+			return dir, fmt.Errorf("备份 PostgreSQL 源库失败: %w", dumpErr)
 		}
 		_ = os.Chmod(target, 0o600)
 	}
@@ -591,28 +584,4 @@ func (r *Runner) backupSource(ctx context.Context) (string, error) {
 		}
 	}
 	return dir, nil
-}
-
-func findPgDump() (string, error) {
-	if path, err := exec.LookPath("pg_dump"); err == nil {
-		return path, nil
-	}
-	for _, candidate := range []string{"/usr/pgsql-18/bin/pg_dump", "/usr/bin/pg_dump", "/usr/local/bin/pg_dump"} {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-	return "", errors.New("未找到 pg_dump；请安装 PostgreSQL 18 客户端或改用逻辑备份")
-}
-
-func findMySQLDump() (string, error) {
-	if path, err := exec.LookPath("mysqldump"); err == nil {
-		return path, nil
-	}
-	for _, candidate := range []string{"/usr/bin/mysqldump", "/usr/local/bin/mysqldump", "/usr/local/mysql/bin/mysqldump"} {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-	return "", errors.New("未找到 mysqldump；请安装 MySQL 客户端")
 }

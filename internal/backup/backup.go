@@ -1,8 +1,9 @@
 // Package backup 提供数据库与配置文件的备份、校验和恢复。
 //
-// 备份包是一个 ZIP 文件，包含 SQLite 数据库快照、config.yaml 与 manifest.json。
-// 恢复时先校验上传内容，再写入 data/restore-pending，等待服务重启时应用，
-// 避免运行中的进程与正在替换的数据库文件发生冲突。
+// 备份包是一个 ZIP 文件，包含 SQLite 快照、PostgreSQL 原生 dump（ZIP + COPY）、
+// MySQL 原生 SQL、config.yaml 与 manifest.json。恢复时先校验上传内容，
+// 再写入 data/restore-pending，等待服务重启时应用，避免运行中的进程与正在
+// 替换的数据库文件发生冲突。
 package backup
 
 import (
@@ -33,6 +34,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"lactssl/internal/config"
 	"lactssl/internal/db"
+	"lactssl/internal/dbdump"
 	"lactssl/internal/util"
 	_ "modernc.org/sqlite"
 )
@@ -86,18 +88,7 @@ var (
 )
 
 // requiredTables 是恢复时要求存在的基础表。
-var requiredTables = []string{
-	"users",
-	"settings",
-	"dns_accounts",
-	"deploy_accounts",
-	"private_cas",
-	"certificates",
-	"tasks",
-	"deploy_records",
-	"monitors",
-	"logs",
-}
+var requiredTables = dbdump.RequiredTables
 
 // Manager 负责生成和校验备份。
 type Manager struct {
@@ -484,33 +475,10 @@ func (m *Manager) snapshot(target string) error {
 		return fmt.Errorf("备份目标文件已存在: %s", target)
 	}
 	if m.DB.Dialect().IsPostgres() {
-		pgDump, err := findPgDump()
-		if err != nil {
-			return err
-		}
-		safeDSN, pgEnv := db.PostgresCLIEnv(m.DB.DSN())
-		cmd := exec.CommandContext(context.Background(), pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, safeDSN) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
-		cmd.Env = append(os.Environ(), pgEnv...)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("pg_dump 失败: %w: %s", err, strings.TrimSpace(string(output)))
-		}
-		return nil
+		return dbdump.DumpPostgresFromSQL(context.Background(), m.DB.Raw(), target)
 	}
 	if m.DB.Dialect().IsMySQL() {
-		mysqlDump, err := findMySQLDump()
-		if err != nil {
-			return err
-		}
-		connection, err := db.MySQLCLI(m.DB.DSN())
-		if err != nil {
-			return err
-		}
-		cmd := exec.CommandContext(context.Background(), mysqlDump, db.MySQLDumpArgs(mysqlDump, connection, target)...) // #nosec G204 -- mysqldump 从 PATH 解析，参数由服务端生成
-		cmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("mysqldump 失败: %w: %s", err, strings.TrimSpace(string(output)))
-		}
-		return nil
+		return dbdump.DumpMySQL(context.Background(), m.DB.Raw(), target)
 	}
 	if _, err := m.DB.Exec(`VACUUM INTO ?`, target); err != nil {
 		return fmt.Errorf("创建数据库快照失败: %w", err)
@@ -546,7 +514,8 @@ func addFileToZipWithMethod(zw *zip.Writer, name, source string, method uint16) 
 }
 
 // Stage 校验上传的备份并写入待恢复目录。
-// 支持完整 ZIP 备份包、加密 ZIP 备份包和单独的 .db 数据库文件。
+// 支持完整 ZIP 备份包、加密 ZIP 备份包、单独 SQLite 文件、原生 PostgreSQL
+// dump（ZIP）以及 MySQL SQL 文件。
 func (m *Manager) Stage(source io.Reader, filename, password string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -583,6 +552,12 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 	_ = reader.Close()
 
 	if isZip {
+		if format, err := dbdump.ValidatePostgres(uploadPath); err == nil && format == dbdump.PostgresNative {
+			dbPath = uploadPath
+			driver = "postgres"
+		}
+	}
+	if isZip && dbPath == "" {
 		meta, payload, err := readArchiveManifest(uploadPath)
 		if meta != nil && meta.Driver != "" {
 			driver = meta.Driver
@@ -617,7 +592,7 @@ func (m *Manager) Stage(source io.Reader, filename, password string) error {
 		} else {
 			dbPath, configPath, err = extractArchive(uploadPath, workDir)
 		}
-	} else {
+	} else if !isZip {
 		dbPath = uploadPath
 		if bytes.HasPrefix(magic, []byte("PGDMP")) {
 			driver = "postgres"
@@ -828,10 +803,18 @@ func extractEntry(entry *zip.File, target string, limit int64) error {
 // validateDatabase 检查备份文件头和基础表结构，降低恢复错误文件的风险。
 func validateDatabase(driver, filePath string) error {
 	if driver == "postgres" {
-		return validatePostgresDump(filePath)
+		format, err := dbdump.ValidatePostgres(filePath)
+		if err != nil {
+			return err
+		}
+		if format == dbdump.PostgresLegacyCustom {
+			return validateLegacyPostgresDump(filePath)
+		}
+		return nil
 	}
 	if driver == "mysql" {
-		return validateMySQLDump(filePath)
+		_, err := dbdump.ValidateMySQL(filePath)
+		return err
 	}
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -865,7 +848,7 @@ func validateDatabase(driver, filePath string) error {
 	return nil
 }
 
-func validatePostgresDump(filePath string) error {
+func validateLegacyPostgresDump(filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -878,7 +861,7 @@ func validatePostgresDump(filePath string) error {
 	}
 	pgRestore, err := findPgRestore()
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: 旧版 PostgreSQL custom 备份需要 pg_restore: %v", ErrInvalidDatabase, err)
 	}
 	output, err := exec.Command(pgRestore, "--list", filePath).CombinedOutput() // #nosec G204 -- pg_restore 从 PATH 解析，文件路径为服务端临时目录
 	if err != nil {
@@ -887,31 +870,6 @@ func validatePostgresDump(filePath string) error {
 	text := string(output)
 	for _, table := range requiredTables {
 		if !strings.Contains(text, " "+table+" ") && !strings.HasSuffix(text, " "+table) {
-			return fmt.Errorf("%w: 缺少数据表 %s", ErrInvalidDatabase, table)
-		}
-	}
-	return nil
-}
-
-// validateMySQLDump 校验逻辑备份包含基础表定义。
-func validateMySQLDump(filePath string) error {
-	raw, err := os.ReadFile(filePath)
-	if err != nil {
-		return err
-	}
-	if len(raw) == 0 {
-		return ErrInvalidDatabase
-	}
-	text := string(raw[:min(len(raw), 512)])
-	upper := strings.ToUpper(text)
-	if !strings.Contains(upper, "MYSQL DUMP") && !strings.Contains(upper, "MARIADB DUMP") &&
-		!strings.Contains(text, "/*!40101") && !strings.Contains(text, "CREATE TABLE") {
-		return ErrInvalidDatabase
-	}
-	full := string(raw)
-	for _, table := range requiredTables {
-		if !strings.Contains(full, "CREATE TABLE `"+table+"`") &&
-			!strings.Contains(full, "CREATE TABLE "+table) {
 			return fmt.Errorf("%w: 缺少数据表 %s", ErrInvalidDatabase, table)
 		}
 	}
@@ -927,7 +885,8 @@ func looksLikeMySQLDump(filePath string) bool {
 	header := make([]byte, 512)
 	n, _ := file.Read(header)
 	text := strings.ToUpper(string(header[:n]))
-	return strings.Contains(text, "MYSQL DUMP") || strings.Contains(text, "MARIADB DUMP")
+	return strings.Contains(text, "MYSQL DUMP") || strings.Contains(text, "MARIADB DUMP") ||
+		strings.Contains(text, "LACTSSL-NATIVE-MYSQL")
 }
 
 func findPgRestore() (string, error) {
@@ -939,7 +898,7 @@ func findPgRestore() (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", errors.New("未找到 pg_restore；请安装 PostgreSQL 18 客户端")
+	return "", errors.New("未找到 pg_restore；旧版 PostgreSQL custom 备份需要 PostgreSQL 客户端")
 }
 
 // verifyBackupKeyPair 用配置文件中的 security.salt 试解数据库里的密文字段，
@@ -1173,88 +1132,87 @@ func ApplyDatabase(target, source string) error {
 	return nil
 }
 
-// ApplyPostgresDatabase 用 pg_restore 恢复 PostgreSQL 备份。
+// ApplyPostgresDatabase 用原生 go dump 恢复 PostgreSQL 备份。
+// 旧版 pg_dump custom 格式仍回退到外部 pg_restore。
 // 调用方必须在数据库连接打开前调用（服务重启的启动阶段）。
 func ApplyPostgresDatabase(dsn, source string) error {
 	if strings.TrimSpace(dsn) == "" || strings.TrimSpace(source) == "" {
 		return errors.New("PostgreSQL DSN 或备份文件未配置")
 	}
-	pgDump, err := findPgDump()
+	format, err := dbdump.ValidatePostgres(source)
 	if err != nil {
 		return err
 	}
-	pgRestore, err := findPgRestore()
-	if err != nil {
-		return err
-	}
+	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	rollback := source + ".before-restore-" + suffix
-	safeDSN, pgEnv := db.PostgresCLIEnv(dsn)
-	dumpCmd := exec.Command(pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", rollback, safeDSN) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
-	dumpCmd.Env = append(os.Environ(), pgEnv...)
-	if output, err := dumpCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("恢复前备份当前 PostgreSQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
+
+	handle, err := db.OpenWithOptions(db.Options{Driver: db.Postgres, DSN: dsn, Migrate: false})
+	if err != nil {
+		return fmt.Errorf("恢复前连接 PostgreSQL 失败: %w", err)
+	}
+	dumpErr := dbdump.DumpPostgresFromSQL(ctx, handle.Raw(), rollback)
+	_ = handle.Close()
+	if dumpErr != nil {
+		_ = os.Remove(rollback)
+		return fmt.Errorf("恢复前备份当前 PostgreSQL 失败: %w", dumpErr)
 	}
 	defer os.Remove(rollback)
+
+	if format == dbdump.PostgresNative {
+		if err := dbdump.RestorePostgres(ctx, dsn, source); err != nil {
+			if rollbackErr := dbdump.RestorePostgres(ctx, dsn, rollback); rollbackErr != nil {
+				return fmt.Errorf("恢复 PostgreSQL 失败: %w（回滚也失败: %v）", err, rollbackErr)
+			}
+			return fmt.Errorf("恢复 PostgreSQL 失败: %w", err)
+		}
+		return nil
+	}
+
+	pgRestore, err := findPgRestore()
+	if err != nil {
+		return fmt.Errorf("旧版 PostgreSQL custom 备份需要 pg_restore: %w", err)
+	}
+	safeDSN, pgEnv := db.PostgresCLIEnv(dsn)
 	restoreCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", safeDSN, source) // #nosec G204 -- pg_restore 从 PATH 解析，参数由服务端生成
 	restoreCmd.Env = append(os.Environ(), pgEnv...)
 	if output, err := restoreCmd.CombinedOutput(); err != nil {
-		// 尝试把恢复前的备份写回，降低半恢复状态的影响。
-		rollbackCmd := exec.Command(pgRestore, "--clean", "--if-exists", "--no-owner", "--no-privileges", "--dbname", safeDSN, rollback) // #nosec G204 -- pg_restore 从 PATH 解析，参数由服务端生成
-		rollbackCmd.Env = append(os.Environ(), pgEnv...)
-		_, _ = rollbackCmd.CombinedOutput()
+		if rollbackErr := dbdump.RestorePostgres(ctx, dsn, rollback); rollbackErr != nil {
+			return fmt.Errorf("pg_restore 失败: %w: %s（回滚也失败: %v）", err, strings.TrimSpace(string(output)), rollbackErr)
+		}
 		return fmt.Errorf("pg_restore 失败: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
 
-// ApplyMySQLDatabase 用 mysql 客户端恢复 MySQL 逻辑备份。
+// ApplyMySQLDatabase 用原生 go dump 恢复 MySQL 逻辑备份。
+// 旧版 mysqldump SQL 也能通过原生多语句执行恢复。
 // 调用方必须在数据库连接打开前调用（服务重启的启动阶段）。
 func ApplyMySQLDatabase(dsn, source string) error {
 	if strings.TrimSpace(dsn) == "" || strings.TrimSpace(source) == "" {
 		return errors.New("MySQL DSN 或备份文件未配置")
 	}
-	mysqlDump, err := findMySQLDump()
-	if err != nil {
-		return err
-	}
-	mysqlClient, err := findMySQLClient()
-	if err != nil {
-		return err
-	}
-	connection, err := db.MySQLCLI(dsn)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(connection.Database) == "" {
-		return errors.New("MySQL DSN 必须包含数据库名")
-	}
+	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	rollback := source + ".before-restore-" + suffix
-	dumpCmd := exec.Command(mysqlDump, db.MySQLDumpArgs(mysqlDump, connection, rollback)...) // #nosec G204 -- mysqldump 从 PATH 解析，参数由服务端生成
-	dumpCmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
-	if output, err := dumpCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("恢复前备份当前 MySQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
+
+	handle, err := db.OpenWithOptions(db.Options{Driver: db.MySQL, DSN: dsn, Migrate: false})
+	if err != nil {
+		return fmt.Errorf("恢复前连接 MySQL 失败: %w", err)
+	}
+	dumpErr := dbdump.DumpMySQL(ctx, handle.Raw(), rollback)
+	_ = handle.Close()
+	if dumpErr != nil {
+		_ = os.Remove(rollback)
+		return fmt.Errorf("恢复前备份当前 MySQL 失败: %w", dumpErr)
 	}
 	defer os.Remove(rollback)
-	restoreFile, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer restoreFile.Close()
-	restoreCmd := exec.Command(mysqlClient, db.MySQLRestoreArgs(mysqlClient, connection)...) // #nosec G204 -- mysql 从 PATH 解析，参数由服务端生成
-	restoreCmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
-	restoreCmd.Stdin = restoreFile
-	if output, err := restoreCmd.CombinedOutput(); err != nil {
-		// 尝试把恢复前的备份写回，降低半恢复状态的影响。
-		if rollbackFile, openErr := os.Open(rollback); openErr == nil {
-			rollbackCmd := exec.Command(mysqlClient, db.MySQLRestoreArgs(mysqlClient, connection)...) // #nosec G204 -- mysql 从 PATH 解析，参数由服务端生成
-			rollbackCmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
-			rollbackCmd.Stdin = rollbackFile
-			_, _ = rollbackCmd.CombinedOutput()
-			_ = rollbackFile.Close()
+
+	if err := dbdump.RestoreMySQL(ctx, dsn, source); err != nil {
+		if rollbackErr := dbdump.RestoreMySQL(ctx, dsn, rollback); rollbackErr != nil {
+			return fmt.Errorf("恢复 MySQL 失败: %w（回滚也失败: %v）", err, rollbackErr)
 		}
-		return fmt.Errorf("mysql 恢复失败: %w: %s", err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("恢复 MySQL 失败: %w", err)
 	}
 	return nil
 }
@@ -1313,40 +1271,4 @@ func copyFile(source, target string) error {
 	}
 	defer file.Close()
 	return writeLimitedFile(target, file, MaxUploadSize)
-}
-
-func findPgDump() (string, error) {
-	if path, err := exec.LookPath("pg_dump"); err == nil {
-		return path, nil
-	}
-	for _, candidate := range []string{"/usr/pgsql-18/bin/pg_dump", "/usr/bin/pg_dump", "/usr/local/bin/pg_dump"} {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-	return "", errors.New("未找到 pg_dump；请安装 PostgreSQL 18 客户端")
-}
-
-func findMySQLDump() (string, error) {
-	if path, err := exec.LookPath("mysqldump"); err == nil {
-		return path, nil
-	}
-	for _, candidate := range []string{"/usr/bin/mysqldump", "/usr/local/bin/mysqldump", "/usr/local/mysql/bin/mysqldump"} {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-	return "", errors.New("未找到 mysqldump；请安装 MySQL 客户端")
-}
-
-func findMySQLClient() (string, error) {
-	if path, err := exec.LookPath("mysql"); err == nil {
-		return path, nil
-	}
-	for _, candidate := range []string{"/usr/bin/mysql", "/usr/local/bin/mysql", "/usr/local/mysql/bin/mysql"} {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-	return "", errors.New("未找到 mysql 客户端；无法恢复 MySQL 备份")
 }

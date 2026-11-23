@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,6 +21,7 @@ import (
 
 	"lactssl/internal/config"
 	"lactssl/internal/db"
+	"lactssl/internal/dbdump"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
 )
@@ -496,31 +496,14 @@ func (m *Manager) createBackup(ctx context.Context) (string, error) {
 	_ = os.Chmod(targetDir, 0o700)
 	if m.db.Dialect().IsMySQL() {
 		target := filepath.Join(targetDir, "lactssl.sql")
-		mysqlDump := findMySQLDumpBinary()
-		if mysqlDump == "" {
-			return targetDir, fmt.Errorf("备份 MySQL 失败: 未找到 mysqldump")
-		}
-		connection, err := db.MySQLCLI(m.db.DSN())
-		if err != nil {
+		if err := dbdump.DumpMySQL(ctx, m.db.Raw(), target); err != nil {
 			return targetDir, fmt.Errorf("备份 MySQL 失败: %w", err)
-		}
-		cmd := exec.CommandContext(ctx, mysqlDump, db.MySQLDumpArgs(mysqlDump, connection, target)...) // #nosec G204 -- mysqldump 从 PATH 解析，参数由服务端生成
-		cmd.Env = append(os.Environ(), "MYSQL_PWD="+connection.Password)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return targetDir, fmt.Errorf("备份 MySQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 		_ = os.Chmod(target, 0o600)
 	} else if m.db.Dialect().IsPostgres() {
 		target := filepath.Join(targetDir, "lactssl.dump")
-		pgDump := findPgDumpBinary()
-		if pgDump == "" {
-			return targetDir, fmt.Errorf("备份 PostgreSQL 失败: 未找到 pg_dump")
-		}
-		safeDSN, pgEnv := db.PostgresCLIEnv(m.db.DSN())
-		cmd := exec.CommandContext(ctx, pgDump, "--format=custom", "--no-owner", "--no-privileges", "--file", target, safeDSN) // #nosec G204 -- pg_dump 从 PATH 解析，参数由服务端生成
-		cmd.Env = append(os.Environ(), pgEnv...)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return targetDir, fmt.Errorf("备份 PostgreSQL 失败: %w: %s", err, strings.TrimSpace(string(output)))
+		if err := dbdump.DumpPostgresFromSQL(ctx, m.db.Raw(), target); err != nil {
+			return targetDir, fmt.Errorf("备份 PostgreSQL 失败: %w", err)
 		}
 		_ = os.Chmod(target, 0o600)
 	} else {
@@ -544,30 +527,6 @@ func (m *Manager) createBackup(ctx context.Context) (string, error) {
 	}
 	m.pruneBackups(dir, 5)
 	return targetDir, nil
-}
-
-func findPgDumpBinary() string {
-	if path, err := exec.LookPath("pg_dump"); err == nil {
-		return path
-	}
-	for _, candidate := range []string{"/usr/pgsql-18/bin/pg_dump", "/usr/bin/pg_dump", "/usr/local/bin/pg_dump"} {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate
-		}
-	}
-	return ""
-}
-
-func findMySQLDumpBinary() string {
-	if path, err := exec.LookPath("mysqldump"); err == nil {
-		return path
-	}
-	for _, candidate := range []string{"/usr/bin/mysqldump", "/usr/local/bin/mysqldump", "/usr/local/mysql/bin/mysqldump"} {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate
-		}
-	}
-	return ""
 }
 
 func (m *Manager) pruneBackups(parent string, keep int) {
