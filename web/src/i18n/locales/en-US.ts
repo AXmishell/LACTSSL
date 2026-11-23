@@ -2306,7 +2306,7 @@ export default {
       lastRun: 'Last program update: v{from} → v{to} · {time}'
     },
     database: {
-      title: 'Switch database',
+      title: 'Migrate database',
       current: 'Current: {driver} · {target}',
       running: 'Switch in progress',
       targetDriver: 'Target database',
@@ -2377,7 +2377,7 @@ export default {
     subtitle: 'Run legacy data migrations, database maintenance, and configuration normalization in one place.',
     tabs: {
       program: 'Program update',
-      database: 'Switch database',
+      database: 'Migrate database',
       maintenance: 'Upgrade & optimization',
       config: 'Configuration file',
       history: 'Last run'

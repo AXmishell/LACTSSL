@@ -2306,7 +2306,7 @@ export default {
       lastRun: '最近一次程式升級：v{from} → v{to} · {time}'
     },
     database: {
-      title: '切換資料庫',
+      title: '遷移資料庫',
       current: '當前：{driver} · {target}',
       running: '切換進行中',
       targetDriver: '目標資料庫',
@@ -2377,7 +2377,7 @@ export default {
     subtitle: '集中執行歷史遺留資料遷移、資料庫維護與配置檔案規範化。',
     tabs: {
       program: '程式升級',
-      database: '切換資料庫',
+      database: '遷移資料庫',
       maintenance: '升級與最佳化',
       config: '配置檔案最佳化',
       history: '最近一次執行'

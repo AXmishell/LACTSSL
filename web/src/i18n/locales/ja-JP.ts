@@ -2304,7 +2304,7 @@ export default {
       lastRun: '最終プログラム更新: v{from} → v{to} · {time}'
     },
     database: {
-      title: 'データベース切り替え',
+      title: 'データベース移行',
       current: '現在: {driver} · {target}',
       running: '切り替えを実行中',
       targetDriver: 'ターゲットデータベース',
@@ -2375,7 +2375,7 @@ export default {
     subtitle: '従来のデータ移行、データベースのメンテナンス、設定の正規化を一か所で実行します。',
     tabs: {
       program: 'プログラムの更新',
-      database: 'データベース切り替え',
+      database: 'データベース移行',
       maintenance: 'アップグレードと最適化',
       config: '設定ファイル',
       history: '前回の実行'

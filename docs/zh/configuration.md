@@ -233,7 +233,7 @@ database:
 - MySQL DSN 支持 `mysql://user:pass@host:3306/db?tls=...` 和 go-sql-driver 原生格式 `user:pass@tcp(host:3306)/db`；程序会强制 `parseTime=true`、UTC 时间与 `utf8mb4`。
 - 默认 `allow_multi_instance: false`，应用会持有 PostgreSQL advisory lock 或 MySQL `GET_LOCK`；第二个实例连接同一个数据库会启动失败。
 - SQLite 仍固定单连接，适合单机小规模部署；需要外部备份、集中运维时再选 PostgreSQL 或 MySQL。
-- 切换后端不需要手工改库：登录后到 `/upgrade` 的“切换数据库”卡片执行，详见 [upgrade.md](upgrade.md#7-数据库在线切换sqlite--postgresql)。
+- 切换后端不需要手工改库：登录后到 `/upgrade` 的“迁移数据库”卡片执行，详见 [upgrade.md](upgrade.md#7-数据库在线切换sqlite--postgresql)。
 
 数据目录用于存放数据库、插件、日志和升级备份。目录会以 `0700` 权限创建。`database.path` 留空时使用 `<data_dir>/lactssl.db`。
 

@@ -2389,12 +2389,12 @@ onUnmounted(() => {
   background: var(--kp-card);
 }
 
-/* 配置文件卡片：保留上下留白，左右贴边。 */
+/* 配置文件卡片：保留上下留白，左右内边距 12px。 */
 .k-card.config-card {
   padding-top: 12px;
   padding-bottom: 20px;
-  padding-left: 0;
-  padding-right: 0;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 /* 配置文件卡片：滚动区从卡片顶部开始，标签栏固定在滚动区顶部。 */
