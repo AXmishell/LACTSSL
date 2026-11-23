@@ -31,7 +31,8 @@ import (
 //   - 20：安全事件保存旧 SMTP 配置快照（security_events.smtp_snapshot）。
 //   - 21：任务可选择不保存证书私钥（tasks.no_key_storage）。
 //   - 22：插件安装记录保存签名索引身份（plugin_installations.index_revision/index_digest/entry_digest）。
-const schemaVersion = 22
+//   - 23：零信手动 DNS 申请订单（zotrus_orders）。
+const schemaVersion = 23
 
 func migrate(conn *Handle) error {
 	version, err := conn.SchemaVersion()

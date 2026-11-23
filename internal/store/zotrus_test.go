@@ -69,3 +69,31 @@ func TestZotrusOrderLifecycle(t *testing.T) {
 		t.Fatal("订单未删除")
 	}
 }
+
+// TestDeleteTaskRemovesZotrusOrder 回归删除零信任务失败的问题：任务删除必须在
+// 同一事务里清掉 zotrus_orders，否则订单私钥会残留且任务无法删除。
+func TestDeleteTaskRemovesZotrusOrder(t *testing.T) {
+	st := newTestStore(t)
+	task := &model.Task{Name: "zotrus-delete", Domains: []string{"example.com"}, CA: "zotrus"}
+	if err := st.CreateTask(task); err != nil {
+		t.Fatal(err)
+	}
+	order := &model.ZotrusOrder{
+		TaskID:  task.ID,
+		Domains: []string{"example.com"},
+		KeyType: "ecdsa",
+		KeyPEM:  "-----BEGIN EC PRIVATE KEY-----\nsecret\n-----END EC PRIVATE KEY-----\n",
+	}
+	if err := st.CreateZotrusOrder(order); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteTask(task.ID); err != nil {
+		t.Fatalf("删除零信任务失败: %v", err)
+	}
+	if _, err := st.GetTask(task.ID); err == nil {
+		t.Fatal("任务未删除")
+	}
+	if got, err := st.GetZotrusOrderByTask(task.ID); err != nil || got != nil {
+		t.Fatalf("任务删除后零信订单仍存在: order=%+v err=%v", got, err)
+	}
+}

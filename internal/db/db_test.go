@@ -182,6 +182,46 @@ func TestOpenCreatesCSRRequestTable(t *testing.T) {
 	}
 }
 
+// TestOpenMigratesLegacyZotrusOrdersTable 验证 v22 数据库升级到 v23 时会补建
+// zotrus_orders。零信功能加入时漏写了版本号，v22 的库会被误判为最新结构，
+// 导致任务删除与订单读写报 relation "zotrus_orders" does not exist。
+func TestOpenMigratesLegacyZotrusOrdersTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-zotrus.db")
+	conn, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 模拟 v22：表不存在，但结构版本已经写到 22。
+	if _, err := conn.Exec(`DROP TABLE zotrus_orders`); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`PRAGMA user_version = 22`); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("打开 v22 数据库失败: %v", err)
+	}
+	defer reopened.Close()
+	var name string
+	if err := reopened.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='zotrus_orders'`).Scan(&name); err != nil {
+		t.Fatalf("v22 数据库未补建 zotrus_orders 表: %v", err)
+	}
+	version, err := reopened.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("升级后结构版本为 %d，期望 %d", version, schemaVersion)
+	}
+}
+
 func TestOpenMigratesPluginInstallationAuditColumns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy-plugin-installations.db")
 	legacy, err := sql.Open("sqlite", path)
