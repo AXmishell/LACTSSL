@@ -62,10 +62,6 @@ func (s *Server) downloadCertificate(c *gin.Context) {
 		if !s.requireAPIKeyScope(c, apiScopeCertificatesKey) {
 			return
 		}
-		// 浏览器会话导出私钥还需要有效的会话级再认证；API 密钥凭 scope 直接放行。
-		if !s.requireReauthElevated(c) {
-			return
-		}
 		user := getUser(c)
 		if user == nil {
 			failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
@@ -104,16 +100,8 @@ func (s *Server) getCertificatePEM(c *gin.Context) {
 	}
 	kind := c.DefaultQuery("type", "fullchain")
 	if kind == "key" {
-		// 先判断私钥是否存在，避免为不存在的私钥弹出再认证。
-		if strings.TrimSpace(cert.KeyPEM) == "" {
-			failKey(c, http.StatusBadRequest, "api.error.cert_key_unavailable")
-			return
-		}
-		// 私钥查看需要显式 API 密钥权限；浏览器会话还需处于再认证有效期内。
+		// 私钥查看需要显式 API 密钥权限。
 		if !s.requireAPIKeyScope(c, apiScopeCertificatesKey) {
-			return
-		}
-		if !s.requireReauthElevated(c) {
 			return
 		}
 		user := getUser(c)
@@ -130,6 +118,10 @@ func (s *Server) getCertificatePEM(c *gin.Context) {
 	switch kind {
 	case "key":
 		content = cert.KeyPEM
+		if strings.TrimSpace(content) == "" {
+			failKey(c, http.StatusBadRequest, "api.error.cert_key_unavailable")
+			return
+		}
 	case "cert":
 		content = cert.CertPEM
 	default:
