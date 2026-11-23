@@ -483,7 +483,7 @@ const pemContent = computed(() => {
 })
 
 // 私钥不再随证书详情接口返回，切换到私钥页签时按需获取。
-// 仅查看私钥；下载证书文件同样只需登录会话。
+// 浏览器会话需要先完成再认证，全局拦截器会弹窗并自动重试。
 async function loadKeyPem(): Promise<void> {
   const cert = detail.value
   if (!cert || keyPem.value) return

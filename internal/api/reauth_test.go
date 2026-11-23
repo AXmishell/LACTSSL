@@ -206,15 +206,13 @@ func TestCertificateDownloadsAndPrivateCAKeyWithSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 证书链、证书与证书私钥下载都只依赖登录会话。
+	// 证书链与证书下载只依赖登录会话。
 	openCases := []struct {
 		path string
 		want string
 	}{
 		{"/api/certificates/" + itoa(cert.ID) + "/download?type=fullchain", "CHAIN"},
 		{"/api/certificates/" + itoa(cert.ID) + "/download?type=cert", "CERT"},
-		{"/api/certificates/" + itoa(cert.ID) + "/pem?type=key", "PRIVATE-KEY"},
-		{"/api/certificates/" + itoa(cert.ID) + "/download?type=key", "PRIVATE-KEY"},
 	}
 	for _, item := range openCases {
 		allowed := sessionRequest(t, router, http.MethodGet, item.path, "", []*http.Cookie{session}, nil)
@@ -223,20 +221,32 @@ func TestCertificateDownloadsAndPrivateCAKeyWithSession(t *testing.T) {
 		}
 	}
 
-	// 私有 CA 私钥导出仍需要再认证有效期。
-	caKeyPath := "/api/private-cas/" + itoa(ca.ID) + "/download?type=key"
-	denied := sessionRequest(t, router, http.MethodGet, caKeyPath, "", []*http.Cookie{session}, nil)
-	if denied.Code != http.StatusForbidden || !strings.Contains(denied.Body.String(), "api.error.reauth_required") {
-		t.Fatalf("未再认证时不应允许导出私有 CA 私钥: %d %s", denied.Code, denied.Body.String())
+	// 证书私钥查看/下载与私有 CA 私钥导出都需要再认证有效期。
+	keyCases := []struct {
+		path string
+		want string
+	}{
+		{"/api/certificates/" + itoa(cert.ID) + "/pem?type=key", "PRIVATE-KEY"},
+		{"/api/certificates/" + itoa(cert.ID) + "/download?type=key", "PRIVATE-KEY"},
+		{"/api/private-cas/" + itoa(ca.ID) + "/download?type=key", "BEGIN"},
 	}
+	for _, item := range keyCases {
+		denied := sessionRequest(t, router, http.MethodGet, item.path, "", []*http.Cookie{session}, nil)
+		if denied.Code != http.StatusForbidden || !strings.Contains(denied.Body.String(), "api.error.reauth_required") {
+			t.Fatalf("未再认证时不应允许访问私钥 %s: %d %s", item.path, denied.Code, denied.Body.String())
+		}
+	}
+
 	reauth := sessionRequest(t, router, http.MethodPost, "/api/auth/reauth",
 		`{"password":"password1234"}`, []*http.Cookie{session}, map[string]string{csrfHeaderName: "1"})
 	if reauth.Code != http.StatusOK {
 		t.Fatalf("再认证失败: %d %s", reauth.Code, reauth.Body.String())
 	}
-	allowed := sessionRequest(t, router, http.MethodGet, caKeyPath, "", []*http.Cookie{session}, nil)
-	if allowed.Code != http.StatusOK || !strings.Contains(allowed.Body.String(), "BEGIN") {
-		t.Fatalf("%s 再认证后应允许访问: %d %s", caKeyPath, allowed.Code, allowed.Body.String())
+	for _, item := range keyCases {
+		allowed := sessionRequest(t, router, http.MethodGet, item.path, "", []*http.Cookie{session}, nil)
+		if allowed.Code != http.StatusOK || !strings.Contains(allowed.Body.String(), item.want) {
+			t.Fatalf("%s 再认证后应允许访问: %d %s", item.path, allowed.Code, allowed.Body.String())
+		}
 	}
 }
 
