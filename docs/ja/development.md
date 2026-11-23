@@ -107,6 +107,7 @@ data/run/web.pid    data/run/web.log
 
 ```bash
 LACTSSL_VERSION=1.2.3 make build
+VERSION=1.2.3 make docker-context
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 ```
 

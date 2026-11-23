@@ -107,6 +107,7 @@ The backend port and secure entry are both read from `config.yaml`; when the fil
 
 ```bash
 LACTSSL_VERSION=1.2.3 make build
+VERSION=1.2.3 make docker-context
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 ```
 

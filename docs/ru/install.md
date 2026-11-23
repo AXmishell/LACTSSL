@@ -73,17 +73,10 @@ image: ghcr.io/axmishell/lactssl:1.2.3
 
 ### 2.4 Локальная сборка образа
 
-Сначала раскомментируйте блок `build:` в `docker-compose.yml`, затем измените исходный код и соберите:
+Dockerfile только копирует Linux-бинарник, собранный вне Docker; в образе остаются только урезанные клиенты `pg_dump`/`pg_restore`/`mysqldump`/`mysql`, необходимые для резервного копирования и восстановления. Сначала подготовьте фронтенд и бинарник для текущей архитектуры, затем соберите образ:
 
 ```bash
-LACTSSL_VERSION=1.2.3 docker compose up -d --build
-```
-
-`LACTSSL_VERSION` только внедряет номер версии программы и не меняет локальный тег образа; если нужно различать образы, измените также `image`.
-
-Или соберите вручную:
-
-```bash
+VERSION=1.2.3 make docker-context
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 docker run -d --name lactssl \
   -p 127.0.0.1:8080:8080 \

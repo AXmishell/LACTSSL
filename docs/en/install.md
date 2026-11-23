@@ -73,17 +73,10 @@ Stable tags include `<version>`, `<major>.<minor>`, `<major>`, and `latest`; pre
 
 ### 2.4 Build the image locally
 
-Uncomment the `build:` block in `docker-compose.yml`, then build after modifying the source:
+The Dockerfile only copies a Linux binary built outside Docker; the image keeps only the trimmed `pg_dump`/`pg_restore`/`mysqldump`/`mysql` clients required for backup and restore. Prepare the frontend and the program binary for the current architecture first, then build the image:
 
 ```bash
-LACTSSL_VERSION=1.2.3 docker compose up -d --build
-```
-
-`LACTSSL_VERSION` only sets the program version; it does not change the local image tag. Edit `image` as well if you need distinct local tags.
-
-Or build manually:
-
-```bash
+VERSION=1.2.3 make docker-context
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 docker run -d --name lactssl \
   -p 127.0.0.1:8080:8080 \

@@ -14,7 +14,9 @@ BUILD_ARCH := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
 PROGRAM_PUBLIC_KEY ?=
 LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)' $(if $(PROGRAM_PUBLIC_KEY),-X '$(MODULE)/internal/config.OfficialProgramPublicKey=$(PROGRAM_PUBLIC_KEY)')
 TAGS := embed
-.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test sql-check csr-client-check typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve
+DOCKER_ARCH ?= $(shell $(GO) env GOARCH)
+DOCKER_CONTEXT := dist/docker/linux-$(DOCKER_ARCH)
+.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test sql-check csr-client-check typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve docker-context docker
 
 all: build
 
@@ -37,6 +39,16 @@ server-dev:
 	$(BUILD_ENV) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(APP)-dev ./cmd/server
 
 build: web backend
+
+# Dockerfile 只复制外部构建好的 Linux 二进制，不安装前端/Go 工具链。
+# 用法: VERSION=1.2.3 make docker-context
+docker-context: web
+	mkdir -p $(DOCKER_CONTEXT)
+	$(BUILD_ENV) GOOS=linux GOARCH=$(DOCKER_ARCH) $(GO) build -trimpath -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o $(DOCKER_CONTEXT)/lactssl ./cmd/server
+
+# 本地单架构镜像；多架构发布请用 ./scripts/release.sh <tag> --multiarch
+docker: docker-context
+	docker build --build-arg VERSION=$(VERSION) -t lactssl:local .
 
 run:
 	$(BUILD_ENV) $(GO) run ./cmd/server

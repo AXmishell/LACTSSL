@@ -1,5 +1,7 @@
 services:
   lactssl:
+    # 固定容器名，便于日志/运维命令直接使用 `docker logs lactssl`。
+    container_name: lactssl
     # 生产建议固定到具体版本或 digest；升级时显式修改 tag。
     image: ghcr.io/axmishell/lactssl:${LACTSSL_IMAGE_TAG:-1.0.8}
     restart: unless-stopped

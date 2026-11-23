@@ -17,7 +17,10 @@ bin
 lactssl
 lactssl-*
 server
-dist
+# 外部构建好的多架构二进制会放进 dist/docker/，其余构建产物不进入上下文。
+dist/*
+!dist/docker/
+!dist/docker/**
 out
 .release-work
 site

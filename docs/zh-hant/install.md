@@ -73,17 +73,10 @@ image: ghcr.io/axmishell/lactssl:1.2.3
 
 ### 2.4 本地構建映象
 
-先在 `docker-compose.yml` 中取消 `build:` 段的註釋，再修改原始碼並構建：
+Dockerfile 只複製外部構建好的 Linux 二進位檔，不在映象內編譯前端/後端；映象內僅保留備份/恢復所需的精簡 `pg_dump`/`pg_restore`/`mysqldump`/`mysql` 客戶端。先準備前端和當前架構的程式產物，再構建映象：
 
 ```bash
-LACTSSL_VERSION=1.2.3 docker compose up -d --build
-```
-
-`LACTSSL_VERSION` 只注入程式版本號，不會改變本地映象標籤；需要區分映象時請同時修改 `image`。
-
-或手動構建：
-
-```bash
+VERSION=1.2.3 make docker-context
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 docker run -d --name lactssl \
   -p 127.0.0.1:8080:8080 \

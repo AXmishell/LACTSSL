@@ -332,13 +332,32 @@ if [ "$RUN_DOCKER" -eq 1 ]; then
       fi
     done
 
+    # 镜像只复制外部交叉编译好的程序本体；把 out/ 下的 linux 产物整理成
+    # Dockerfile 约定的 dist/docker/linux-<arch>/lactssl。
+    step "docker: 准备外部构建的 linux 二进制"
+    docker_arches="amd64 arm64"
+    if [ "$MULTIARCH" -eq 0 ] && command -v go >/dev/null 2>&1; then
+      docker_arches="$(go env GOARCH)"
+    fi
+    docker_context="$DIST/docker"
+    for arch in $docker_arches; do
+      src="$ROOT/out/linux-$arch/lactssl"
+      if [ ! -f "$src" ]; then
+        echo "::error::缺少 $src；请先执行完整构建（不要使用 --no-build / --docker-only），或手动交叉编译到 out/linux-$arch/lactssl" >&2
+        exit 1
+      fi
+      mkdir -p "$docker_context/linux-$arch"
+      cp "$src" "$docker_context/linux-$arch/lactssl"
+      chmod 0755 "$docker_context/linux-$arch/lactssl"
+      ls -lh "$docker_context/linux-$arch/lactssl"
+    done
+
     if [ "$MULTIARCH" -eq 1 ]; then
       require docker
       step "docker: buildx 多架构构建 linux/amd64 + linux/arm64（构建到 dist/，不推送）"
       docker buildx build \
         --platform linux/amd64,linux/arm64 \
         --build-arg "VERSION=${version}" \
-        --build-arg "PROGRAM_PUBLIC_KEY=${program_public_key}" \
         "${proxy_args[@]}" \
         "${tag_args[@]}" \
         --output "type=oci,dest=${DIST}/lactssl_${version}_image.tar" \
@@ -381,7 +400,6 @@ PY
       step "docker: 本地单架构构建（不推送；加 --multiarch 可验证双架构）"
       docker build \
         --build-arg "VERSION=${version}" \
-        --build-arg "PROGRAM_PUBLIC_KEY=${program_public_key}" \
         "${proxy_args[@]}" \
         "${tag_args[@]}" \
         .

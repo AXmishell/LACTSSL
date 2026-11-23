@@ -73,17 +73,10 @@ image: ghcr.io/axmishell/lactssl:1.2.3
 
 ### 2.4 ローカルでイメージをビルドする
 
-まず `docker-compose.yml` の `build:` セクションのコメントを解除し、ソースを変更してビルドします：
+Dockerfile は外部でビルドした Linux バイナリをコピーするだけで、イメージ内にはバックアップ/復元に必要な `pg_dump`/`pg_restore`/`mysqldump`/`mysql` クライアントだけを残します。先にフロントエンドと現在のアーキテクチャ向けのバイナリを用意してからイメージをビルドします：
 
 ```bash
-LACTSSL_VERSION=1.2.3 docker compose up -d --build
-```
-
-`LACTSSL_VERSION` はプログラムのバージョン番号のみを注入し、ローカルイメージタグは変更しません。イメージを区別する必要がある場合は `image` も変更してください。
-
-または手動でビルドします：
-
-```bash
+VERSION=1.2.3 make docker-context
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 docker run -d --name lactssl \
   -p 127.0.0.1:8080:8080 \

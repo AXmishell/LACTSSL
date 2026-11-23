@@ -49,6 +49,12 @@ func main() {
 	configPath := flag.String("config", config.DefaultPath, "config.yaml 文件路径")
 	flag.Parse()
 
+	// 容器入口以 root 修正挂载目录归属后，通过环境变量要求主程序降权。
+	// 普通二进制启动（非 root 或未设置变量）不会改变运行用户。
+	if err := dropPrivileges(); err != nil {
+		log.Fatalf("切换运行用户失败: %v", err)
+	}
+
 	cfg, err := config.LoadFrom(*configPath)
 	if err != nil {
 		log.Fatalf("%s: %v", cliText("cli.error.load_config"), err)
