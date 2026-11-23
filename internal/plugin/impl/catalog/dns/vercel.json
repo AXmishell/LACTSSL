@@ -1,0 +1,21 @@
+{
+  "value": "vercel",
+  "label_key": "meta.dns.vercel.label",
+  "desc_key": "meta.dns.vercel.desc",
+  "fields": [
+    {
+      "key": "api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "required": true,
+      "env": "VERCEL_API_TOKEN"
+    },
+    {
+      "key": "team_id",
+      "label_key": "meta.field.team_id.label",
+      "type": "text",
+      "help_key": "meta.field.team_id.help",
+      "env": "VERCEL_TEAM_ID"
+    }
+  ]
+}

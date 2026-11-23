@@ -19,7 +19,7 @@ LACTSSL — самодостаточный бинарный файл Go:
     ├── lactssl.db          # основная база SQLite
     ├── lactssl.db-wal      # WAL (во время работы)
     ├── lactssl.db-shm      # разделяемая память (во время работы)
-    ├── plugins/            # helper dns / deploy / notify
+    ├── plugins/            # загруженные helper (dns / deploy / notify)
     ├── plugin-icons/       # кеш иконок плагинов
     ├── upgrade-backups/    # резервные копии миграций и обновлений программы
     └── restore-pending/    # пакеты восстановления, ожидающие применения

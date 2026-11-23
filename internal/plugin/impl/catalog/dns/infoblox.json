@@ -1,0 +1,55 @@
+{
+  "value": "infoblox",
+  "label_key": "meta.dns.infoblox.label",
+  "desc_key": "meta.dns.infoblox.desc",
+  "fields": [
+    {
+      "key": "infoblox_dns_view",
+      "label": "DNS View",
+      "type": "text",
+      "env": "INFOBLOX_DNS_VIEW"
+    },
+    {
+      "key": "infoblox_wapi_version",
+      "label": "Wapi Version",
+      "type": "text",
+      "env": "INFOBLOX_WAPI_VERSION"
+    },
+    {
+      "key": "infoblox_port",
+      "label": "Port",
+      "type": "text",
+      "env": "INFOBLOX_PORT"
+    },
+    {
+      "key": "infoblox_ssl_verify",
+      "label": "Ssl Verify",
+      "type": "text",
+      "env": "INFOBLOX_SSL_VERIFY"
+    },
+    {
+      "key": "infoblox_ca_certificate",
+      "label": "Ca Certificate",
+      "type": "text",
+      "env": "INFOBLOX_CA_CERTIFICATE"
+    },
+    {
+      "key": "infoblox_host",
+      "label": "Host",
+      "type": "text",
+      "env": "INFOBLOX_HOST"
+    },
+    {
+      "key": "infoblox_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "INFOBLOX_USERNAME"
+    },
+    {
+      "key": "infoblox_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "INFOBLOX_PASSWORD"
+    }
+  ]
+}

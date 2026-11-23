@@ -1,0 +1,14 @@
+{
+  "value": "myaddr",
+  "label_key": "meta.dns.myaddr.label",
+  "desc_key": "meta.dns.myaddr.desc",
+  "fields": [
+    {
+      "key": "myaddr_private_keys_mapping",
+      "label": "Myaddr Private Keys Mapping",
+      "type": "password",
+      "required": true,
+      "env": "MYADDR_PRIVATE_KEYS_MAPPING"
+    }
+  ]
+}

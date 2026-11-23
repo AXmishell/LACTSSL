@@ -17,17 +17,12 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	"lactssl/internal/outbound"
 	"lactssl/internal/ratelimit"
 	"lactssl/internal/util"
 )
 
 // DefaultPath 是默认配置文件路径（相对当前工作目录）。
 const DefaultPath = "config.yaml"
-
-// officialPluginRepoPublicKey 是官方插件仓库索引的 Ed25519 公钥（base64）。
-// 内置该公钥后，默认安装/更新会强制校验索引签名，而不是只依赖 HTTPS。
-const officialPluginRepoPublicKey = "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
 
 // OfficialProgramPublicKey 是官方程序发布校验和签名（checksums.txt.sig）的
 // Ed25519 公钥（32 字节原始公钥 base64）。官方构建通过
@@ -60,7 +55,6 @@ type Config struct {
 	RateLimit          ratelimit.Config // 管理端与 ACME 入口限流阈值
 	ACME               ACMEConfig       // 内置 ACME 服务端配置
 	Plugins            PluginsConfig    // 外部 DNS 插件配置
-	PluginRepo         PluginRepoConfig // 插件仓库配置
 	DeployPlugins      PluginsConfig    // 外部证书部署插件配置
 	NotifyPlugins      PluginsConfig    // 外部通知插件配置
 	Log                LogConfig        // 进程底层日志配置
@@ -136,25 +130,12 @@ type LogArchiveConfig struct {
 	QuotaPolicy   string // 容量超限策略：fail / prune_oldest
 }
 
-// PluginRepoConfig 是插件仓库客户端配置。
-type PluginRepoConfig struct {
-	Enabled    bool
-	URL        string
-	Channel    string
-	AutoUpdate bool
-	// PublicKey 支持一个或多个 base64 Ed25519 公钥，用逗号/空白分隔，
-	// 用于双密钥过渡；空值表示不校验索引签名。
-	PublicKey     string
-	Proxy         string
-	Timeout       time.Duration
-	MaxDownloadMB int
-	CheckInterval time.Duration
-}
-
 // PluginsConfig 是外部 exec helper 插件的运行配置（DNS 与部署插件各用一份）。
 type PluginsConfig struct {
-	Enabled       bool
-	Dir           string
+	Enabled bool
+	Dir     string
+	// Sandbox 仅作用于上传/外部 helper；内置插件不需要沙箱。
+	Sandbox       string
 	MemoryLimitMB int
 	Timeout       time.Duration
 	MaxOutputKB   int
@@ -232,24 +213,15 @@ type fileConfig struct {
 	Plugins struct {
 		Enabled        bool   `yaml:"enabled"`
 		Dir            string `yaml:"dir"`
+		Sandbox        string `yaml:"sandbox"`
 		MemoryLimitMB  int    `yaml:"memory_limit_mb"`
 		TimeoutSeconds int    `yaml:"timeout_seconds"`
 		MaxOutputKB    int    `yaml:"max_output_kb"`
-		Repo           struct {
-			Enabled            bool   `yaml:"enabled"`
-			URL                string `yaml:"url"`
-			Channel            string `yaml:"channel"`
-			AutoUpdate         bool   `yaml:"auto_update"`
-			PublicKey          string `yaml:"public_key"`
-			Proxy              string `yaml:"proxy"`
-			TimeoutSeconds     int    `yaml:"timeout_seconds"`
-			MaxDownloadMB      int    `yaml:"max_download_mb"`
-			CheckIntervalHours int    `yaml:"check_interval_hours"`
-		} `yaml:"repo"`
 	} `yaml:"plugins"`
 	DeployPlugins struct {
 		Enabled        bool   `yaml:"enabled"`
 		Dir            string `yaml:"dir"`
+		Sandbox        string `yaml:"sandbox"`
 		MemoryLimitMB  int    `yaml:"memory_limit_mb"`
 		TimeoutSeconds int    `yaml:"timeout_seconds"`
 		MaxOutputKB    int    `yaml:"max_output_kb"`
@@ -257,6 +229,7 @@ type fileConfig struct {
 	NotifyPlugins struct {
 		Enabled        bool   `yaml:"enabled"`
 		Dir            string `yaml:"dir"`
+		Sandbox        string `yaml:"sandbox"`
 		MemoryLimitMB  int    `yaml:"memory_limit_mb"`
 		TimeoutSeconds int    `yaml:"timeout_seconds"`
 		MaxOutputKB    int    `yaml:"max_output_kb"`
@@ -331,26 +304,21 @@ func defaults() *fileConfig {
 	fc.ACME.Enabled = true
 	// 外部插件默认开启；目录为空时自动使用 <data_dir>/plugins/dns。
 	fc.Plugins.Enabled = true
+	fc.Plugins.Sandbox = "strict"
 	fc.Plugins.MemoryLimitMB = 128
 	fc.Plugins.TimeoutSeconds = 60
 	fc.Plugins.MaxOutputKB = 64
-	fc.Plugins.Repo.Enabled = true
-	fc.Plugins.Repo.URL = "https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json"
-	fc.Plugins.Repo.Channel = "stable"
-	// 内置官方仓库公钥，默认对索引做 Ed25519 验签；清空后仅依赖 HTTPS 与资产 sha256。
-	fc.Plugins.Repo.PublicKey = officialPluginRepoPublicKey
-	fc.Plugins.Repo.TimeoutSeconds = 30
-	fc.Plugins.Repo.MaxDownloadMB = 256
-	fc.Plugins.Repo.CheckIntervalHours = 24
 	// 部署插件会接收证书私钥，默认关闭，由管理员显式启用；
 	// 目录为空时使用 <data_dir>/plugins/deploy，与 DNS 插件目录分开。
 	fc.DeployPlugins.Enabled = false
+	fc.DeployPlugins.Sandbox = "strict"
 	fc.DeployPlugins.MemoryLimitMB = 128
 	fc.DeployPlugins.TimeoutSeconds = 300
 	fc.DeployPlugins.MaxOutputKB = 64
 	// 通知插件持有第三方推送密钥，但不接触证书私钥；默认启用，
 	// 目录为空时使用 <data_dir>/plugins/notify。
 	fc.NotifyPlugins.Enabled = true
+	fc.NotifyPlugins.Sandbox = "strict"
 	fc.NotifyPlugins.MemoryLimitMB = 128
 	fc.NotifyPlugins.TimeoutSeconds = 30
 	fc.NotifyPlugins.MaxOutputKB = 64
@@ -592,9 +560,13 @@ func LoadFrom(path string) (*Config, error) {
 	pluginsCfg := PluginsConfig{
 		Enabled:       fc.Plugins.Enabled,
 		Dir:           strings.TrimSpace(fc.Plugins.Dir),
+		Sandbox:       strings.ToLower(strings.TrimSpace(fc.Plugins.Sandbox)),
 		MemoryLimitMB: fc.Plugins.MemoryLimitMB,
 		Timeout:       time.Duration(fc.Plugins.TimeoutSeconds) * time.Second,
 		MaxOutputKB:   fc.Plugins.MaxOutputKB,
+	}
+	if pluginsCfg.Sandbox == "" {
+		pluginsCfg.Sandbox = "strict"
 	}
 	if pluginsCfg.Dir == "" {
 		pluginsCfg.Dir = filepath.Join(dataDir, "plugins", "dns")
@@ -603,42 +575,16 @@ func LoadFrom(path string) (*Config, error) {
 		return nil, err
 	}
 
-	repoCfg := PluginRepoConfig{
-		Enabled:       fc.Plugins.Repo.Enabled,
-		URL:           strings.TrimSpace(fc.Plugins.Repo.URL),
-		Channel:       strings.TrimSpace(fc.Plugins.Repo.Channel),
-		AutoUpdate:    fc.Plugins.Repo.AutoUpdate,
-		PublicKey:     strings.TrimSpace(fc.Plugins.Repo.PublicKey),
-		Proxy:         strings.TrimSpace(fc.Plugins.Repo.Proxy),
-		Timeout:       time.Duration(fc.Plugins.Repo.TimeoutSeconds) * time.Second,
-		MaxDownloadMB: fc.Plugins.Repo.MaxDownloadMB,
-		CheckInterval: time.Duration(fc.Plugins.Repo.CheckIntervalHours) * time.Hour,
-	}
-	if repoCfg.Channel == "" {
-		repoCfg.Channel = "stable"
-	}
-	if repoCfg.Timeout <= 0 {
-		repoCfg.Timeout = 30 * time.Second
-	}
-	if repoCfg.MaxDownloadMB <= 0 {
-		repoCfg.MaxDownloadMB = 256
-	}
-	if repoCfg.CheckInterval <= 0 {
-		repoCfg.CheckInterval = 24 * time.Hour
-	}
-	if err := validateRepoURL(repoCfg.URL, "plugins.repo.url"); err != nil {
-		return nil, err
-	}
-	if err := outbound.ValidateProxyURL(repoCfg.Proxy); err != nil {
-		return nil, fmt.Errorf("plugins.repo.proxy: %w", err)
-	}
-
 	deployPluginsCfg := PluginsConfig{
 		Enabled:       fc.DeployPlugins.Enabled,
 		Dir:           strings.TrimSpace(fc.DeployPlugins.Dir),
+		Sandbox:       strings.ToLower(strings.TrimSpace(fc.DeployPlugins.Sandbox)),
 		MemoryLimitMB: fc.DeployPlugins.MemoryLimitMB,
 		Timeout:       time.Duration(fc.DeployPlugins.TimeoutSeconds) * time.Second,
 		MaxOutputKB:   fc.DeployPlugins.MaxOutputKB,
+	}
+	if deployPluginsCfg.Sandbox == "" {
+		deployPluginsCfg.Sandbox = "strict"
 	}
 	if deployPluginsCfg.Dir == "" {
 		deployPluginsCfg.Dir = filepath.Join(dataDir, "plugins", "deploy")
@@ -650,9 +596,13 @@ func LoadFrom(path string) (*Config, error) {
 	notifyPluginsCfg := PluginsConfig{
 		Enabled:       fc.NotifyPlugins.Enabled,
 		Dir:           strings.TrimSpace(fc.NotifyPlugins.Dir),
+		Sandbox:       strings.ToLower(strings.TrimSpace(fc.NotifyPlugins.Sandbox)),
 		MemoryLimitMB: fc.NotifyPlugins.MemoryLimitMB,
 		Timeout:       time.Duration(fc.NotifyPlugins.TimeoutSeconds) * time.Second,
 		MaxOutputKB:   fc.NotifyPlugins.MaxOutputKB,
+	}
+	if notifyPluginsCfg.Sandbox == "" {
+		notifyPluginsCfg.Sandbox = "strict"
 	}
 	if notifyPluginsCfg.Dir == "" {
 		notifyPluginsCfg.Dir = filepath.Join(dataDir, "plugins", "notify")
@@ -745,7 +695,6 @@ func LoadFrom(path string) (*Config, error) {
 		RateLimit:          rateLimitCfg,
 		ACME:               acmeCfg,
 		Plugins:            pluginsCfg,
-		PluginRepo:         repoCfg,
 		DeployPlugins:      deployPluginsCfg,
 		NotifyPlugins:      notifyPluginsCfg,
 		Log:                logCfg,
@@ -1039,9 +988,6 @@ func validateFileValues(fc *fileConfig) error {
 		MaxOutputKB:   fc.NotifyPlugins.MaxOutputKB,
 	}); err != nil {
 		return err
-	}
-	if err := outbound.ValidateProxyURL(fc.Plugins.Repo.Proxy); err != nil {
-		return fmt.Errorf("plugins.repo.proxy: %w", err)
 	}
 	if err := validateLogConfig(LogConfig{
 		Level:               strings.ToLower(strings.TrimSpace(fc.Log.Level)),
@@ -1340,42 +1286,26 @@ acme:
     client_ca: %s
 
 plugins:
-  # 是否加载 DNS 插件
+  # 是否启用 DNS 插件类别（DNS 条目默认全部停用，需在插件页启用）
   enabled: %t
   # 插件目录；留空表示 <data_dir>/plugins/dns
   dir: %s
+  # 仅上传/外部 helper 的沙箱：strict（Linux Landlock）/basic/off；内置插件不走沙箱
+  sandbox: %s
   # 单个 helper 进程常驻内存上限（MB），0 表示不限制
   memory_limit_mb: %d
   # present/cleanup 单次执行超时（秒）
   timeout_seconds: %d
   # helper 输出日志上限（KB）
   max_output_kb: %d
-  repo:
-    # 插件仓库默认启用；首次进入插件页会拉取索引
-    enabled: %t
-    # 索引地址；支持 http、https 与 file:// 离线镜像
-    url: %s
-    # stable 或 beta
-    channel: %s
-    # 是否自动更新已安装插件
-    auto_update: %t
-    # 索引签名公钥（base64 Ed25519），可用逗号分隔多个以支持密钥轮换；留空时只校验 HTTPS 与 asset sha256
-    public_key: %s
-    # 拉取索引/下载插件的显式代理；留空沿用 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY 环境变量。
-    # 支持 http、https、socks5、socks5h，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
-    proxy: %s
-    # 拉取索引/下载插件超时（秒）
-    timeout_seconds: %d
-    # 单个插件包大小上限（MB）
-    max_download_mb: %d
-    # 自动检查间隔（小时）
-    check_interval_hours: %d
 
 deploy_plugins:
   # 是否加载外部证书部署插件；插件会接收证书私钥，默认关闭
   enabled: %t
   # 插件目录；留空表示 <data_dir>/plugins/deploy（与 DNS 插件目录分开）
   dir: %s
+  # 仅上传/外部 helper 的沙箱：strict（Linux Landlock）/basic/off；内置插件不走沙箱
+  sandbox: %s
   # 单个 helper 进程常驻内存上限（MB），0 表示不限制
   memory_limit_mb: %d
   # deploy 单次执行超时（秒）；覆盖上传大文件时可适当调大
@@ -1388,6 +1318,8 @@ notify_plugins:
   enabled: %t
   # 插件目录；留空表示 <data_dir>/plugins/notify（与 DNS/部署插件目录分开）
   dir: %s
+  # 仅上传/外部 helper 的沙箱：strict（Linux Landlock）/basic/off；内置插件不走沙箱
+  sandbox: %s
   # 单个 helper 进程常驻内存上限（MB），0 表示不限制
   memory_limit_mb: %d
   # send 单次执行超时（秒）
@@ -1452,25 +1384,19 @@ notify_plugins:
 		quote(fc.ACME.MTLS.ClientCA),
 		fc.Plugins.Enabled,
 		quote(fc.Plugins.Dir),
+		quote(fc.Plugins.Sandbox),
 		fc.Plugins.MemoryLimitMB,
 		fc.Plugins.TimeoutSeconds,
 		fc.Plugins.MaxOutputKB,
-		fc.Plugins.Repo.Enabled,
-		quote(fc.Plugins.Repo.URL),
-		quote(fc.Plugins.Repo.Channel),
-		fc.Plugins.Repo.AutoUpdate,
-		quote(fc.Plugins.Repo.PublicKey),
-		quote(fc.Plugins.Repo.Proxy),
-		fc.Plugins.Repo.TimeoutSeconds,
-		fc.Plugins.Repo.MaxDownloadMB,
-		fc.Plugins.Repo.CheckIntervalHours,
 		fc.DeployPlugins.Enabled,
 		quote(fc.DeployPlugins.Dir),
+		quote(fc.DeployPlugins.Sandbox),
 		fc.DeployPlugins.MemoryLimitMB,
 		fc.DeployPlugins.TimeoutSeconds,
 		fc.DeployPlugins.MaxOutputKB,
 		fc.NotifyPlugins.Enabled,
 		quote(fc.NotifyPlugins.Dir),
+		quote(fc.NotifyPlugins.Sandbox),
 		fc.NotifyPlugins.MemoryLimitMB,
 		fc.NotifyPlugins.TimeoutSeconds,
 		fc.NotifyPlugins.MaxOutputKB,

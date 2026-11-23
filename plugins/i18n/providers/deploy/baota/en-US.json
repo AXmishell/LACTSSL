@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baota.desc": "Upload the certificate to the BaoTa panel for a website, a Docker website, or the panel's own SSL certificate",
+  "meta.deploy.baota.label": "BaoTa Panel"
+}

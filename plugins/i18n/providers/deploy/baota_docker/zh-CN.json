@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baota_docker.desc": "通过宝塔面板 API 为 Docker 网站部署 SSL 证书",
+  "meta.deploy.baota_docker.label": "宝塔 Docker 网站"
+}

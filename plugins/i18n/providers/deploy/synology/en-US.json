@@ -1,0 +1,4 @@
+{
+  "meta.deploy.synology.desc": "Update certificates through the Synology DSM Web API without SSH",
+  "meta.deploy.synology.label": "Synology DSM"
+}

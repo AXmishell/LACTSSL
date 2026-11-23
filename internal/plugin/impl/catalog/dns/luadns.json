@@ -1,0 +1,21 @@
+{
+  "value": "luadns",
+  "label_key": "meta.dns.luadns.label",
+  "desc_key": "meta.dns.luadns.desc",
+  "fields": [
+    {
+      "key": "luadns_api_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "LUADNS_API_USERNAME"
+    },
+    {
+      "key": "luadns_api_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "LUADNS_API_TOKEN"
+    }
+  ]
+}

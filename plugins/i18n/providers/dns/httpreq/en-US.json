@@ -1,0 +1,4 @@
+{
+  "meta.dns.httpreq.desc": "Manage DNS records through the HTTP Request API.",
+  "meta.dns.httpreq.label": "HTTP Request"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.sonic.desc": "Manage DNS records through the Sonic API.",
+  "meta.dns.sonic.label": "Sonic"
+}

@@ -1,0 +1,25 @@
+{
+  "value": "loopia",
+  "label_key": "meta.dns.loopia.label",
+  "desc_key": "meta.dns.loopia.desc",
+  "fields": [
+    {
+      "key": "loopia_api_user",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "LOOPIA_API_USER"
+    },
+    {
+      "key": "loopia_api_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "LOOPIA_API_PASSWORD"
+    },
+    {
+      "key": "loopia_api_url",
+      "label": "URL",
+      "type": "text",
+      "env": "LOOPIA_API_URL"
+    }
+  ]
+}

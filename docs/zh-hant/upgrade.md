@@ -95,7 +95,7 @@ sudo journalctl -u lactssl -f
 `/upgrade` 頁面上方提供「程式升級」：
 
 - **檢查更新**：按 `upgrade.program.channel` 查詢 Release；`stable` 只接受正式版，`beta` 包含預釋出。
-- **安裝更新**：下載 `lactssl_<version>_<os>_<arch>.tar.gz`（Windows 為 `.zip`），使用 `checksums.txt` 強制校驗 SHA-256，解出 `lactssl` 後替換當前可執行檔案。
+- **安裝更新**：下載 `lactssl_<version>_<os>_<arch>.tar.xz`（缺失時回退到 `.tar.gz`；Windows 為 `.zip`），使用 `checksums.txt` 強制校驗 SHA-256，解出 `lactssl` 後替換當前可執行檔案。
 - **釋出簽名**：官方釋出建置會自動內建公鑰，預設強制校驗 `checksums.txt.sig`；缺失或錯誤簽名直接拒絕。自編譯版本未配置 `upgrade.program.public_key` 時預設拒絕線上升級，必須在受控環境顯式設定 `upgrade.program.allow_unsigned: true` 才能安裝未簽名包。
 - **備份與回滾**：替換前把舊二進位制複製到 `<data_dir>/upgrade-backups/program/`，預設保留最近 3 份。
 - **重啟生效**：安裝完成後頁面提示重啟；預設開啟會話保持，重啟後可繼續使用原會話。如設為 `security.session_persistence: false`，重啟會清空會話。

@@ -1,0 +1,4 @@
+{
+  "meta.dns.cloudflare.desc": "推荐使用仅具备 DNS 编辑权限的 API Token",
+  "meta.dns.cloudflare.label": "Cloudflare"
+}

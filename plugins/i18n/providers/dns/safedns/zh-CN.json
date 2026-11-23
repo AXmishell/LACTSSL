@@ -1,0 +1,4 @@
+{
+  "meta.dns.safedns.desc": "通过 ANS SafeDNS 接口管理 DNS 记录。",
+  "meta.dns.safedns.label": "ANS SafeDNS"
+}

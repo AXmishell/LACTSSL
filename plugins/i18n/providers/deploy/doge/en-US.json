@@ -1,0 +1,4 @@
+{
+  "meta.deploy.doge.desc": "Upload a certificate and bind it to DogeCloud CDN domains",
+  "meta.deploy.doge.label": "DogeCloud CDN"
+}

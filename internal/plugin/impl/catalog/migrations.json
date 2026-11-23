@@ -1,0 +1,153 @@
+{
+  "deprecated_deploy_types": {
+    "1panel_panel": "1panel",
+    "1panel_site": "1panel",
+    "baota_panel": "baota",
+    "baota_site": "baota",
+    "qiniu_cdn": "qiniu",
+    "qiniu_kodo": "qiniu",
+    "safeline_panel": "safeline",
+    "safeline_portal": "safeline",
+    "baota_docker": "baota",
+    "acepanel_panel": "acepanel",
+    "tencent_cdn": "tencent",
+    "tencent_cos": "tencent",
+    "tencent_teo": "tencent",
+    "tencent_waf": "tencent",
+    "aliyun_cdn": "aliyun",
+    "aliyun_dcdn": "aliyun",
+    "aliyun_esa": "aliyun",
+    "aliyun_oss": "aliyun",
+    "aliyun_waf": "aliyun",
+    "volcengine_cdn": "volcengine",
+    "volcengine_dcdn": "volcengine"
+  },
+  "deploy_migrations": {
+    "1panel_panel": {
+      "provider": "1panel",
+      "config": {
+        "target": "panel"
+      }
+    },
+    "1panel_site": {
+      "provider": "1panel",
+      "config": {
+        "target": "site"
+      }
+    },
+    "baota_panel": {
+      "provider": "baota",
+      "config": {
+        "target": "panel"
+      }
+    },
+    "baota_site": {
+      "provider": "baota",
+      "config": {
+        "target": "site"
+      }
+    },
+    "baota_docker": {
+      "provider": "baota",
+      "config": {
+        "target": "docker"
+      }
+    },
+    "qiniu_cdn": {
+      "provider": "qiniu",
+      "config": {
+        "domain_type": "cdn"
+      }
+    },
+    "qiniu_kodo": {
+      "provider": "qiniu",
+      "config": {
+        "domain_type": "kodo"
+      }
+    },
+    "safeline_panel": {
+      "provider": "safeline",
+      "config": {
+        "target": "panel"
+      }
+    },
+    "safeline_portal": {
+      "provider": "safeline",
+      "config": {
+        "target": "portal"
+      }
+    },
+    "acepanel_panel": {
+      "provider": "acepanel",
+      "config": {
+        "target": "panel"
+      }
+    },
+    "tencent_cdn": {
+      "provider": "tencent",
+      "config": {
+        "target": "cdn"
+      }
+    },
+    "tencent_cos": {
+      "provider": "tencent",
+      "config": {
+        "target": "cos"
+      }
+    },
+    "tencent_teo": {
+      "provider": "tencent",
+      "config": {
+        "target": "teo"
+      }
+    },
+    "tencent_waf": {
+      "provider": "tencent",
+      "config": {
+        "target": "waf"
+      }
+    },
+    "aliyun_cdn": {
+      "provider": "aliyun",
+      "config": {
+        "target": "cdn"
+      }
+    },
+    "aliyun_dcdn": {
+      "provider": "aliyun",
+      "config": {
+        "target": "dcdn"
+      }
+    },
+    "aliyun_esa": {
+      "provider": "aliyun",
+      "config": {
+        "target": "esa"
+      }
+    },
+    "aliyun_oss": {
+      "provider": "aliyun",
+      "config": {
+        "target": "oss"
+      }
+    },
+    "aliyun_waf": {
+      "provider": "aliyun",
+      "config": {
+        "target": "waf"
+      }
+    },
+    "volcengine_cdn": {
+      "provider": "volcengine",
+      "config": {
+        "target": "cdn"
+      }
+    },
+    "volcengine_dcdn": {
+      "provider": "volcengine",
+      "config": {
+        "target": "dcdn"
+      }
+    }
+  }
+}

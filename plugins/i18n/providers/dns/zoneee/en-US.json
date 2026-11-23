@@ -1,0 +1,4 @@
+{
+  "meta.dns.zoneee.desc": "Manage DNS records through the zone.ee API.",
+  "meta.dns.zoneee.label": "zone.ee"
+}

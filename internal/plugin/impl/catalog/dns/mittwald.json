@@ -1,0 +1,14 @@
+{
+  "value": "mittwald",
+  "label_key": "meta.dns.mittwald.label",
+  "desc_key": "meta.dns.mittwald.desc",
+  "fields": [
+    {
+      "key": "mittwald_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "MITTWALD_TOKEN"
+    }
+  ]
+}

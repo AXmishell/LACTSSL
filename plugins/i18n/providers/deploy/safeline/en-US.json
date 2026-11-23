@@ -1,0 +1,4 @@
+{
+  "meta.deploy.safeline.desc": "Update matching SafeLine WAF certificates, the console certificate or the auth portal certificate according to the selected target",
+  "meta.deploy.safeline.label": "SafeLine WAF"
+}

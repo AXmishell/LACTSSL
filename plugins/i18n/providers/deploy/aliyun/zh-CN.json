@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun.desc": "上传证书并按所选对象部署到阿里云 CDN、DCDN、ESA、OSS 或 WAF",
+  "meta.deploy.aliyun.label": "阿里云"
+}

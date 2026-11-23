@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baota_site.desc": "通过宝塔面板 API 为指定网站部署 SSL 证书",
+  "meta.deploy.baota_site.label": "宝塔面板网站"
+}

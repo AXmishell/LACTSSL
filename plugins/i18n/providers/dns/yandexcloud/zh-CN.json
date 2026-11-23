@@ -1,0 +1,4 @@
+{
+  "meta.dns.yandexcloud.desc": "通过 Yandex Cloud 接口管理 DNS 记录。",
+  "meta.dns.yandexcloud.label": "Yandex Cloud"
+}

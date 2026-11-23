@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baidu_cdn.desc": "Upload and bind a domain certificate through Baidu Cloud CDN",
+  "meta.deploy.baidu_cdn.label": "Baidu Cloud CDN"
+}

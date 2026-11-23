@@ -59,39 +59,85 @@ func RegisterExternal(p Plugin) error {
 }
 
 func register(p Plugin) error {
+	registry.Lock()
+	defer registry.Unlock()
+	return registerInto(registry.byID, registry.alias, p)
+}
+
+// registerInto 把插件写入给定的 id/alias 映射，调用方负责加锁。
+// 先校验全部冲突再写入，避免失败时留下半条记录。
+func registerInto(byID map[string]Plugin, alias map[string]string, p Plugin) error {
 	id := normalize(p.ID())
 	if id == "" {
 		return errInvalidID
 	}
-	registry.Lock()
-	defer registry.Unlock()
-	if _, exists := registry.byID[id]; exists {
+	if _, exists := byID[id]; exists {
 		return &DuplicateError{ID: id}
 	}
 	// 新 ID 不能占用其他插件已经注册的别名，否则 Lookup 会优先命中
 	// byID，导致旧插件的凭据被新 helper 接收。
-	if _, exists := registry.alias[id]; exists {
+	if _, exists := alias[id]; exists {
 		return &DuplicateError{ID: id}
 	}
-	for _, alias := range p.Aliases() {
-		alias = normalize(alias)
-		if alias == "" {
+	for _, item := range p.Aliases() {
+		item = normalize(item)
+		if item == "" {
 			continue
 		}
-		if _, exists := registry.byID[alias]; exists {
-			return &DuplicateError{ID: alias}
+		if _, exists := byID[item]; exists {
+			return &DuplicateError{ID: item}
 		}
-		if _, exists := registry.alias[alias]; exists {
-			return &DuplicateError{ID: alias}
-		}
-	}
-	registry.byID[id] = p
-	for _, alias := range p.Aliases() {
-		alias = normalize(alias)
-		if alias != "" && alias != id {
-			registry.alias[alias] = id
+		if _, exists := alias[item]; exists {
+			return &DuplicateError{ID: item}
 		}
 	}
+	byID[id] = p
+	for _, item := range p.Aliases() {
+		item = normalize(item)
+		if item != "" && item != id {
+			alias[item] = id
+		}
+	}
+	return nil
+}
+
+// ReplaceBuiltin 原子替换全部内置插件。
+//
+// 它先在一个新的映射中完整注册新集合，全部成功后才交换到注册表；
+// 任一条目冲突或 ID 非法时返回错误并保留原有内置插件，避免并发重扫
+// 期间出现「注销完成、注册失败」的半套状态。外部插件条目不受影响。
+func ReplaceBuiltin(plugins []Plugin) error {
+	registry.Lock()
+	defer registry.Unlock()
+	return replaceSourceLocked(SourceBuiltin, plugins)
+}
+
+func replaceSourceLocked(source Source, plugins []Plugin) error {
+	byID := make(map[string]Plugin, len(registry.byID)+len(plugins))
+	for id, p := range registry.byID {
+		if p.Source() != source {
+			byID[id] = p
+		}
+	}
+	// 别名表按保留下来的插件重建，删除已消失来源的旧别名。
+	alias := make(map[string]string, len(byID))
+	for id, p := range byID {
+		for _, item := range p.Aliases() {
+			if item = normalize(item); item != "" && item != id {
+				alias[item] = id
+			}
+		}
+	}
+	for _, p := range plugins {
+		if p.Source() != source {
+			return registryError("plugin source does not match replacement target")
+		}
+		if err := registerInto(byID, alias, p); err != nil {
+			return err
+		}
+	}
+	registry.byID = byID
+	registry.alias = alias
 	return nil
 }
 

@@ -1,0 +1,43 @@
+{
+  "value": "bluecat",
+  "label_key": "meta.dns.bluecat.label",
+  "desc_key": "meta.dns.bluecat.desc",
+  "fields": [
+    {
+      "key": "bluecat_skip_deploy",
+      "label": "Skip Deploy",
+      "type": "text",
+      "env": "BLUECAT_SKIP_DEPLOY"
+    },
+    {
+      "key": "bluecat_server_url",
+      "label": "Server URL",
+      "type": "text",
+      "env": "BLUECAT_SERVER_URL"
+    },
+    {
+      "key": "bluecat_user_name",
+      "label": "User Name",
+      "type": "text",
+      "env": "BLUECAT_USER_NAME"
+    },
+    {
+      "key": "bluecat_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "BLUECAT_PASSWORD"
+    },
+    {
+      "key": "bluecat_config_name",
+      "label": "Config Name",
+      "type": "text",
+      "env": "BLUECAT_CONFIG_NAME"
+    },
+    {
+      "key": "bluecat_dns_view",
+      "label": "DNS View",
+      "type": "text",
+      "env": "BLUECAT_DNS_VIEW"
+    }
+  ]
+}

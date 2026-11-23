@@ -676,39 +676,6 @@ func TestDeployPluginsDefaultDisabled(t *testing.T) {
 	}
 }
 
-// TestLoadEnablesOfficialPluginRepoKeyByDefault 验证新配置默认启用官方仓库验签，
-// 且生成的 config.yaml 模板写入同一个公钥（避免默认值与模板漂移）。
-func TestLoadEnablesOfficialPluginRepoKeyByDefault(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	cfgPath := "config.yaml"
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.PluginRepo.PublicKey != officialPluginRepoPublicKey {
-		t.Fatalf("插件仓库公钥默认值不正确: %q", cfg.PluginRepo.PublicKey)
-	}
-	raw, err := os.ReadFile(cfgPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), officialPluginRepoPublicKey) {
-		t.Fatal("生成的 config.yaml 未写入官方插件仓库公钥")
-	}
-	text := string(raw)
-	if strings.Contains(text, "%!") {
-		t.Fatalf("生成的 config.yaml 存在格式化占位符错误:\n%s", text)
-	}
-	for _, key := range []string{"session_persistence:", "public_key:", "token:"} {
-		if !strings.Contains(text, key) {
-			t.Fatalf("生成的 config.yaml 缺少配置项 %q:\n%s", key, text)
-		}
-	}
-	assertYAMLHasAllConfigFields(t, raw, "生成的 config.yaml")
-}
-
 // TestWriteYAMLPreservesCommentsWhenFillingSecrets 验证补齐密钥时不会丢掉用户注释。
 func TestWriteYAMLPreservesCommentsWhenFillingSecrets(t *testing.T) {
 	dir := t.TempDir()

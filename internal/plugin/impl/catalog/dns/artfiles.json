@@ -1,0 +1,21 @@
+{
+  "value": "artfiles",
+  "label_key": "meta.dns.artfiles.label",
+  "desc_key": "meta.dns.artfiles.desc",
+  "fields": [
+    {
+      "key": "artfiles_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "ARTFILES_USERNAME"
+    },
+    {
+      "key": "artfiles_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "ARTFILES_PASSWORD"
+    }
+  ]
+}

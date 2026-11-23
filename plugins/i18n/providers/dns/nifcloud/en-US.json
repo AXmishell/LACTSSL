@@ -1,0 +1,4 @@
+{
+  "meta.dns.nifcloud.desc": "Manage DNS records through the NIFCLOUD DNS API.",
+  "meta.dns.nifcloud.label": "NIFCLOUD DNS"
+}

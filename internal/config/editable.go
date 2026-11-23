@@ -312,14 +312,6 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 	pluginsMemoryLimitMB := cfg.Plugins.MemoryLimitMB
 	pluginsTimeoutSeconds := cfg.Plugins.TimeoutSeconds
 	pluginsMaxOutputKB := cfg.Plugins.MaxOutputKB
-	repoEnabled := cfg.Plugins.Repo.Enabled
-	repoURL := cfg.Plugins.Repo.URL
-	repoChannel := cfg.Plugins.Repo.Channel
-	repoAutoUpdate := cfg.Plugins.Repo.AutoUpdate
-	repoProxy := strings.TrimSpace(cfg.Plugins.Repo.Proxy)
-	repoTimeoutSeconds := cfg.Plugins.Repo.TimeoutSeconds
-	repoMaxDownloadMB := cfg.Plugins.Repo.MaxDownloadMB
-	repoCheckIntervalHours := cfg.Plugins.Repo.CheckIntervalHours
 
 	deployEnabled := cfg.DeployPlugins.Enabled
 	deployMemoryLimitMB := cfg.DeployPlugins.MemoryLimitMB
@@ -400,16 +392,6 @@ func SetupConfigPatchFrom(cfg *SetupConfig) SetupConfigPatch {
 			MemoryLimitMB:  &pluginsMemoryLimitMB,
 			TimeoutSeconds: &pluginsTimeoutSeconds,
 			MaxOutputKB:    &pluginsMaxOutputKB,
-			Repo: &SetupPluginRepoPatch{
-				Enabled:            &repoEnabled,
-				URL:                &repoURL,
-				Channel:            &repoChannel,
-				AutoUpdate:         &repoAutoUpdate,
-				Proxy:              &repoProxy,
-				TimeoutSeconds:     &repoTimeoutSeconds,
-				MaxDownloadMB:      &repoMaxDownloadMB,
-				CheckIntervalHours: &repoCheckIntervalHours,
-			},
 		},
 		DeployPlugins: &SetupPluginRuntimePatch{
 			Enabled:        &deployEnabled,

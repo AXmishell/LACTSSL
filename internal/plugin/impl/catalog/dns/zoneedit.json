@@ -1,0 +1,21 @@
+{
+  "value": "zoneedit",
+  "label_key": "meta.dns.zoneedit.label",
+  "desc_key": "meta.dns.zoneedit.desc",
+  "fields": [
+    {
+      "key": "zoneedit_user",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "ZONEEDIT_USER"
+    },
+    {
+      "key": "zoneedit_auth_token",
+      "label": "Auth Token",
+      "type": "password",
+      "required": true,
+      "env": "ZONEEDIT_AUTH_TOKEN"
+    }
+  ]
+}

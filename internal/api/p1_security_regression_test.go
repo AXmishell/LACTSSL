@@ -1,9 +1,7 @@
 package api
 
 import (
-	"errors"
 	"net/http"
-	"strings"
 	"testing"
 )
 
@@ -42,38 +40,5 @@ func TestSetupFailsClosedWithoutToken(t *testing.T) {
 		map[string]string{setupTokenHeader: "p1-setup-token"})
 	if allowed.Code != http.StatusOK {
 		t.Fatalf("携带正确 token 应允许读取 setup config: %d %s", allowed.Code, allowed.Body.String())
-	}
-}
-
-// TestRepoStatusRedactsSecrets 验证 plugins:read 不能读取仓库 token 或代理口令。
-func TestRepoStatusRedactsSecrets(t *testing.T) {
-	st := newSessionTestStore(t)
-	s := &Server{
-		Store:             st,
-		PluginRepoEnabled: true,
-		PluginRepoURL:     "https://repo-user:repo-pass@example.com/plugins/index.json?token=repo-token",
-		PluginRepoProxy:   "socks5://proxy-user:proxy-pass@127.0.0.1:1080/path?token=proxy-token",
-	}
-	status := s.repoStatus()
-	if status["url"] != "https://example.com/plugins/index.json" {
-		t.Fatalf("仓库 URL 未脱敏: %v", status["url"])
-	}
-	if status["proxy"] != "socks5://127.0.0.1:1080" {
-		t.Fatalf("代理未脱敏: %v", status["proxy"])
-	}
-	for _, key := range []string{"url", "proxy", "error"} {
-		text, _ := status[key].(string)
-		for _, secret := range []string{"repo-pass", "repo-token", "proxy-pass", "proxy-token"} {
-			if strings.Contains(text, secret) {
-				t.Fatalf("%s 泄露了 %s: %q", key, secret, text)
-			}
-		}
-	}
-
-	s.setRepoError(errors.New("request https://u:secret@example.com/index?token=abc failed"))
-	status = s.repoStatus()
-	errText, _ := status["error"].(string)
-	if strings.Contains(errText, "secret") || strings.Contains(errText, "abc") {
-		t.Fatalf("仓库错误信息未脱敏: %q", errText)
 	}
 }

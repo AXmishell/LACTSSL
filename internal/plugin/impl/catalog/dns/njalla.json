@@ -1,0 +1,14 @@
+{
+  "value": "njalla",
+  "label_key": "meta.dns.njalla.label",
+  "desc_key": "meta.dns.njalla.desc",
+  "fields": [
+    {
+      "key": "njalla_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "NJALLA_TOKEN"
+    }
+  ]
+}

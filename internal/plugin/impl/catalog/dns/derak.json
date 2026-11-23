@@ -1,0 +1,19 @@
+{
+  "value": "derak",
+  "label_key": "meta.dns.derak.label",
+  "desc_key": "meta.dns.derak.desc",
+  "fields": [
+    {
+      "key": "derak_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "DERAK_API_KEY"
+    },
+    {
+      "key": "derak_website_id",
+      "label": "Website ID",
+      "type": "text",
+      "env": "DERAK_WEBSITE_ID"
+    }
+  ]
+}

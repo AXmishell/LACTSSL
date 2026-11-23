@@ -1,0 +1,4 @@
+{
+  "meta.deploy.tencent.desc": "Upload the certificate and deploy it to Tencent Cloud CDN, COS, EdgeOne or WAF according to the selected target",
+  "meta.deploy.tencent.label": "Tencent Cloud"
+}

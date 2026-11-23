@@ -1,0 +1,39 @@
+{
+  "value": "safeline_panel",
+  "label_key": "meta.deploy.safeline_panel.label",
+  "desc_key": "meta.deploy.safeline_panel.desc",
+  "fields": [
+    {
+      "key": "panel_url",
+      "label_key": "meta.field.panel_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.panel_url.placeholder",
+      "help_key": "meta.field.panel_url.help"
+    },
+    {
+      "key": "api_token",
+      "label_key": "meta.field.panel_api_token.label",
+      "type": "password",
+      "required": true,
+      "help_key": "meta.field.panel_api_token.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deprecated": true
+}

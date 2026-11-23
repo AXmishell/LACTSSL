@@ -1,0 +1,14 @@
+{
+  "value": "czechia",
+  "label_key": "meta.dns.czechia.label",
+  "desc_key": "meta.dns.czechia.desc",
+  "fields": [
+    {
+      "key": "czechia_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "CZECHIA_TOKEN"
+    }
+  ]
+}

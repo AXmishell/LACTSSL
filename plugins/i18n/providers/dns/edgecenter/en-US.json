@@ -1,0 +1,4 @@
+{
+  "meta.dns.edgecenter.desc": "Manage DNS records through the EdgeCenter API.",
+  "meta.dns.edgecenter.label": "EdgeCenter"
+}

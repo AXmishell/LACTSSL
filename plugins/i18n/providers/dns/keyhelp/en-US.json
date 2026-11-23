@@ -1,0 +1,4 @@
+{
+  "meta.dns.keyhelp.desc": "Manage DNS records through the KeyHelp API.",
+  "meta.dns.keyhelp.label": "KeyHelp"
+}

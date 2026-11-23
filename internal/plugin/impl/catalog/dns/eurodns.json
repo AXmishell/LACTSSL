@@ -1,0 +1,21 @@
+{
+  "value": "eurodns",
+  "label_key": "meta.dns.eurodns.label",
+  "desc_key": "meta.dns.eurodns.desc",
+  "fields": [
+    {
+      "key": "eurodns_app_id",
+      "label": "App ID",
+      "type": "text",
+      "required": true,
+      "env": "EURODNS_APP_ID"
+    },
+    {
+      "key": "eurodns_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "EURODNS_API_KEY"
+    }
+  ]
+}

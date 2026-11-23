@@ -49,6 +49,8 @@ type ExternalChannel struct {
 	Enabled bool `json:"enabled"`
 	// FileEnabled 表示该渠道所属的 helper 文件未被管理员停用。
 	FileEnabled bool `json:"file_enabled"`
+	// Source 是通知渠道来源：builtin 或 exec。
+	Source string `json:"source,omitempty"`
 }
 
 var externalState = struct {
@@ -186,6 +188,7 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 						memoryLimitMB: cfg.MemoryLimitMB,
 						timeout:       cfg.Timeout,
 						maxOutputKB:   cfg.MaxOutputKB,
+						uploadSandbox: cfg.UploadSandboxProfile,
 					},
 				})
 				result.Channels++
@@ -203,6 +206,7 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 				Version:     item.manifest.Version,
 				Enabled:     enabled,
 				FileEnabled: true,
+				Source:      string(SourceExec),
 			}
 			externalState.Unlock()
 			accepted++
@@ -295,15 +299,15 @@ func ExternalChannelInfo(id string) (ExternalChannel, bool) {
 		return channel, true
 	}
 	plugin, ok := Lookup(id)
-	if !ok || plugin.Source() != SourceExec {
-		return ExternalChannel{}, false
+	if !ok || (plugin.Source() != SourceExec && plugin.Source() != SourceBuiltin) {
+		return BuiltinChannelInfo(key)
 	}
 	if provider, ok := plugin.(interface{ Info() ExternalChannel }); ok {
 		info := provider.Info()
 		info.Enabled = true
 		return info, true
 	}
-	return ExternalChannel{}, false
+	return BuiltinChannelInfo(key)
 }
 
 // ExternalHelpers 返回已加载的通知 helper 数量。
@@ -318,6 +322,7 @@ func inspectHelper(path string, cfg DiscoverConfig) (Manifest, error) {
 		Timeout:       cfg.ManifestTimeout,
 		MemoryLimitMB: cfg.MemoryLimitMB,
 		MaxOutputKB:   manifestOutputKB,
+		Sandbox:       pluginexec.SandboxOptions{Profile: cfg.UploadSandboxProfile},
 		Env:           []string{"LACTSSL_NOTIFY_PLUGIN_PROTOCOL=" + execProtocol},
 	})
 	if errors.Is(err, pluginexec.ErrTimeout) {
@@ -455,6 +460,7 @@ type execSettings struct {
 	memoryLimitMB int
 	timeout       time.Duration
 	maxOutputKB   int
+	uploadSandbox string
 }
 
 type externalNotifier struct {
@@ -534,6 +540,7 @@ func (n *externalNotifier) Notify(cfg map[string]any, msg Message) error {
 		Timeout:       n.settings.timeout,
 		MemoryLimitMB: n.settings.memoryLimitMB,
 		MaxOutputKB:   n.settings.maxOutputKB,
+		Sandbox:       pluginexec.SandboxOptions{Profile: n.settings.uploadSandbox},
 		Env:           []string{"LACTSSL_NOTIFY_PLUGIN_PROTOCOL=" + execProtocol},
 	})
 	secrets := redactionSecrets(cfg)

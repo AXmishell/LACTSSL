@@ -1,0 +1,4 @@
+{
+  "meta.dns.azion.desc": "通过 Azion Edge DNS 接口管理 DNS 记录。",
+  "meta.dns.azion.label": "Azion Edge DNS"
+}

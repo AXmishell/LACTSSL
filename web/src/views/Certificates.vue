@@ -341,10 +341,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Close, CopyDocument, Delete, Download, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { ArrowDown, CircleCheck, CircleClose, Close, CopyDocument, Delete, Document, Download, Plus, Refresh, Search, UploadFilled, Warning } from '@element-plus/icons-vue'
 import { api, copyText, downloadFile } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta, state } from '../store'
@@ -725,9 +725,9 @@ function onDeployTargetAccountChange(target: DeployTarget): void {
   target.deploy_config = normalizeDeployConfig(account?.type, {})
 }
 
-function deployResultIcon(result: DeployResult): string {
-  if (result.status === 'skipped' || result.status === 'conflict') return 'Warning'
-  return result.success ? 'CircleCheck' : 'CircleClose'
+function deployResultIcon(result: DeployResult): Component {
+  if (result.status === 'skipped' || result.status === 'conflict') return Warning
+  return result.success ? CircleCheck : CircleClose
 }
 
 function deployStatusLabel(status?: string): string {

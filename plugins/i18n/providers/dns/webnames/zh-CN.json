@@ -1,0 +1,4 @@
+{
+  "meta.dns.webnames.desc": "通过 webnames.ru DNS 接口管理 DNS 记录。",
+  "meta.dns.webnames.label": "webnames.ru DNS"
+}

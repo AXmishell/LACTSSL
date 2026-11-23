@@ -1,0 +1,4 @@
+{
+  "meta.deploy.acepanel.desc": "上传证书并部署到 AcePanel 网站或替换面板自身的 HTTPS 证书",
+  "meta.deploy.acepanel.label": "AcePanel"
+}

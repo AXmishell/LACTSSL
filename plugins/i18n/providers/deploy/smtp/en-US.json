@@ -1,0 +1,4 @@
+{
+  "meta.deploy.smtp.desc": "Send the certificate as a ZIP attachment to the selected mailboxes",
+  "meta.deploy.smtp.label": "Email Certificate"
+}

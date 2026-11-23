@@ -1,0 +1,25 @@
+{
+  "value": "easydns",
+  "label_key": "meta.dns.easydns.label",
+  "desc_key": "meta.dns.easydns.desc",
+  "fields": [
+    {
+      "key": "easydns_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "EASYDNS_ENDPOINT"
+    },
+    {
+      "key": "easydns_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "env": "EASYDNS_TOKEN"
+    },
+    {
+      "key": "easydns_key",
+      "label": "Key",
+      "type": "password",
+      "env": "EASYDNS_KEY"
+    }
+  ]
+}

@@ -246,9 +246,21 @@ func LocalizeCADefs(locale i18n.Locale) []CADef {
 // LocalizeDNSProviders 返回指定语言的 DNS 服务商列表。
 // 列表只包含当前已安装且已启用的插件服务商；元数据直接来自 helper manifest。
 func LocalizeDNSProviders(locale i18n.Locale) []ProviderDef {
+	builtins := dnsplugin.BuiltinProviders()
 	externals := dnsplugin.ExternalEnabledProviders()
-	out := make([]ProviderDef, 0, len(externals))
+	out := make([]ProviderDef, 0, len(builtins)+len(externals))
+	known := make(map[string]bool, len(builtins))
+	for _, provider := range builtins {
+		item := externalProviderDef(provider).Localized(locale)
+		item.Available = provider.Enabled
+		item.Source = string(dnsplugin.SourceBuiltin)
+		out = append(out, item)
+		known[strings.ToLower(provider.ID)] = true
+	}
 	for _, external := range externals {
+		if known[strings.ToLower(external.ID)] {
+			continue
+		}
 		out = append(out, externalProviderDef(external).Localized(locale))
 	}
 	return out
@@ -270,12 +282,16 @@ func externalProviderDef(external dnsplugin.ExternalProvider) ProviderDef {
 	if label == "" {
 		label = external.ID
 	}
+	source := external.Source
+	if source == "" {
+		source = string(dnsplugin.SourceExec)
+	}
 	out := ProviderDef{
 		Value:     external.ID,
 		Label:     label,
 		Desc:      external.Description,
 		Available: external.Enabled,
-		Source:    string(dnsplugin.SourceExec),
+		Source:    source,
 		Fields:    make([]FieldDef, 0, len(external.Fields)),
 		labelI18n: external.NameI18n,
 		descI18n:  external.DescriptionI18n,
@@ -330,15 +346,27 @@ func manifestProviderDef(provider pluginproto.DNSProvider) ProviderDef {
 // 列表只包含当前可用的目标：主程序内置的本地文件与 SSH，以及已加载且已启用的
 // 部署插件目标。旧版合并目标在规范目标可用时隐藏。
 func LocalizeDeployTypes(locale i18n.Locale) []ProviderDef {
+	builtins := deployplugin.BuiltinDeployers()
 	externals := deployplugin.ExternalDeployers()
-	out := make([]ProviderDef, 0, len(DeployTypes)+len(externals))
+	out := make([]ProviderDef, 0, len(DeployTypes)+len(builtins)+len(externals))
 	known := make(map[string]bool, len(DeployTypes))
 	for _, provider := range DeployTypes {
 		item := provider.Localized(locale)
 		item.Available = true
 		item.Source = string(deployplugin.SourceBuiltin)
 		out = append(out, item)
-		known[item.Value] = true
+		known[strings.ToLower(item.Value)] = true
+	}
+	for _, builtin := range builtins {
+		id := strings.ToLower(strings.TrimSpace(builtin.ID))
+		if id == "" || known[id] {
+			continue
+		}
+		item := externalDeployerDef(builtin).Localized(locale)
+		item.Available = builtin.Enabled
+		item.Source = string(deployplugin.SourceBuiltin)
+		out = append(out, item)
+		known[id] = true
 	}
 	for _, external := range externals {
 		if !external.Enabled {
@@ -368,12 +396,16 @@ func externalDeployerDef(external deployplugin.ExternalDeployer) ProviderDef {
 	if label == "" {
 		label = external.ID
 	}
+	source := external.Source
+	if source == "" {
+		source = string(deployplugin.SourceExec)
+	}
 	return ProviderDef{
 		Value:        external.ID,
 		Label:        label,
 		Desc:         external.Description,
 		Available:    external.Enabled,
-		Source:       string(deployplugin.SourceExec),
+		Source:       source,
 		Fields:       externalManifestFields(external.Fields),
 		DeployFields: externalManifestFields(external.DeployFields),
 		Capabilities: append([]string(nil), external.Capabilities...),

@@ -1,0 +1,4 @@
+{
+  "meta.dns.bluecat.desc": "通过 Bluecat Address Manager 接口管理 DNS 记录。",
+  "meta.dns.bluecat.label": "Bluecat Address Manager"
+}

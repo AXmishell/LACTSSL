@@ -1,0 +1,21 @@
+{
+  "value": "internetbs",
+  "label_key": "meta.dns.internetbs.label",
+  "desc_key": "meta.dns.internetbs.desc",
+  "fields": [
+    {
+      "key": "internet_bs_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "INTERNET_BS_API_KEY"
+    },
+    {
+      "key": "internet_bs_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "INTERNET_BS_PASSWORD"
+    }
+  ]
+}

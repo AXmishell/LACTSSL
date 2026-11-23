@@ -1,0 +1,21 @@
+{
+  "value": "bookmyname",
+  "label_key": "meta.dns.bookmyname.label",
+  "desc_key": "meta.dns.bookmyname.desc",
+  "fields": [
+    {
+      "key": "bookmyname_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "BOOKMYNAME_USERNAME"
+    },
+    {
+      "key": "bookmyname_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "BOOKMYNAME_PASSWORD"
+    }
+  ]
+}

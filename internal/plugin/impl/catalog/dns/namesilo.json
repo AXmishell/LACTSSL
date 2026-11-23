@@ -1,0 +1,14 @@
+{
+  "value": "namesilo",
+  "label_key": "meta.dns.namesilo.label",
+  "desc_key": "meta.dns.namesilo.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "NAMESILO_API_KEY"
+    }
+  ]
+}

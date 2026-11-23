@@ -1,0 +1,4 @@
+{
+  "meta.dns.manageengine.desc": "Manage DNS records through the ManageEngine CloudDNS API.",
+  "meta.dns.manageengine.label": "ManageEngine CloudDNS"
+}

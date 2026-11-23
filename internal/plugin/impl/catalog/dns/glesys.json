@@ -1,0 +1,21 @@
+{
+  "value": "glesys",
+  "label_key": "meta.dns.glesys.label",
+  "desc_key": "meta.dns.glesys.desc",
+  "fields": [
+    {
+      "key": "glesys_api_user",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "GLESYS_API_USER"
+    },
+    {
+      "key": "glesys_api_key",
+      "label": "Key",
+      "type": "password",
+      "required": true,
+      "env": "GLESYS_API_KEY"
+    }
+  ]
+}

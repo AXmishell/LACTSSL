@@ -1,0 +1,4 @@
+{
+  "meta.dns.designate.desc": "Manage DNS records through the Designate DNSaaS for OpenStack API.",
+  "meta.dns.designate.label": "Designate DNSaaS for OpenStack"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.upyun_cdn.desc": "上传证书并部署到又拍云 CDN/USS 域名",
+  "meta.deploy.upyun_cdn.label": "又拍云 CDN"
+}

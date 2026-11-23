@@ -1,0 +1,14 @@
+{
+  "value": "edgecenter",
+  "label_key": "meta.dns.edgecenter.label",
+  "desc_key": "meta.dns.edgecenter.desc",
+  "fields": [
+    {
+      "key": "edgecenter_permanent_api_token",
+      "label": "Edgecenter Permanent API Token",
+      "type": "password",
+      "required": true,
+      "env": "EDGECENTER_PERMANENT_API_TOKEN"
+    }
+  ]
+}

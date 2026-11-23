@@ -1,0 +1,4 @@
+{
+  "meta.dns.gcore.desc": "通过 Gcore 接口管理 DNS 记录。",
+  "meta.dns.gcore.label": "Gcore"
+}

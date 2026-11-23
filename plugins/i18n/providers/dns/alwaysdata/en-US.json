@@ -1,0 +1,4 @@
+{
+  "meta.dns.alwaysdata.desc": "Manage DNS records through the Alwaysdata API.",
+  "meta.dns.alwaysdata.label": "Alwaysdata"
+}

@@ -1,0 +1,19 @@
+{
+  "value": "selectel",
+  "label_key": "meta.dns.selectel.label",
+  "desc_key": "meta.dns.selectel.desc",
+  "fields": [
+    {
+      "key": "selectel_base_url",
+      "label_key": "meta.field.base_url.label",
+      "type": "text",
+      "env": "SELECTEL_BASE_URL"
+    },
+    {
+      "key": "selectel_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "env": "SELECTEL_API_TOKEN"
+    }
+  ]
+}

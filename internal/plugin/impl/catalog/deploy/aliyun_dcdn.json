@@ -1,0 +1,28 @@
+{
+  "value": "aliyun_dcdn",
+  "label_key": "meta.deploy.aliyun_dcdn.label",
+  "desc_key": "meta.deploy.aliyun_dcdn.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "access_key_secret",
+      "label_key": "meta.field.access_key_secret.label",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    }
+  ],
+  "deprecated": true
+}

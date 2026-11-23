@@ -199,7 +199,7 @@ Recommendations:
 
 ## 8. Plugin and supply chain security
 
-- The official plugin repository supports Ed25519 index signatures; once a public key is configured, `index.json.sig` is verified mandatorily.
+- Official plugins are compiled into the host and covered by the release signature/image digest. Uploaded plugins run in a Linux Landlock/rlimit sandbox by default, and their digests are rechecked for manifest probes and every call. If the host still runs as root without `LACTSSL_RUN_UID`/`LACTSSL_RUN_GID`, uploaded plugins are refused.
 - Official builds embed `upgrade.program.public_key` and enforce release signature verification by default; self-built binaries without it reject online upgrades, and only controlled environments may enable `upgrade.program.allow_unsigned`.
 - Assets must provide a 64-character hexadecimal SHA-256 digest, which is verified after download.
 - Installation validates `plugin.json`, the ID and version in the manifest, and other attributes; any failure triggers a rollback.

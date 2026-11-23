@@ -1,0 +1,21 @@
+{
+  "value": "brandit",
+  "label_key": "meta.dns.brandit.label",
+  "desc_key": "meta.dns.brandit.desc",
+  "fields": [
+    {
+      "key": "brandit_api_key",
+      "label": "Key",
+      "type": "password",
+      "required": true,
+      "env": "BRANDIT_API_KEY"
+    },
+    {
+      "key": "brandit_api_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "BRANDIT_API_USERNAME"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "value": "axelname",
+  "label_key": "meta.dns.axelname.label",
+  "desc_key": "meta.dns.axelname.desc",
+  "fields": [
+    {
+      "key": "axelname_nickname",
+      "label": "Nickname",
+      "type": "text",
+      "required": true,
+      "env": "AXELNAME_NICKNAME"
+    },
+    {
+      "key": "axelname_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "AXELNAME_TOKEN"
+    }
+  ]
+}

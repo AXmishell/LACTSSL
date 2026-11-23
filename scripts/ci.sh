@@ -123,6 +123,9 @@ if [ "$RUN_BACKEND" -eq 1 ]; then
   step "覆盖率"
   go tool cover -func=coverage.out | tail -n 1
 
+  step "插件 module 检查（plugins/）"
+  (cd plugins && go vet ./... && go test ./...)
+
   if command -v govulncheck >/dev/null 2>&1; then
     step "govulncheck"
     govulncheck ./...
@@ -161,17 +164,38 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   rm -rf internal/webui/dist
   cp -a web/dist internal/webui/dist
   go run ./scripts/compress-assets.go internal/webui/dist
+  go run ./scripts/bundle-i18n.go
+
+  step "校验嵌入语言包"
+  go test -tags embed ./internal/i18n
+
   mkdir -p bin
   build_version="$(./scripts/version.sh)"
   build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   build_arch="$(go env GOOS)/$(go env GOARCH)"
-  CGO_ENABLED=0 go build -trimpath -tags "embed nomsgpack" \
+  CGO_ENABLED=0 go build -trimpath -tags "embed nomsgpack validator_novalidatefn" \
     -ldflags "-s -w -X 'lactssl/internal/api.Version=$build_version' -X 'lactssl/internal/api.BuildTime=$build_time' -X 'lactssl/internal/api.BuildArch=$build_arch'" \
     -o bin/lactssl ./cmd/server
 
   step "校验产物"
   test -x bin/lactssl
   ls -lh bin/lactssl
+
+  # validateFn 在启用 validator_novalidatefn 后会 panic；仓库约定不使用该标签。
+  if grep -rn 'binding:"[^"]*validateFn' --include='*.go' internal cmd >/dev/null 2>&1; then
+    echo "检测到 binding:\"validateFn\" 标签：与 validator_novalidatefn 构建标签冲突，请改用显式校验。" >&2
+    exit 1
+  fi
+
+  # 体积预算用于守住 validator_novalidatefn 等瘦身成果；超出时请先看 make size。
+  size_bytes=$(wc -c < bin/lactssl)
+  budget_bytes=$((32 * 1024 * 1024))
+  size_mib=$(awk -v b="$size_bytes" 'BEGIN { printf "%.2f", b / 1048576 }')
+  if [ "$size_bytes" -gt "$budget_bytes" ]; then
+    echo "二进制体积 ${size_mib} MiB 超过 32 MiB 预算；请运行 make size 定位增长来源。" >&2
+    exit 1
+  fi
+  echo "二进制体积 ${size_mib} MiB（预算 32 MiB）"
 
 fi
 

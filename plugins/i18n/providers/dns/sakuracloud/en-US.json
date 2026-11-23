@@ -1,0 +1,4 @@
+{
+  "meta.dns.sakuracloud.desc": "Manage DNS records through the SakuraCloud DNS API.",
+  "meta.dns.sakuracloud.label": "SakuraCloud DNS"
+}

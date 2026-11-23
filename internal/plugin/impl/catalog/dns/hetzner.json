@@ -1,0 +1,14 @@
+{
+  "value": "hetzner",
+  "label_key": "meta.dns.hetzner.label",
+  "desc_key": "meta.dns.hetzner.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "HETZNER_API_KEY"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "value": "namesurfer",
+  "label_key": "meta.dns.namesurfer.label",
+  "desc_key": "meta.dns.namesurfer.desc",
+  "fields": [
+    {
+      "key": "namesurfer_base_url",
+      "label_key": "meta.field.base_url.label",
+      "type": "text",
+      "env": "NAMESURFER_BASE_URL"
+    },
+    {
+      "key": "namesurfer_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "NAMESURFER_API_KEY"
+    },
+    {
+      "key": "namesurfer_api_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "env": "NAMESURFER_API_SECRET"
+    },
+    {
+      "key": "namesurfer_view",
+      "label": "View",
+      "type": "text",
+      "env": "NAMESURFER_VIEW"
+    },
+    {
+      "key": "namesurfer_insecure_skip_verify",
+      "label": "Insecure Skip Verify",
+      "type": "text",
+      "env": "NAMESURFER_INSECURE_SKIP_VERIFY"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "value": "rfc2136",
+  "label_key": "meta.dns.rfc2136.label",
+  "desc_key": "meta.dns.rfc2136.desc",
+  "fields": [
+    {
+      "key": "nameserver",
+      "label_key": "meta.field.nameserver.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.nameserver.placeholder",
+      "help_key": "meta.field.nameserver.help",
+      "env": "DNSUPDATE_NAMESERVER"
+    },
+    {
+      "key": "tsig_key",
+      "label_key": "meta.field.tsig_key.label",
+      "type": "text",
+      "help_key": "meta.field.tsig_key.help",
+      "env": "DNSUPDATE_TSIG_KEY"
+    },
+    {
+      "key": "tsig_secret",
+      "label_key": "meta.field.tsig_secret.label",
+      "type": "password",
+      "env": "DNSUPDATE_TSIG_SECRET"
+    },
+    {
+      "key": "tsig_algorithm",
+      "label_key": "meta.field.tsig_algorithm.label",
+      "type": "text",
+      "placeholder_key": "meta.field.tsig_algorithm.placeholder",
+      "help_key": "meta.field.tsig_algorithm.help",
+      "env": "DNSUPDATE_TSIG_ALGORITHM"
+    },
+    {
+      "key": "zones",
+      "label_key": "meta.field.zones.label",
+      "type": "text",
+      "help_key": "meta.field.zones.help",
+      "env": "DNSUPDATE_ZONES"
+    },
+    {
+      "key": "allow_legacy_md5",
+      "label_key": "meta.field.allow_legacy_md5.label",
+      "type": "select",
+      "help_key": "meta.field.allow_legacy_md5.help",
+      "default": "false",
+      "env": "DNSUPDATE_ALLOW_LEGACY_MD5",
+      "options": [
+        {
+          "label_key": "meta.field.boolean.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.boolean.true",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

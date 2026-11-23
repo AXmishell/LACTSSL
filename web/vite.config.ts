@@ -1,5 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -257,6 +259,17 @@ export default defineConfig({
     vue({
       // 生产构建不保留模板注释，避免注释进入 go:embed 的前端资源。
       template: { compilerOptions: { comments: false } }
+    }),
+    // Element Plus 按需引入：只打包模板中实际使用的组件 JS，
+    // 替代 main.ts 中全量 import ElementPlus 与全量图标注册。
+    // 样式由 main.ts 统一引入整份 CSS，避免路由 chunk 的样式顺序
+    // 晚于 styles.css 而覆盖全局定制。
+    Components({
+      dts: false,
+      dirs: [],
+      // 显式开启指令解析，保证 v-loading 等 Element Plus 指令按需引入。
+      directives: true,
+      resolvers: [ElementPlusResolver({ importStyle: false })]
     }),
     entryGuardPlugin(entry),
     stripCommentsPlugin()

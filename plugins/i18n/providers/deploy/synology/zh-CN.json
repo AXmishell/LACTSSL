@@ -1,0 +1,4 @@
+{
+  "meta.deploy.synology.desc": "通过群晖 DSM Web API 更新证书，无需 SSH",
+  "meta.deploy.synology.label": "群晖 DSM"
+}

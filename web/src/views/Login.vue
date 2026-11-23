@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import { Key, Lock, Message } from '@element-plus/icons-vue'
 import { onMounted, ref, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

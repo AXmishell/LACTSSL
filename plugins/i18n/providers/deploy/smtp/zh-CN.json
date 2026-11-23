@@ -1,0 +1,4 @@
+{
+  "meta.deploy.smtp.desc": "将证书打包为 ZIP 附件发送到指定邮箱",
+  "meta.deploy.smtp.label": "邮件发送证书"
+}

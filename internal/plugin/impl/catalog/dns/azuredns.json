@@ -1,0 +1,88 @@
+{
+  "value": "azuredns",
+  "label_key": "meta.dns.azuredns.label",
+  "desc_key": "meta.dns.azuredns.desc",
+  "fields": [
+    {
+      "key": "tenant_id",
+      "label_key": "meta.field.tenant_id.label",
+      "type": "text",
+      "help_key": "meta.field.azure_credentials.help",
+      "env": "AZURE_TENANT_ID"
+    },
+    {
+      "key": "client_id",
+      "label_key": "meta.field.client_id.label",
+      "type": "text",
+      "help_key": "meta.field.azure_credentials.help",
+      "env": "AZURE_CLIENT_ID"
+    },
+    {
+      "key": "client_secret",
+      "label_key": "meta.field.client_secret.label",
+      "type": "password",
+      "help_key": "meta.field.azure_credentials.help",
+      "env": "AZURE_CLIENT_SECRET"
+    },
+    {
+      "key": "subscription_id",
+      "label_key": "meta.field.subscription_id.label",
+      "type": "text",
+      "help_key": "meta.field.azure_credentials.help",
+      "env": "AZURE_SUBSCRIPTION_ID"
+    },
+    {
+      "key": "resource_group",
+      "label_key": "meta.field.resource_group.label",
+      "type": "text",
+      "help_key": "meta.field.azure_credentials.help",
+      "env": "AZURE_RESOURCE_GROUP"
+    },
+    {
+      "key": "zone_name",
+      "label_key": "meta.field.zone_name.label",
+      "type": "text",
+      "help_key": "meta.field.zone_name.help",
+      "env": "AZURE_ZONE_NAME"
+    },
+    {
+      "key": "azure_environment",
+      "label_key": "meta.field.azure_environment.label",
+      "type": "select",
+      "default": "public",
+      "env": "AZURE_ENVIRONMENT",
+      "options": [
+        {
+          "label": "public",
+          "value": "public"
+        },
+        {
+          "label": "china",
+          "value": "china"
+        },
+        {
+          "label": "usgovernment",
+          "value": "usgovernment"
+        }
+      ]
+    },
+    {
+      "key": "private_zone",
+      "label_key": "meta.field.private_zone.label",
+      "type": "select",
+      "help_key": "meta.field.private_zone.help",
+      "default": "false",
+      "env": "AZURE_PRIVATE_ZONE",
+      "options": [
+        {
+          "label_key": "meta.field.boolean.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.boolean.true",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

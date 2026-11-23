@@ -1,0 +1,4 @@
+{
+  "meta.deploy.volcengine_dcdn.desc": "Upload a certificate and bind Volcengine DCDN domains",
+  "meta.deploy.volcengine_dcdn.label": "Volcengine DCDN"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.lightsail.desc": "通过 AWS Lightsail DNS 接口管理 DNS 记录。",
+  "meta.dns.lightsail.label": "AWS Lightsail DNS"
+}

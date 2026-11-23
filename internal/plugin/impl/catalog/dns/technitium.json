@@ -1,0 +1,21 @@
+{
+  "value": "technitium",
+  "label_key": "meta.dns.technitium.label",
+  "desc_key": "meta.dns.technitium.desc",
+  "fields": [
+    {
+      "key": "technitium_server_base_url",
+      "label": "Server Base URL",
+      "type": "text",
+      "required": true,
+      "env": "TECHNITIUM_SERVER_BASE_URL"
+    },
+    {
+      "key": "technitium_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "required": true,
+      "env": "TECHNITIUM_API_TOKEN"
+    }
+  ]
+}

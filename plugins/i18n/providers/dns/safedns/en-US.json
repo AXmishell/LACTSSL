@@ -1,0 +1,4 @@
+{
+  "meta.dns.safedns.desc": "Manage DNS records through the ANS SafeDNS API.",
+  "meta.dns.safedns.label": "ANS SafeDNS"
+}

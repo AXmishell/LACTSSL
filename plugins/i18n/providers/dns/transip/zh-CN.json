@@ -1,0 +1,4 @@
+{
+  "meta.dns.transip.desc": "通过 TransIP 接口管理 DNS 记录。",
+  "meta.dns.transip.label": "TransIP"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.safeline_portal.desc": "Update the certificate bound to the Safeline portal",
+  "meta.deploy.safeline_portal.label": "Safeline WAF Portal"
+}

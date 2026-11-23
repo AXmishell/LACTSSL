@@ -1,0 +1,4 @@
+{
+  "meta.deploy.1panel.desc": "上传证书到 1Panel，可部署到指定网站或替换面板自身的 SSL 证书",
+  "meta.deploy.1panel.label": "1Panel"
+}

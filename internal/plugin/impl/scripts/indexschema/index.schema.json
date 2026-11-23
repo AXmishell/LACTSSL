@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AXmishell/LACTSSL-Plugins/scripts/indexschema/index.schema.json",
+  "title": "LACTSSL plugin repository index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "channel", "protocol", "revision", "generated_at", "plugins"],
+  "properties": {
+    "schema": { "const": 1 },
+    "channel": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "protocol": { "const": "v1" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "repo_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "plugins": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/plugin" }
+    },
+    "icons": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/icon" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([.+-][0-9A-Za-z.-]+)?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "version", "protocol", "assets"],
+      "properties": {
+        "kind": { "enum": ["dns", "deploy", "notify"] },
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "version": { "$ref": "#/$defs/version" },
+        "source_hash": { "$ref": "#/$defs/sha256" },
+        "protocol": { "const": "v1" },
+        "min_host": { "$ref": "#/$defs/version" },
+        "bundle": { "type": "boolean" },
+        "providers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "uniqueItems": true
+        },
+        "variant_of": { "$ref": "#/$defs/id" },
+        "conflicts_with": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "uniqueItems": true
+        },
+        "sdk": { "type": "string", "maxLength": 32 },
+        "hide_icon": { "type": "boolean" },
+        "uncompressed_size": { "type": "integer", "minimum": 0 },
+        "single": { "type": "boolean" },
+        "deprecated": { "type": "boolean" },
+        "assets": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/asset" }
+        }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "sha256", "size"],
+      "properties": {
+        "url": { "type": "string", "pattern": "^(https?|file)://" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size": { "type": "integer", "minimum": 0 },
+        "uncompressed_size": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "icon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "mime", "sha256", "data"],
+      "properties": {
+        "kind": { "enum": ["dns", "deploy", "notify"] },
+        "id": { "$ref": "#/$defs/id" },
+        "mime": { "enum": ["image/svg+xml", "image/png", "image/webp"] },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "data": {
+          "type": "string",
+          "pattern": "^data:image/(svg\\+xml|png|webp);base64,"
+        },
+        "aliases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

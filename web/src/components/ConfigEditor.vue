@@ -375,65 +375,14 @@
                 style="width: 100%"
               />
             </el-form-item>
-          </div>
-        </div>
-
-        <div class="config-section">
-          <div class="config-section-head">
-            <div class="config-section-title-wrap">
-              <div class="config-section-title">{{ t('setup.configPluginRepo') }}</div>
-              <div class="config-section-desc">{{ t('setup.configPluginRepoDesc') }}</div>
-            </div>
-            <el-switch v-model="modelValue.plugins.repo.enabled" :aria-label="t('setup.configPluginRepoEnabled')" />
-          </div>
-          <el-form-item :label="t('setup.configPluginRepoURL')">
-            <el-input
-              v-model="modelValue.plugins.repo.url"
-              placeholder="https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json"
-            />
-            <div class="form-help">{{ t('setup.configPluginRepoURLHint') }}</div>
+          <el-form-item :label="t('setup.configSandbox')">
+            <el-select v-model="modelValue.plugins.sandbox" style="width: 100%">
+              <el-option label="strict" value="strict" />
+              <el-option label="basic" value="basic" />
+              <el-option label="off" value="off" />
+            </el-select>
+            <div class="form-help">{{ t('setup.configSandboxHint') }}</div>
           </el-form-item>
-          <el-form-item :label="t('setup.configPluginRepoProxy')">
-            <el-input v-model="modelValue.plugins.repo.proxy" placeholder="http://127.0.0.1:7890 / socks5://127.0.0.1:1080" />
-            <div class="form-help">{{ t('setup.configPluginRepoProxyHint') }}</div>
-          </el-form-item>
-          <div class="config-grid">
-            <el-form-item :label="t('setup.configChannel')">
-              <el-select v-model="modelValue.plugins.repo.channel" style="width: 100%">
-                <el-option :label="t('setup.configChannelStable')" value="stable" />
-                <el-option :label="t('setup.configChannelBeta')" value="beta" />
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('setup.configCheckIntervalHours')">
-              <el-input-number
-                v-model="modelValue.plugins.repo.check_interval_hours"
-                :min="1"
-                :max="168"
-                controls-position="right"
-                style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item :label="t('setup.configMaxDownloadMB')">
-              <el-input-number
-                v-model="modelValue.plugins.repo.max_download_mb"
-                :min="1"
-                :max="4096"
-                controls-position="right"
-                style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item :label="t('setup.configTimeoutSeconds')">
-              <el-input-number
-                v-model="modelValue.plugins.repo.timeout_seconds"
-                :min="1"
-                :max="600"
-                controls-position="right"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </div>
-          <div class="config-switch-row">
-            <el-switch v-model="modelValue.plugins.repo.auto_update" :active-text="t('setup.configPluginRepoAutoUpdate')" />
           </div>
         </div>
 
@@ -473,6 +422,14 @@
                 style="width: 100%"
               />
             </el-form-item>
+          <el-form-item :label="t('setup.configSandbox')">
+            <el-select v-model="modelValue.deploy_plugins.sandbox" style="width: 100%">
+              <el-option label="strict" value="strict" />
+              <el-option label="basic" value="basic" />
+              <el-option label="off" value="off" />
+            </el-select>
+            <div class="form-help">{{ t('setup.configSandboxHint') }}</div>
+          </el-form-item>
           </div>
         </div>
 
@@ -512,6 +469,14 @@
                 style="width: 100%"
               />
             </el-form-item>
+          <el-form-item :label="t('setup.configSandbox')">
+            <el-select v-model="modelValue.notify_plugins.sandbox" style="width: 100%">
+              <el-option label="strict" value="strict" />
+              <el-option label="basic" value="basic" />
+              <el-option label="off" value="off" />
+            </el-select>
+            <div class="form-help">{{ t('setup.configSandboxHint') }}</div>
+          </el-form-item>
           </div>
         </div>
       </el-tab-pane>

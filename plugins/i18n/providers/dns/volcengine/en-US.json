@@ -1,0 +1,4 @@
+{
+  "meta.dns.volcengine.desc": "Use a Volcengine AccessKey / SecretKey with an optional custom API upstream",
+  "meta.dns.volcengine.label": "Volcengine DNS"
+}

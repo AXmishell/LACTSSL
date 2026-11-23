@@ -45,7 +45,7 @@ LACTSSL 在长期迭代中积累了一批历史数据格式和兼容分支。`in
 | WAL 过大 | 长期运行后 `-wal` 文件持续增长 | `wal_checkpoint(TRUNCATE)` 折叠并截断 |
 | 缺少热路径索引 | 证书筛选、调度、日志清理全表扫描 | 自动补充索引，重复执行安全 |
 | 日志表分离 | 系统日志保存在 `system_logs`，操作日志在 `logs` | 复制系统日志到 `logs(category=runtime)`，旧表保留用于回滚 |
-| 配置结构陈旧 | 缺少 `plugins.repo`、`notify_plugins`、`log.system`、`upgrade` 等新段 | 按当前版本补齐缺失字段，保留注释并规范化等价写法 |
+| 配置结构陈旧 | 缺少 `notify_plugins`、`log.system`、`upgrade` 等新段 | 按当前版本补齐缺失字段，保留注释并规范化等价写法 |
 
 ## 3. 升级前检查
 
@@ -95,7 +95,7 @@ sudo journalctl -u lactssl -f
 `/upgrade` 页面上方提供「程序升级」：
 
 - **检查更新**：按 `upgrade.program.channel` 查询 Release；`stable` 只接受正式版，`beta` 包含预发布。
-- **安装更新**：下载 `lactssl_<version>_<os>_<arch>.tar.gz`（Windows 为 `.zip`），使用 `checksums.txt` 强制校验 SHA-256，解出 `lactssl` 后替换当前可执行文件。
+- **安装更新**：下载 `lactssl_<version>_<os>_<arch>.tar.xz`（缺失时回退到 `.tar.gz`；Windows 为 `.zip`），使用 `checksums.txt` 强制校验 SHA-256，解出 `lactssl` 后替换当前可执行文件。
 - **发布签名**：官方发布构建会自动内置发布公钥，默认强制校验 `checksums.txt.sig`；缺失或错误签名直接拒绝。自编译版本未配置 `upgrade.program.public_key` 时默认拒绝在线升级，必须在受控环境显式设置 `upgrade.program.allow_unsigned: true` 才能安装未签名包。
 - **备份与回滚**：替换前把旧二进制复制到 `<data_dir>/upgrade-backups/program/`，默认保留最近 3 份。
 - **重启生效**：安装完成后页面提示重启；默认开启会话保持，重启后可继续使用原会话。如设为 `security.session_persistence: false`，重启会清空会话。
@@ -247,9 +247,9 @@ MySQL 目标使用同样的命令，把 `-target-driver` 改为 `mysql`，DSN �
 - 补齐当前版本的全部标准配置段与默认值。
 - 规范化 `server.addr`、`acme.addr` 等空白。
 - 去除 `security.public_url`、`acme.base_url` 末尾斜杠。
-- `log.level`、`log.format`、`log.system.level`、`plugins.repo.channel` 转小写。
+- `log.level`、`log.format`、`log.system.level` 转小写。
 - `server.trusted_proxies` 去重、去空白。
-- 检查 ACME 未配置固定地址、插件仓库未配置签名公钥、部署插件接触私钥、密钥过短等风险。
+- 检查 ACME 未配置固定地址、部署插件接触私钥、上传插件沙箱关闭、密钥过短等风险。
 - 写入前按启动加载逻辑完整校验，校验失败不会覆盖原文件。
 - 使用 YAML 节点编辑，保留注释和字段顺序。
 

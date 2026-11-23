@@ -1,0 +1,31 @@
+{
+  "value": "acmedns",
+  "label_key": "meta.dns.acmedns.label",
+  "desc_key": "meta.dns.acmedns.desc",
+  "fields": [
+    {
+      "key": "acme_dns_api_base",
+      "label": "API Base",
+      "type": "text",
+      "env": "ACME_DNS_API_BASE"
+    },
+    {
+      "key": "acme_dns_storage_path",
+      "label": "Storage Path",
+      "type": "text",
+      "env": "ACME_DNS_STORAGE_PATH"
+    },
+    {
+      "key": "acme_dns_storage_base_url",
+      "label": "Storage Base URL",
+      "type": "text",
+      "env": "ACME_DNS_STORAGE_BASE_URL"
+    },
+    {
+      "key": "acme_dns_allowlist",
+      "label": "Allowlist",
+      "type": "text",
+      "env": "ACME_DNS_ALLOWLIST"
+    }
+  ]
+}

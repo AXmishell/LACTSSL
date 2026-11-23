@@ -1,0 +1,14 @@
+{
+  "value": "arvancloud",
+  "label_key": "meta.dns.arvancloud.label",
+  "desc_key": "meta.dns.arvancloud.desc",
+  "fields": [
+    {
+      "key": "arvancloud_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "ARVANCLOUD_API_KEY"
+    }
+  ]
+}

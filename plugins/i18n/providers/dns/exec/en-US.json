@@ -1,0 +1,4 @@
+{
+  "meta.dns.exec.desc": "Manage DNS records through the Exec API.",
+  "meta.dns.exec.label": "Exec"
+}

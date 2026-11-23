@@ -1,0 +1,30 @@
+{
+  "value": "aliesa",
+  "label_key": "meta.dns.aliesa.label",
+  "desc_key": "meta.dns.aliesa.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.access_key_id.placeholder",
+      "env": "ALIESA_ACCESS_KEY"
+    },
+    {
+      "key": "access_key_secret",
+      "label_key": "meta.field.access_key_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "ALIESA_SECRET_KEY"
+    },
+    {
+      "key": "region_id",
+      "label_key": "meta.field.region_id.label",
+      "type": "text",
+      "placeholder_key": "meta.field.region_id.placeholder",
+      "default": "cn-hangzhou",
+      "env": "ALIESA_REGION_ID"
+    }
+  ]
+}

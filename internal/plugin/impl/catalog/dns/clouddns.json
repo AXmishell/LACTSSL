@@ -1,0 +1,28 @@
+{
+  "value": "clouddns",
+  "label_key": "meta.dns.clouddns.label",
+  "desc_key": "meta.dns.clouddns.desc",
+  "fields": [
+    {
+      "key": "clouddns_client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": true,
+      "env": "CLOUDDNS_CLIENT_ID"
+    },
+    {
+      "key": "clouddns_email",
+      "label_key": "meta.field.email.label",
+      "type": "text",
+      "required": true,
+      "env": "CLOUDDNS_EMAIL"
+    },
+    {
+      "key": "clouddns_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "CLOUDDNS_PASSWORD"
+    }
+  ]
+}

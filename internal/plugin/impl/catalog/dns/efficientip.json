@@ -1,0 +1,43 @@
+{
+  "value": "efficientip",
+  "label_key": "meta.dns.efficientip.label",
+  "desc_key": "meta.dns.efficientip.desc",
+  "fields": [
+    {
+      "key": "efficientip_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "EFFICIENTIP_USERNAME"
+    },
+    {
+      "key": "efficientip_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "EFFICIENTIP_PASSWORD"
+    },
+    {
+      "key": "efficientip_hostname",
+      "label": "Hostname",
+      "type": "text",
+      "env": "EFFICIENTIP_HOSTNAME"
+    },
+    {
+      "key": "efficientip_dns_name",
+      "label": "DNS Name",
+      "type": "text",
+      "env": "EFFICIENTIP_DNS_NAME"
+    },
+    {
+      "key": "efficientip_view_name",
+      "label": "View Name",
+      "type": "text",
+      "env": "EFFICIENTIP_VIEW_NAME"
+    },
+    {
+      "key": "efficientip_insecure_skip_verify",
+      "label": "Insecure Skip Verify",
+      "type": "text",
+      "env": "EFFICIENTIP_INSECURE_SKIP_VERIFY"
+    }
+  ]
+}

@@ -10,18 +10,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"lactssl/internal/plugin/sandbox"
 	"lactssl/internal/truststore"
 )
 
 // ErrTimeout 表示 helper 超过调用方设置的单次执行时间。
 var ErrTimeout = errors.New("plugin execution timed out")
+
+// ErrSandboxRoot 表示上传插件要求沙箱执行，但宿主进程仍是 root。
+// 此时 Landlock 只能限制文件访问，无法阻止 root 插件通过 mount/ptrace
+// 等方式绕过，因此默认拒绝执行；请以非 root 运行或配置 LACTSSL_RUN_UID/GID。
+var ErrSandboxRoot = errors.New("refusing to run uploaded plugin with sandbox as root; run the server as a non-root user or set LACTSSL_RUN_UID/LACTSSL_RUN_GID")
 
 // MemoryLimitError 表示 helper 的常驻内存超过配置上限，已被强制结束。
 type MemoryLimitError struct {
@@ -43,6 +52,46 @@ type Options struct {
 	// Env 是附加给 helper 的环境变量，例如插件协议版本。
 	// 主程序不会继承任何未在允许列表中的变量。
 	Env []string
+	// Sandbox 仅用于上传/外部 helper；内置插件在宿主进程内直接调用，不进入这里。
+	Sandbox SandboxOptions
+}
+
+// SandboxOptions 描述上传插件的沙箱策略。
+// strict 需要 Linux 与 SandboxLauncher；其他情况自动降级为 basic。
+type SandboxOptions struct {
+	Profile       string
+	ReadOnlyPaths []string
+	WritableDir   string
+	CPUSeconds    uint64
+	FileSizeMB    uint64
+	OpenFiles     uint64
+	Processes     uint64
+}
+
+// SandboxLauncher 是主程序路径，用于启动隐藏的 __plugin_sandbox 子命令。
+// 由 cmd/server 在启动时注入；测试或未注入时降级为 basic。
+var SandboxLauncher string
+
+var (
+	sandboxProbeOnce    sync.Once
+	sandboxUsable       bool
+	sandboxFallbackOnce sync.Once
+)
+
+// sandboxReady 判断能否使用 strict 沙箱。
+// 直接检查 Landlock 内核能力，不再启动 /bin/sh 探测：避免最小镜像缺少
+// shell 时被误判为不支持，也避免在首次插件调用时同步 fork 完整主程序。
+func sandboxReady() bool {
+	sandboxProbeOnce.Do(func() {
+		if SandboxLauncher == "" || !sandbox.Supports() {
+			return
+		}
+		if info, err := os.Stat(SandboxLauncher); err != nil || info.IsDir() {
+			return
+		}
+		sandboxUsable = true
+	})
+	return sandboxUsable
 }
 
 const (
@@ -73,7 +122,55 @@ func Run(ctx context.Context, path string, args []string, stdin []byte, opts Opt
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, path, args...) // #nosec G204 -- path 为已安装插件路径，参数由插件调用协议构造
+	commandPath := path
+	commandArgs := args
+	workDir := ""
+	extraEnv := []string(nil)
+	profile := strings.ToLower(strings.TrimSpace(opts.Sandbox.Profile))
+	// 沙箱无法限制 root 进程（Landlock 不拦截 mount/ptrace 等），
+	// 因此上传插件默认拒绝以 root 执行；编译内置插件不经过这里。
+	if profile != "" && profile != "off" && runningAsRoot() {
+		return "", "", ErrSandboxRoot
+	}
+	if profile != "" && profile != "off" {
+		workDir = strings.TrimSpace(opts.Sandbox.WritableDir)
+		if workDir == "" {
+			if dir, err := os.MkdirTemp("", "lactssl-plugin-*"); err == nil {
+				workDir = dir
+				defer os.RemoveAll(dir)
+			}
+		}
+		if workDir != "" {
+			_ = os.Chmod(workDir, 0o700)
+			extraEnv = append(extraEnv, "HOME="+workDir, "TMPDIR="+workDir)
+		}
+	}
+	strict := profile == "strict" && workDir != "" && sandboxReady()
+	if profile == "strict" && !strict {
+		sandboxFallbackOnce.Do(func() {
+			log.Printf("上传插件 strict 沙箱不可用（Landlock 不受支持或 SandboxLauncher 无效），已降级为 basic 资源限制")
+		})
+	}
+	if strict {
+		if opts.Sandbox.CPUSeconds == 0 {
+			opts.Sandbox.CPUSeconds = uint64(opts.Timeout.Seconds()) + 5
+		}
+		if opts.Sandbox.FileSizeMB == 0 {
+			opts.Sandbox.FileSizeMB = 128
+		}
+		if opts.Sandbox.OpenFiles == 0 {
+			opts.Sandbox.OpenFiles = 256
+		}
+		if opts.Sandbox.Processes == 0 {
+			opts.Sandbox.Processes = 512
+		}
+		commandPath = SandboxLauncher
+		commandArgs = buildSandboxArgs(path, args, opts, workDir)
+	}
+	cmd := exec.CommandContext(runCtx, commandPath, commandArgs...) // #nosec G204 -- path 为已安装插件路径，参数由插件调用协议构造
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
 	setProcessGroup(cmd)
 	cmd.Cancel = func() error {
 		if cmd.Process != nil {
@@ -82,7 +179,7 @@ func Run(ctx context.Context, path string, args []string, stdin []byte, opts Opt
 		return nil
 	}
 	cmd.WaitDelay = waitDelay
-	cmd.Env = helperEnv(opts)
+	cmd.Env = mergeEnv(helperEnv(opts), extraEnv)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
@@ -176,6 +273,57 @@ func parseVmRSS(status []byte) (uint64, bool) {
 }
 
 // helperEnv 构造最小环境变量集合，避免把主程序的敏感变量泄漏给插件。
+func buildSandboxArgs(path string, args []string, opts Options, workDir string) []string {
+	absolute := path
+	if resolved, err := filepath.Abs(path); err == nil {
+		absolute = resolved
+	}
+	out := []string{"__plugin_sandbox", "--rw", workDir}
+	if path := truststore.BundlePath(); path != "" {
+		out = append(out, "--ro", path)
+	}
+	for _, item := range opts.Sandbox.ReadOnlyPaths {
+		if strings.TrimSpace(item) != "" {
+			out = append(out, "--ro", item)
+		}
+	}
+	if opts.Sandbox.CPUSeconds > 0 {
+		out = append(out, "--cpu", strconv.FormatUint(opts.Sandbox.CPUSeconds, 10))
+	}
+	if opts.Sandbox.FileSizeMB > 0 {
+		out = append(out, "--fsize", strconv.FormatUint(opts.Sandbox.FileSizeMB, 10))
+	}
+	if opts.Sandbox.OpenFiles > 0 {
+		out = append(out, "--nofile", strconv.FormatUint(opts.Sandbox.OpenFiles, 10))
+	}
+	if opts.Sandbox.Processes > 0 {
+		out = append(out, "--nproc", strconv.FormatUint(opts.Sandbox.Processes, 10))
+	}
+	out = append(out, "--", absolute)
+	out = append(out, args...)
+	return out
+}
+
+func mergeEnv(base, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	overrides := make(map[string]bool, len(extra))
+	for _, item := range extra {
+		name, _, _ := strings.Cut(item, "=")
+		overrides[name] = true
+	}
+	out := make([]string, 0, len(base)+len(extra))
+	for _, item := range base {
+		name, _, _ := strings.Cut(item, "=")
+		if overrides[name] {
+			continue
+		}
+		out = append(out, item)
+	}
+	return append(out, extra...)
+}
+
 func helperEnv(opts Options) []string {
 	allow := []string{
 		"PATH", "HOME", "TMPDIR", "TZ", "LANG", "LC_ALL",

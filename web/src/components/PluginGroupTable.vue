@@ -31,6 +31,9 @@
                 :type="fileSourceType(row.file.source)"
                 style="margin-right: 6px"
               >{{ fileSourceLabel(row.file.source) }}</el-tag>
+              <el-tag v-else-if="row.items[0]?.source === 'builtin'" size="small" type="success" style="margin-right: 6px">
+                {{ t('plugins.sourceBuiltin') }}
+              </el-tag>
               <el-tag v-else size="small" type="warning" style="margin-right: 6px">
                 {{ t('plugins.fileUnmanaged') }}
               </el-tag>

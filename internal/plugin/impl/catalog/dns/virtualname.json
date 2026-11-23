@@ -1,0 +1,14 @@
+{
+  "value": "virtualname",
+  "label_key": "meta.dns.virtualname.label",
+  "desc_key": "meta.dns.virtualname.desc",
+  "fields": [
+    {
+      "key": "virtualname_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "VIRTUALNAME_TOKEN"
+    }
+  ]
+}

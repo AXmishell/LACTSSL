@@ -1,0 +1,21 @@
+{
+  "value": "wedos",
+  "label_key": "meta.dns.wedos.label",
+  "desc_key": "meta.dns.wedos.desc",
+  "fields": [
+    {
+      "key": "wedos_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "WEDOS_USERNAME"
+    },
+    {
+      "key": "wedos_wapi_password",
+      "label": "Wapi Password",
+      "type": "password",
+      "required": true,
+      "env": "WEDOS_WAPI_PASSWORD"
+    }
+  ]
+}

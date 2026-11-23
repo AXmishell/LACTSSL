@@ -1,0 +1,4 @@
+{
+  "meta.dns.conoha.desc": "Manage DNS records through the ConoHa DNS API.",
+  "meta.dns.conoha.label": "ConoHa DNS"
+}

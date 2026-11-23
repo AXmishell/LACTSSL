@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baota.desc": "上传证书到宝塔面板，可部署到指定网站、Docker 网站或替换面板自身的 SSL 证书",
+  "meta.deploy.baota.label": "宝塔面板"
+}

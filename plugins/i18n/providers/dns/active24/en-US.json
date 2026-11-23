@@ -1,0 +1,4 @@
+{
+  "meta.dns.active24.desc": "Manage DNS records through the Active24 API.",
+  "meta.dns.active24.label": "Active24"
+}

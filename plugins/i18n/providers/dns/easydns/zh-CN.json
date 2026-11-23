@@ -1,0 +1,4 @@
+{
+  "meta.dns.easydns.desc": "通过 EasyDNS API 接口管理 DNS 记录。",
+  "meta.dns.easydns.label": "EasyDNS API"
+}

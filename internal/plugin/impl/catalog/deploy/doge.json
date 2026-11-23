@@ -1,0 +1,41 @@
+{
+  "value": "doge",
+  "label_key": "meta.deploy.doge.label",
+  "desc_key": "meta.deploy.doge.desc",
+  "fields": [
+    {
+      "key": "access_key",
+      "label_key": "meta.field.access_key.label",
+      "type": "text",
+      "required": true,
+      "help_key": "meta.field.doge_key.help"
+    },
+    {
+      "key": "secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help"
+    },
+    {
+      "key": "ignore_error",
+      "label_key": "meta.field.doge_ignore_error.label",
+      "type": "switch",
+      "default": "false",
+      "help_key": "meta.field.doge_ignore_error.help"
+    }
+  ]
+}

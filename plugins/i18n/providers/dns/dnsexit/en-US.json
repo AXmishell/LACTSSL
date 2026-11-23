@@ -1,0 +1,4 @@
+{
+  "meta.dns.dnsexit.desc": "Manage DNS records through the DNSExit API.",
+  "meta.dns.dnsexit.label": "DNSExit"
+}

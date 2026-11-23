@@ -1,0 +1,4 @@
+{
+  "meta.dns.ns1.desc": "Manage DNS records through the NS1 DNS API.",
+  "meta.dns.ns1.label": "NS1 DNS"
+}

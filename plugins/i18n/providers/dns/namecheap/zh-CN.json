@@ -1,0 +1,4 @@
+{
+  "meta.dns.namecheap.desc": "需要开启 API 访问并配置白名单 IP",
+  "meta.dns.namecheap.label": "Namecheap"
+}

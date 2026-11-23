@@ -1,0 +1,21 @@
+{
+  "value": "ibmcloud",
+  "label_key": "meta.dns.ibmcloud.label",
+  "desc_key": "meta.dns.ibmcloud.desc",
+  "fields": [
+    {
+      "key": "softlayer_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "SOFTLAYER_USERNAME"
+    },
+    {
+      "key": "softlayer_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "SOFTLAYER_API_KEY"
+    }
+  ]
+}

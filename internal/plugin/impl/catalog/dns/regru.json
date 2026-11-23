@@ -1,0 +1,31 @@
+{
+  "value": "regru",
+  "label_key": "meta.dns.regru.label",
+  "desc_key": "meta.dns.regru.desc",
+  "fields": [
+    {
+      "key": "regru_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "REGRU_USERNAME"
+    },
+    {
+      "key": "regru_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "REGRU_PASSWORD"
+    },
+    {
+      "key": "regru_tls_cert",
+      "label": "TLS Cert",
+      "type": "text",
+      "env": "REGRU_TLS_CERT"
+    },
+    {
+      "key": "regru_tls_key",
+      "label": "TLS Key",
+      "type": "password",
+      "env": "REGRU_TLS_KEY"
+    }
+  ]
+}

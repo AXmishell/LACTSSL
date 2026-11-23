@@ -29,6 +29,11 @@ import (
 	"lactssl/internal/logarchive"
 	"lactssl/internal/logging"
 	"lactssl/internal/netutil"
+	deployplugin "lactssl/internal/plugin/deploy"
+	dnsplugin "lactssl/internal/plugin/dns"
+	"lactssl/internal/plugin/exec"
+	notifyplugin "lactssl/internal/plugin/notify"
+	"lactssl/internal/plugin/sandbox"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
 	"lactssl/internal/truststore"
@@ -46,8 +51,25 @@ func cliLocale() i18n.Locale {
 func cliText(key string, pairs ...any) string { return i18n.Tf(cliLocale(), key, pairs...) }
 
 func main() {
+	// 上传插件沙箱包装器：由 pluginexec 以隐藏子命令方式启动，
+	// 应用 Landlock/rlimit 后 exec 插件，不进入正常服务启动流程。
+	if len(os.Args) > 1 && os.Args[1] == "__plugin_sandbox" {
+		// 父进程负责降权；pluginexec 在宿主仍为 root 时会拒绝启动本包装器，
+		// 因此这里不再依赖子进程环境变量做第二次降权（环境已被最小化过滤）。
+		if err := sandbox.RunCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(126)
+		}
+		return
+	}
+
 	configPath := flag.String("config", config.DefaultPath, "config.yaml 文件路径")
 	flag.Parse()
+
+	// 上传插件 strict 沙箱通过同一二进制的隐藏子命令执行。
+	if executable, err := os.Executable(); err == nil {
+		pluginexec.SandboxLauncher = executable
+	}
 
 	// 容器入口以 root 修正挂载目录归属后，通过环境变量要求主程序降权。
 	// 普通二进制启动（非 root 或未设置变量）不会改变运行用户。
@@ -99,6 +121,9 @@ func main() {
 		"log_level", cfg.Log.Level,
 		"log_file", cfg.Log.File,
 	)
+	if runningAsRoot() {
+		logger.Warn("服务以 root 运行，上传插件将被拒绝执行；请使用非 root 用户运行，或设置 LACTSSL_RUN_UID/LACTSSL_RUN_GID 让主程序降权")
+	}
 
 	cipher, err := util.NewCipher(cfg.EncryptionKey)
 	if err != nil {
@@ -282,30 +307,27 @@ func main() {
 	server.SystemLogEnabled = cfg.Log.SystemEnabled
 	server.PublicURL = cfg.PublicURL
 	server.ClientIPMode = cfg.ClientIPMode
+	// 官方插件源码已合并进主仓库，默认注册内置实现；
+	// 仍可通过类别开关与条目白名单按需启用。
+	server.BuiltinPluginsEnabled = true
 	server.PluginsEnabled = cfg.Plugins.Enabled
 	server.PluginDir = cfg.Plugins.Dir
+	server.PluginSandbox = cfg.Plugins.Sandbox
 	server.PluginMemoryLimitMB = cfg.Plugins.MemoryLimitMB
 	server.PluginTimeout = cfg.Plugins.Timeout
 	server.PluginMaxOutputKB = cfg.Plugins.MaxOutputKB
 	server.DeployPluginsEnabled = cfg.DeployPlugins.Enabled
 	server.DeployPluginDir = cfg.DeployPlugins.Dir
+	server.DeployPluginSandbox = cfg.DeployPlugins.Sandbox
 	server.DeployPluginMemoryLimitMB = cfg.DeployPlugins.MemoryLimitMB
 	server.DeployPluginTimeout = cfg.DeployPlugins.Timeout
 	server.DeployPluginMaxOutputKB = cfg.DeployPlugins.MaxOutputKB
 	server.NotifyPluginsEnabled = cfg.NotifyPlugins.Enabled
 	server.NotifyPluginDir = cfg.NotifyPlugins.Dir
+	server.NotifyPluginSandbox = cfg.NotifyPlugins.Sandbox
 	server.NotifyPluginMemoryLimitMB = cfg.NotifyPlugins.MemoryLimitMB
 	server.NotifyPluginTimeout = cfg.NotifyPlugins.Timeout
 	server.NotifyPluginMaxOutputKB = cfg.NotifyPlugins.MaxOutputKB
-	server.PluginRepoEnabled = cfg.PluginRepo.Enabled
-	server.PluginRepoURL = cfg.PluginRepo.URL
-	server.PluginRepoChannel = cfg.PluginRepo.Channel
-	server.PluginRepoAutoUpdate = cfg.PluginRepo.AutoUpdate
-	server.PluginRepoPublicKey = cfg.PluginRepo.PublicKey
-	server.PluginRepoProxy = cfg.PluginRepo.Proxy
-	server.PluginRepoTimeout = cfg.PluginRepo.Timeout
-	server.PluginRepoMaxDownloadMB = cfg.PluginRepo.MaxDownloadMB
-	server.PluginRepoCheckInterval = cfg.PluginRepo.CheckInterval
 	// 首次初始化需要控制台输出的一次性令牌，避免仅凭门禁入口就能匿名
 	// 创建管理员或恢复数据库。初始化成功后令牌会被清空。
 	setupToken := ""
@@ -321,31 +343,20 @@ func main() {
 		setupToken = token
 		server.SetSetupToken(token)
 	}
-	server.RecoverLegacyPlugins()
-	server.StartPluginRepoWorker()
 	dnsPlugins := server.DiscoverPlugins()
-	if dnsPlugins.Helpers > 0 || len(dnsPlugins.Errors) > 0 {
-		log.Printf("外部 DNS 插件: %d 个 helper / %d 个服务商，%d 个与内置实现重复已忽略（目录 %s）", dnsPlugins.Helpers, dnsPlugins.Providers, len(dnsPlugins.Skipped), dnsPlugins.Dir)
-		for _, message := range dnsPlugins.Errors {
-			log.Printf("外部 DNS 插件警告: %s", message)
-		}
-	} else if cfg.Plugins.Enabled {
-		// 主程序不再内置 DNS 服务商，没有 helper 时账户页的服务商列表为空。
-		log.Printf("未发现 DNS 插件（目录 %s）；请在「插件」页配置插件仓库并按需安装服务商", dnsPlugins.Dir)
+	log.Printf("DNS 插件: 内置 %d 个服务商 / 上传 %d 个 helper，启用类别=%t（上传目录 %s）", len(dnsplugin.BuiltinProviders()), dnsPlugins.Helpers, cfg.Plugins.Enabled, dnsPlugins.Dir)
+	for _, message := range dnsPlugins.Errors {
+		log.Printf("上传 DNS 插件警告: %s", message)
 	}
-	if result := server.DiscoverDeployPlugins(); result.Helpers > 0 || len(result.Errors) > 0 || len(result.Skipped) > 0 {
-		log.Printf("外部部署插件: %d 个 helper / %d 个部署目标，%d 个与内置实现重复已忽略（目录 %s）", result.Helpers, result.Deployers, len(result.Skipped), result.Dir)
-		for _, message := range result.Errors {
-			log.Printf("外部部署插件警告: %s", message)
-		}
+	deployPlugins := server.DiscoverDeployPlugins()
+	log.Printf("部署插件: 内置 %d 个目标 / 上传 %d 个 helper，启用类别=%t（上传目录 %s）", len(deployplugin.BuiltinDeployers()), deployPlugins.Helpers, cfg.DeployPlugins.Enabled, deployPlugins.Dir)
+	for _, message := range deployPlugins.Errors {
+		log.Printf("上传部署插件警告: %s", message)
 	}
-	if result := server.DiscoverNotifyPlugins(); result.Helpers > 0 || len(result.Errors) > 0 || len(result.Skipped) > 0 {
-		log.Printf("外部通知插件: %d 个 helper / %d 个通知渠道，%d 个与内置实现重复已忽略（目录 %s）", result.Helpers, result.Channels, len(result.Skipped), result.Dir)
-		for _, message := range result.Errors {
-			log.Printf("外部通知插件警告: %s", message)
-		}
-	} else if cfg.NotifyPlugins.Enabled {
-		log.Printf("未发现通知插件（目录 %s）；请在「插件」页按需安装通知渠道", result.Dir)
+	notifyPlugins := server.DiscoverNotifyPlugins()
+	log.Printf("通知插件: 内置 %d 个渠道 / 上传 %d 个 helper，启用类别=%t（上传目录 %s）", len(notifyplugin.BuiltinChannels()), notifyPlugins.Helpers, cfg.NotifyPlugins.Enabled, notifyPlugins.Dir)
+	for _, message := range notifyPlugins.Errors {
+		log.Printf("上传通知插件警告: %s", message)
 	}
 	// 合并后的部署目标只有在 helper 已提供规范 ID 时才迁移，避免旧 helper
 	// 安装环境下账号被改成不可用的新类型。

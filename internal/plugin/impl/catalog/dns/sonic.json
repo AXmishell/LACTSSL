@@ -1,0 +1,21 @@
+{
+  "value": "sonic",
+  "label_key": "meta.dns.sonic.label",
+  "desc_key": "meta.dns.sonic.desc",
+  "fields": [
+    {
+      "key": "sonic_user_id",
+      "label": "User ID",
+      "type": "text",
+      "required": true,
+      "env": "SONIC_USER_ID"
+    },
+    {
+      "key": "sonic_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "SONIC_API_KEY"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "value": "mythicbeasts",
+  "label_key": "meta.dns.mythicbeasts.label",
+  "desc_key": "meta.dns.mythicbeasts.desc",
+  "fields": [
+    {
+      "key": "mythicbeasts_api_endpoint",
+      "label": "API Endpoint",
+      "type": "text",
+      "env": "MYTHICBEASTS_API_ENDPOINT"
+    },
+    {
+      "key": "mythicbeasts_auth_api_endpoint",
+      "label": "Auth API Endpoint",
+      "type": "text",
+      "env": "MYTHICBEASTS_AUTH_API_ENDPOINT"
+    },
+    {
+      "key": "mythicbeasts_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "MYTHICBEASTS_USERNAME"
+    },
+    {
+      "key": "mythicbeasts_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "MYTHICBEASTS_PASSWORD"
+    }
+  ]
+}

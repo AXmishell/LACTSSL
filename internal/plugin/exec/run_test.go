@@ -121,3 +121,23 @@ func TestCappedBuffer(t *testing.T) {
 		t.Fatalf("截断结果不正确: %q", got)
 	}
 }
+
+func TestRunRefusesSandboxAsRoot(t *testing.T) {
+	if !runningAsRoot() {
+		t.Skip("仅 root 环境验证 fail-closed")
+	}
+	_, _, err := Run(context.Background(), "/bin/true", nil, nil, Options{
+		Timeout: 5 * time.Second,
+		Sandbox: SandboxOptions{Profile: "basic"},
+	})
+	if !errors.Is(err, ErrSandboxRoot) {
+		t.Fatalf("root 下沙箱执行应被拒绝，实际: %v", err)
+	}
+	// 显式关闭沙箱（sandbox: off）时保留原有行为，供受控调试使用。
+	if _, _, err := Run(context.Background(), "/bin/true", nil, nil, Options{
+		Timeout: 5 * time.Second,
+		Sandbox: SandboxOptions{Profile: "off"},
+	}); err != nil {
+		t.Fatalf("off 配置不应被拒绝: %v", err)
+	}
+}

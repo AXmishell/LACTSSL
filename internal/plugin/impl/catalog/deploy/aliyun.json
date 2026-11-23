@@ -1,0 +1,132 @@
+{
+  "value": "aliyun",
+  "label_key": "meta.deploy.aliyun.label",
+  "desc_key": "meta.deploy.aliyun.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "access_key_secret",
+      "label_key": "meta.field.access_key_secret.label",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "target",
+      "label_key": "meta.field.deploy_target.label",
+      "type": "select",
+      "help_key": "meta.field.deploy_target.help",
+      "default": "cdn",
+      "options": [
+        {
+          "label_key": "meta.field.deploy_target.option.cdn",
+          "value": "cdn"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.dcdn",
+          "value": "dcdn"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.esa",
+          "value": "esa"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.oss",
+          "value": "oss"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.waf",
+          "value": "waf"
+        }
+      ]
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.aliyun_region.label",
+      "type": "text",
+      "help_key": "meta.field.aliyun_region.help",
+      "show_if": {
+        "key": "target",
+        "values": [
+          "oss",
+          "waf"
+        ]
+      }
+    },
+    {
+      "key": "domains",
+      "label_key": "meta.field.aliyun_domains.label",
+      "type": "text",
+      "help_key": "meta.field.aliyun_domains.help",
+      "show_if": {
+        "key": "target",
+        "values": [
+          "cdn",
+          "dcdn",
+          "oss",
+          "waf"
+        ]
+      }
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help",
+      "show_if": {
+        "key": "target",
+        "values": [
+          "cdn",
+          "waf"
+        ]
+      }
+    },
+    {
+      "key": "bucket",
+      "label_key": "meta.field.bucket.label",
+      "type": "text",
+      "required": true,
+      "show_if": {
+        "key": "target",
+        "value": "oss"
+      }
+    },
+    {
+      "key": "site_id",
+      "label_key": "meta.field.site_id.label",
+      "type": "text",
+      "required": true,
+      "help_key": "meta.field.site_id.help",
+      "show_if": {
+        "key": "target",
+        "value": "esa"
+      }
+    },
+    {
+      "key": "tls_version",
+      "label_key": "meta.field.tls_version.label",
+      "type": "text",
+      "default": "tlsv1.2",
+      "show_if": {
+        "key": "target",
+        "value": "waf"
+      }
+    },
+    {
+      "key": "enable_tlsv3",
+      "label_key": "meta.field.enable_tlsv3.label",
+      "type": "switch",
+      "default": "true",
+      "show_if": {
+        "key": "target",
+        "value": "waf"
+      }
+    }
+  ]
+}

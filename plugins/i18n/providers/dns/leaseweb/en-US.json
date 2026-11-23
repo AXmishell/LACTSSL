@@ -1,0 +1,4 @@
+{
+  "meta.dns.leaseweb.desc": "Manage DNS records through the Leaseweb API.",
+  "meta.dns.leaseweb.label": "Leaseweb"
+}

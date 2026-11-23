@@ -1,0 +1,28 @@
+{
+  "value": "iij",
+  "label_key": "meta.dns.iij.label",
+  "desc_key": "meta.dns.iij.desc",
+  "fields": [
+    {
+      "key": "iij_api_access_key",
+      "label": "API Access Key",
+      "type": "password",
+      "required": true,
+      "env": "IIJ_API_ACCESS_KEY"
+    },
+    {
+      "key": "iij_api_secret_key",
+      "label": "API Secret Key",
+      "type": "password",
+      "required": true,
+      "env": "IIJ_API_SECRET_KEY"
+    },
+    {
+      "key": "iij_do_service_code",
+      "label": "Do Service Code",
+      "type": "text",
+      "required": true,
+      "env": "IIJ_DO_SERVICE_CODE"
+    }
+  ]
+}

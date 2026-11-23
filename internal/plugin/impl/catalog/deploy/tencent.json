@@ -1,0 +1,86 @@
+{
+  "value": "tencent",
+  "label_key": "meta.deploy.tencent.label",
+  "desc_key": "meta.deploy.tencent.desc",
+  "fields": [
+    {
+      "key": "secret_id",
+      "label_key": "meta.field.secret_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "intl",
+      "label_key": "meta.field.tencent_intl.label",
+      "type": "switch",
+      "default": "false",
+      "help_key": "meta.field.tencent_intl.help"
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "target",
+      "label_key": "meta.field.deploy_target.label",
+      "type": "select",
+      "help_key": "meta.field.deploy_target.help",
+      "default": "cdn",
+      "options": [
+        {
+          "label_key": "meta.field.deploy_target.option.cdn",
+          "value": "cdn"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.cos",
+          "value": "cos"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.teo",
+          "value": "teo"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.waf",
+          "value": "waf"
+        }
+      ]
+    },
+    {
+      "key": "domains",
+      "label_key": "meta.field.tencent_domains.label",
+      "type": "text",
+      "help_key": "meta.field.tencent_domains.help"
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help"
+    },
+    {
+      "key": "bucket",
+      "label_key": "meta.field.bucket.label",
+      "type": "text",
+      "required": true,
+      "show_if": {
+        "key": "target",
+        "value": "cos"
+      }
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.region.placeholder",
+      "show_if": {
+        "key": "target",
+        "value": "cos"
+      }
+    }
+  ]
+}

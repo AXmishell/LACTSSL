@@ -1,0 +1,4 @@
+{
+  "meta.dns.anexia.desc": "通过 Anexia CloudDNS 接口管理 DNS 记录。",
+  "meta.dns.anexia.label": "Anexia CloudDNS"
+}

@@ -2,7 +2,9 @@
 
 本文面向外掛開發者、整合商和企業平臺團隊，說明 LACTSSL 外掛協議、倉庫結構、開發流程、構建、打包、索引、簽名和釋出。**運維人員通常只需閱讀[外掛治理](plugins.md)和對應的 DNS/部署/通知外掛頁面。**
 
-外掛原始碼、構建工具與倉庫索引位於獨立倉庫 [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins)。主程式只實現協議 v1 的 manifest 解碼，執行期從外掛索引下載按型別合併的外掛包；兩個倉庫不透過 `go.mod` 共享原始碼。
+官方 DNS/部署/通知實現位於 `internal/plugin/impl/`，隨主程式編譯；`plugins/` 是外部外掛開發 SDK（協議、helper 框架與通用工具）。上傳外掛仍使用協議 v1 的子程序通訊。主程式不使用外掛索引或外部外掛倉庫。
+
+下文涉及的生成器、合併包與索引工具位於 `internal/plugin/impl/`，命令預設在該目錄執行；外部外掛只需引用 `plugins/protocol` 與 `plugins/sdk`。
 
 ## 1. 架構與心智模型
 

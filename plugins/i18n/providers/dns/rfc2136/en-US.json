@@ -1,0 +1,4 @@
+{
+  "meta.dns.rfc2136.desc": "Manage records through the RFC 2136 DNS UPDATE protocol, with optional TSIG authentication and zone list",
+  "meta.dns.rfc2136.label": "RFC 2136 dynamic update"
+}

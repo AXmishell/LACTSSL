@@ -1,0 +1,14 @@
+{
+  "value": "freemyip",
+  "label_key": "meta.dns.freemyip.label",
+  "desc_key": "meta.dns.freemyip.desc",
+  "fields": [
+    {
+      "key": "token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "FREEMYIP_TOKEN"
+    }
+  ]
+}

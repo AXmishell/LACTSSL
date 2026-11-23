@@ -1,0 +1,4 @@
+{
+  "meta.dns.cloudflare.desc": "An API Token with DNS edit permission is recommended",
+  "meta.dns.cloudflare.label": "Cloudflare"
+}

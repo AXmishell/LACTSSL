@@ -1,0 +1,14 @@
+{
+  "value": "hurricane",
+  "label_key": "meta.dns.hurricane.label",
+  "desc_key": "meta.dns.hurricane.desc",
+  "fields": [
+    {
+      "key": "hurricane_tokens",
+      "label": "Hurricane Tokens",
+      "type": "password",
+      "required": true,
+      "env": "HURRICANE_TOKENS"
+    }
+  ]
+}

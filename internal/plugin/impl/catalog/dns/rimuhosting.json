@@ -1,0 +1,14 @@
+{
+  "value": "rimuhosting",
+  "label_key": "meta.dns.rimuhosting.label",
+  "desc_key": "meta.dns.rimuhosting.desc",
+  "fields": [
+    {
+      "key": "rimuhosting_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "RIMUHOSTING_API_KEY"
+    }
+  ]
+}

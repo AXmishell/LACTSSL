@@ -79,3 +79,43 @@ func TestReplaceExternal(t *testing.T) {
 	}
 	UnregisterSource(SourceExec)
 }
+
+func TestReplaceBuiltinIsAtomic(t *testing.T) {
+	resetForTest()
+	t.Cleanup(resetForTest)
+
+	external := fakeDeployer{id: "external-target", aliases: []string{"external-alias"}, source: SourceExec}
+	if err := RegisterExternal(external); err != nil {
+		t.Fatalf("register external: %v", err)
+	}
+	if err := ReplaceBuiltin([]Deployer{fakeDeployer{id: "builtin-one", aliases: []string{"builtin-alias"}, source: SourceBuiltin}}); err != nil {
+		t.Fatalf("replace first: %v", err)
+	}
+	if !Has("builtin-alias") {
+		t.Fatal("builtin alias should resolve")
+	}
+	if err := ReplaceBuiltin([]Deployer{fakeDeployer{id: "builtin-two", source: SourceBuiltin}}); err != nil {
+		t.Fatalf("replace second: %v", err)
+	}
+	if Has("builtin-one") || Has("builtin-alias") {
+		t.Fatal("previous builtin entries should be removed")
+	}
+	for _, name := range []string{"builtin-two", "external-target", "external-alias"} {
+		if !Has(name) {
+			t.Fatalf("%s should be registered", name)
+		}
+	}
+	conflicting := []Deployer{
+		fakeDeployer{id: "conflict-a", source: SourceBuiltin},
+		fakeDeployer{id: "conflict-b", aliases: []string{"conflict-a"}, source: SourceBuiltin},
+	}
+	if err := ReplaceBuiltin(conflicting); err == nil {
+		t.Fatal("conflicting builtin set should fail")
+	}
+	if !Has("builtin-two") || Has("conflict-a") || Has("conflict-b") {
+		t.Fatal("failed replacement must keep the previous registry")
+	}
+	if err := ReplaceBuiltin([]Deployer{external}); err == nil {
+		t.Fatal("external deployer must not be replaceable as builtin")
+	}
+}

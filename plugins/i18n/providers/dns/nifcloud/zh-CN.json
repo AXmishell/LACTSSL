@@ -1,0 +1,4 @@
+{
+  "meta.dns.nifcloud.desc": "通过 NIFCLOUD DNS 接口管理 DNS 记录。",
+  "meta.dns.nifcloud.label": "NIFCLOUD DNS"
+}

@@ -1,0 +1,61 @@
+{
+  "value": "azure",
+  "label_key": "meta.dns.azure.label",
+  "desc_key": "meta.dns.azure.desc",
+  "fields": [
+    {
+      "key": "azure_zone_name",
+      "label_key": "meta.field.zone_name.label",
+      "type": "text",
+      "env": "AZURE_ZONE_NAME"
+    },
+    {
+      "key": "azure_metadata_endpoint",
+      "label": "Metadata Endpoint",
+      "type": "text",
+      "env": "AZURE_METADATA_ENDPOINT"
+    },
+    {
+      "key": "azure_environment",
+      "label": "Environment",
+      "type": "text",
+      "env": "AZURE_ENVIRONMENT"
+    },
+    {
+      "key": "azure_subscription_id",
+      "label": "Subscription ID",
+      "type": "text",
+      "env": "AZURE_SUBSCRIPTION_ID"
+    },
+    {
+      "key": "azure_resource_group",
+      "label": "Resource Group",
+      "type": "text",
+      "env": "AZURE_RESOURCE_GROUP"
+    },
+    {
+      "key": "azure_client_secret",
+      "label": "Client Secret",
+      "type": "password",
+      "env": "AZURE_CLIENT_SECRET"
+    },
+    {
+      "key": "azure_client_id",
+      "label": "Client ID",
+      "type": "text",
+      "env": "AZURE_CLIENT_ID"
+    },
+    {
+      "key": "azure_tenant_id",
+      "label": "Tenant ID",
+      "type": "text",
+      "env": "AZURE_TENANT_ID"
+    },
+    {
+      "key": "azure_private_zone",
+      "label": "Private Zone",
+      "type": "text",
+      "env": "AZURE_PRIVATE_ZONE"
+    }
+  ]
+}

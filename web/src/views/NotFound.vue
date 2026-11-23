@@ -30,6 +30,7 @@
 </template>
 
 <script setup lang="ts">
+import { ArrowLeft, Odometer } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 

@@ -1,0 +1,22 @@
+{
+  "value": "dnsimple",
+  "label_key": "meta.dns.dnsimple.label",
+  "desc_key": "meta.dns.dnsimple.desc",
+  "fields": [
+    {
+      "key": "oauth_token",
+      "label_key": "meta.field.oauth_token.label",
+      "type": "password",
+      "required": true,
+      "env": "DNSIMPLE_OAUTH_TOKEN"
+    },
+    {
+      "key": "base_url",
+      "label_key": "meta.field.base_url.label",
+      "type": "text",
+      "placeholder_key": "meta.field.base_url.placeholder",
+      "help_key": "meta.field.base_url.help",
+      "env": "DNSIMPLE_BASE_URL"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.edgedns.desc": "通过 Akamai EdgeDNS 接口管理 DNS 记录。",
+  "meta.dns.edgedns.label": "Akamai EdgeDNS"
+}

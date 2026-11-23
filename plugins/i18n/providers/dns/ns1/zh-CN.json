@@ -1,0 +1,4 @@
+{
+  "meta.dns.ns1.desc": "通过 NS1 DNS 接口管理 DNS 记录。",
+  "meta.dns.ns1.label": "NS1 DNS"
+}

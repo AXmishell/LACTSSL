@@ -1,0 +1,14 @@
+{
+  "value": "googledomains",
+  "label_key": "meta.dns.googledomains.label",
+  "desc_key": "meta.dns.googledomains.desc",
+  "fields": [
+    {
+      "key": "google_domains_access_token",
+      "label": "Google Domains Access Token",
+      "type": "password",
+      "required": true,
+      "env": "GOOGLE_DOMAINS_ACCESS_TOKEN"
+    }
+  ]
+}

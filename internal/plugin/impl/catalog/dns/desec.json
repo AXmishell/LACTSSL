@@ -1,0 +1,14 @@
+{
+  "value": "desec",
+  "label_key": "meta.dns.desec.label",
+  "desc_key": "meta.dns.desec.desc",
+  "fields": [
+    {
+      "key": "desec_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "DESEC_TOKEN"
+    }
+  ]
+}

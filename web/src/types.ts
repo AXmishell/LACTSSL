@@ -398,6 +398,7 @@ export interface PluginItem {
   id: string
   name?: string
   helper?: string
+  source?: string
   version?: string
   enabled: boolean
   // file_enabled=false 表示所属 helper 文件已停用，条目不可单独启用。
@@ -416,7 +417,7 @@ export interface DeployPluginStatus {
   enabled: boolean
   dir: string
   helpers: number
-  deployers: Array<{ id: string; name?: string; description?: string; version?: string; helper?: string; enabled: boolean; file_enabled?: boolean }>
+  deployers: Array<{ id: string; name?: string; description?: string; version?: string; helper?: string; source?: string; enabled: boolean; file_enabled?: boolean }>
   files?: PluginFile[]
   errors?: string[]
   skipped?: string[]
@@ -439,6 +440,7 @@ export interface NotifyChannelField {
 }
 
 export interface NotifyPluginChannel {
+  source?: string
   id: string
   name?: string
   description?: string
@@ -467,6 +469,7 @@ export interface PluginProvider {
   name?: string
   description?: string
   helper?: string
+  source?: string
   version?: string
   enabled: boolean
   file_enabled?: boolean
@@ -1043,6 +1046,7 @@ export interface SetupStatus {
 
 export interface SetupPluginRuntimeConfig {
   enabled: boolean
+  sandbox?: string
   memory_limit_mb: number
   timeout_seconds: number
   max_output_kb: number
@@ -1122,18 +1126,7 @@ export interface SetupConfig {
       allow_unsigned: boolean
     }
   }
-  plugins: SetupPluginRuntimeConfig & {
-    repo: {
-      enabled: boolean
-      url: string
-      channel: string
-      auto_update: boolean
-      proxy: string
-      timeout_seconds: number
-      max_download_mb: number
-      check_interval_hours: number
-    }
-  }
+  plugins: SetupPluginRuntimeConfig
   deploy_plugins: SetupPluginRuntimeConfig
   notify_plugins: SetupPluginRuntimeConfig
 }

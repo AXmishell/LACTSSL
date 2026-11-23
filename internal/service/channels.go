@@ -174,7 +174,7 @@ func (m *Manager) MigrateNotifyChannels() error {
 
 // NotifyChannelDefinitions 返回当前已启用的插件通知渠道定义，供前端渲染配置表单。
 func (m *Manager) NotifyChannelDefinitions() []notifyplugin.Definition {
-	channels := notifyplugin.ExternalEnabledChannels()
+	channels := notifyplugin.EnabledChannels()
 	out := make([]notifyplugin.Definition, 0, len(channels))
 	for _, channel := range channels {
 		out = append(out, notifyplugin.Definition{

@@ -88,7 +88,7 @@ The main program does not include DNS, deployment, or notification plugins. Open
 3. If you need deployment targets other than SSH, install deployment plugins as well.
 4. Enable the required providers, deployment targets, or notification channels in the corresponding lists.
 
-For offline environments, point `plugins.repo.url` to an internal `https://` mirror or a `file://` index; see [Plugin governance](plugins.md) for details.
+Official plugins are built in, so offline environments need no extra index. Third-party helpers can still be uploaded; see [Plugin governance](plugins.md).
 
 ### 3.4 Run one complete workflow
 

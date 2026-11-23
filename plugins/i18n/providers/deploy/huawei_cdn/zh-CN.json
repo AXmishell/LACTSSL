@@ -1,0 +1,4 @@
+{
+  "meta.deploy.huawei_cdn.desc": "更新华为云 CDN 域名 HTTPS 证书",
+  "meta.deploy.huawei_cdn.label": "华为云 CDN"
+}

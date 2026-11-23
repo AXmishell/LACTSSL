@@ -1,0 +1,31 @@
+{
+  "value": "f5xc",
+  "label_key": "meta.dns.f5xc.label",
+  "desc_key": "meta.dns.f5xc.desc",
+  "fields": [
+    {
+      "key": "f5xc_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "env": "F5XC_API_TOKEN"
+    },
+    {
+      "key": "f5xc_tenant_name",
+      "label": "Tenant Name",
+      "type": "text",
+      "env": "F5XC_TENANT_NAME"
+    },
+    {
+      "key": "f5xc_group_name",
+      "label": "Group Name",
+      "type": "text",
+      "env": "F5XC_GROUP_NAME"
+    },
+    {
+      "key": "f5xc_server",
+      "label": "Server",
+      "type": "text",
+      "env": "F5XC_SERVER"
+    }
+  ]
+}

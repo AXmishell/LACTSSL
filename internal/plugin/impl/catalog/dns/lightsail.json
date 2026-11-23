@@ -1,0 +1,39 @@
+{
+  "value": "lightsail",
+  "label_key": "meta.dns.lightsail.label",
+  "desc_key": "meta.dns.lightsail.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true,
+      "env": "AWS_ACCESS_KEY_ID"
+    },
+    {
+      "key": "secret_access_key",
+      "label_key": "meta.field.secret_access_key.label",
+      "type": "password",
+      "required": true,
+      "env": "AWS_SECRET_ACCESS_KEY"
+    },
+    {
+      "key": "session_token",
+      "label": "Session Token",
+      "type": "password",
+      "env": "AWS_SESSION_TOKEN"
+    },
+    {
+      "key": "dns_zone",
+      "label": "DNS Zone",
+      "type": "text",
+      "env": "DNS_ZONE"
+    },
+    {
+      "key": "lightsail_region",
+      "label": "Lightsail Region",
+      "type": "text",
+      "env": "LIGHTSAIL_REGION"
+    }
+  ]
+}

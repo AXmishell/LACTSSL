@@ -1,0 +1,14 @@
+{
+  "value": "hostingnl",
+  "label_key": "meta.dns.hostingnl.label",
+  "desc_key": "meta.dns.hostingnl.desc",
+  "fields": [
+    {
+      "key": "hostingnl_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "HOSTINGNL_API_KEY"
+    }
+  ]
+}

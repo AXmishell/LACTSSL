@@ -19,14 +19,14 @@
       </div>
     </div>
 
-    <div class="k-card plugin-repo-card" v-loading="repoLoading">
+    <div v-if="false" class="k-card plugin-repo-card" v-loading="repoLoading">
       <div class="card-head plugin-repo-head">
         <div class="repo-head-main">
           <h3>{{ t('plugins.repoTitle') }}</h3>
           <div class="sub repo-summary">
             <el-tag v-if="repo" size="small" :type="repoSignature.type" effect="plain">{{ repoSignature.text }}</el-tag>
             <span class="repo-summary-text" :title="repoStatusText">{{ repoStatusText }}</span>
-            <span v-if="repo?.enabled && repo.channel" class="repo-summary-sep">{{ repo.channel }}</span>
+            <span v-if="repo?.channel" class="repo-summary-sep">{{ repo?.channel }}</span>
             <span v-if="repo?.platform || repo?.host_version" class="repo-summary-sep mono">
               {{ repo?.platform || '-' }} · {{ repo?.host_version || '-' }}
             </span>
@@ -169,8 +169,8 @@
       <div v-if="providers.length" class="plugin-toolbar">
         <el-input v-model="providerFilter" :placeholder="t('plugins.searchProvider')" clearable class="plugin-search" />
         <div class="plugin-bulk">
-          <el-button size="small" :loading="bulkLoading" @click="bulkProviders(true)">{{ t('plugins.enableAll') }}</el-button>
-          <el-button size="small" :loading="bulkLoading" @click="bulkProviders(false)">{{ t('plugins.disableAll') }}</el-button>
+          <el-button size="small" :loading="bulkLoading" :disabled="!plugins?.enabled" @click="bulkProviders(true)">{{ t('plugins.enableAll') }}</el-button>
+          <el-button size="small" :loading="bulkLoading" :disabled="!plugins?.enabled" @click="bulkProviders(false)">{{ t('plugins.disableAll') }}</el-button>
         </div>
       </div>
       <div class="plugin-scroll">
@@ -236,8 +236,8 @@
       <div v-if="deployers.length" class="plugin-toolbar">
         <el-input v-model="deployerFilter" :placeholder="t('plugins.searchDeployer')" clearable class="plugin-search" />
         <div class="plugin-bulk">
-          <el-button size="small" :loading="bulkDeployLoading" @click="bulkDeployers(true)">{{ t('plugins.enableAll') }}</el-button>
-          <el-button size="small" :loading="bulkDeployLoading" @click="bulkDeployers(false)">{{ t('plugins.disableAll') }}</el-button>
+          <el-button size="small" :loading="bulkDeployLoading" :disabled="!plugins?.deploy?.enabled" @click="bulkDeployers(true)">{{ t('plugins.enableAll') }}</el-button>
+          <el-button size="small" :loading="bulkDeployLoading" :disabled="!plugins?.deploy?.enabled" @click="bulkDeployers(false)">{{ t('plugins.disableAll') }}</el-button>
         </div>
       </div>
       <div class="plugin-scroll">
@@ -303,8 +303,8 @@
       <div v-if="notifyChannels.length" class="plugin-toolbar">
         <el-input v-model="notifyFilter" :placeholder="t('plugins.searchNotifyChannel')" clearable class="plugin-search" />
         <div class="plugin-bulk">
-          <el-button size="small" :loading="bulkNotifyLoading" @click="bulkNotifyChannels(true)">{{ t('plugins.enableAll') }}</el-button>
-          <el-button size="small" :loading="bulkNotifyLoading" @click="bulkNotifyChannels(false)">{{ t('plugins.disableAll') }}</el-button>
+          <el-button size="small" :loading="bulkNotifyLoading" :disabled="!plugins?.notify?.enabled" @click="bulkNotifyChannels(true)">{{ t('plugins.enableAll') }}</el-button>
+          <el-button size="small" :loading="bulkNotifyLoading" :disabled="!plugins?.notify?.enabled" @click="bulkNotifyChannels(false)">{{ t('plugins.disableAll') }}</el-button>
         </div>
       </div>
       <div class="plugin-scroll">
@@ -333,7 +333,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="marketVisible" :title="t('plugins.repoMarketTitle')" width="920px">
+    <el-dialog v-if="false" v-model="marketVisible" :title="t('plugins.repoMarketTitle')" width="920px">
       <div class="plugin-toolbar">
         <div class="plugin-bulk">
           <el-select v-model="marketKind" style="width: 140px" @change="loadMarket">
@@ -753,7 +753,10 @@ async function bulkProviders(enabled: boolean): Promise<void> {
   if (enabled && !(await confirmBulkEnable(providers.value.filter((item) => item.file_enabled !== false).length))) return
   bulkLoading.value = true
   try {
-    const result = await api.put<{ updated: number; errors?: string[] }>('/plugins/providers', { enabled })
+    const result = await api.put<{ updated: number; errors?: string[] }>('/plugins/providers', {
+      enabled,
+      ids: providers.value.map((item) => item.id)
+    })
     await load()
     ElMessage.success(t('plugins.providersUpdated', { count: result.updated }))
     if (result.errors?.length) ElMessage.warning(result.errors.join('；'))
@@ -787,7 +790,10 @@ async function bulkDeployers(enabled: boolean): Promise<void> {
   if (enabled && !(await confirmBulkEnable(deployers.value.filter((item) => item.file_enabled !== false).length))) return
   bulkDeployLoading.value = true
   try {
-    const result = await api.put<{ updated: number; errors?: string[] }>('/plugins/deployers', { enabled })
+    const result = await api.put<{ updated: number; errors?: string[] }>('/plugins/deployers', {
+      enabled,
+      ids: deployers.value.map((item) => item.id)
+    })
     await load()
     ElMessage.success(t('plugins.deployersUpdated', { count: result.updated }))
     if (result.errors?.length) ElMessage.warning(result.errors.join('；'))
@@ -821,7 +827,10 @@ async function bulkNotifyChannels(enabled: boolean): Promise<void> {
   if (enabled && !(await confirmBulkEnable(notifyChannels.value.filter((item) => item.file_enabled !== false).length))) return
   bulkNotifyLoading.value = true
   try {
-    const result = await api.put<{ updated: number; errors?: string[] }>('/plugins/notify-channels', { enabled })
+    const result = await api.put<{ updated: number; errors?: string[] }>('/plugins/notify-channels', {
+      enabled,
+      ids: notifyChannels.value.map((item) => item.id)
+    })
     await load()
     ElMessage.success(t('plugins.notifyChannelsUpdated', { count: result.updated }))
     if (result.errors?.length) ElMessage.warning(result.errors.join('；'))
@@ -1135,34 +1144,7 @@ async function submitUpload(): Promise<void> {
 }
 
 async function loadRepo(): Promise<void> {
-  repoLoading.value = true
-  try {
-    repo.value = await api.get<PluginRepoStatus>('/plugins/repo')
-    repoForm.value = {
-      enabled: repo.value.enabled,
-      // URL/代理可能含 token 或 user:password，服务端只返回脱敏值。
-      // 输入框保持为空，留空即保留已保存配置；只有输入新值才会覆盖。
-      url: '',
-      channel: repo.value.channel || 'stable',
-      autoUpdate: repo.value.auto_update,
-      proxy: '',
-      publicKey: ''
-    }
-    await loadLegacy()
-  } catch (error) {
-    console.warn('failed to load plugin repository', error)
-  } finally {
-    repoLoading.value = false
-  }
-}
-
-async function loadLegacy(): Promise<void> {
-  try {
-    const result = await api.get<{ legacy: LegacyPluginFile[] }>('/plugins/repo/legacy')
-    legacyPlugins.value = result.legacy || []
-  } catch {
-    legacyPlugins.value = []
-  }
+  // 插件仓库已移除：内置插件与上传插件由后端统一返回。
 }
 
 async function saveRepo(): Promise<void> {

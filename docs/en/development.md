@@ -15,7 +15,8 @@ internal/logging/    Process logging, levels, formats, file rotation, and async 
 internal/model/      Database entities and task workflows
 internal/acme/       Built-in ACME server protocol
 internal/service/    ACME client, deployment, notifications, monitoring, scheduling
-internal/plugin/     plugin host: dns/deploy/notify, exec, install, meta, proto, repo
+internal/plugin/     plugin host and official implementations: host packages + impl/
+plugins/             external plugin SDK: protocol v1, helper framework, shared utilities
 internal/store/      Data access layer
 internal/util/       Encryption, validation, and other utilities
 internal/webui/      Embedded frontend build output
@@ -28,7 +29,7 @@ docs/ja/             Japanese documentation
 docs/ru/             Russian documentation
 ```
 
-Plugin implementations, official helpers, the plugin protocol, and plugin metadata live in the separate [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) repository. The host implements protocol v1 manifest decoding locally; the repositories integrate at runtime through the signed index and `min_host`, not through a shared Go module.
+Official DNS/deploy/notify implementations live in `internal/plugin/impl/` and are compiled and tested with the main module. `plugins/` is the external plugin development SDK (protocol, helper framework, and shared utilities). Uploaded helpers still run as protocol v1 subprocesses. The host does not depend on an external plugin repository or signed index.
 
 ## 2. Local development
 
@@ -166,14 +167,18 @@ gh release create v1.0.1 --generate-notes
 
 Artifacts include:
 
+- `lactssl_<version>_linux_amd64.tar.xz`
 - `lactssl_<version>_linux_amd64.tar.gz`
+- `lactssl_<version>_linux_arm64.tar.xz`
 - `lactssl_<version>_linux_arm64.tar.gz`
+- `lactssl_<version>_darwin_amd64.tar.xz`
 - `lactssl_<version>_darwin_amd64.tar.gz`
+- `lactssl_<version>_darwin_arm64.tar.xz`
 - `lactssl_<version>_darwin_arm64.tar.gz`
 - `lactssl_<version>_windows_amd64.zip`
 - `checksums.txt` (SHA-256)
 
-Archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`. The version comes directly from the tag (with the `v` prefix removed) and does not rely on local git derivation.
+Archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`. The version comes directly from the tag (with the `v` prefix removed) and does not rely on local git derivation. On non-Windows platforms both `.tar.xz` and `.tar.gz` are published; `.tar.xz` is the preferred download, while `.tar.gz` keeps older auto-upgrade clients working.
 
 Images for `linux/amd64` and `linux/arm64` are also built and pushed to GHCR:
 
@@ -206,17 +211,18 @@ make release TAG=v1.0.1
 ./scripts/release.sh v1.0.1 --upload
 ```
 
-`--multiarch` requires Docker Buildx; cross-architecture builds also require QEMU.
+`--multiarch` requires Docker Buildx. QEMU is not required: the image only copies host-cross-compiled binaries and runs no target-architecture commands during the build.
 
 ## 8. Plugin integration
 
-Plugin sources, build tooling, and the repository index live in `LACTSSL-Plugins`. The host builds independently; when you need to change plugin implementations and verify end to end, temporarily create a workspace:
+Official implementations live in `internal/plugin/impl/`; `plugins/` only contains the external plugin SDK, referenced by the host `go.mod` through a local `replace`. After changing an official implementation, build from the repository root:
 
 ```bash
-go work init . ../LACTSSL-Plugins
+make backend
+make plugins-test
 ```
 
-After changing a plugin implementation, run `make gen` and `make plugin KIND=dns GOOS=linux GOARCH=amd64` in the plugin repository to build the merged DNS bundle. Delete `go.work` after verification (the file is gitignored).
+Official implementations are built in; there is no merged bundle to build or install. Uploaded plugins remain single helper executables.
 
 For plugin protocol, fields, and signing, see [Plugin development](plugin-development.md).
 

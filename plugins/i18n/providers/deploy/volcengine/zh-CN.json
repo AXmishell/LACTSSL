@@ -1,0 +1,4 @@
+{
+  "meta.deploy.volcengine.desc": "上传证书并按所选对象部署到火山引擎 CDN 或 DCDN",
+  "meta.deploy.volcengine.label": "火山引擎"
+}

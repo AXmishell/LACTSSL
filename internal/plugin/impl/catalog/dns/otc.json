@@ -1,0 +1,43 @@
+{
+  "value": "otc",
+  "label_key": "meta.dns.otc.label",
+  "desc_key": "meta.dns.otc.desc",
+  "fields": [
+    {
+      "key": "otc_private_zone",
+      "label": "Private Zone",
+      "type": "text",
+      "env": "OTC_PRIVATE_ZONE"
+    },
+    {
+      "key": "otc_identity_endpoint",
+      "label": "Identity Endpoint",
+      "type": "text",
+      "env": "OTC_IDENTITY_ENDPOINT"
+    },
+    {
+      "key": "otc_domain_name",
+      "label": "Domain Name",
+      "type": "text",
+      "env": "OTC_DOMAIN_NAME"
+    },
+    {
+      "key": "otc_user_name",
+      "label": "User Name",
+      "type": "text",
+      "env": "OTC_USER_NAME"
+    },
+    {
+      "key": "otc_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "OTC_PASSWORD"
+    },
+    {
+      "key": "otc_project_name",
+      "label": "Project Name",
+      "type": "text",
+      "env": "OTC_PROJECT_NAME"
+    }
+  ]
+}

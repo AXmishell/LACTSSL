@@ -2,7 +2,9 @@
 
 This page is intended for plugin developers, integrators, and enterprise platform teams. It describes the LACTSSL plugin protocol, repository layout, development workflow, build, packaging, index, signing, and release process. **Operations staff usually only need [Plugin governance](plugins.md) and the relevant DNS, deployment, or notification plugin pages.**
 
-Plugin sources, build tooling, and the repository index live in the separate [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) repository. The host only implements protocol v1 manifest decoding and downloads merged plugin packages by kind at runtime; the two repositories do not share Go source through `go.mod`.
+Official DNS/deploy/notify implementations live in `internal/plugin/impl/` and are compiled into the host. `plugins/` is the external plugin development SDK (protocol, helper framework, and shared utilities). Uploaded plugins still use protocol v1 subprocesses. The host no longer uses a plugin index or external plugin repository.
+
+Generators, bundle packaging, and index tooling described below live in `internal/plugin/impl/`, and commands are run from that directory. External plugins only need `plugins/protocol` and `plugins/sdk`.
 
 ## 1. Architecture
 

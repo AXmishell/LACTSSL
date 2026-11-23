@@ -207,45 +207,27 @@ acme:
     client_ca: ""
 
 plugins:
-  # 是否加载 DNS 插件（默认开启）
-  # 主程序不再内置或随包分发任何服务商；请在「插件」页从插件仓库按需安装。
+  # 是否启用 DNS 插件类别（默认开启）；DNS 条目默认全部停用，需在插件页启用
   enabled: true
-  # 插件目录；留空表示 <data_dir>/plugins/dns
+  # 上传插件目录；留空表示 <data_dir>/plugins/dns
   dir: ""
-  # 单个 helper 进程常驻内存（RSS）上限，0 表示不限制
+  # 仅上传/外部 helper 的沙箱：strict（Linux Landlock）/basic/off；内置插件不走沙箱
+  sandbox: strict
+  # 单个上传 helper 进程常驻内存（RSS）上限，0 表示不限制
   memory_limit_mb: 128
   # present/cleanup 单次执行超时（秒）
   timeout_seconds: 60
   # helper 输出日志上限（KB）
   max_output_kb: 64
-  repo:
-    # 插件仓库默认启用；首次进入插件页会拉取索引。
-    enabled: true
-    # 索引地址；支持 http、https 与 file:// 离线镜像
-    url: "https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json"
-    # stable 或 beta
-    channel: stable
-    # 自动更新已安装插件（默认关闭）
-    auto_update: false
-    # 索引签名公钥（base64 Ed25519）；默认内置官方仓库公钥。
-    # 清空后只校验 HTTPS 与 asset sha256，生产环境不建议关闭。
-    public_key: "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
-    # 拉取索引/下载插件的显式代理；留空沿用 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY 环境变量。
-    # 支持 http、https、socks5、socks5h，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
-    proxy: ""
-    # 拉取索引/下载插件超时（秒）
-    timeout_seconds: 30
-    # 单个插件包大小上限（MB）
-    max_download_mb: 256
-    # 自动检查间隔（小时）
-    check_interval_hours: 24
 
 deploy_plugins:
-  # 是否加载外部证书部署插件（默认关闭）。插件会接收证书私钥，仅启用可信 helper。
+  # 是否启用内置部署目标与上传插件（默认关闭）。部署插件会接触证书私钥。
   enabled: false
-  # 插件目录；留空表示 <data_dir>/plugins/deploy（与 DNS 插件目录分开）
+  # 上传插件目录；留空表示 <data_dir>/plugins/deploy（与 DNS 插件目录分开）
   dir: ""
-  # 单个 helper 进程常驻内存（RSS）上限，0 表示不限制
+  # 仅上传/外部 helper 的沙箱：strict（Linux Landlock）/basic/off；内置插件不走沙箱
+  sandbox: strict
+  # 单个上传 helper 进程常驻内存（RSS）上限，0 表示不限制
   memory_limit_mb: 128
   # deploy 单次执行超时（秒）；上传大文件时可调大
   timeout_seconds: 300
@@ -253,11 +235,13 @@ deploy_plugins:
   max_output_kb: 64
 
 notify_plugins:
-  # 是否加载外部通知插件（默认开启）。主程序只内置邮件，其余渠道由 helper 提供。
+  # 是否启用内置通知渠道与上传插件（默认开启）
   enabled: true
-  # 插件目录；留空表示 <data_dir>/plugins/notify（与 DNS/部署插件目录分开）
+  # 上传插件目录；留空表示 <data_dir>/plugins/notify（与 DNS/部署插件目录分开）
   dir: ""
-  # 单个 helper 进程常驻内存（RSS）上限，0 表示不限制
+  # 仅上传/外部 helper 的沙箱：strict（Linux Landlock）/basic/off；内置插件不走沙箱
+  sandbox: strict
+  # 单个上传 helper 进程常驻内存（RSS）上限，0 表示不限制
   memory_limit_mb: 128
   # send 单次执行超时（秒）
   timeout_seconds: 30

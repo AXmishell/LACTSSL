@@ -1,0 +1,4 @@
+{
+  "meta.dns.route53.desc": "Manage Route 53 hosted zones with AWS AccessKeys or an instance role",
+  "meta.dns.route53.label": "AWS Route 53"
+}

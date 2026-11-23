@@ -1,0 +1,4 @@
+{
+  "meta.dns.myaddr.desc": "Manage DNS records through the myaddr API.",
+  "meta.dns.myaddr.label": "myaddr"
+}

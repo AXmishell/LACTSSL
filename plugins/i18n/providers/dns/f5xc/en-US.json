@@ -1,0 +1,4 @@
+{
+  "meta.dns.f5xc.desc": "Manage DNS records through the F5 XC API.",
+  "meta.dns.f5xc.label": "F5 XC"
+}

@@ -1,0 +1,28 @@
+{
+  "value": "cloudns",
+  "label_key": "meta.dns.cloudns.label",
+  "desc_key": "meta.dns.cloudns.desc",
+  "fields": [
+    {
+      "key": "auth_id",
+      "label_key": "meta.field.auth_id.label",
+      "type": "text",
+      "required": true,
+      "env": "CLOUDNS_AUTH_ID"
+    },
+    {
+      "key": "sub_auth_id",
+      "label_key": "meta.field.sub_auth_id.label",
+      "type": "text",
+      "help_key": "meta.field.sub_auth_id.help",
+      "env": "CLOUDNS_SUB_AUTH_ID"
+    },
+    {
+      "key": "auth_password",
+      "label_key": "meta.field.auth_password.label",
+      "type": "password",
+      "required": true,
+      "env": "CLOUDNS_AUTH_PASSWORD"
+    }
+  ]
+}

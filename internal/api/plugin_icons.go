@@ -1,9 +1,6 @@
 package api
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"lactssl/internal/plugin/repo"
+	"lactssl/internal/plugin/icons"
 	"lactssl/internal/service"
 )
 
@@ -34,55 +31,6 @@ func (s *Server) pluginIconRoot(kind string) (string, bool) {
 		return "", false
 	}
 	return filepath.Join(s.DataDir, pluginIconDir, kind), true
-}
-
-// savePluginIcons 把安装包内的图标原子写入插件专属目录。
-// refs 为空时清理该插件的目录，避免升级后残留旧图。
-func (s *Server) savePluginIcons(kind, owner string, refs map[string]pluginrepo.IconFile, srcDir string) error {
-	root, ok := s.pluginIconRoot(kind)
-	if !ok || !validPluginIconID(owner) {
-		return nil
-	}
-	if len(refs) == 0 {
-		return s.removePluginIcons(kind, owner)
-	}
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.MkdirTemp(root, ".icons-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
-	for id, ref := range refs {
-		if !validPluginIconID(id) {
-			return nil
-		}
-		ext := strings.ToLower(filepath.Ext(ref.File))
-		mime := pluginrepo.IconMIME(ext)
-		if mime == "" || ref.File != "icons/"+id+ext {
-			return nil
-		}
-		data, err := os.ReadFile(filepath.Join(srcDir, id+ext))
-		if err != nil {
-			return err
-		}
-		if len(data) == 0 || len(data) > pluginrepo.MaxIconBytes {
-			return nil
-		}
-		sum := sha256.Sum256(data)
-		if !strings.EqualFold(ref.SHA256, hex.EncodeToString(sum[:])) {
-			return nil
-		}
-		if err := os.WriteFile(filepath.Join(tmp, id+ext), data, 0o644); err != nil {
-			return err
-		}
-	}
-	dest := filepath.Join(root, owner)
-	if err := os.RemoveAll(dest); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dest)
 }
 
 func (s *Server) removePluginIcons(kind, owner string) error {
@@ -123,13 +71,13 @@ func (s *Server) packageIconMap() map[string]map[string]string {
 				}
 				name := file.Name()
 				ext := strings.ToLower(filepath.Ext(name))
-				mime := pluginrepo.IconMIME(ext)
+				mime := icons.MIME(ext)
 				id := strings.TrimSuffix(name, filepath.Ext(name))
 				if mime == "" || !validPluginIconID(id) {
 					continue
 				}
 				info, err := file.Info()
-				if err != nil || info.Size() == 0 || info.Size() > pluginrepo.MaxIconBytes {
+				if err != nil || info.Size() == 0 || info.Size() > icons.MaxBytes {
 					continue
 				}
 				data, err := os.ReadFile(filepath.Join(root, owner.Name(), name))
@@ -139,7 +87,7 @@ func (s *Server) packageIconMap() map[string]map[string]string {
 				if out[kind] == nil {
 					out[kind] = map[string]string{}
 				}
-				out[kind][id] = pluginrepo.EncodeIconDataURI(mime, data)
+				out[kind][id] = icons.EncodeDataURI(mime, data)
 			}
 		}
 	}
@@ -154,36 +102,9 @@ func (s *Server) packageIconMap() map[string]map[string]string {
 	return out
 }
 
-// cachedRepoIconMap 只读取已签名的本地索引缓存，不触发网络请求。
-func (s *Server) cachedRepoIconMap() map[string]map[string]string {
-	s.pluginRepoMu.Lock()
-	index := s.pluginRepoIndex
-	s.pluginRepoMu.Unlock()
-	if len(index.Icons) == 0 && s.Store != nil {
-		if raw, ok := s.cachedRepoIndexRaw(); ok {
-			if err := json.Unmarshal([]byte(raw), &index); err != nil {
-				return nil
-			}
-			index.SanitizeIcons()
-		}
-	}
-	return index.IconMap()
-}
-
-// pluginIconMap 合并索引图标与已安装包内图标，后者覆盖前者。
+// pluginIconMap 返回已安装包内图标；内置插件未提供图标时由前端回退首字母头像。
 func (s *Server) pluginIconMap() map[string]map[string]string {
 	out := map[string]map[string]string{pluginKindDNS: {}, pluginKindDeploy: {}}
-	for kind, byID := range s.cachedRepoIconMap() {
-		if kind != pluginKindDNS && kind != pluginKindDeploy {
-			continue
-		}
-		if out[kind] == nil {
-			out[kind] = map[string]string{}
-		}
-		for id, icon := range byID {
-			out[kind][id] = icon
-		}
-	}
 	for kind, byID := range s.packageIconMap() {
 		if out[kind] == nil {
 			out[kind] = map[string]string{}
@@ -199,14 +120,4 @@ func (s *Server) pluginIconMap() map[string]map[string]string {
 func (s *Server) listPluginIcons(c *gin.Context) {
 	c.Header("Cache-Control", "private, max-age=300")
 	ok(c, s.pluginIconMap())
-}
-
-// pluginMarketIcon 为仓库条目挑选展示图标：只使用条目自身 ID 对应的图标。
-// 合并包不借用首个 provider 的 logo，避免把某一家的品牌当作整个包的门面；
-// 需要包级图标时，可在索引中按包 ID 提供，或用 hide_icon 强制隐藏。
-func pluginMarketIcon(plugin pluginrepo.Plugin, icons map[string]map[string]string) string {
-	if plugin.HideIcon {
-		return ""
-	}
-	return icons[plugin.Kind][plugin.ID]
 }

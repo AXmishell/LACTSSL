@@ -1,0 +1,25 @@
+{
+  "value": "versio",
+  "label_key": "meta.dns.versio.label",
+  "desc_key": "meta.dns.versio.desc",
+  "fields": [
+    {
+      "key": "versio_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "VERSIO_ENDPOINT"
+    },
+    {
+      "key": "versio_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "VERSIO_USERNAME"
+    },
+    {
+      "key": "versio_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "VERSIO_PASSWORD"
+    }
+  ]
+}

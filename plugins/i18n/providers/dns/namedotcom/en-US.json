@@ -1,0 +1,4 @@
+{
+  "meta.dns.namedotcom.desc": "Manage DNS records through the Name.com's DNS service API.",
+  "meta.dns.namedotcom.label": "Name.com's DNS service"
+}

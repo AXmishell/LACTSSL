@@ -1,0 +1,14 @@
+{
+  "value": "netnod",
+  "label_key": "meta.dns.netnod.label",
+  "desc_key": "meta.dns.netnod.desc",
+  "fields": [
+    {
+      "key": "netnod_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "NETNOD_TOKEN"
+    }
+  ]
+}

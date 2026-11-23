@@ -1,0 +1,31 @@
+{
+  "value": "conoha",
+  "label_key": "meta.dns.conoha.label",
+  "desc_key": "meta.dns.conoha.desc",
+  "fields": [
+    {
+      "key": "conoha_region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "env": "CONOHA_REGION"
+    },
+    {
+      "key": "conoha_tenant_id",
+      "label": "Tenant ID",
+      "type": "text",
+      "env": "CONOHA_TENANT_ID"
+    },
+    {
+      "key": "conoha_api_username",
+      "label": "API Username",
+      "type": "text",
+      "env": "CONOHA_API_USERNAME"
+    },
+    {
+      "key": "conoha_api_password",
+      "label": "API Password",
+      "type": "password",
+      "env": "CONOHA_API_PASSWORD"
+    }
+  ]
+}

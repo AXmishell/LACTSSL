@@ -1,0 +1,4 @@
+{
+  "meta.dns.ispconfigddns.desc": "Manage DNS records through the ISPConfig 3 Dynamic DNS (DDNS) Module API.",
+  "meta.dns.ispconfigddns.label": "ISPConfig 3 Dynamic DNS (DDNS) Module"
+}

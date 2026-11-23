@@ -1,0 +1,25 @@
+{
+  "value": "exoscale",
+  "label_key": "meta.dns.exoscale.label",
+  "desc_key": "meta.dns.exoscale.desc",
+  "fields": [
+    {
+      "key": "exoscale_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "EXOSCALE_API_KEY"
+    },
+    {
+      "key": "exoscale_api_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "env": "EXOSCALE_API_SECRET"
+    },
+    {
+      "key": "exoscale_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "EXOSCALE_ENDPOINT"
+    }
+  ]
+}

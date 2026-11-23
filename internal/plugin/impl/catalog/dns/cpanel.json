@@ -1,0 +1,31 @@
+{
+  "value": "cpanel",
+  "label_key": "meta.dns.cpanel.label",
+  "desc_key": "meta.dns.cpanel.desc",
+  "fields": [
+    {
+      "key": "cpanel_mode",
+      "label": "Mode",
+      "type": "text",
+      "env": "CPANEL_MODE"
+    },
+    {
+      "key": "cpanel_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "CPANEL_USERNAME"
+    },
+    {
+      "key": "cpanel_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "env": "CPANEL_TOKEN"
+    },
+    {
+      "key": "cpanel_base_url",
+      "label_key": "meta.field.base_url.label",
+      "type": "text",
+      "env": "CPANEL_BASE_URL"
+    }
+  ]
+}

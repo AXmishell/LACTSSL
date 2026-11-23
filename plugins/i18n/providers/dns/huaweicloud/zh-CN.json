@@ -1,0 +1,4 @@
+{
+  "meta.dns.huaweicloud.desc": "使用华为云 AccessKey ID / SecretAccessKey 与 Region",
+  "meta.dns.huaweicloud.label": "华为云 DNS"
+}

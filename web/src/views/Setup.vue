@@ -133,7 +133,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, UploadInstance } from 'element-plus'
-import { Document, Key, Upload } from '@element-plus/icons-vue'
+import { Document, Key, Lock, Message, Upload } from '@element-plus/icons-vue'
 import { api, loginPath } from '../api'
 import ConfigEditor from '../components/ConfigEditor.vue'
 import { state } from '../store'
@@ -228,22 +228,13 @@ function emptySetupConfig(): SetupConfig {
     },
     plugins: {
       enabled: true,
+      sandbox: 'strict',
       memory_limit_mb: 128,
       timeout_seconds: 60,
-      max_output_kb: 64,
-      repo: {
-        enabled: true,
-        url: 'https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json',
-        channel: 'stable',
-        auto_update: false,
-        proxy: '',
-        timeout_seconds: 30,
-        max_download_mb: 256,
-        check_interval_hours: 24
-      }
+      max_output_kb: 64
     },
-    deploy_plugins: { enabled: false, memory_limit_mb: 128, timeout_seconds: 300, max_output_kb: 64 },
-    notify_plugins: { enabled: true, memory_limit_mb: 128, timeout_seconds: 30, max_output_kb: 64 }
+    deploy_plugins: { enabled: false, sandbox: 'strict', memory_limit_mb: 128, timeout_seconds: 300, max_output_kb: 64 },
+    notify_plugins: { enabled: true, sandbox: 'strict', memory_limit_mb: 128, timeout_seconds: 30, max_output_kb: 64 }
   }
 }
 
@@ -356,28 +347,21 @@ async function saveConfig(): Promise<void> {
       },
       plugins: {
         enabled: form.plugins.enabled,
+        sandbox: form.plugins.sandbox,
         memory_limit_mb: form.plugins.memory_limit_mb,
         timeout_seconds: form.plugins.timeout_seconds,
-        max_output_kb: form.plugins.max_output_kb,
-        repo: {
-          enabled: form.plugins.repo.enabled,
-          url: form.plugins.repo.url.trim(),
-          channel: form.plugins.repo.channel,
-          auto_update: form.plugins.repo.auto_update,
-          proxy: form.plugins.repo.proxy.trim(),
-          timeout_seconds: form.plugins.repo.timeout_seconds,
-          max_download_mb: form.plugins.repo.max_download_mb,
-          check_interval_hours: form.plugins.repo.check_interval_hours
-        }
+        max_output_kb: form.plugins.max_output_kb
       },
       deploy_plugins: {
         enabled: form.deploy_plugins.enabled,
+        sandbox: form.deploy_plugins.sandbox,
         memory_limit_mb: form.deploy_plugins.memory_limit_mb,
         timeout_seconds: form.deploy_plugins.timeout_seconds,
         max_output_kb: form.deploy_plugins.max_output_kb
       },
       notify_plugins: {
         enabled: form.notify_plugins.enabled,
+        sandbox: form.notify_plugins.sandbox,
         memory_limit_mb: form.notify_plugins.memory_limit_mb,
         timeout_seconds: form.notify_plugins.timeout_seconds,
         max_output_kb: form.notify_plugins.max_output_kb

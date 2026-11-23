@@ -1,0 +1,21 @@
+{
+  "value": "porkbun",
+  "label_key": "meta.dns.porkbun.label",
+  "desc_key": "meta.dns.porkbun.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "text",
+      "required": true,
+      "env": "PORKBUN_API_KEY"
+    },
+    {
+      "key": "secret_api_key",
+      "label_key": "meta.field.secret_api_key.label",
+      "type": "password",
+      "required": true,
+      "env": "PORKBUN_SECRET_API_KEY"
+    }
+  ]
+}

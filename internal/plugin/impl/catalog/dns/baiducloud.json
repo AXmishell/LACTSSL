@@ -1,0 +1,22 @@
+{
+  "value": "baiducloud",
+  "label_key": "meta.dns.baiducloud.label",
+  "desc_key": "meta.dns.baiducloud.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.access_key_id.placeholder",
+      "env": "BAIDUCLOUD_ACCESS_KEY_ID"
+    },
+    {
+      "key": "secret_access_key",
+      "label_key": "meta.field.secret_access_key.label",
+      "type": "password",
+      "required": true,
+      "env": "BAIDUCLOUD_SECRET_ACCESS_KEY"
+    }
+  ]
+}

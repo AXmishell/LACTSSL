@@ -1,0 +1,4 @@
+{
+  "meta.dns.selfhostde.desc": "通过 SelfHost 接口管理 DNS 记录。",
+  "meta.dns.selfhostde.label": "SelfHost"
+}

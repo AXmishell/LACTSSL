@@ -1,0 +1,4 @@
+{
+  "meta.deploy.huawei_cdn.desc": "Update HTTPS certificates on Huawei Cloud CDN domains",
+  "meta.deploy.huawei_cdn.label": "Huawei Cloud CDN"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.zoneedit.desc": "Manage DNS records through the ZoneEdit API.",
+  "meta.dns.zoneedit.label": "ZoneEdit"
+}

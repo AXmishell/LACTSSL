@@ -79,3 +79,50 @@ func TestRegistryRejectsIDShadowingAlias(t *testing.T) {
 		t.Fatalf("alias should still resolve to the first plugin: %v %v", found, ok)
 	}
 }
+
+func TestReplaceBuiltinIsAtomic(t *testing.T) {
+	resetForTest()
+	t.Cleanup(resetForTest)
+
+	external := fakePlugin{id: "external-provider", aliases: []string{"external-alias"}, source: SourceExec}
+	if err := RegisterExternal(external); err != nil {
+		t.Fatalf("register external: %v", err)
+	}
+	first := fakePlugin{id: "builtin-one", aliases: []string{"builtin-alias"}, source: SourceBuiltin}
+	if err := ReplaceBuiltin([]Plugin{first}); err != nil {
+		t.Fatalf("replace first: %v", err)
+	}
+	if !Has("builtin-one") || !Has("builtin-alias") {
+		t.Fatal("first builtin set should be registered")
+	}
+
+	// 替换后旧内置 ID 与别名必须消失，外部插件保持不变。
+	if err := ReplaceBuiltin([]Plugin{fakePlugin{id: "builtin-two", source: SourceBuiltin}}); err != nil {
+		t.Fatalf("replace second: %v", err)
+	}
+	if Has("builtin-one") || Has("builtin-alias") {
+		t.Fatal("previous builtin entries should be removed")
+	}
+	for _, name := range []string{"builtin-two", "external-provider", "external-alias"} {
+		if !Has(name) {
+			t.Fatalf("%s should be registered", name)
+		}
+	}
+
+	// 新集合内部冲突时必须整体失败，保留上一版内置集合。
+	conflicting := []Plugin{
+		fakePlugin{id: "conflict-a", source: SourceBuiltin},
+		fakePlugin{id: "conflict-b", aliases: []string{"conflict-a"}, source: SourceBuiltin},
+	}
+	if err := ReplaceBuiltin(conflicting); err == nil {
+		t.Fatal("conflicting builtin set should fail")
+	}
+	if !Has("builtin-two") || Has("conflict-a") || Has("conflict-b") {
+		t.Fatal("failed replacement must keep the previous registry")
+	}
+
+	// 来源不匹配的条目不能被当作内置插件替换。
+	if err := ReplaceBuiltin([]Plugin{external}); err == nil {
+		t.Fatal("external plugin must not be replaceable as builtin")
+	}
+}

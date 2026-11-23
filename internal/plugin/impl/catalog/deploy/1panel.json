@@ -1,0 +1,104 @@
+{
+  "value": "1panel",
+  "label_key": "meta.deploy.1panel.label",
+  "desc_key": "meta.deploy.1panel.desc",
+  "fields": [
+    {
+      "key": "panel_url",
+      "label_key": "meta.field.panel_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.panel_url.placeholder",
+      "help_key": "meta.field.panel_url.help"
+    },
+    {
+      "key": "api_key",
+      "label_key": "meta.field.panel_api_key.label",
+      "type": "password",
+      "required": true,
+      "help_key": "meta.field.panel_api_key.help"
+    },
+    {
+      "key": "api_version",
+      "label_key": "meta.field.api_version.label",
+      "type": "select",
+      "default": "v2",
+      "options": [
+        {
+          "label": "v2",
+          "value": "v2"
+        },
+        {
+          "label": "v1",
+          "value": "v1"
+        }
+      ]
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "target",
+      "label_key": "meta.field.deploy_target.label",
+      "type": "select",
+      "help_key": "meta.field.deploy_target.help",
+      "default": "site",
+      "options": [
+        {
+          "label_key": "meta.field.deploy_target.option.site",
+          "value": "site"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.panel",
+          "value": "panel"
+        }
+      ]
+    },
+    {
+      "key": "website",
+      "label_key": "meta.field.website.label",
+      "type": "text",
+      "help_key": "meta.field.website.help",
+      "show_if": {
+        "key": "target",
+        "value": "site"
+      }
+    },
+    {
+      "key": "ssl_mode",
+      "label_key": "meta.field.ssl_mode.label",
+      "type": "select",
+      "help_key": "meta.field.ssl_mode.help",
+      "default": "Enable",
+      "options": [
+        {
+          "label_key": "meta.field.ssl_mode.option.enable",
+          "value": "Enable"
+        },
+        {
+          "label_key": "meta.field.ssl_mode.option.mux",
+          "value": "Mux"
+        }
+      ],
+      "show_if": {
+        "key": "target",
+        "value": "panel"
+      }
+    }
+  ]
+}

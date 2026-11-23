@@ -1,0 +1,21 @@
+{
+  "value": "godaddy",
+  "label_key": "meta.dns.godaddy.label",
+  "desc_key": "meta.dns.godaddy.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "text",
+      "required": true,
+      "env": "GODADDY_API_KEY"
+    },
+    {
+      "key": "api_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "GODADDY_API_SECRET"
+    }
+  ]
+}

@@ -13,7 +13,7 @@
     </div>
 
     <div v-if="!items.length && !loading" class="k-card table-fill cred-empty-card">
-      <el-icon size="34" color="#94a3b8"><component :is="isDNS ? DnsAccountIcon : 'UploadFilled'" /></el-icon>
+      <el-icon size="34" color="#94a3b8"><component :is="isDNS ? DnsAccountIcon : UploadFilled" /></el-icon>
       <h3 style="margin: 14px 0 6px">{{ isDNS ? t('credentials.emptyDnsTitle') : t('credentials.emptyDeployTitle') }}</h3>
       <p class="muted" style="margin-top: 0">{{ isDNS ? t('credentials.emptyDnsDesc') : t('credentials.emptyDeployDesc') }}</p>
       <el-button type="primary" style="margin-top: 12px" @click="openCreate">{{ t('credentials.addNow') }}</el-button>
@@ -127,13 +127,13 @@
               :key="option.value"
               :label="option.label"
               :value="option.value"
-              :disabled="isDNS && option.available === false"
+              :disabled="option.available === false"
             >
               <div class="provider-option">
                 <span class="provider-option-label">{{ option.label }}</span>
                 <span class="provider-option-desc">
                   {{
-                    option.available === false && isDNS
+                    option.available === false
                       ? t('credentials.providerUnavailable')
                       : option.desc
                   }}
@@ -380,7 +380,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Close, Delete, Document, InfoFilled, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { Close, Delete, Document, InfoFilled, MoreFilled, Plus, Refresh, Search, UploadFilled } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta } from '../store'
@@ -498,7 +498,7 @@ const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected
 
 const typeOptions = computed<ProviderDef[]>(() => (isDNS.value ? meta.value?.dns_providers : meta.value?.deploy_types) || [])
 const activeDef = computed(() => typeOptions.value.find((item) => item.value === form.type))
-const providerUnavailable = computed(() => isDNS.value && activeDef.value?.available === false)
+const providerUnavailable = computed(() => activeDef.value?.available === false)
 // 历史账户可能引用当前不可用的服务商或部署目标（未编译、插件未安装或已停用）；
 // 这些条目不会出现在列表中，但元数据与账户配置仍保留在服务端。
 const providerMissing = computed(() => !!form.type && !activeDef.value)

@@ -1,0 +1,57 @@
+{
+  "value": "lecdn",
+  "label_key": "meta.deploy.lecdn.label",
+  "desc_key": "meta.deploy.lecdn.desc",
+  "fields": [
+    {
+      "key": "url",
+      "label_key": "meta.field.lecdn_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.lecdn_url.placeholder"
+    },
+    {
+      "key": "username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "domain",
+      "label_key": "meta.field.domain.label",
+      "type": "text",
+      "help_key": "meta.field.lecdn_domain.help"
+    },
+    {
+      "key": "site_id",
+      "label_key": "meta.field.site_id.label",
+      "type": "text",
+      "required": true,
+      "help_key": "meta.field.lecdn_site_id.help"
+    }
+  ]
+}

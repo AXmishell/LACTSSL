@@ -1,0 +1,14 @@
+{
+  "value": "rcodezero",
+  "label_key": "meta.dns.rcodezero.label",
+  "desc_key": "meta.dns.rcodezero.desc",
+  "fields": [
+    {
+      "key": "rcodezero_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "required": true,
+      "env": "RCODEZERO_API_TOKEN"
+    }
+  ]
+}

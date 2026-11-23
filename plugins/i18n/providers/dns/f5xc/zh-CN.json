@@ -1,0 +1,4 @@
+{
+  "meta.dns.f5xc.desc": "通过 F5 XC 接口管理 DNS 记录。",
+  "meta.dns.f5xc.label": "F5 XC"
+}

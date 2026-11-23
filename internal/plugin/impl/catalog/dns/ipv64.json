@@ -1,0 +1,14 @@
+{
+  "value": "ipv64",
+  "label_key": "meta.dns.ipv64.label",
+  "desc_key": "meta.dns.ipv64.desc",
+  "fields": [
+    {
+      "key": "ipv64_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "IPV64_API_KEY"
+    }
+  ]
+}

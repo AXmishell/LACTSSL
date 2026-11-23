@@ -1,0 +1,4 @@
+{
+  "meta.dns.dyn.desc": "通过 Dyn Managed DNS 接口管理 DNS 记录。",
+  "meta.dns.dyn.label": "Dyn Managed DNS"
+}

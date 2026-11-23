@@ -1,0 +1,21 @@
+{
+  "value": "manageengine",
+  "label_key": "meta.dns.manageengine.label",
+  "desc_key": "meta.dns.manageengine.desc",
+  "fields": [
+    {
+      "key": "manageengine_client_id",
+      "label": "ID",
+      "type": "text",
+      "required": true,
+      "env": "MANAGEENGINE_CLIENT_ID"
+    },
+    {
+      "key": "manageengine_client_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "MANAGEENGINE_CLIENT_SECRET"
+    }
+  ]
+}

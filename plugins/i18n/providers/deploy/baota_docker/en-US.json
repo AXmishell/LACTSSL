@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baota_docker.desc": "Deploy an SSL certificate to a Baota Docker website",
+  "meta.deploy.baota_docker.label": "Baota Docker Website"
+}

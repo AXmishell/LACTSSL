@@ -1,0 +1,4 @@
+{
+  "meta.deploy.acepanel_panel.desc": "替换 AcePanel 面板自身的 HTTPS 证书",
+  "meta.deploy.acepanel_panel.label": "AcePanel 面板"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.transip.desc": "Manage DNS records through the TransIP API.",
+  "meta.dns.transip.label": "TransIP"
+}

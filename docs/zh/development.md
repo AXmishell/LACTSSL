@@ -15,7 +15,8 @@ internal/logging/    进程日志、级别、格式、文件轮转与异步落�
 internal/model/      数据库实体与任务流程
 internal/acme/       内置 ACME 服务端协议
 internal/service/    ACME 客户端、部署、通知、监控、调度
-internal/plugin/     插件宿主：dns/deploy/notify、exec、install、meta、proto、repo
+internal/plugin/     插件宿主与官方实现：宿主包 + impl/ 内置 DNS/部署/通知
+plugins/             外部插件开发 SDK：协议 v1、helper 框架与通用工具
 internal/store/      数据访问层
 internal/util/       加密、校验等工具
 internal/webui/      嵌入的前端构建产物
@@ -28,7 +29,7 @@ docs/ja/             日语文档
 docs/ru/             俄语文档
 ```
 
-插件实现、官方 helper、插件协议与元数据位于独立仓库 [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins)。主仓库在宿主内实现协议 v1 的 manifest 解码，两个仓库通过签名索引与 `min_host` 做运行期兼容，构建期不再互相依赖。
+官方 DNS/部署/通知实现位于本仓库 `internal/plugin/impl/`，随主模块编译与测试；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具）。上传插件仍通过协议 v1 子进程运行。主程序不依赖外部插件仓库或签名索引。
 
 ## 2. 本地开发
 
@@ -166,14 +167,18 @@ gh release create v1.0.1 --generate-notes
 
 产物包括：
 
+- `lactssl_<version>_linux_amd64.tar.xz`
 - `lactssl_<version>_linux_amd64.tar.gz`
+- `lactssl_<version>_linux_arm64.tar.xz`
 - `lactssl_<version>_linux_arm64.tar.gz`
+- `lactssl_<version>_darwin_amd64.tar.xz`
 - `lactssl_<version>_darwin_amd64.tar.gz`
+- `lactssl_<version>_darwin_arm64.tar.xz`
 - `lactssl_<version>_darwin_arm64.tar.gz`
 - `lactssl_<version>_windows_amd64.zip`
 - `checksums.txt`（SHA-256）
 
-归档内包含二进制、`README.md`、`LICENSE` 和 `config.yaml.example`。版本号直接取自 tag（去掉 `v` 前缀），不依赖本地 git 推导。
+归档内包含二进制、`README.md`、`LICENSE` 和 `config.yaml.example`。版本号直接取自 tag（去掉 `v` 前缀），不依赖本地 git 推导。非 Windows 平台同时发布 `.tar.xz` 与 `.tar.gz`：前者下载体积更小，后者用于兼容旧版本自动升级客户端。
 
 同时构建 `linux/amd64`、`linux/arm64` 镜像并推送到 GHCR：
 
@@ -206,17 +211,18 @@ make release TAG=v1.0.1
 ./scripts/release.sh v1.0.1 --upload
 ```
 
-`--multiarch` 需要 Docker Buildx；跨架构构建还需 QEMU。
+`--multiarch` 需要 Docker Buildx。镜像只复制宿主机交叉编译的二进制，构建期间不执行目标架构命令，因此不需要 QEMU。
 
 ## 8. 插件联调
 
-插件源码、构建工具和索引位于 `LACTSSL-Plugins`。两个仓库不再共享 Go 模块，主仓库可以独立构建；需要同时修改插件实现并做端到端验证时，可临时创建 `go.work`：
+官方插件实现位于 `internal/plugin/impl/`；`plugins/` 仅包含外部插件 SDK，并通过主仓库 `go.mod` 的本地 `replace` 引用。修改官方实现后直接在主仓库构建即可：
 
 ```bash
-go work init . ../LACTSSL-Plugins
+make backend
+make plugins-test
 ```
 
-修改插件实现后，在插件仓库执行 `make gen` 与 `make plugin KIND=dns GOOS=linux GOARCH=amd64` 构建合并包；联调结束后删除 `go.work`（该文件已被 gitignore）。
+官方实现已内置，不需要再构建或安装合并包；上传插件仍是单个 helper 可执行文件。
 
 插件协议、字段和签名见[插件开发](plugin-development.md)。
 

@@ -1,0 +1,4 @@
+{
+  "meta.dns.edgedns.desc": "Manage DNS records through the Akamai EdgeDNS API.",
+  "meta.dns.edgedns.label": "Akamai EdgeDNS"
+}

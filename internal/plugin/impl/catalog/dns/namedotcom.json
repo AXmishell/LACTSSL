@@ -1,0 +1,25 @@
+{
+  "value": "namedotcom",
+  "label_key": "meta.dns.namedotcom.label",
+  "desc_key": "meta.dns.namedotcom.desc",
+  "fields": [
+    {
+      "key": "namecom_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "NAMECOM_USERNAME"
+    },
+    {
+      "key": "namecom_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "env": "NAMECOM_API_TOKEN"
+    },
+    {
+      "key": "namecom_server",
+      "label": "Server",
+      "type": "text",
+      "env": "NAMECOM_SERVER"
+    }
+  ]
+}

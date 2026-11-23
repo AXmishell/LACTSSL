@@ -3,7 +3,6 @@ package api
 
 import (
 	"bytes"
-	"compress/gzip"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -25,8 +24,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/andybalholm/brotli"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/sync/singleflight"
 	"lactssl/internal/auth"
 	"lactssl/internal/backup"
 	"lactssl/internal/dbconvert"
@@ -37,7 +36,6 @@ import (
 	"lactssl/internal/plugin/deploy"
 	"lactssl/internal/plugin/dns"
 	"lactssl/internal/plugin/notify"
-	"lactssl/internal/plugin/repo"
 	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
@@ -80,34 +78,33 @@ type Server struct {
 	trustedSet  netutil.TrustedSet
 	trustedErr  error
 	ACMEBaseURL string
+	// BuiltinPluginsEnabled 控制是否注册编译进主程序的官方插件实现。
+	// 测试或只使用上传插件的构建可以关闭；生产由 main 注入。
+	BuiltinPluginsEnabled bool
 	// PluginsEnabled 与插件目录/限制由 main 从配置注入。
-	PluginsEnabled      bool
-	PluginDir           string
+	PluginsEnabled bool
+	PluginDir      string
+	// PluginSandbox 仅作用于上传/外部 DNS helper，内置实现不走沙箱。
+	PluginSandbox       string
 	PluginMemoryLimitMB int
 	PluginTimeout       time.Duration
 	PluginMaxOutputKB   int
 	// DeployPlugins* 是证书部署插件配置，同样由 main 注入。
-	DeployPluginsEnabled      bool
-	DeployPluginDir           string
+	DeployPluginsEnabled bool
+	DeployPluginDir      string
+	// DeployPluginSandbox 仅作用于上传/外部部署 helper。
+	DeployPluginSandbox       string
 	DeployPluginMemoryLimitMB int
 	DeployPluginTimeout       time.Duration
 	DeployPluginMaxOutputKB   int
 	// NotifyPlugins* 是通知插件配置，同样由 main 注入。
-	NotifyPluginsEnabled      bool
-	NotifyPluginDir           string
+	NotifyPluginsEnabled bool
+	NotifyPluginDir      string
+	// NotifyPluginSandbox 仅作用于上传/外部通知 helper。
+	NotifyPluginSandbox       string
 	NotifyPluginMemoryLimitMB int
 	NotifyPluginTimeout       time.Duration
 	NotifyPluginMaxOutputKB   int
-	// PluginRepo* 是插件仓库默认配置，运行期可被 settings 覆盖。
-	PluginRepoEnabled       bool
-	PluginRepoURL           string
-	PluginRepoChannel       string
-	PluginRepoAutoUpdate    bool
-	PluginRepoPublicKey     string
-	PluginRepoProxy         string
-	PluginRepoTimeout       time.Duration
-	PluginRepoMaxDownloadMB int
-	PluginRepoCheckInterval time.Duration
 	// Restart 由 main 注入，用于在恢复备份后触发优雅退出，让进程管理器拉起新进程。
 	Restart func()
 	// AccessLog 控制是否记录 HTTP 访问日志；Logger 由 main 注入进程 logger。
@@ -143,30 +140,13 @@ type Server struct {
 	pluginMu     sync.Mutex
 	pluginResult dnsplugin.DiscoverResult
 
+	// pluginDiscoverMu 串行化 DNS/部署/通知的完整发现流程。
+	// Discover 内部会先替换内置注册表再扫描外部 helper，若并发执行，
+	// 两次「替换内置 / 注册外部」可能交错并触发重复注册 panic。
+	pluginDiscoverMu sync.Mutex
+
 	// pluginUploadMu 串行化插件上传/安装，避免并发写入同名文件或交错触发热加载。
 	pluginUploadMu sync.Mutex
-
-	// pluginRepoPersistMu 串行化索引持久化与缓存清理，避免清理完成后
-	// 仍在途的刷新把旧索引重新写回数据库。
-	pluginRepoPersistMu sync.Mutex
-	// pluginRepoMu 保护仓库索引缓存。
-	pluginRepoMu          sync.Mutex
-	repoGroup             singleflight.Group
-	pluginRepoGen         uint64
-	pluginRepoIndex       pluginrepo.Index
-	pluginRepoIndexRaw    []byte
-	pluginRepoETag        string
-	pluginRepoCheckedAt   time.Time
-	pluginRepoErr         string
-	pluginRepoIssues      []pluginrepo.Issue
-	pluginRepoRejected    []pluginrepo.RejectedEntry
-	pluginRepoRevision    uint64
-	pluginRepoIndexDigest string
-	pluginRepoKeyID       string
-	pluginRepoGeneratedAt time.Time
-	pluginRepoExpiresAt   time.Time
-	// pluginRepoVerified 表示当前索引是否已通过 Ed25519 签名校验。
-	pluginRepoVerified bool
 
 	deployPluginMu     sync.Mutex
 	deployPluginResult deployplugin.DiscoverResult
@@ -317,15 +297,6 @@ func (s *Server) registerAPI(g *gin.RouterGroup) {
 	g.POST("/plugins/upload", s.uploadPlugin)
 	g.DELETE("/plugins/files/:kind/:file", s.deletePluginFile)
 	g.PUT("/plugins/files/:kind/:file", s.setPluginFileEnabled)
-	g.GET("/plugins/repo", s.getPluginRepo)
-	g.PUT("/plugins/repo", s.updatePluginRepo)
-	g.POST("/plugins/repo/refresh", s.refreshPluginRepo)
-	g.GET("/plugins/repo/plugins", s.listPluginRepoPlugins)
-	g.POST("/plugins/repo/install", s.installPluginFromRepo)
-	g.POST("/plugins/repo/update", s.updatePluginFromRepo)
-	g.DELETE("/plugins/repo/plugins/:kind/:id", s.uninstallPluginFromRepo)
-	g.GET("/plugins/repo/legacy", s.listLegacyPlugins)
-	g.POST("/plugins/repo/migrate", s.migrateLegacyPlugins)
 	g.PUT("/plugins/providers", s.setPluginProvidersEnabled)
 	g.PUT("/plugins/providers/:id", s.setPluginProviderEnabled)
 	g.PUT("/plugins/deployers", s.setDeployPluginDeployersEnabled)
@@ -955,8 +926,8 @@ func (s *Server) serveAsset(c *gin.Context, name string) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	// .gz 是构建期的内部表示，不允许直接请求，避免绕过 Content-Encoding 协商。
-	if strings.HasSuffix(clean, ".gz") {
+	// .br / .gz 是构建期的内部表示，不允许直接请求，避免绕过 Content-Encoding 协商。
+	if strings.HasSuffix(clean, ".br") || strings.HasSuffix(clean, ".gz") {
 		c.Status(http.StatusNotFound)
 		return
 	}
@@ -972,11 +943,11 @@ func (s *Server) serveAsset(c *gin.Context, name string) {
 	c.Header("Vary", "Accept-Encoding")
 	c.Header("Content-Type", contentType)
 
-	// 生产构建把资源预压缩为 <name>.gz 并删除原文件；开发模式仍读取原始文件。
-	if compressed, err := s.WebFS.Open(clean + ".gz"); err == nil {
+	// 生产构建把资源预压缩为 <name>.br 并删除原文件；开发模式仍读取原始文件。
+	if compressed, err := s.WebFS.Open(clean + ".br"); err == nil {
 		defer compressed.Close()
-		if acceptsGzipEncoding(c.Request.Header.Get("Accept-Encoding")) {
-			c.Header("Content-Encoding", "gzip")
+		if acceptsEncoding(c.Request.Header.Get("Accept-Encoding"), "br") {
+			c.Header("Content-Encoding", "br")
 			// ServeContent 在存在 Content-Encoding 时不会自动设置长度（担心
 			// 外层再压缩），这里显式给出压缩表示的大小；Range 请求会由
 			// ServeContent 覆盖为实际区间长度。
@@ -986,13 +957,9 @@ func (s *Server) serveAsset(c *gin.Context, name string) {
 			serveAssetFile(c, clean, compressed)
 			return
 		}
-		// 客户端不接受 gzip 时流式解压，避免把整个资源读入内存。
-		reader, err := gzip.NewReader(compressed)
-		if err != nil {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		defer reader.Close()
+		// 客户端不接受 br（例如明文 HTTP 下的部分浏览器）时流式解压，
+		// 避免把整个资源读入内存。
+		reader := brotli.NewReader(compressed)
 		c.Status(http.StatusOK)
 		if c.Request.Method == http.MethodHead {
 			return
@@ -1029,9 +996,10 @@ func serveAssetFile(c *gin.Context, name string, file fs.File) {
 	_, _ = io.Copy(c.Writer, file)
 }
 
-// acceptsGzipEncoding 解析 Accept-Encoding，显式 gzip 声明优先于通配符。
-// q=0 表示不接受；缺少 q 参数时按 q=1 处理。
-func acceptsGzipEncoding(header string) bool {
+// acceptsEncoding 解析 Accept-Encoding，判断是否接受指定编码。
+// 显式声明优先于通配符；q=0 表示不接受，缺少 q 参数时按 q=1 处理。
+func acceptsEncoding(header, encoding string) bool {
+	encoding = strings.ToLower(encoding)
 	wildcard := false
 	for _, part := range strings.Split(header, ",") {
 		fields := strings.Split(part, ";")
@@ -1049,7 +1017,7 @@ func acceptsGzipEncoding(header string) bool {
 			}
 		}
 		switch name {
-		case "gzip":
+		case encoding:
 			return quality > 0
 		case "*":
 			wildcard = quality > 0

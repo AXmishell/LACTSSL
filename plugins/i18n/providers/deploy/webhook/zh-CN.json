@@ -1,0 +1,4 @@
+{
+  "meta.deploy.webhook.desc": "将证书内容以 JSON 推送到指定接口",
+  "meta.deploy.webhook.label": "Webhook"
+}

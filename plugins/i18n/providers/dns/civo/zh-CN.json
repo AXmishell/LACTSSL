@@ -1,0 +1,4 @@
+{
+  "meta.dns.civo.desc": "通过 Civo 接口管理 DNS 记录。",
+  "meta.dns.civo.label": "Civo"
+}

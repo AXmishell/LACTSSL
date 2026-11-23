@@ -1,0 +1,55 @@
+{
+  "value": "selectelv2",
+  "label_key": "meta.dns.selectelv2.label",
+  "desc_key": "meta.dns.selectelv2.desc",
+  "fields": [
+    {
+      "key": "selectelv2_base_url",
+      "label_key": "meta.field.base_url.label",
+      "type": "text",
+      "env": "SELECTELV2_BASE_URL"
+    },
+    {
+      "key": "selectelv2_auth_region",
+      "label": "Auth Region",
+      "type": "text",
+      "env": "SELECTELV2_AUTH_REGION"
+    },
+    {
+      "key": "selectelv2_auth_url",
+      "label": "Auth URL",
+      "type": "text",
+      "env": "SELECTELV2_AUTH_URL"
+    },
+    {
+      "key": "selectelv2_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "SELECTELV2_USERNAME"
+    },
+    {
+      "key": "selectelv2_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "SELECTELV2_PASSWORD"
+    },
+    {
+      "key": "selectelv2_account_id",
+      "label": "Account ID",
+      "type": "text",
+      "env": "SELECTELV2_ACCOUNT_ID"
+    },
+    {
+      "key": "selectelv2_project_id",
+      "label": "Project ID",
+      "type": "text",
+      "env": "SELECTELV2_PROJECT_ID"
+    },
+    {
+      "key": "selectelv2_user_domain_name",
+      "label": "User Domain Name",
+      "type": "text",
+      "env": "SELECTELV2_USER_DOMAIN_NAME"
+    }
+  ]
+}

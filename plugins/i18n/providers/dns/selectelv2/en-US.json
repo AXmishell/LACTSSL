@@ -1,0 +1,4 @@
+{
+  "meta.dns.selectelv2.desc": "Manage DNS records through the Selectel Domains APIv2 API.",
+  "meta.dns.selectelv2.label": "Selectel Domains APIv2"
+}

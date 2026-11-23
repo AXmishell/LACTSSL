@@ -1,0 +1,4 @@
+{
+  "meta.dns.dnsimple.desc": "DNSimple DNS，使用 OAuth Token，可自定义 API 地址",
+  "meta.dns.dnsimple.label": "DNSimple"
+}

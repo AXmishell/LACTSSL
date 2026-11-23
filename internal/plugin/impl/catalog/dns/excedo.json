@@ -1,0 +1,21 @@
+{
+  "value": "excedo",
+  "label_key": "meta.dns.excedo.label",
+  "desc_key": "meta.dns.excedo.desc",
+  "fields": [
+    {
+      "key": "excedo_api_url",
+      "label": "URL",
+      "type": "text",
+      "required": true,
+      "env": "EXCEDO_API_URL"
+    },
+    {
+      "key": "excedo_api_key",
+      "label": "Key",
+      "type": "password",
+      "required": true,
+      "env": "EXCEDO_API_KEY"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "value": "servercow",
+  "label_key": "meta.dns.servercow.label",
+  "desc_key": "meta.dns.servercow.desc",
+  "fields": [
+    {
+      "key": "servercow_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "SERVERCOW_USERNAME"
+    },
+    {
+      "key": "servercow_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "SERVERCOW_PASSWORD"
+    }
+  ]
+}

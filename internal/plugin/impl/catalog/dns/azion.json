@@ -1,0 +1,19 @@
+{
+  "value": "azion",
+  "label_key": "meta.dns.azion.label",
+  "desc_key": "meta.dns.azion.desc",
+  "fields": [
+    {
+      "key": "azion_page_size",
+      "label": "Page Size",
+      "type": "text",
+      "env": "AZION_PAGE_SIZE"
+    },
+    {
+      "key": "azion_personal_token",
+      "label": "Personal Token",
+      "type": "password",
+      "env": "AZION_PERSONAL_TOKEN"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "value": "rackspace",
+  "label_key": "meta.dns.rackspace.label",
+  "desc_key": "meta.dns.rackspace.desc",
+  "fields": [
+    {
+      "key": "rackspace_user",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "RACKSPACE_USER"
+    },
+    {
+      "key": "rackspace_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "RACKSPACE_API_KEY"
+    }
+  ]
+}

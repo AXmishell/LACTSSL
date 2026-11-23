@@ -1,0 +1,46 @@
+{
+  "value": "btwaf",
+  "label_key": "meta.deploy.btwaf.label",
+  "desc_key": "meta.deploy.btwaf.desc",
+  "fields": [
+    {
+      "key": "url",
+      "label_key": "meta.field.url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.url.placeholder"
+    },
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label",
+      "type": "password",
+      "required": true,
+      "help_key": "meta.field.btwaf_api_key.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "sites",
+      "label_key": "meta.field.btwaf_sites.label",
+      "type": "text",
+      "required": true,
+      "help_key": "meta.field.btwaf_sites.help"
+    }
+  ]
+}

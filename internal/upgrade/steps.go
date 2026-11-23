@@ -293,11 +293,12 @@ func stepPluginSettings(ctx context.Context, m *Manager) (StepResult, error) {
 		}
 		result.Details = append(result.Details, "旧版 DNS 服务商停用列表已转换为启用白名单")
 	} else if raw, _ := m.store.GetSetting("plugins.dns.enabled_providers"); strings.TrimSpace(raw) == "" {
-		if err := m.store.SetSetting("plugins.dns.enabled_providers", jsonList(dnsDefaults)); err != nil {
+		// 新安装默认不启用任何 DNS 服务商；管理员在插件页按需开启。
+		if err := m.store.SetSetting("plugins.dns.enabled_providers", "[]"); err != nil {
 			return result, err
 		}
 		changed = true
-		result.Details = append(result.Details, "已初始化 DNS 插件启用白名单")
+		result.Details = append(result.Details, "DNS 插件启用白名单默认为空")
 	}
 
 	deployDefaults := map[string]bool{}

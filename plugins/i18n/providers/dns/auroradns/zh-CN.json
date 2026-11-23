@@ -1,0 +1,4 @@
+{
+  "meta.dns.auroradns.desc": "通过 Aurora DNS 接口管理 DNS 记录。",
+  "meta.dns.auroradns.label": "Aurora DNS"
+}

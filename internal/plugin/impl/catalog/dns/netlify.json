@@ -1,0 +1,14 @@
+{
+  "value": "netlify",
+  "label_key": "meta.dns.netlify.label",
+  "desc_key": "meta.dns.netlify.desc",
+  "fields": [
+    {
+      "key": "token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "NETLIFY_TOKEN"
+    }
+  ]
+}

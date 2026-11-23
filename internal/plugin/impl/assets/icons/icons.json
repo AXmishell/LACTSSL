@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "aliases": {
+    "deploy": {
+      "1panel_panel": "1panel",
+      "1panel_site": "1panel",
+      "baota_panel": "baota",
+      "baota_site": "baota",
+      "baota_docker": "baota",
+      "qiniu_cdn": "qiniu",
+      "qiniu_kodo": "qiniu",
+      "aliyun_cdn": "aliyun",
+      "aliyun_dcdn": "aliyun",
+      "aliyun_esa": "aliyun",
+      "aliyun_oss": "aliyun",
+      "aliyun_waf": "aliyun",
+      "tencent_cdn": "tencent",
+      "tencent_cos": "tencent",
+      "tencent_teo": "tencent",
+      "tencent_waf": "tencent"
+    }
+  }
+}

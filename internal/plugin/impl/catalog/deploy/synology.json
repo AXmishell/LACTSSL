@@ -1,0 +1,76 @@
+{
+  "value": "synology",
+  "label_key": "meta.deploy.synology.label",
+  "desc_key": "meta.deploy.synology.desc",
+  "fields": [
+    {
+      "key": "panel_url",
+      "label_key": "meta.field.panel_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.synology_url.placeholder",
+      "help_key": "meta.field.synology_url.help"
+    },
+    {
+      "key": "username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "otp_secret",
+      "label_key": "meta.field.synology_otp_secret.label",
+      "type": "password",
+      "help_key": "meta.field.synology_otp_secret.help"
+    },
+    {
+      "key": "device_id",
+      "label_key": "meta.field.synology_device_id.label",
+      "type": "password",
+      "help_key": "meta.field.synology_device_id.help"
+    },
+    {
+      "key": "device_name",
+      "label_key": "meta.field.synology_device_name.label",
+      "type": "text",
+      "help_key": "meta.field.synology_device_name.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "certificate",
+      "label_key": "meta.field.synology_certificate.label",
+      "type": "text",
+      "help_key": "meta.field.synology_certificate.help"
+    },
+    {
+      "key": "create",
+      "label_key": "meta.field.synology_create.label",
+      "type": "switch",
+      "default": "false",
+      "help_key": "meta.field.synology_create.help"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.rackspace.desc": "Manage DNS records through the Rackspace DNS API.",
+  "meta.dns.rackspace.label": "Rackspace DNS"
+}

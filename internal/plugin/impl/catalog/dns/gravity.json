@@ -1,0 +1,28 @@
+{
+  "value": "gravity",
+  "label_key": "meta.dns.gravity.label",
+  "desc_key": "meta.dns.gravity.desc",
+  "fields": [
+    {
+      "key": "gravity_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "GRAVITY_USERNAME"
+    },
+    {
+      "key": "gravity_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "GRAVITY_PASSWORD"
+    },
+    {
+      "key": "gravity_server_url",
+      "label": "Server URL",
+      "type": "text",
+      "required": true,
+      "env": "GRAVITY_SERVER_URL"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.regfish.desc": "Manage DNS records through the Regfish API.",
+  "meta.dns.regfish.label": "Regfish"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.designate.desc": "通过 Designate DNSaaS for OpenStack 接口管理 DNS 记录。",
+  "meta.dns.designate.label": "Designate DNSaaS for OpenStack"
+}

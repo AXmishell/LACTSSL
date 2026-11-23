@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun_dcdn.desc": "Update DCDN domain certificates through the Aliyun API",
+  "meta.deploy.aliyun_dcdn.label": "Aliyun DCDN"
+}

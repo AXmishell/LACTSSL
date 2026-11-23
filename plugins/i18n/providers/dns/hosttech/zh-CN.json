@@ -1,0 +1,4 @@
+{
+  "meta.dns.hosttech.desc": "通过 Hosttech 接口管理 DNS 记录。",
+  "meta.dns.hosttech.label": "Hosttech"
+}

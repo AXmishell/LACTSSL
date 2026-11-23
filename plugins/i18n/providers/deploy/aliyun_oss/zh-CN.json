@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun_oss.desc": "为阿里云 OSS 自定义域名绑定证书",
+  "meta.deploy.aliyun_oss.label": "阿里云 OSS"
+}

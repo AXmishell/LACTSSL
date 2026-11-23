@@ -1,0 +1,4 @@
+{
+  "meta.dns.acmedns.desc": "通过 acme-dns 接口管理 DNS 记录。",
+  "meta.dns.acmedns.label": "acme-dns"
+}

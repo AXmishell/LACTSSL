@@ -1,0 +1,4 @@
+{
+  "meta.dns.zonomi.desc": "Manage DNS records through the Zonomi DNS API.",
+  "meta.dns.zonomi.label": "Zonomi DNS"
+}

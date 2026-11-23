@@ -1,0 +1,4 @@
+{
+  "meta.deploy.tencent_cdn.desc": "通过腾讯云 SSL 证书服务部署到 CDN",
+  "meta.deploy.tencent_cdn.label": "腾讯云 CDN"
+}

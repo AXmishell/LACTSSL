@@ -1,0 +1,4 @@
+{
+  "meta.dns.stackpath.desc": "通过 Stackpath DNS 接口管理 DNS 记录。",
+  "meta.dns.stackpath.label": "Stackpath DNS"
+}

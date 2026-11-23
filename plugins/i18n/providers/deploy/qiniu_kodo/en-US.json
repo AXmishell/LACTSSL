@@ -1,0 +1,4 @@
+{
+  "meta.deploy.qiniu_kodo.desc": "Upload the certificate and bind Qiniu Cloud Kodo custom origin domains",
+  "meta.deploy.qiniu_kodo.label": "Qiniu Cloud Kodo"
+}

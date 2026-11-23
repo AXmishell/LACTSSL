@@ -1,0 +1,4 @@
+{
+  "meta.deploy.ftp.desc": "通过 FTP 或 FTPS 上传证书和私钥到远程服务器",
+  "meta.deploy.ftp.label": "FTP / FTPS"
+}

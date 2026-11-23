@@ -1,0 +1,4 @@
+{
+  "meta.deploy.volcengine_cdn.desc": "Upload a certificate and update Volcengine CDN domains",
+  "meta.deploy.volcengine_cdn.label": "Volcengine CDN"
+}

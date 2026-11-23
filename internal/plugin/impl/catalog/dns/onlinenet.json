@@ -1,0 +1,14 @@
+{
+  "value": "onlinenet",
+  "label_key": "meta.dns.onlinenet.label",
+  "desc_key": "meta.dns.onlinenet.desc",
+  "fields": [
+    {
+      "key": "onlinenet_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "required": true,
+      "env": "ONLINENET_API_TOKEN"
+    }
+  ]
+}

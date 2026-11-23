@@ -1,0 +1,4 @@
+{
+  "meta.dns.tencentcloud.desc": "Use Tencent Cloud SecretId / SecretKey",
+  "meta.dns.tencentcloud.label": "Tencent Cloud DNSPod API"
+}

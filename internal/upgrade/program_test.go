@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ulikunitz/xz"
+
 	"lactssl/internal/db"
 	"lactssl/internal/store"
 	"lactssl/internal/util"
@@ -61,13 +63,18 @@ func TestSourceBuildVersionsAreNotUpdatable(t *testing.T) {
 
 func TestSelectProgramAsset(t *testing.T) {
 	assets := []ghAsset{
-		{Name: "lactssl_1.2.0_linux_arm64.tar.gz"},
+		{Name: "lactssl_1.2.0_linux_arm64.tar.xz"},
 		{Name: "lactssl_1.2.0_linux_amd64.tar.gz"},
+		{Name: "lactssl_1.2.0_linux_amd64.tar.xz"},
 		{Name: "lactssl_1.2.0_windows_amd64.zip"},
 	}
 	asset, ok := selectProgramAsset(assets, "1.2.0", "linux", "amd64")
-	if !ok || asset.Name != "lactssl_1.2.0_linux_amd64.tar.gz" {
-		t.Fatalf("未选中正确资产: %+v", asset)
+	if !ok || asset.Name != "lactssl_1.2.0_linux_amd64.tar.xz" {
+		t.Fatalf("应优先选中 xz 资产: %+v", asset)
+	}
+	asset, ok = selectProgramAsset(assets, "1.2.0", "linux", "arm64")
+	if !ok || asset.Name != "lactssl_1.2.0_linux_arm64.tar.xz" {
+		t.Fatalf("未选中 arm64 xz 资产: %+v", asset)
 	}
 	asset, ok = selectProgramAsset(assets, "1.2.0", "windows", "amd64")
 	if !ok || asset.Name != "lactssl_1.2.0_windows_amd64.zip" {
@@ -75,6 +82,41 @@ func TestSelectProgramAsset(t *testing.T) {
 	}
 	if _, ok := selectProgramAsset(assets, "1.2.0", "darwin", "arm64"); ok {
 		t.Fatal("不存在的平台不应匹配资产")
+	}
+
+	// 仅提供 gz 时保持向后兼容（旧版本发布包 / 手工上传）。
+	legacy := []ghAsset{{Name: "lactssl_1.2.0_linux_amd64.tar.gz"}}
+	asset, ok = selectProgramAsset(legacy, "1.2.0", "linux", "amd64")
+	if !ok || asset.Name != "lactssl_1.2.0_linux_amd64.tar.gz" {
+		t.Fatalf("未回退到 gz 资产: %+v", asset)
+	}
+}
+
+func TestExtractProgramBinaryXZ(t *testing.T) {
+	dir := t.TempDir()
+	want := []byte("xz-binary")
+	archivePath := filepath.Join(dir, "pkg.tar.xz")
+	if err := os.WriteFile(archivePath, buildTarXz(t, "lactssl", want), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "lactssl")
+	out, err := os.Create(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := extractProgramBinary(archivePath, "linux", out, 1<<20); err != nil {
+		_ = out.Close()
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("解出的程序内容不匹配: %q", got)
 	}
 }
 
@@ -430,7 +472,7 @@ func newProgramTestStore(t *testing.T) *store.Store {
 }
 
 func TestSafeReleaseAssetName(t *testing.T) {
-	valid := []string{"lactssl_1.2.3_linux_amd64.tar.gz", "lactssl_beta_windows_arm64.zip"}
+	valid := []string{"lactssl_1.2.3_linux_amd64.tar.xz", "lactssl_1.2.3_linux_amd64.tar.gz", "lactssl_beta_windows_arm64.zip"}
 	for _, name := range valid {
 		if got, err := safeReleaseAssetName(name); err != nil || got != name {
 			t.Fatalf("合法名称被拒绝: %q -> %q, %v", name, got, err)
@@ -464,6 +506,29 @@ func buildTarGz(t *testing.T, name string, data []byte) []byte {
 		t.Fatal(err)
 	}
 	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func buildTarXz(t *testing.T, name string, data []byte) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	xzWriter, err := xz.NewWriter(&buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tarWriter := tar.NewWriter(xzWriter)
+	if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(data))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tarWriter.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := xzWriter.Close(); err != nil {
 		t.Fatal(err)
 	}
 	return buffer.Bytes()

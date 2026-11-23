@@ -1,0 +1,4 @@
+{
+  "meta.deploy.plesk.desc": "通过 Plesk HTTP API 部署网站证书",
+  "meta.deploy.plesk.label": "Plesk"
+}

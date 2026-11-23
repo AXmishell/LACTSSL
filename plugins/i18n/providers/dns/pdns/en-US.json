@@ -1,0 +1,4 @@
+{
+  "meta.dns.pdns.desc": "Manage records through the PowerDNS HTTP API, with an optional self-hosted API URL",
+  "meta.dns.pdns.label": "PowerDNS"
+}

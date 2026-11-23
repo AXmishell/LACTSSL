@@ -1,0 +1,14 @@
+{
+  "value": "binarylane",
+  "label_key": "meta.dns.binarylane.label",
+  "desc_key": "meta.dns.binarylane.desc",
+  "fields": [
+    {
+      "key": "binarylane_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "required": true,
+      "env": "BINARYLANE_API_TOKEN"
+    }
+  ]
+}

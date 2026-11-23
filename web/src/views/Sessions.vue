@@ -74,7 +74,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
+import { Monitor, Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { formatDate, fromNow } from '../utils'
 import type { Session } from '../types'

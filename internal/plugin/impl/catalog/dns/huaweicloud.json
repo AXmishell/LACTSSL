@@ -1,0 +1,30 @@
+{
+  "value": "huaweicloud",
+  "label_key": "meta.dns.huaweicloud.label",
+  "desc_key": "meta.dns.huaweicloud.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.access_key_id.placeholder",
+      "env": "HUAWEICLOUD_ACCESS_KEY_ID"
+    },
+    {
+      "key": "secret_access_key",
+      "label_key": "meta.field.secret_access_key.label",
+      "type": "password",
+      "required": true,
+      "env": "HUAWEICLOUD_SECRET_ACCESS_KEY"
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.region.placeholder.huaweicloud",
+      "env": "HUAWEICLOUD_REGION"
+    }
+  ]
+}

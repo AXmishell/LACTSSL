@@ -4,7 +4,9 @@ GO := go
 BUILD_ENV := CGO_ENABLED=0
 NPM := npm
 MODULE := lactssl
-VERSION := $(shell ./scripts/version.sh 2>/dev/null)
+# 允许通过环境变量覆盖（例如 VERSION=1.2.3 make docker-context），
+# 未指定时从 git describe 推导。
+VERSION ?= $(shell ./scripts/version.sh 2>/dev/null)
 ifeq ($(VERSION),)
 VERSION := dev
 endif
@@ -13,10 +15,13 @@ BUILD_ARCH := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
 # 官方发布构建可注入发布公钥；自编译版本留空，由管理员在 config.yaml 中配置。
 PROGRAM_PUBLIC_KEY ?=
 LDFLAGS := -s -w -X '$(MODULE)/internal/api.Version=$(VERSION)' -X '$(MODULE)/internal/api.BuildTime=$(BUILD_TIME)' -X '$(MODULE)/internal/api.BuildArch=$(BUILD_ARCH)' $(if $(PROGRAM_PUBLIC_KEY),-X '$(MODULE)/internal/config.OfficialProgramPublicKey=$(PROGRAM_PUBLIC_KEY)')
-TAGS := embed nomsgpack
+# validator_novalidatefn：剔除 go-playground/validator 的 validateFn 反射校验器。
+# 该反射调用会让链接器保留所有导出方法，实测使二进制增大约 5.9 MB。
+TAGS := embed nomsgpack validator_novalidatefn
+TAGS_NO_DNS := $(TAGS) nobuiltin_dns
 DOCKER_ARCH ?= $(shell $(GO) env GOARCH)
 DOCKER_CONTEXT := dist/docker/linux-$(DOCKER_ARCH)
-.PHONY: all build web backend dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web test sql-check csr-client-check typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve docker-context docker
+.PHONY: all build web backend backend-no-dns plugins-test dbconvert server-dev run dev dev-up dev-down dev-restart dev-status dev-logs dev-api dev-web size test sql-check csr-client-check typecheck tidy clean ci release i18n-check i18n-check-all docs-build docs-serve docker-context docker
 
 all: build
 
@@ -25,10 +30,16 @@ web:
 	rm -rf internal/webui/dist
 	cp -a web/dist internal/webui/dist
 	$(GO) run ./scripts/compress-assets.go internal/webui/dist
+	$(GO) run ./scripts/bundle-i18n.go
 
 backend:
 	mkdir -p bin
 	$(BUILD_ENV) $(GO) build -trimpath -tags "$(TAGS)" -ldflags "$(LDFLAGS)" -o bin/$(APP) ./cmd/server
+
+# 极简构建：不编译 DNS 内置实现，仅保留上传插件能力。
+backend-no-dns:
+	mkdir -p bin
+	$(BUILD_ENV) $(GO) build -trimpath -tags "$(TAGS_NO_DNS)" -ldflags "$(LDFLAGS)" -o bin/$(APP)-no-dns ./cmd/server
 
 # 开发模式二进制：不嵌入前端，运行时读取 web/dist，供 Vite 热更新使用。
 dbconvert:
@@ -37,7 +48,7 @@ dbconvert:
 
 server-dev:
 	mkdir -p bin
-	$(BUILD_ENV) $(GO) build -trimpath -tags "nomsgpack" -ldflags "$(LDFLAGS)" -o bin/$(APP)-dev ./cmd/server
+	$(BUILD_ENV) $(GO) build -trimpath -tags "nomsgpack validator_novalidatefn" -ldflags "$(LDFLAGS)" -o bin/$(APP)-dev ./cmd/server
 
 build: web backend
 
@@ -52,7 +63,7 @@ docker: docker-context
 	docker build --build-arg VERSION=$(VERSION) -t lactssl:local .
 
 run:
-	$(BUILD_ENV) $(GO) run -tags "nomsgpack" ./cmd/server
+	$(BUILD_ENV) $(GO) run -tags "nomsgpack validator_novalidatefn" ./cmd/server
 
 dev:
 	./scripts/dev.sh start
@@ -80,6 +91,14 @@ dev-web:
 
 test:
 	$(GO) test ./...
+
+# ./plugins 是外部插件开发 SDK；官方实现位于 internal/plugin/impl，随主模块编译与测试。
+plugins-test:
+	(cd plugins && $(GO) test ./...)
+
+# 分析生产二进制的体积构成（段大小 + 按包聚合的符号大小）。
+size:
+	./scripts/size-report.sh
 
 sql-check:
 	./scripts/check-sql-dialect.sh
@@ -117,7 +136,8 @@ docs-serve:
 
 tidy:
 	$(GO) mod tidy
+	(cd plugins && $(GO) mod tidy)
 	cd web && $(NPM) install
 
 clean:
-	rm -rf bin web/dist internal/webui/dist lactssl
+	rm -rf bin web/dist internal/webui/dist internal/i18n/dist lactssl

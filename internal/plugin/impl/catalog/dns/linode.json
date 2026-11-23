@@ -1,0 +1,14 @@
+{
+  "value": "linode",
+  "label_key": "meta.dns.linode.label",
+  "desc_key": "meta.dns.linode.desc",
+  "fields": [
+    {
+      "key": "token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "LINODE_TOKEN"
+    }
+  ]
+}

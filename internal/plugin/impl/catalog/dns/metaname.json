@@ -1,0 +1,21 @@
+{
+  "value": "metaname",
+  "label_key": "meta.dns.metaname.label",
+  "desc_key": "meta.dns.metaname.desc",
+  "fields": [
+    {
+      "key": "metaname_account_reference",
+      "label": "Account Reference",
+      "type": "text",
+      "required": true,
+      "env": "METANAME_ACCOUNT_REFERENCE"
+    },
+    {
+      "key": "metaname_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "METANAME_API_KEY"
+    }
+  ]
+}

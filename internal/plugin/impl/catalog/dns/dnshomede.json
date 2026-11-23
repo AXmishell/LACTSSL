@@ -1,0 +1,15 @@
+{
+  "value": "dnshomede",
+  "label_key": "meta.dns.dnshomede.label",
+  "desc_key": "meta.dns.dnshomede.desc",
+  "fields": [
+    {
+      "key": "dnshomede_credentials",
+      "label": "Dnshomede Credentials",
+      "type": "textarea",
+      "required": true,
+      "secret": true,
+      "env": "DNSHOMEDE_CREDENTIALS"
+    }
+  ]
+}

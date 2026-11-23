@@ -1,0 +1,4 @@
+{
+  "meta.dns.luadns.desc": "通过 LuaDNS 接口管理 DNS 记录。",
+  "meta.dns.luadns.label": "LuaDNS"
+}

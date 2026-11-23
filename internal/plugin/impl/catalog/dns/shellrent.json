@@ -1,0 +1,21 @@
+{
+  "value": "shellrent",
+  "label_key": "meta.dns.shellrent.label",
+  "desc_key": "meta.dns.shellrent.desc",
+  "fields": [
+    {
+      "key": "shellrent_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "SHELLRENT_USERNAME"
+    },
+    {
+      "key": "shellrent_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "SHELLRENT_TOKEN"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.tencent_waf.desc": "通过腾讯云 SSL 证书服务部署到 WAF",
+  "meta.deploy.tencent_waf.label": "腾讯云 WAF"
+}

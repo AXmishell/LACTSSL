@@ -1,0 +1,4 @@
+{
+  "meta.dns.shellrent.desc": "Manage DNS records through the Shellrent API.",
+  "meta.dns.shellrent.label": "Shellrent"
+}

@@ -1,0 +1,14 @@
+{
+  "value": "epik",
+  "label_key": "meta.dns.epik.label",
+  "desc_key": "meta.dns.epik.desc",
+  "fields": [
+    {
+      "key": "epik_signature",
+      "label": "Epik Signature",
+      "type": "text",
+      "required": true,
+      "env": "EPIK_SIGNATURE"
+    }
+  ]
+}

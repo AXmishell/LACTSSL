@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun_oss.desc": "Bind a certificate to Aliyun OSS custom domains",
+  "meta.deploy.aliyun_oss.label": "Aliyun OSS"
+}

@@ -1,0 +1,67 @@
+{
+  "value": "upyun_cdn",
+  "label_key": "meta.deploy.upyun_cdn.label",
+  "desc_key": "meta.deploy.upyun_cdn.desc",
+  "fields": [
+    {
+      "key": "username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    },
+    {
+      "key": "force_https",
+      "label_key": "meta.field.upyun_force_https.label",
+      "type": "select",
+      "default": "keep",
+      "options": [
+        {
+          "label_key": "meta.field.tristate.option.keep",
+          "value": "keep"
+        },
+        {
+          "label_key": "meta.field.tristate.option.true",
+          "value": "true"
+        },
+        {
+          "label_key": "meta.field.tristate.option.false",
+          "value": "false"
+        }
+      ]
+    },
+    {
+      "key": "https",
+      "label_key": "meta.field.upyun_https.label",
+      "type": "select",
+      "default": "keep",
+      "options": [
+        {
+          "label_key": "meta.field.tristate.option.keep",
+          "value": "keep"
+        },
+        {
+          "label_key": "meta.field.tristate.option.true",
+          "value": "true"
+        },
+        {
+          "label_key": "meta.field.tristate.option.false",
+          "value": "false"
+        }
+      ]
+    }
+  ]
+}

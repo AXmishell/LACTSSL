@@ -1,0 +1,14 @@
+{
+  "value": "onecloudru",
+  "label_key": "meta.dns.onecloudru.label",
+  "desc_key": "meta.dns.onecloudru.desc",
+  "fields": [
+    {
+      "key": "onecloudru_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "ONECLOUDRU_TOKEN"
+    }
+  ]
+}

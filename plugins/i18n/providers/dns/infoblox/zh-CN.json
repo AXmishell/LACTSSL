@@ -1,0 +1,4 @@
+{
+  "meta.dns.infoblox.desc": "通过 Infoblox DNS 接口管理 DNS 记录。",
+  "meta.dns.infoblox.label": "Infoblox DNS"
+}

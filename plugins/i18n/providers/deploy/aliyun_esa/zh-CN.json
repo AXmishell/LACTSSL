@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun_esa.desc": "为阿里云边缘安全加速 ESA 站点上传证书",
+  "meta.deploy.aliyun_esa.label": "阿里云 ESA"
+}

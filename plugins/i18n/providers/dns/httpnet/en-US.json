@@ -1,0 +1,4 @@
+{
+  "meta.dns.httpnet.desc": "Manage DNS records through the http.net API.",
+  "meta.dns.httpnet.label": "http.net"
+}

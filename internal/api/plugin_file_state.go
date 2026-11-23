@@ -489,6 +489,9 @@ func (s *Server) shadowDNSProviders() []dnsplugin.ExternalProvider {
 			if id == "" || seen[id] {
 				continue
 			}
+			if _, ok := dnsplugin.BuiltinProviderInfo(id); ok {
+				continue
+			}
 			if plugin, ok := dnsplugin.Lookup(id); ok && plugin.Source() == dnsplugin.SourceBuiltin {
 				continue
 			}
@@ -522,6 +525,9 @@ func (s *Server) shadowDeployers() []deployplugin.ExternalDeployer {
 		return nil
 	}
 	builtin := service.BuiltinDeployTypeIDs()
+	for id := range deployplugin.BuiltinDeployerIDs() {
+		builtin[id] = true
+	}
 	seen := make(map[string]bool)
 	for _, item := range visibleExternalDeployers() {
 		seen[normalizePluginItemID(pluginKindDeploy, item.ID)] = true

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.volcengine_dcdn.desc": "上传证书并绑定火山引擎 DCDN 域名",
+  "meta.deploy.volcengine_dcdn.label": "火山引擎 DCDN"
+}

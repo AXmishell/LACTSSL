@@ -1,0 +1,4 @@
+{
+  "meta.dns.edgeone.desc": "通过 Tencent EdgeOne 接口管理 DNS 记录。",
+  "meta.dns.edgeone.label": "Tencent EdgeOne"
+}

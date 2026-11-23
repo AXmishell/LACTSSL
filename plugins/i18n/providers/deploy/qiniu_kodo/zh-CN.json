@@ -1,0 +1,4 @@
+{
+  "meta.deploy.qiniu_kodo.desc": "上传证书并绑定七牛云 Kodo 自定义源站域名",
+  "meta.deploy.qiniu_kodo.label": "七牛云 Kodo"
+}

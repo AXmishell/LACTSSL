@@ -1,0 +1,49 @@
+{
+  "value": "ovh",
+  "label_key": "meta.dns.ovh.label",
+  "desc_key": "meta.dns.ovh.desc",
+  "fields": [
+    {
+      "key": "ovh_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "OVH_ENDPOINT"
+    },
+    {
+      "key": "ovh_application_key",
+      "label": "Application Key",
+      "type": "password",
+      "env": "OVH_APPLICATION_KEY"
+    },
+    {
+      "key": "ovh_application_secret",
+      "label": "Application Secret",
+      "type": "password",
+      "env": "OVH_APPLICATION_SECRET"
+    },
+    {
+      "key": "ovh_consumer_key",
+      "label": "Consumer Key",
+      "type": "password",
+      "env": "OVH_CONSUMER_KEY"
+    },
+    {
+      "key": "ovh_access_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "env": "OVH_ACCESS_TOKEN"
+    },
+    {
+      "key": "ovh_client_id",
+      "label": "Client ID",
+      "type": "text",
+      "env": "OVH_CLIENT_ID"
+    },
+    {
+      "key": "ovh_client_secret",
+      "label": "Client Secret",
+      "type": "password",
+      "env": "OVH_CLIENT_SECRET"
+    }
+  ]
+}

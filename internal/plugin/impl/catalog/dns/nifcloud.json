@@ -1,0 +1,25 @@
+{
+  "value": "nifcloud",
+  "label_key": "meta.dns.nifcloud.label",
+  "desc_key": "meta.dns.nifcloud.desc",
+  "fields": [
+    {
+      "key": "nifcloud_access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "env": "NIFCLOUD_ACCESS_KEY_ID"
+    },
+    {
+      "key": "nifcloud_secret_access_key",
+      "label_key": "meta.field.secret_access_key.label",
+      "type": "password",
+      "env": "NIFCLOUD_SECRET_ACCESS_KEY"
+    },
+    {
+      "key": "nifcloud_dns_endpoint",
+      "label": "DNS Endpoint",
+      "type": "text",
+      "env": "NIFCLOUD_DNS_ENDPOINT"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "value": "joker",
+  "label_key": "meta.dns.joker.label",
+  "desc_key": "meta.dns.joker.desc",
+  "fields": [
+    {
+      "key": "joker_api_mode",
+      "label": "API Mode",
+      "type": "text",
+      "env": "JOKER_API_MODE"
+    },
+    {
+      "key": "joker_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "JOKER_API_KEY"
+    },
+    {
+      "key": "joker_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "JOKER_USERNAME"
+    },
+    {
+      "key": "joker_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "JOKER_PASSWORD"
+    }
+  ]
+}

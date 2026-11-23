@@ -185,7 +185,7 @@ func (m *Manager) sendNotificationTo(subject, body string, channels []string) {
 	}
 
 	stored := m.LoadNotifyChannels()
-	for _, channel := range notifyplugin.ExternalEnabledChannels() {
+	for _, channel := range notifyplugin.EnabledChannels() {
 		id := strings.ToLower(channel.ID)
 		if !all && !selected[id] {
 			continue

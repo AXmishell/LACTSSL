@@ -1,0 +1,21 @@
+{
+  "value": "yandexcloud",
+  "label_key": "meta.dns.yandexcloud.label",
+  "desc_key": "meta.dns.yandexcloud.desc",
+  "fields": [
+    {
+      "key": "yandex_cloud_iam_token",
+      "label": "Iam Token",
+      "type": "password",
+      "required": true,
+      "env": "YANDEX_CLOUD_IAM_TOKEN"
+    },
+    {
+      "key": "yandex_cloud_folder_id",
+      "label": "Folder ID",
+      "type": "text",
+      "required": true,
+      "env": "YANDEX_CLOUD_FOLDER_ID"
+    }
+  ]
+}

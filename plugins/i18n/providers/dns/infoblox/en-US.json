@@ -1,0 +1,4 @@
+{
+  "meta.dns.infoblox.desc": "Manage DNS records through the Infoblox DNS API.",
+  "meta.dns.infoblox.label": "Infoblox DNS"
+}

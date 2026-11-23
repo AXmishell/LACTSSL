@@ -1,0 +1,29 @@
+{
+  "value": "tencentcloud",
+  "label_key": "meta.dns.tencentcloud.label",
+  "desc_key": "meta.dns.tencentcloud.desc",
+  "fields": [
+    {
+      "key": "secret_id",
+      "label_key": "meta.field.secret_id.label",
+      "type": "text",
+      "required": true,
+      "env": "TENCENTCLOUD_SECRET_ID"
+    },
+    {
+      "key": "secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "required": true,
+      "env": "TENCENTCLOUD_SECRET_KEY"
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "placeholder_key": "meta.field.region.placeholder",
+      "default": "ap-guangzhou",
+      "env": "TENCENTCLOUD_REGION"
+    }
+  ]
+}

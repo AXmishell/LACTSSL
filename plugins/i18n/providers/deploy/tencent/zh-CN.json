@@ -1,0 +1,4 @@
+{
+  "meta.deploy.tencent.desc": "上传证书并按所选对象部署到腾讯云 CDN、COS、EdgeOne 或 WAF",
+  "meta.deploy.tencent.label": "腾讯云"
+}

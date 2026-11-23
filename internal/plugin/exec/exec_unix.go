@@ -3,9 +3,15 @@
 package pluginexec
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
+
+// runningAsRoot 判断宿主进程是否仍以 root 运行。
+func runningAsRoot() bool {
+	return os.Geteuid() == 0
+}
 
 // setProcessGroup 让 helper 及其子进程处于独立进程组，便于超时或超内存时整组结束。
 func setProcessGroup(cmd *exec.Cmd) {

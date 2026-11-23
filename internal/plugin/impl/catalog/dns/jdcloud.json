@@ -1,0 +1,30 @@
+{
+  "value": "jdcloud",
+  "label_key": "meta.dns.jdcloud.label",
+  "desc_key": "meta.dns.jdcloud.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.access_key_id.placeholder",
+      "env": "JDCLOUD_ACCESS_KEY_ID"
+    },
+    {
+      "key": "access_key_secret",
+      "label_key": "meta.field.access_key_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "JDCLOUD_ACCESS_KEY_SECRET"
+    },
+    {
+      "key": "region_id",
+      "label_key": "meta.field.region_id.label",
+      "type": "text",
+      "placeholder_key": "meta.field.region_id.placeholder.jdcloud",
+      "default": "cn-north-1",
+      "env": "JDCLOUD_REGION_ID"
+    }
+  ]
+}

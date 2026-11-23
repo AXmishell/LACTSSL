@@ -1,0 +1,4 @@
+{
+  "meta.dns.azure.desc": "Manage DNS records through the Azure DNS (legacy) API.",
+  "meta.dns.azure.label": "Azure DNS (legacy)"
+}

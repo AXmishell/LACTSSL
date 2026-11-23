@@ -19,7 +19,7 @@ LACTSSL is a self-contained Go binary:
     ├── lactssl.db          # Main SQLite database
     ├── lactssl.db-wal      # WAL (runtime)
     ├── lactssl.db-shm      # Shared memory (runtime)
-    ├── plugins/            # dns / deploy / notify helpers
+    ├── plugins/            # uploaded helpers (dns / deploy / notify)
     ├── plugin-icons/       # Plugin icon cache
     ├── upgrade-backups/    # Migration and program upgrade backups
     └── restore-pending/    # Backup packages pending restore

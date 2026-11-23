@@ -1,0 +1,4 @@
+{
+  "meta.deploy.1panel.desc": "Upload the certificate to 1Panel, either for a website or for the panel's own SSL certificate",
+  "meta.deploy.1panel.label": "1Panel"
+}

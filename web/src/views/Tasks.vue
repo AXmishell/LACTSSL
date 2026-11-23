@@ -684,7 +684,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowUp, Close, Delete, Plus, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Bell, Close, Delete, DocumentAdd, Plus, Promotion, Rank, Refresh, UploadFilled, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { api, copyText } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta, loadSettings } from '../store'

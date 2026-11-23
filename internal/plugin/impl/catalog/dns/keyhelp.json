@@ -1,0 +1,21 @@
+{
+  "value": "keyhelp",
+  "label_key": "meta.dns.keyhelp.label",
+  "desc_key": "meta.dns.keyhelp.desc",
+  "fields": [
+    {
+      "key": "keyhelp_base_url",
+      "label_key": "meta.field.base_url.label",
+      "type": "text",
+      "required": true,
+      "env": "KEYHELP_BASE_URL"
+    },
+    {
+      "key": "keyhelp_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "KEYHELP_API_KEY"
+    }
+  ]
+}

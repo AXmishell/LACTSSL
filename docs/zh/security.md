@@ -200,7 +200,7 @@ security:
 
 ## 8. 插件与供应链安全
 
-- 官方插件仓库支持 Ed25519 索引签名；配置公钥后强制校验 `index.json.sig`。
+- 官方插件已编译进主程序，随发布包签名/镜像摘要分发；上传插件默认在 Linux Landlock/rlimit 沙箱中执行，并对 manifest 探测与每次调用复核摘要。宿主仍以 root 运行且未设置 `LACTSSL_RUN_UID`/`LACTSSL_RUN_GID` 时，上传插件会被拒绝执行。
 - 官方发布构建会自动内置 `upgrade.program.public_key` 并默认强制校验发布签名；自编译版本未配置时拒绝在线升级，只有受控环境可显式开启 `upgrade.program.allow_unsigned`。
 - 资产必须提供 64 位十六进制 SHA-256；下载后强制校验。
 - 安装时校验 `plugin.json`、manifest 中的 ID 与版本；任一步失败都会回滚。

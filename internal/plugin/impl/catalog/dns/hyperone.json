@@ -1,0 +1,25 @@
+{
+  "value": "hyperone",
+  "label_key": "meta.dns.hyperone.label",
+  "desc_key": "meta.dns.hyperone.desc",
+  "fields": [
+    {
+      "key": "hyperone_passport_location",
+      "label": "Passport Location",
+      "type": "password",
+      "env": "HYPERONE_PASSPORT_LOCATION"
+    },
+    {
+      "key": "hyperone_location_id",
+      "label": "Location ID",
+      "type": "text",
+      "env": "HYPERONE_LOCATION_ID"
+    },
+    {
+      "key": "hyperone_api_url",
+      "label_key": "meta.field.api_url.label",
+      "type": "text",
+      "env": "HYPERONE_API_URL"
+    }
+  ]
+}

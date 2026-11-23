@@ -1,0 +1,4 @@
+{
+  "meta.dns.dnsimple.desc": "DNSimple DNS using an OAuth Token and an optional custom API base URL",
+  "meta.dns.dnsimple.label": "DNSimple"
+}

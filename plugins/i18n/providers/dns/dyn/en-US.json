@@ -1,0 +1,4 @@
+{
+  "meta.dns.dyn.desc": "Manage DNS records through the Dyn Managed DNS API.",
+  "meta.dns.dyn.label": "Dyn Managed DNS"
+}

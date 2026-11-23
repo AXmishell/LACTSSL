@@ -1,0 +1,72 @@
+{
+  "value": "safeline",
+  "label_key": "meta.deploy.safeline.label",
+  "desc_key": "meta.deploy.safeline.desc",
+  "fields": [
+    {
+      "key": "panel_url",
+      "label_key": "meta.field.panel_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.panel_url.placeholder",
+      "help_key": "meta.field.panel_url.help"
+    },
+    {
+      "key": "api_token",
+      "label_key": "meta.field.panel_api_token.label",
+      "type": "password",
+      "required": true,
+      "help_key": "meta.field.panel_api_token.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "target",
+      "label_key": "meta.field.deploy_target.label",
+      "type": "select",
+      "help_key": "meta.field.deploy_target.help",
+      "default": "waf",
+      "options": [
+        {
+          "label_key": "meta.field.deploy_target.option.waf",
+          "value": "waf"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.panel",
+          "value": "panel"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.portal",
+          "value": "portal"
+        }
+      ]
+    },
+    {
+      "key": "cert_ids",
+      "label_key": "meta.field.cert_ids.label",
+      "type": "text",
+      "help_key": "meta.field.cert_ids.help",
+      "show_if": {
+        "key": "target",
+        "value": "waf"
+      }
+    }
+  ],
+  "legacy_keep": true
+}

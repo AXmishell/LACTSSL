@@ -1,0 +1,4 @@
+{
+  "meta.deploy.qiniu.desc": "上传证书并按所选域名类型绑定七牛云 CDN 加速域名或 Kodo 自定义源站域名",
+  "meta.deploy.qiniu.label": "七牛云"
+}

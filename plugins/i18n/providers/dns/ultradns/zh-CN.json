@@ -1,0 +1,4 @@
+{
+  "meta.dns.ultradns.desc": "通过 UltraDNS 接口管理 DNS 记录。",
+  "meta.dns.ultradns.label": "UltraDNS"
+}

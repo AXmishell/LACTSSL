@@ -1,9 +1,13 @@
 package service
 
+import "lactssl/internal/plugin/notify"
+
 // BuiltinNotifyChannelIDs 返回主程序内置、不允许通知插件覆盖的渠道 ID。
 // 邮件由主程序直接实现，其余渠道都需要通过通知插件提供。
 func BuiltinNotifyChannelIDs() map[string]bool {
-	return map[string]bool{"mail": true}
+	out := notifyplugin.BuiltinChannelIDs()
+	out["mail"] = true
+	return out
 }
 
 // DefaultNotifyChannelIDs 返回从内置渠道迁移到通知插件后默认启用的渠道 ID。

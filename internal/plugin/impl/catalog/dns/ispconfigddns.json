@@ -1,0 +1,21 @@
+{
+  "value": "ispconfigddns",
+  "label_key": "meta.dns.ispconfigddns.label",
+  "desc_key": "meta.dns.ispconfigddns.desc",
+  "fields": [
+    {
+      "key": "ispconfig_ddns_server_url",
+      "label": "Server URL",
+      "type": "text",
+      "required": true,
+      "env": "ISPCONFIG_DDNS_SERVER_URL"
+    },
+    {
+      "key": "ispconfig_ddns_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "ISPCONFIG_DDNS_TOKEN"
+    }
+  ]
+}

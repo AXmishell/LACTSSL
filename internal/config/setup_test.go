@@ -64,15 +64,6 @@ plugins:
   memory_limit_mb: 128
   timeout_seconds: 60
   max_output_kb: 64
-  repo:
-    enabled: true
-    url: "https://example.com/index.json"
-    channel: stable
-    auto_update: false
-    public_key: "keep-public-key"
-    timeout_seconds: 30
-    max_download_mb: 256
-    check_interval_hours: 24
 deploy_plugins:
   enabled: false
   memory_limit_mb: 128
@@ -124,13 +115,6 @@ notify_plugins:
 	dnsMemory := 256
 	dnsTimeout := 120
 	dnsMaxOutput := 128
-	repoEnabled := false
-	repoURL := "file:///srv/lactssl-plugins/index.json"
-	repoChannel := "beta"
-	repoAutoUpdate := true
-	repoTimeout := 60
-	repoMaxDownload := 512
-	repoCheckInterval := 48
 	deployEnabled := true
 	deployMemory := 512
 	deployTimeout := 600
@@ -184,15 +168,6 @@ notify_plugins:
 			MemoryLimitMB:  &dnsMemory,
 			TimeoutSeconds: &dnsTimeout,
 			MaxOutputKB:    &dnsMaxOutput,
-			Repo: &SetupPluginRepoPatch{
-				Enabled:            &repoEnabled,
-				URL:                &repoURL,
-				Channel:            &repoChannel,
-				AutoUpdate:         &repoAutoUpdate,
-				TimeoutSeconds:     &repoTimeout,
-				MaxDownloadMB:      &repoMaxDownload,
-				CheckIntervalHours: &repoCheckInterval,
-			},
 		},
 		DeployPlugins: &SetupPluginRuntimePatch{
 			Enabled:        &deployEnabled,
@@ -221,8 +196,6 @@ notify_plugins:
 		"# keep server comment",
 		"# keep log comment",
 		`dir: "/tmp/custom-dns-plugins"`,
-		`public_key: "keep-public-key"`,
-		`url: file:///srv/lactssl-plugins/index.json`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("配置注释或未编辑字段丢失: 缺少 %q\n%s", want, content)
@@ -269,11 +242,6 @@ notify_plugins:
 		fc.Plugins.MaxOutputKB != dnsMaxOutput {
 		t.Fatalf("DNS 插件配置未更新: %+v", fc.Plugins)
 	}
-	if fc.Plugins.Repo.Enabled || fc.Plugins.Repo.URL != repoURL || fc.Plugins.Repo.Channel != repoChannel ||
-		!fc.Plugins.Repo.AutoUpdate || fc.Plugins.Repo.TimeoutSeconds != repoTimeout ||
-		fc.Plugins.Repo.MaxDownloadMB != repoMaxDownload || fc.Plugins.Repo.CheckIntervalHours != repoCheckInterval {
-		t.Fatalf("插件仓库配置未更新: %+v", fc.Plugins.Repo)
-	}
 	if !fc.DeployPlugins.Enabled || fc.DeployPlugins.MemoryLimitMB != deployMemory ||
 		fc.DeployPlugins.TimeoutSeconds != deployTimeout || fc.DeployPlugins.MaxOutputKB != deployMaxOutput {
 		t.Fatalf("部署插件配置未更新: %+v", fc.DeployPlugins)
@@ -316,12 +284,7 @@ log:
 	if err := UpdateSetupConfig(path, SetupConfigPatch{Log: &SetupLogPatch{MaxSizeMB: &badSize}}); !errors.Is(err, ErrSetupConfigInvalid) {
 		t.Fatalf("非法日志大小应返回 ErrSetupConfigInvalid: %v", err)
 	}
-	badChannel := "nightly"
-	if err := UpdateSetupConfig(path, SetupConfigPatch{Plugins: &SetupPluginsPatch{
-		Repo: &SetupPluginRepoPatch{Channel: &badChannel},
-	}}); !errors.Is(err, ErrSetupConfigInvalid) {
-		t.Fatalf("非法插件仓库通道应返回 ErrSetupConfigInvalid: %v", err)
-	}
+
 	badMTLS := true
 	if err := UpdateSetupConfig(path, SetupConfigPatch{ACME: &SetupACMEPatch{
 		MTLS: &SetupMTLSPatch{Enabled: &badMTLS},
@@ -368,7 +331,7 @@ func TestLoadSetupConfigUsesDefaultsAndDoesNotExposeSecrets(t *testing.T) {
 	if !cfg.Upgrade.Auto || !cfg.Upgrade.Program.Enabled || cfg.Upgrade.Program.Channel != "stable" {
 		t.Fatalf("默认升级配置不正确: %+v", cfg.Upgrade)
 	}
-	if !cfg.Plugins.Repo.Enabled || cfg.Plugins.Repo.Channel != "stable" || cfg.Plugins.TimeoutSeconds != 60 {
+	if cfg.Plugins.TimeoutSeconds != 60 {
 		t.Fatalf("默认插件配置不正确: %+v", cfg.Plugins)
 	}
 	if cfg.RateLimit.MaxKeys != ratelimit.DefaultMaxKeys {

@@ -1,0 +1,4 @@
+{
+  "meta.dns.auroradns.desc": "Manage DNS records through the Aurora DNS API.",
+  "meta.dns.auroradns.label": "Aurora DNS"
+}

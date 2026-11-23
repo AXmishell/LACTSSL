@@ -1,0 +1,4 @@
+{
+  "meta.dns.desec.desc": "Manage DNS records through the DeSEC DNS API.",
+  "meta.dns.desec.label": "DeSEC DNS"
+}

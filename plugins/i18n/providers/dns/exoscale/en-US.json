@@ -1,0 +1,4 @@
+{
+  "meta.dns.exoscale.desc": "Manage DNS records through the Exoscale DNS API.",
+  "meta.dns.exoscale.label": "Exoscale DNS"
+}

@@ -1,0 +1,61 @@
+{
+  "value": "oraclecloud",
+  "label_key": "meta.dns.oraclecloud.label",
+  "desc_key": "meta.dns.oraclecloud.desc",
+  "fields": [
+    {
+      "key": "oci_region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "env": "OCI_REGION"
+    },
+    {
+      "key": "oci_user_ocid",
+      "label": "User Ocid",
+      "type": "text",
+      "env": "OCI_USER_OCID"
+    },
+    {
+      "key": "oci_tenancy_ocid",
+      "label": "Tenancy Ocid",
+      "type": "text",
+      "env": "OCI_TENANCY_OCID"
+    },
+    {
+      "key": "oci_fingerprint",
+      "label": "Fingerprint",
+      "type": "text",
+      "env": "OCI_FINGERPRINT"
+    },
+    {
+      "key": "oci_pubkey_fingerprint",
+      "label": "Pubkey Fingerprint",
+      "type": "password",
+      "env": "OCI_PUBKEY_FINGERPRINT"
+    },
+    {
+      "key": "oci_privkey_pass",
+      "label": "Privkey Pass",
+      "type": "password",
+      "env": "OCI_PRIVKEY_PASS"
+    },
+    {
+      "key": "oci_auth_type",
+      "label": "Auth Type",
+      "type": "text",
+      "env": "OCI_AUTH_TYPE"
+    },
+    {
+      "key": "oci_compartment_ocid",
+      "label": "Compartment Ocid",
+      "type": "text",
+      "env": "OCI_COMPARTMENT_OCID"
+    },
+    {
+      "key": "oci_profile",
+      "label": "Profile",
+      "type": "text",
+      "env": "OCI_PROFILE"
+    }
+  ]
+}

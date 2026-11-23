@@ -1,0 +1,25 @@
+{
+  "value": "ultradns",
+  "label_key": "meta.dns.ultradns.label",
+  "desc_key": "meta.dns.ultradns.desc",
+  "fields": [
+    {
+      "key": "ultradns_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "ULTRADNS_ENDPOINT"
+    },
+    {
+      "key": "ultradns_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "ULTRADNS_USERNAME"
+    },
+    {
+      "key": "ultradns_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "ULTRADNS_PASSWORD"
+    }
+  ]
+}

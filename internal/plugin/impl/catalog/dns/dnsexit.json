@@ -1,0 +1,14 @@
+{
+  "value": "dnsexit",
+  "label_key": "meta.dns.dnsexit.label",
+  "desc_key": "meta.dns.dnsexit.desc",
+  "fields": [
+    {
+      "key": "dnsexit_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "DNSEXIT_API_KEY"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.stackpath.desc": "Manage DNS records through the Stackpath DNS API.",
+  "meta.dns.stackpath.label": "Stackpath DNS"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun_waf.desc": "为阿里云 WAF 域名更新证书，支持 CNAME 接入",
+  "meta.deploy.aliyun_waf.label": "阿里云 WAF"
+}

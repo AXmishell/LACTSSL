@@ -1,0 +1,14 @@
+{
+  "value": "webnames",
+  "label_key": "meta.dns.webnames.label",
+  "desc_key": "meta.dns.webnames.desc",
+  "fields": [
+    {
+      "key": "webnamesru_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "WEBNAMESRU_API_KEY"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "value": "auroradns",
+  "label_key": "meta.dns.auroradns.label",
+  "desc_key": "meta.dns.auroradns.desc",
+  "fields": [
+    {
+      "key": "aurora_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "AURORA_API_KEY"
+    },
+    {
+      "key": "aurora_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "env": "AURORA_SECRET"
+    },
+    {
+      "key": "aurora_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "AURORA_ENDPOINT"
+    }
+  ]
+}

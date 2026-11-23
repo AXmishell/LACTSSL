@@ -87,7 +87,7 @@ func TestSetupConfigGetAndUpdate(t *testing.T) {
 	}
 
 	update := sessionRequest(t, router, http.MethodPut, "/api/setup/config",
-		`{"public_url":"https://ssl.example.com/","session_persistence":true,"acme":{"addr":":14000"},"log":{"level":"debug","format":"json","max_backups":9},"upgrade":{"program":{"channel":"beta"}},"plugins":{"enabled":false,"repo":{"channel":"beta"}}}`,
+		`{"public_url":"https://ssl.example.com/","session_persistence":true,"acme":{"addr":":14000"},"log":{"level":"debug","format":"json","max_backups":9},"upgrade":{"program":{"channel":"beta"}}}`,
 		nil, nil)
 	if update.Code != http.StatusOK {
 		t.Fatalf("保存初始化配置失败: %d %s", update.Code, update.Body.String())

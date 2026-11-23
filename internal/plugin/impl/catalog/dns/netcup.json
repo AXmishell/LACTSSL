@@ -1,0 +1,28 @@
+{
+  "value": "netcup",
+  "label_key": "meta.dns.netcup.label",
+  "desc_key": "meta.dns.netcup.desc",
+  "fields": [
+    {
+      "key": "netcup_customer_number",
+      "label": "Customer Number",
+      "type": "text",
+      "required": true,
+      "env": "NETCUP_CUSTOMER_NUMBER"
+    },
+    {
+      "key": "netcup_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "NETCUP_API_KEY"
+    },
+    {
+      "key": "netcup_api_password",
+      "label": "API Password",
+      "type": "password",
+      "required": true,
+      "env": "NETCUP_API_PASSWORD"
+    }
+  ]
+}

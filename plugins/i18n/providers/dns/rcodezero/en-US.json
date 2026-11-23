@@ -1,0 +1,4 @@
+{
+  "meta.dns.rcodezero.desc": "Manage DNS records through the RcodeZero Anycast network API.",
+  "meta.dns.rcodezero.label": "RcodeZero Anycast network"
+}

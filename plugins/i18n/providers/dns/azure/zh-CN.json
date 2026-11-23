@@ -1,0 +1,4 @@
+{
+  "meta.dns.azure.desc": "通过 Azure DNS (legacy) 接口管理 DNS 记录。",
+  "meta.dns.azure.label": "Azure DNS (legacy)"
+}

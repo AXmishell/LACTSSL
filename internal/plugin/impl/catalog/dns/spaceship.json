@@ -1,0 +1,21 @@
+{
+  "value": "spaceship",
+  "label_key": "meta.dns.spaceship.label",
+  "desc_key": "meta.dns.spaceship.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "text",
+      "required": true,
+      "env": "SPACESHIP_API_KEY"
+    },
+    {
+      "key": "api_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "SPACESHIP_API_SECRET"
+    }
+  ]
+}

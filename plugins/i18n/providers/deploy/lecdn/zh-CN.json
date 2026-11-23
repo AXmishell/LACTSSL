@@ -1,0 +1,4 @@
+{
+  "meta.deploy.lecdn.desc": "通过 LeCDN API 上传证书并绑定站点域名",
+  "meta.deploy.lecdn.label": "LeCDN"
+}

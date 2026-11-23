@@ -1,0 +1,4 @@
+{
+  "meta.dns.duckdns.desc": "DuckDNS dynamic DNS using the account token",
+  "meta.dns.duckdns.label": "DuckDNS"
+}

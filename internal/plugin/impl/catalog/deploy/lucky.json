@@ -1,0 +1,52 @@
+{
+  "value": "lucky",
+  "label_key": "meta.deploy.lucky.label",
+  "desc_key": "meta.deploy.lucky.desc",
+  "fields": [
+    {
+      "key": "url",
+      "label_key": "meta.field.lucky_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.lucky_url.placeholder",
+      "help_key": "meta.field.lucky_url.help"
+    },
+    {
+      "key": "safe_path",
+      "label_key": "meta.field.lucky_safe_path.label",
+      "type": "text",
+      "help_key": "meta.field.lucky_safe_path.help"
+    },
+    {
+      "key": "open_token",
+      "label_key": "meta.field.lucky_open_token.label",
+      "type": "password",
+      "required": true,
+      "help_key": "meta.field.lucky_open_token.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "cert_keys",
+      "label_key": "meta.field.lucky_cert_keys.label",
+      "type": "text",
+      "help_key": "meta.field.lucky_cert_keys.help"
+    }
+  ]
+}

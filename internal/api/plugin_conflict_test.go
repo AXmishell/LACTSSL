@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/model"
+	dnsplugin "lactssl/internal/plugin/dns"
 )
 
 func writeConflictTestFile(t *testing.T, dir, name string) {
@@ -140,5 +141,43 @@ func TestDetectPluginConflictsBuiltin(t *testing.T) {
 	}
 	if len(item.Actions) != 1 || item.Actions[0] != "cancel" {
 		t.Fatalf("built-in conflict must not offer uninstall: %+v", item.Actions)
+	}
+}
+
+// TestDetectPluginConflictsReservesDisabledBuiltin 验证未启用的内置条目
+// 仍然占用 ID。修复前只检查运行期注册表，未启用的 cloudflare / webhook
+// 不会被视为冲突，上传后会在发现阶段被静默跳过。
+func TestDetectPluginConflictsReservesDisabledBuiltin(t *testing.T) {
+	s, _, _ := newPluginTestServer(t)
+	s.BuiltinPluginsEnabled = true
+	s.DeployPluginsEnabled = true
+	t.Cleanup(func() {
+		s.PluginsEnabled = false
+		s.DeployPluginsEnabled = false
+		s.BuiltinPluginsEnabled = false
+		s.DiscoverPlugins()
+		s.DiscoverDeployPlugins()
+	})
+
+	s.DiscoverPlugins()
+	s.DiscoverDeployPlugins()
+	if dnsplugin.Has("cloudflare") {
+		t.Fatal("cloudflare should be disabled before the test")
+	}
+
+	conflict := s.detectPluginConflicts(pluginKindDNS, []string{"cloudflare"}, nil, false, "helper", "Helper")
+	if conflict == nil || len(conflict.Conflicts) != 1 {
+		t.Fatalf("disabled builtin DNS provider should conflict: %+v", conflict)
+	}
+	if conflict.Conflicts[0].Type != pluginConflictTypeBuiltin {
+		t.Fatalf("unexpected conflict type: %+v", conflict.Conflicts[0])
+	}
+
+	conflict = s.detectPluginConflicts(pluginKindDeploy, []string{"webhook"}, nil, false, "helper", "Helper")
+	if conflict == nil || len(conflict.Conflicts) != 1 {
+		t.Fatalf("builtin deploy target should conflict: %+v", conflict)
+	}
+	if conflict.Conflicts[0].Type != pluginConflictTypeBuiltin {
+		t.Fatalf("unexpected conflict type: %+v", conflict.Conflicts[0])
 	}
 }

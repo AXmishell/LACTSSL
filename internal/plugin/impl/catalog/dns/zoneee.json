@@ -1,0 +1,25 @@
+{
+  "value": "zoneee",
+  "label_key": "meta.dns.zoneee.label",
+  "desc_key": "meta.dns.zoneee.desc",
+  "fields": [
+    {
+      "key": "zoneee_api_user",
+      "label": "API User",
+      "type": "text",
+      "env": "ZONEEE_API_USER"
+    },
+    {
+      "key": "zoneee_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "ZONEEE_API_KEY"
+    },
+    {
+      "key": "zoneee_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "ZONEEE_ENDPOINT"
+    }
+  ]
+}

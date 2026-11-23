@@ -1,0 +1,4 @@
+{
+  "meta.dns.route53.desc": "使用 AWS AccessKey 或实例角色管理 Route 53 托管区域",
+  "meta.dns.route53.label": "AWS Route 53"
+}

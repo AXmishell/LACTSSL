@@ -1,0 +1,41 @@
+{
+  "value": "aliyun_oss",
+  "label_key": "meta.deploy.aliyun_oss.label",
+  "desc_key": "meta.deploy.aliyun_oss.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "access_key_secret",
+      "label_key": "meta.field.access_key_secret.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.oss_region.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.oss_region.placeholder"
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "bucket",
+      "label_key": "meta.field.bucket.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    }
+  ],
+  "deprecated": true
+}

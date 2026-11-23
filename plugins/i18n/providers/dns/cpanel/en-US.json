@@ -1,0 +1,4 @@
+{
+  "meta.dns.cpanel.desc": "Manage DNS records through the CPanel API.",
+  "meta.dns.cpanel.label": "CPanel"
+}

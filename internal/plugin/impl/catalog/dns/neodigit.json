@@ -1,0 +1,14 @@
+{
+  "value": "neodigit",
+  "label_key": "meta.dns.neodigit.label",
+  "desc_key": "meta.dns.neodigit.desc",
+  "fields": [
+    {
+      "key": "neodigit_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "NEODIGIT_TOKEN"
+    }
+  ]
+}

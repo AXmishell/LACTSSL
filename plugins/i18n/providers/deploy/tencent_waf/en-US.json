@@ -1,0 +1,4 @@
+{
+  "meta.deploy.tencent_waf.desc": "Deploy a certificate to WAF through Tencent Cloud SSL",
+  "meta.deploy.tencent_waf.label": "Tencent Cloud WAF"
+}

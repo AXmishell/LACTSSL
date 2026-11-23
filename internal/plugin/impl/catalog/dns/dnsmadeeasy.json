@@ -1,0 +1,39 @@
+{
+  "value": "dnsmadeeasy",
+  "label_key": "meta.dns.dnsmadeeasy.label",
+  "desc_key": "meta.dns.dnsmadeeasy.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "text",
+      "required": true,
+      "env": "DNSMADEEASY_API_KEY"
+    },
+    {
+      "key": "api_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "DNSMADEEASY_API_SECRET"
+    },
+    {
+      "key": "sandbox",
+      "label_key": "meta.field.sandbox.label",
+      "type": "select",
+      "help_key": "meta.field.sandbox.help",
+      "default": "false",
+      "env": "DNSMADEEASY_SANDBOX",
+      "options": [
+        {
+          "label_key": "meta.field.boolean.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.boolean.true",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

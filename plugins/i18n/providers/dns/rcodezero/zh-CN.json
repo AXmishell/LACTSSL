@@ -1,0 +1,4 @@
+{
+  "meta.dns.rcodezero.desc": "通过 RcodeZero Anycast network 接口管理 DNS 记录。",
+  "meta.dns.rcodezero.label": "RcodeZero Anycast network"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.dnsexit.desc": "通过 DNSExit 接口管理 DNS 记录。",
+  "meta.dns.dnsexit.label": "DNSExit"
+}

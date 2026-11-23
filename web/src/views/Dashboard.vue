@@ -182,6 +182,7 @@
 </template>
 
 <script setup lang="ts">
+import { AlarmClock, Document, InfoFilled, Promotion, Timer, Warning } from '@element-plus/icons-vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

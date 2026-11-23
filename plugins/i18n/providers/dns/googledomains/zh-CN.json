@@ -1,0 +1,4 @@
+{
+  "meta.dns.googledomains.desc": "通过 Google Domains DNS API 接口管理 DNS 记录。",
+  "meta.dns.googledomains.label": "Google Domains DNS API"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.bindman.desc": "Manage DNS records through the Bindman API.",
+  "meta.dns.bindman.label": "Bindman"
+}

@@ -1,0 +1,14 @@
+{
+  "value": "ddnss",
+  "label_key": "meta.dns.ddnss.label",
+  "desc_key": "meta.dns.ddnss.desc",
+  "fields": [
+    {
+      "key": "ddnss_key",
+      "label": "Ddnss Key",
+      "type": "password",
+      "required": true,
+      "env": "DDNSS_KEY"
+    }
+  ]
+}

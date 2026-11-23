@@ -1,0 +1,14 @@
+{
+  "value": "ionos",
+  "label_key": "meta.dns.ionos.label",
+  "desc_key": "meta.dns.ionos.desc",
+  "fields": [
+    {
+      "key": "ionos_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "IONOS_API_KEY"
+    }
+  ]
+}

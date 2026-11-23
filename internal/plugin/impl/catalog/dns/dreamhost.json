@@ -1,0 +1,14 @@
+{
+  "value": "dreamhost",
+  "label_key": "meta.dns.dreamhost.label",
+  "desc_key": "meta.dns.dreamhost.desc",
+  "fields": [
+    {
+      "key": "dreamhost_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "DREAMHOST_API_KEY"
+    }
+  ]
+}

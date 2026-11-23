@@ -1,0 +1,14 @@
+{
+  "value": "safedns",
+  "label_key": "meta.dns.safedns.label",
+  "desc_key": "meta.dns.safedns.desc",
+  "fields": [
+    {
+      "key": "safedns_auth_token",
+      "label": "Safedns Auth Token",
+      "type": "password",
+      "required": true,
+      "env": "SAFEDNS_AUTH_TOKEN"
+    }
+  ]
+}

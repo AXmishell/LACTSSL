@@ -1,0 +1,14 @@
+{
+  "value": "civo",
+  "label_key": "meta.dns.civo.label",
+  "desc_key": "meta.dns.civo.desc",
+  "fields": [
+    {
+      "key": "civo_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "CIVO_TOKEN"
+    }
+  ]
+}

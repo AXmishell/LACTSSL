@@ -1,0 +1,4 @@
+{
+  "meta.deploy.1panel_panel.desc": "Replace the SSL certificate used by the 1Panel panel itself",
+  "meta.deploy.1panel_panel.label": "1Panel Panel"
+}

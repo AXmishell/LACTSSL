@@ -64,6 +64,7 @@
 </template>
 
 <script setup lang="ts">
+import { Lock, Warning } from '@element-plus/icons-vue'
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

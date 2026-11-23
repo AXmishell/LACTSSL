@@ -1,0 +1,28 @@
+{
+  "value": "namecheap",
+  "label_key": "meta.dns.namecheap.label",
+  "desc_key": "meta.dns.namecheap.desc",
+  "fields": [
+    {
+      "key": "api_user",
+      "label_key": "meta.field.api_user.label",
+      "type": "text",
+      "required": true,
+      "env": "NAMECHEAP_API_USER"
+    },
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "NAMECHEAP_API_KEY"
+    },
+    {
+      "key": "source_ip",
+      "label_key": "meta.field.source_ip.label",
+      "type": "text",
+      "help_key": "meta.field.source_ip.help",
+      "env": "NAMECHEAP_SOURCE_IP"
+    }
+  ]
+}

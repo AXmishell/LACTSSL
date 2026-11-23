@@ -1,0 +1,4 @@
+{
+  "meta.dns.alwaysdata.desc": "通过 Alwaysdata 接口管理 DNS 记录。",
+  "meta.dns.alwaysdata.label": "Alwaysdata"
+}

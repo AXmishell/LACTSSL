@@ -1,0 +1,14 @@
+{
+  "value": "dynu",
+  "label_key": "meta.dns.dynu.label",
+  "desc_key": "meta.dns.dynu.desc",
+  "fields": [
+    {
+      "key": "dynu_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "DYNU_API_KEY"
+    }
+  ]
+}

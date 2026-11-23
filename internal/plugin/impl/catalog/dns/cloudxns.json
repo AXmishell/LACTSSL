@@ -1,0 +1,19 @@
+{
+  "value": "cloudxns",
+  "label_key": "meta.dns.cloudxns.label",
+  "desc_key": "meta.dns.cloudxns.desc",
+  "fields": [
+    {
+      "key": "cloudxns_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "CLOUDXNS_API_KEY"
+    },
+    {
+      "key": "cloudxns_secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "env": "CLOUDXNS_SECRET_KEY"
+    }
+  ]
+}

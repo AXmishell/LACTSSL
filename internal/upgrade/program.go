@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ulikunitz/xz"
+
 	"lactssl/internal/outbound"
 	"lactssl/internal/store"
 )
@@ -887,37 +889,40 @@ func findReleaseAsset(assets []ghAsset, name string) (ghAsset, bool) {
 }
 
 // selectProgramAsset 按发布脚本约定选择当前平台的压缩包。
+// 优先选择 xz（下载体积更小），并保留 gz 以兼容旧版本客户端。
 func selectProgramAsset(assets []ghAsset, version, goos, goarch string) (ghAsset, bool) {
 	prefix := fmt.Sprintf("lactssl_%s_%s_%s", version, goos, goarch)
-	candidates := []string{prefix + ".tar.gz", prefix + ".tgz"}
 	if goos == "windows" {
-		candidates = append([]string{prefix + ".zip"}, candidates...)
-	}
-	for _, name := range candidates {
-		if asset, ok := findReleaseAsset(assets, name); ok {
+		if asset, ok := findReleaseAsset(assets, prefix+".zip"); ok {
 			return asset, true
+		}
+	} else {
+		for _, suffix := range []string{".tar.xz", ".txz", ".tar.gz", ".tgz"} {
+			if asset, ok := findReleaseAsset(assets, prefix+suffix); ok {
+				return asset, true
+			}
 		}
 	}
 	// 兼容手工上传的发布包：只要求名称包含平台标记且扩展名正确。
-	for _, asset := range assets {
-		name := asset.Name
-		if !strings.HasPrefix(name, "lactssl_") || !strings.Contains(name, "_"+goos+"_"+goarch) {
-			continue
-		}
-		if goos == "windows" {
-			if strings.HasSuffix(name, ".zip") {
+	suffixes := []string{".tar.xz", ".txz", ".tar.gz", ".tgz"}
+	if goos == "windows" {
+		suffixes = []string{".zip"}
+	}
+	for _, suffix := range suffixes {
+		for _, asset := range assets {
+			name := asset.Name
+			if !strings.HasPrefix(name, "lactssl_") || !strings.Contains(name, "_"+goos+"_"+goarch) {
+				continue
+			}
+			if strings.HasSuffix(name, suffix) {
 				return asset, true
 			}
-			continue
-		}
-		if strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".tgz") {
-			return asset, true
 		}
 	}
 	return ghAsset{}, false
 }
 
-// extractProgramBinary 从 tar.gz 或 zip 中解出 lactssl（Windows 为 lactssl.exe）。
+// extractProgramBinary 从 tar.gz / tar.xz / zip 中解出 lactssl（Windows 为 lactssl.exe）。
 func extractProgramBinary(archivePath, goos string, out *os.File, limit int64) error {
 	want := "lactssl"
 	if goos == "windows" {
@@ -952,12 +957,14 @@ func extractProgramBinary(archivePath, goos string, out *os.File, limit int64) e
 		return fmt.Errorf("打开发布包失败: %w", err)
 	}
 	defer file.Close()
-	gz, err := gzip.NewReader(file)
+
+	decompressed, closeReader, err := openProgramArchive(file, archivePath)
 	if err != nil {
-		return fmt.Errorf("解压发布包失败: %w", err)
+		return err
 	}
-	defer gz.Close()
-	reader := tar.NewReader(gz)
+	defer closeReader()
+
+	reader := tar.NewReader(decompressed)
 	for {
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
@@ -972,6 +979,27 @@ func extractProgramBinary(archivePath, goos string, out *os.File, limit int64) e
 		return copyLimited(out, reader, limit)
 	}
 	return fmt.Errorf("发布包中没有 %s", want)
+}
+
+// openProgramArchive 根据扩展名返回解压后的 tar 流。
+// xz 使用纯 Go 解码器，并对字典大小设上限，避免恶意压缩包占用过多内存。
+func openProgramArchive(file *os.File, name string) (io.Reader, func(), error) {
+	switch {
+	case strings.HasSuffix(name, ".tar.xz"), strings.HasSuffix(name, ".txz"):
+		reader, err := (xz.ReaderConfig{DictCap: 64 << 20, SingleStream: true}).NewReader(file)
+		if err != nil {
+			return nil, func() {}, fmt.Errorf("解压发布包失败: %w", err)
+		}
+		return reader, func() {}, nil
+	case strings.HasSuffix(name, ".tar.gz"), strings.HasSuffix(name, ".tgz"):
+		gz, err := gzip.NewReader(file)
+		if err != nil {
+			return nil, func() {}, fmt.Errorf("解压发布包失败: %w", err)
+		}
+		return gz, func() { _ = gz.Close() }, nil
+	default:
+		return nil, func() {}, fmt.Errorf("不支持的发布包格式: %s", filepath.Base(name))
+	}
 }
 
 func copyLimited(dst io.Writer, src io.Reader, limit int64) error {

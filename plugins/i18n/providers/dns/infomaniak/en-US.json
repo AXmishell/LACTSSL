@@ -1,0 +1,4 @@
+{
+  "meta.dns.infomaniak.desc": "Manage DNS records through the Infomaniak DNS API.",
+  "meta.dns.infomaniak.label": "Infomaniak DNS"
+}

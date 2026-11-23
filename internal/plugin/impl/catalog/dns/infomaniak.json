@@ -1,0 +1,19 @@
+{
+  "value": "infomaniak",
+  "label_key": "meta.dns.infomaniak.label",
+  "desc_key": "meta.dns.infomaniak.desc",
+  "fields": [
+    {
+      "key": "infomaniak_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "INFOMANIAK_ENDPOINT"
+    },
+    {
+      "key": "infomaniak_access_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "env": "INFOMANIAK_ACCESS_TOKEN"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.jdcloud.desc": "Use a JD Cloud AccessKey ID / AccessKey Secret and Region",
+  "meta.dns.jdcloud.label": "JD Cloud DNS"
+}

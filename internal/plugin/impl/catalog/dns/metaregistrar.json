@@ -1,0 +1,14 @@
+{
+  "value": "metaregistrar",
+  "label_key": "meta.dns.metaregistrar.label",
+  "desc_key": "meta.dns.metaregistrar.desc",
+  "fields": [
+    {
+      "key": "metaregistrar_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "required": true,
+      "env": "METAREGISTRAR_API_TOKEN"
+    }
+  ]
+}

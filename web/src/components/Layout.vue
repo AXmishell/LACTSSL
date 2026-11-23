@@ -97,6 +97,7 @@
 </template>
 
 <script setup lang="ts">
+import { ArrowUp, Bell, Box, Connection, DataAnalysis, Document, Key, Lock, MagicStick, Menu, Monitor, Odometer, Promotion, Refresh, Setting, SwitchButton, Ticket, Tickets, UploadFilled } from '@element-plus/icons-vue'
 import { computed, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -132,42 +133,42 @@ const currentLanguageLabel = computed(() => localeMeta[activeLocale.value]?.labe
 const menus: MenuGroup[] = [
   {
     label: '',
-    items: [{ path: '/dashboard', label: 'nav.dashboard', icon: 'Odometer' }]
+    items: [{ path: '/dashboard', label: 'nav.dashboard', icon: Odometer }]
   },
   {
     label: 'nav.groupCertificates',
     items: [
-      { path: '/certificates', label: 'nav.certificates', icon: 'Document' },
-      { path: '/tasks', label: 'nav.tasks', icon: 'Promotion' },
-      { path: '/monitors', label: 'nav.monitors', icon: 'Monitor' },
+      { path: '/certificates', label: 'nav.certificates', icon: Document },
+      { path: '/tasks', label: 'nav.tasks', icon: Promotion },
+      { path: '/monitors', label: 'nav.monitors', icon: Monitor },
       { path: '/ca-configs', label: 'nav.caConfigs', icon: CAConfigIcon },
-      { path: '/private-cas', label: 'nav.privateCA', icon: 'Lock' },
-      { path: '/acme-server', label: 'nav.acmeServer', icon: 'Connection' },
-      { path: '/acme-diagnostics', label: 'nav.acmeDiagnostics', icon: 'DataAnalysis' }
+      { path: '/private-cas', label: 'nav.privateCA', icon: Lock },
+      { path: '/acme-server', label: 'nav.acmeServer', icon: Connection },
+      { path: '/acme-diagnostics', label: 'nav.acmeDiagnostics', icon: DataAnalysis }
     ]
   },
   {
     label: 'nav.groupCredentials',
     items: [
       { path: '/dns', label: 'nav.dns', icon: DnsAccountIcon },
-      { path: '/deploy', label: 'nav.deploy', icon: 'UploadFilled' }
+      { path: '/deploy', label: 'nav.deploy', icon: UploadFilled }
     ]
   },
   {
     label: 'nav.groupPlugins',
     items: [
-      { path: '/plugins', label: 'nav.dnsPlugins', icon: 'Box' },
-      { path: '/logs', label: 'nav.logs', icon: 'Tickets' }
+      { path: '/plugins', label: 'nav.dnsPlugins', icon: Box },
+      { path: '/logs', label: 'nav.logs', icon: Tickets }
     ]
   },
   {
     label: 'nav.groupSystem',
     items: [
-      { path: '/notifications', label: 'nav.notifications', icon: 'Bell' },
-      { path: '/sessions', label: 'nav.sessions', icon: 'Key' },
-      { path: '/api-keys', label: 'nav.apiKeys', icon: 'Ticket' },
-      { path: '/upgrade', label: 'nav.upgrade', icon: 'MagicStick' },
-      { path: '/settings', label: 'nav.settings', icon: 'Setting' }
+      { path: '/notifications', label: 'nav.notifications', icon: Bell },
+      { path: '/sessions', label: 'nav.sessions', icon: Key },
+      { path: '/api-keys', label: 'nav.apiKeys', icon: Ticket },
+      { path: '/upgrade', label: 'nav.upgrade', icon: MagicStick },
+      { path: '/settings', label: 'nav.settings', icon: Setting }
     ]
   }
 ]

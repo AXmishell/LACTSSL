@@ -1,0 +1,53 @@
+{
+  "value": "volcengine",
+  "label_key": "meta.dns.volcengine.label",
+  "desc_key": "meta.dns.volcengine.desc",
+  "fields": [
+    {
+      "key": "access_key",
+      "label_key": "meta.field.access_key.label",
+      "type": "text",
+      "required": true,
+      "env": "VOLC_ACCESSKEY"
+    },
+    {
+      "key": "secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "required": true,
+      "env": "VOLC_SECRETKEY"
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "placeholder_key": "meta.field.region.placeholder.volcengine",
+      "env": "VOLC_REGION"
+    },
+    {
+      "key": "api_host",
+      "label_key": "meta.field.api_host.label",
+      "type": "text",
+      "placeholder_key": "meta.field.api_host.placeholder",
+      "help_key": "meta.field.api_host.help",
+      "env": "VOLC_HOST"
+    },
+    {
+      "key": "api_scheme",
+      "label_key": "meta.field.api_scheme.label",
+      "type": "select",
+      "default": "https",
+      "env": "VOLC_SCHEME",
+      "options": [
+        {
+          "label": "https",
+          "value": "https"
+        },
+        {
+          "label": "http",
+          "value": "http"
+        }
+      ]
+    }
+  ]
+}

@@ -76,39 +76,82 @@ func register(n Notifier) error {
 }
 
 func registerLocked(n Notifier) error {
+	return registerInto(registry.byID, registry.alias, n)
+}
+
+// registerInto 把通知渠道写入给定的 id/alias 映射，调用方负责加锁。
+func registerInto(byID map[string]Notifier, alias map[string]string, n Notifier) error {
 	def := n.Definition()
 	id := normalize(def.ID)
 	if id == "" || !idPattern.MatchString(id) {
 		return errInvalidID
 	}
-	if _, exists := registry.byID[id]; exists {
+	if _, exists := byID[id]; exists {
 		return &DuplicateError{ID: id}
 	}
-	if _, exists := registry.alias[id]; exists {
+	if _, exists := alias[id]; exists {
 		return &DuplicateError{ID: id}
 	}
-	for _, alias := range def.Aliases {
-		alias = normalize(alias)
-		if alias == "" {
+	for _, item := range def.Aliases {
+		item = normalize(item)
+		if item == "" {
 			continue
 		}
-		if !idPattern.MatchString(alias) {
+		if !idPattern.MatchString(item) {
 			return errInvalidID
 		}
-		if _, exists := registry.byID[alias]; exists {
-			return &DuplicateError{ID: alias}
+		if _, exists := byID[item]; exists {
+			return &DuplicateError{ID: item}
 		}
-		if _, exists := registry.alias[alias]; exists {
-			return &DuplicateError{ID: alias}
-		}
-	}
-	registry.byID[id] = n
-	for _, alias := range def.Aliases {
-		alias = normalize(alias)
-		if alias != "" && alias != id {
-			registry.alias[alias] = id
+		if _, exists := alias[item]; exists {
+			return &DuplicateError{ID: item}
 		}
 	}
+	byID[id] = n
+	for _, item := range def.Aliases {
+		item = normalize(item)
+		if item != "" && item != id {
+			alias[item] = id
+		}
+	}
+	return nil
+}
+
+// ReplaceBuiltin 原子替换全部内置通知渠道。
+//
+// 新集合全部注册成功后才交换注册表；失败时保留原有内置条目，
+// 避免并发重扫期间出现半套注册或重复注册 panic。外部插件不受影响。
+func ReplaceBuiltin(channels []Notifier) error {
+	registry.Lock()
+	defer registry.Unlock()
+	return replaceSourceLocked(SourceBuiltin, channels)
+}
+
+func replaceSourceLocked(source Source, channels []Notifier) error {
+	byID := make(map[string]Notifier, len(registry.byID)+len(channels))
+	for id, n := range registry.byID {
+		if n.Source() != source {
+			byID[id] = n
+		}
+	}
+	alias := make(map[string]string, len(byID))
+	for id, n := range byID {
+		for _, item := range n.Definition().Aliases {
+			if item = normalize(item); item != "" && item != id {
+				alias[item] = id
+			}
+		}
+	}
+	for _, n := range channels {
+		if n.Source() != source {
+			return registryError("plugin source does not match replacement target")
+		}
+		if err := registerInto(byID, alias, n); err != nil {
+			return err
+		}
+	}
+	registry.byID = byID
+	registry.alias = alias
 	return nil
 }
 

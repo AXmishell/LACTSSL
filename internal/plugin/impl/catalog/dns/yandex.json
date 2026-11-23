@@ -1,0 +1,14 @@
+{
+  "value": "yandex",
+  "label_key": "meta.dns.yandex.label",
+  "desc_key": "meta.dns.yandex.desc",
+  "fields": [
+    {
+      "key": "yandex_pdd_token",
+      "label": "Yandex Pdd Token",
+      "type": "password",
+      "required": true,
+      "env": "YANDEX_PDD_TOKEN"
+    }
+  ]
+}

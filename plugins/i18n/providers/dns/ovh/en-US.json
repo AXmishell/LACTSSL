@@ -1,0 +1,4 @@
+{
+  "meta.dns.ovh.desc": "Manage DNS records through the OVH DNS API.",
+  "meta.dns.ovh.label": "OVH DNS"
+}

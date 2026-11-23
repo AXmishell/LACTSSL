@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun.desc": "Upload the certificate and deploy it to Alibaba Cloud CDN, DCDN, ESA, OSS or WAF according to the selected target",
+  "meta.deploy.aliyun.label": "Alibaba Cloud"
+}

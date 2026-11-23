@@ -1,0 +1,4 @@
+{
+  "meta.dns.shellrent.desc": "通过 Shellrent 接口管理 DNS 记录。",
+  "meta.dns.shellrent.label": "Shellrent"
+}

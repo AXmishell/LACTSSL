@@ -1,0 +1,25 @@
+{
+  "value": "iijdpf",
+  "label_key": "meta.dns.iijdpf.label",
+  "desc_key": "meta.dns.iijdpf.desc",
+  "fields": [
+    {
+      "key": "iij_dpf_api_endpoint",
+      "label": "API Endpoint",
+      "type": "text",
+      "env": "IIJ_DPF_API_ENDPOINT"
+    },
+    {
+      "key": "iij_dpf_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "env": "IIJ_DPF_API_TOKEN"
+    },
+    {
+      "key": "iij_dpf_dpm_service_code",
+      "label": "Dpm Service Code",
+      "type": "text",
+      "env": "IIJ_DPF_DPM_SERVICE_CODE"
+    }
+  ]
+}

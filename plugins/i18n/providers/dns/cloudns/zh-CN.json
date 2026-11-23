@@ -1,0 +1,4 @@
+{
+  "meta.dns.cloudns.desc": "ClouDNS API，使用 Auth ID 与密码",
+  "meta.dns.cloudns.label": "ClouDNS"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.safeline_panel.desc": "上传证书并替换雷池控制台 HTTPS 证书",
+  "meta.deploy.safeline_panel.label": "雷池 WAF 控制台"
+}

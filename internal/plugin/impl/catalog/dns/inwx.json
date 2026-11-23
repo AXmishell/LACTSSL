@@ -1,0 +1,31 @@
+{
+  "value": "inwx",
+  "label_key": "meta.dns.inwx.label",
+  "desc_key": "meta.dns.inwx.desc",
+  "fields": [
+    {
+      "key": "inwx_sandbox",
+      "label": "Sandbox",
+      "type": "text",
+      "env": "INWX_SANDBOX"
+    },
+    {
+      "key": "inwx_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "INWX_USERNAME"
+    },
+    {
+      "key": "inwx_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "INWX_PASSWORD"
+    },
+    {
+      "key": "inwx_shared_secret",
+      "label": "Shared Secret",
+      "type": "password",
+      "env": "INWX_SHARED_SECRET"
+    }
+  ]
+}

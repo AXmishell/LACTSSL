@@ -1,0 +1,43 @@
+{
+  "value": "nicmanager",
+  "label_key": "meta.dns.nicmanager.label",
+  "desc_key": "meta.dns.nicmanager.desc",
+  "fields": [
+    {
+      "key": "nicmanager_api_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "NICMANAGER_API_PASSWORD"
+    },
+    {
+      "key": "nicmanager_api_mode",
+      "label": "Mode",
+      "type": "text",
+      "env": "NICMANAGER_API_MODE"
+    },
+    {
+      "key": "nicmanager_api_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "NICMANAGER_API_USERNAME"
+    },
+    {
+      "key": "nicmanager_api_login",
+      "label": "Login",
+      "type": "text",
+      "env": "NICMANAGER_API_LOGIN"
+    },
+    {
+      "key": "nicmanager_api_email",
+      "label_key": "meta.field.email.label",
+      "type": "text",
+      "env": "NICMANAGER_API_EMAIL"
+    },
+    {
+      "key": "nicmanager_api_otp",
+      "label": "Otp",
+      "type": "text",
+      "env": "NICMANAGER_API_OTP"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "value": "exec",
+  "label_key": "meta.dns.exec.label",
+  "desc_key": "meta.dns.exec.desc",
+  "fields": [
+    {
+      "key": "exec_mode",
+      "label": "Mode",
+      "type": "text",
+      "env": "EXEC_MODE"
+    },
+    {
+      "key": "exec_path",
+      "label": "Path",
+      "type": "text",
+      "env": "EXEC_PATH"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "value": "gcloud",
+  "label_key": "meta.dns.gcloud.label",
+  "desc_key": "meta.dns.gcloud.desc",
+  "fields": [
+    {
+      "key": "service_account",
+      "label_key": "meta.field.service_account.label",
+      "type": "textarea",
+      "secret": true,
+      "help_key": "meta.field.service_account.help",
+      "env": "GCE_SERVICE_ACCOUNT"
+    },
+    {
+      "key": "project",
+      "label_key": "meta.field.project.label",
+      "type": "text",
+      "help_key": "meta.field.project.help",
+      "env": "GCE_PROJECT"
+    },
+    {
+      "key": "allow_private_zone",
+      "label_key": "meta.field.allow_private_zone.label",
+      "type": "select",
+      "help_key": "meta.field.allow_private_zone.help",
+      "default": "false",
+      "env": "GCE_ALLOW_PRIVATE_ZONE",
+      "options": [
+        {
+          "label_key": "meta.field.boolean.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.boolean.true",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

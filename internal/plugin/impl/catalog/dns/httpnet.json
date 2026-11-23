@@ -1,0 +1,19 @@
+{
+  "value": "httpnet",
+  "label_key": "meta.dns.httpnet.label",
+  "desc_key": "meta.dns.httpnet.desc",
+  "fields": [
+    {
+      "key": "httpnet_zone_name",
+      "label_key": "meta.field.zone_name.label",
+      "type": "text",
+      "env": "HTTPNET_ZONE_NAME"
+    },
+    {
+      "key": "httpnet_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "HTTPNET_API_KEY"
+    }
+  ]
+}

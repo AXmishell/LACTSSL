@@ -1,0 +1,14 @@
+{
+  "value": "rainyun",
+  "label_key": "meta.dns.rainyun.label",
+  "desc_key": "meta.dns.rainyun.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "RAINYUN_API_KEY"
+    }
+  ]
+}

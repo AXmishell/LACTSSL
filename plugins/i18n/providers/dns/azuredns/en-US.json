@@ -1,0 +1,4 @@
+{
+  "meta.dns.azuredns.desc": "Manage Azure DNS zones with an Azure service principal",
+  "meta.dns.azuredns.label": "Azure DNS"
+}

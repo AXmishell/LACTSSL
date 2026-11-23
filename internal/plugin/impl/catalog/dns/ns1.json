@@ -1,0 +1,14 @@
+{
+  "value": "ns1",
+  "label_key": "meta.dns.ns1.label",
+  "desc_key": "meta.dns.ns1.desc",
+  "fields": [
+    {
+      "key": "ns1_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "NS1_API_KEY"
+    }
+  ]
+}

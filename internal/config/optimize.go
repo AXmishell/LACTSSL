@@ -140,24 +140,15 @@ func defaultSpec() map[string]any {
 		"plugins": map[string]any{
 			"enabled":         fc.Plugins.Enabled,
 			"dir":             fc.Plugins.Dir,
+			"sandbox":         fc.Plugins.Sandbox,
 			"memory_limit_mb": fc.Plugins.MemoryLimitMB,
 			"timeout_seconds": fc.Plugins.TimeoutSeconds,
 			"max_output_kb":   fc.Plugins.MaxOutputKB,
-			"repo": map[string]any{
-				"enabled":              fc.Plugins.Repo.Enabled,
-				"url":                  fc.Plugins.Repo.URL,
-				"channel":              fc.Plugins.Repo.Channel,
-				"auto_update":          fc.Plugins.Repo.AutoUpdate,
-				"public_key":           fc.Plugins.Repo.PublicKey,
-				"proxy":                fc.Plugins.Repo.Proxy,
-				"timeout_seconds":      fc.Plugins.Repo.TimeoutSeconds,
-				"max_download_mb":      fc.Plugins.Repo.MaxDownloadMB,
-				"check_interval_hours": fc.Plugins.Repo.CheckIntervalHours,
-			},
 		},
 		"deploy_plugins": map[string]any{
 			"enabled":         fc.DeployPlugins.Enabled,
 			"dir":             fc.DeployPlugins.Dir,
+			"sandbox":         fc.DeployPlugins.Sandbox,
 			"memory_limit_mb": fc.DeployPlugins.MemoryLimitMB,
 			"timeout_seconds": fc.DeployPlugins.TimeoutSeconds,
 			"max_output_kb":   fc.DeployPlugins.MaxOutputKB,
@@ -165,6 +156,7 @@ func defaultSpec() map[string]any {
 		"notify_plugins": map[string]any{
 			"enabled":         fc.NotifyPlugins.Enabled,
 			"dir":             fc.NotifyPlugins.Dir,
+			"sandbox":         fc.NotifyPlugins.Sandbox,
 			"memory_limit_mb": fc.NotifyPlugins.MemoryLimitMB,
 			"timeout_seconds": fc.NotifyPlugins.TimeoutSeconds,
 			"max_output_kb":   fc.NotifyPlugins.MaxOutputKB,
@@ -274,7 +266,6 @@ func normalizeConfigNode(root *yaml.Node, prefix string, report *OptimizeReport)
 	normalizeScalarValue(root, []string{"log"}, "format", prefix, lowerValue, report)
 	normalizeScalarValue(root, []string{"log", "system"}, "level", prefix, lowerValue, report)
 	normalizeScalarValue(root, []string{"log", "archive"}, "quota_policy", prefix, lowerValue, report)
-	normalizeScalarValue(root, []string{"plugins", "repo"}, "channel", prefix, lowerValue, report)
 	normalizeScalarValue(root, []string{"upgrade", "program"}, "channel", prefix, lowerValue, report)
 	normalizeScalarValue(root, []string{"upgrade", "program"}, "repo", prefix, trimValue, report)
 	normalizeTrustedProxies(root, prefix, report)
@@ -384,11 +375,6 @@ func collectConfigWarnings(root *yaml.Node, report *OptimizeReport) {
 		if publicURL, _ := scalarValue(security, "public_url"); strings.TrimSpace(publicURL) == "" {
 			report.Warnings = append(report.Warnings, "ACME 已启用但 security.public_url 为空，签发资源 URL 可能随请求 Host 变化；建议配置固定对外地址")
 		}
-	}
-	plugins, _ := mappingValue(root, "plugins")
-	repo, _ := mappingValue(plugins, "repo")
-	if publicKey, _ := scalarValue(repo, "public_key"); strings.TrimSpace(publicKey) == "" {
-		report.Warnings = append(report.Warnings, "plugins.repo.public_key 为空，插件仓库索引仅依赖 HTTPS 与资产 SHA-256 校验；生产环境建议配置 Ed25519 公钥")
 	}
 	deployPlugins, _ := mappingValue(root, "deploy_plugins")
 	if enabled, ok := scalarValue(deployPlugins, "enabled"); ok && enabled == "true" {

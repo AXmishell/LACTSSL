@@ -1,0 +1,21 @@
+{
+  "value": "domeneshop",
+  "label_key": "meta.dns.domeneshop.label",
+  "desc_key": "meta.dns.domeneshop.desc",
+  "fields": [
+    {
+      "key": "domeneshop_api_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "DOMENESHOP_API_TOKEN"
+    },
+    {
+      "key": "domeneshop_api_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "DOMENESHOP_API_SECRET"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.safeline_panel.desc": "Upload and replace the Safeline console HTTPS certificate",
+  "meta.deploy.safeline_panel.label": "Safeline WAF Console"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.gcore.desc": "Manage DNS records through the Gcore API.",
+  "meta.dns.gcore.label": "Gcore"
+}

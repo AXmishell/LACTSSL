@@ -1,0 +1,64 @@
+{
+  "value": "proxmox",
+  "label_key": "meta.deploy.proxmox.label",
+  "desc_key": "meta.deploy.proxmox.desc",
+  "fields": [
+    {
+      "key": "host",
+      "label_key": "meta.field.host.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.host.placeholder"
+    },
+    {
+      "key": "port",
+      "label_key": "meta.field.service_port.label",
+      "type": "number",
+      "default": "8006"
+    },
+    {
+      "key": "username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "realm",
+      "label_key": "meta.field.proxmox_realm.label",
+      "type": "text",
+      "default": "pam",
+      "help_key": "meta.field.proxmox_realm.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "nodes",
+      "label_key": "meta.field.proxmox_nodes.label",
+      "type": "text",
+      "required": true,
+      "help_key": "meta.field.proxmox_nodes.help"
+    }
+  ]
+}

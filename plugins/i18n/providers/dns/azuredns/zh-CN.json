@@ -1,0 +1,4 @@
+{
+  "meta.dns.azuredns.desc": "使用 Azure 服务主体管理 Azure DNS 区域",
+  "meta.dns.azuredns.label": "Azure DNS"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.namesurfer.desc": "通过 FusionLayer NameSurfer API 接口管理 DNS 记录。",
+  "meta.dns.namesurfer.label": "FusionLayer NameSurfer API"
+}

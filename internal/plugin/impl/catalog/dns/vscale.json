@@ -1,0 +1,19 @@
+{
+  "value": "vscale",
+  "label_key": "meta.dns.vscale.label",
+  "desc_key": "meta.dns.vscale.desc",
+  "fields": [
+    {
+      "key": "vscale_base_url",
+      "label_key": "meta.field.base_url.label",
+      "type": "text",
+      "env": "VSCALE_BASE_URL"
+    },
+    {
+      "key": "vscale_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "env": "VSCALE_API_TOKEN"
+    }
+  ]
+}

@@ -120,29 +120,19 @@ type SetupProgramConfig struct {
 }
 
 type SetupPluginsConfig struct {
-	Enabled        bool                  `json:"enabled"`
-	MemoryLimitMB  int                   `json:"memory_limit_mb"`
-	TimeoutSeconds int                   `json:"timeout_seconds"`
-	MaxOutputKB    int                   `json:"max_output_kb"`
-	Repo           SetupPluginRepoConfig `json:"repo"`
-}
-
-type SetupPluginRepoConfig struct {
-	Enabled            bool   `json:"enabled"`
-	URL                string `json:"url"`
-	Channel            string `json:"channel"`
-	AutoUpdate         bool   `json:"auto_update"`
-	Proxy              string `json:"proxy"`
-	TimeoutSeconds     int    `json:"timeout_seconds"`
-	MaxDownloadMB      int    `json:"max_download_mb"`
-	CheckIntervalHours int    `json:"check_interval_hours"`
+	Enabled        bool   `json:"enabled"`
+	Sandbox        string `json:"sandbox,omitempty"`
+	MemoryLimitMB  int    `json:"memory_limit_mb"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	MaxOutputKB    int    `json:"max_output_kb"`
 }
 
 type SetupPluginRuntimeConfig struct {
-	Enabled        bool `json:"enabled"`
-	MemoryLimitMB  int  `json:"memory_limit_mb"`
-	TimeoutSeconds int  `json:"timeout_seconds"`
-	MaxOutputKB    int  `json:"max_output_kb"`
+	Enabled        bool   `json:"enabled"`
+	Sandbox        string `json:"sandbox,omitempty"`
+	MemoryLimitMB  int    `json:"memory_limit_mb"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	MaxOutputKB    int    `json:"max_output_kb"`
 }
 
 // SetupConfigPatch 是初始化页面的局部更新请求。
@@ -248,29 +238,19 @@ type SetupProgramPatch struct {
 }
 
 type SetupPluginsPatch struct {
-	Enabled        *bool                 `json:"enabled"`
-	MemoryLimitMB  *int                  `json:"memory_limit_mb"`
-	TimeoutSeconds *int                  `json:"timeout_seconds"`
-	MaxOutputKB    *int                  `json:"max_output_kb"`
-	Repo           *SetupPluginRepoPatch `json:"repo"`
-}
-
-type SetupPluginRepoPatch struct {
-	Enabled            *bool   `json:"enabled"`
-	URL                *string `json:"url"`
-	Channel            *string `json:"channel"`
-	AutoUpdate         *bool   `json:"auto_update"`
-	Proxy              *string `json:"proxy"`
-	TimeoutSeconds     *int    `json:"timeout_seconds"`
-	MaxDownloadMB      *int    `json:"max_download_mb"`
-	CheckIntervalHours *int    `json:"check_interval_hours"`
+	Enabled        *bool   `json:"enabled"`
+	Sandbox        *string `json:"sandbox"`
+	MemoryLimitMB  *int    `json:"memory_limit_mb"`
+	TimeoutSeconds *int    `json:"timeout_seconds"`
+	MaxOutputKB    *int    `json:"max_output_kb"`
 }
 
 type SetupPluginRuntimePatch struct {
-	Enabled        *bool `json:"enabled"`
-	MemoryLimitMB  *int  `json:"memory_limit_mb"`
-	TimeoutSeconds *int  `json:"timeout_seconds"`
-	MaxOutputKB    *int  `json:"max_output_kb"`
+	Enabled        *bool   `json:"enabled"`
+	Sandbox        *string `json:"sandbox"`
+	MemoryLimitMB  *int    `json:"memory_limit_mb"`
+	TimeoutSeconds *int    `json:"timeout_seconds"`
+	MaxOutputKB    *int    `json:"max_output_kb"`
 }
 
 // Empty 表示没有任何需要写入的字段。
@@ -356,12 +336,7 @@ func (p SetupUpgradePatch) empty() bool {
 }
 
 func (p SetupPluginsPatch) empty() bool {
-	if p.Enabled != nil || p.MemoryLimitMB != nil || p.TimeoutSeconds != nil || p.MaxOutputKB != nil {
-		return false
-	}
-	if p.Repo != nil && (p.Repo.Enabled != nil || p.Repo.URL != nil || p.Repo.Channel != nil ||
-		p.Repo.AutoUpdate != nil || p.Repo.Proxy != nil || p.Repo.TimeoutSeconds != nil ||
-		p.Repo.MaxDownloadMB != nil || p.Repo.CheckIntervalHours != nil) {
+	if p.Enabled != nil || p.Sandbox != nil || p.MemoryLimitMB != nil || p.TimeoutSeconds != nil || p.MaxOutputKB != nil {
 		return false
 	}
 	return true
@@ -465,28 +440,21 @@ func setupConfigFromFile(fc *fileConfig) *SetupConfig {
 		},
 		Plugins: SetupPluginsConfig{
 			Enabled:        fc.Plugins.Enabled,
+			Sandbox:        fc.Plugins.Sandbox,
 			MemoryLimitMB:  fc.Plugins.MemoryLimitMB,
 			TimeoutSeconds: fc.Plugins.TimeoutSeconds,
 			MaxOutputKB:    fc.Plugins.MaxOutputKB,
-			Repo: SetupPluginRepoConfig{
-				Enabled:            fc.Plugins.Repo.Enabled,
-				URL:                strings.TrimSpace(fc.Plugins.Repo.URL),
-				Channel:            strings.ToLower(strings.TrimSpace(fc.Plugins.Repo.Channel)),
-				AutoUpdate:         fc.Plugins.Repo.AutoUpdate,
-				Proxy:              strings.TrimSpace(fc.Plugins.Repo.Proxy),
-				TimeoutSeconds:     fc.Plugins.Repo.TimeoutSeconds,
-				MaxDownloadMB:      fc.Plugins.Repo.MaxDownloadMB,
-				CheckIntervalHours: fc.Plugins.Repo.CheckIntervalHours,
-			},
 		},
 		DeployPlugins: SetupPluginRuntimeConfig{
 			Enabled:        fc.DeployPlugins.Enabled,
+			Sandbox:        fc.DeployPlugins.Sandbox,
 			MemoryLimitMB:  fc.DeployPlugins.MemoryLimitMB,
 			TimeoutSeconds: fc.DeployPlugins.TimeoutSeconds,
 			MaxOutputKB:    fc.DeployPlugins.MaxOutputKB,
 		},
 		NotifyPlugins: SetupPluginRuntimeConfig{
 			Enabled:        fc.NotifyPlugins.Enabled,
+			Sandbox:        fc.NotifyPlugins.Sandbox,
 			MemoryLimitMB:  fc.NotifyPlugins.MemoryLimitMB,
 			TimeoutSeconds: fc.NotifyPlugins.TimeoutSeconds,
 			MaxOutputKB:    fc.NotifyPlugins.MaxOutputKB,
@@ -795,41 +763,12 @@ func applySetupPatch(root *yaml.Node, patch SetupConfigPatch) error {
 		}
 		if err := applyPluginRuntimePatch(section, SetupPluginRuntimePatch{
 			Enabled:        patch.Plugins.Enabled,
+			Sandbox:        patch.Plugins.Sandbox,
 			MemoryLimitMB:  patch.Plugins.MemoryLimitMB,
 			TimeoutSeconds: patch.Plugins.TimeoutSeconds,
 			MaxOutputKB:    patch.Plugins.MaxOutputKB,
 		}); err != nil {
 			return err
-		}
-		if patch.Plugins.Repo != nil {
-			repoSection, err := ensureMapping(section, "repo")
-			if err != nil {
-				return err
-			}
-			if err := setOptBool(repoSection, "enabled", patch.Plugins.Repo.Enabled); err != nil {
-				return err
-			}
-			if err := setOptString(repoSection, "url", patch.Plugins.Repo.URL); err != nil {
-				return err
-			}
-			if err := setOptLower(repoSection, "channel", patch.Plugins.Repo.Channel); err != nil {
-				return err
-			}
-			if err := setOptBool(repoSection, "auto_update", patch.Plugins.Repo.AutoUpdate); err != nil {
-				return err
-			}
-			if err := setOptString(repoSection, "proxy", patch.Plugins.Repo.Proxy); err != nil {
-				return err
-			}
-			if err := setOptInt(repoSection, "timeout_seconds", patch.Plugins.Repo.TimeoutSeconds); err != nil {
-				return err
-			}
-			if err := setOptInt(repoSection, "max_download_mb", patch.Plugins.Repo.MaxDownloadMB); err != nil {
-				return err
-			}
-			if err := setOptInt(repoSection, "check_interval_hours", patch.Plugins.Repo.CheckIntervalHours); err != nil {
-				return err
-			}
 		}
 	}
 	for _, item := range []struct {
@@ -987,6 +926,9 @@ func applyPluginRuntimePatch(section *yaml.Node, patch SetupPluginRuntimePatch) 
 	if err := setOptBool(section, "enabled", patch.Enabled); err != nil {
 		return err
 	}
+	if err := setOptString(section, "sandbox", patch.Sandbox); err != nil {
+		return err
+	}
 	if err := setOptInt(section, "memory_limit_mb", patch.MemoryLimitMB); err != nil {
 		return err
 	}
@@ -1049,11 +991,6 @@ func validateSetupValues(fc *fileConfig) error {
 		if listenAddrConflict(mainAddr, strings.TrimSpace(fc.ACME.Addr)) {
 			return fmt.Errorf("acme.addr 不能与主监听地址相同")
 		}
-	}
-	switch channel := strings.ToLower(strings.TrimSpace(fc.Plugins.Repo.Channel)); channel {
-	case "", "stable", "beta":
-	default:
-		return fmt.Errorf("plugins.repo.channel 必须是 stable 或 beta")
 	}
 	return nil
 }

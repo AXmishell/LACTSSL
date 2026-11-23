@@ -1,0 +1,21 @@
+{
+  "value": "active24",
+  "label_key": "meta.dns.active24.label",
+  "desc_key": "meta.dns.active24.desc",
+  "fields": [
+    {
+      "key": "active24_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "ACTIVE24_API_KEY"
+    },
+    {
+      "key": "active24_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "ACTIVE24_SECRET"
+    }
+  ]
+}

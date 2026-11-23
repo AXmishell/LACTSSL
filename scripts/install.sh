@@ -332,6 +332,25 @@ fetch_url() {
   fi
 }
 
+list_release_archive() {
+  # list_release_archive ARCHIVE
+  case "$1" in
+    *.tar.xz|*.txz) xz -dc "$1" | tar -tf - ;;
+    *.tar.gz|*.tgz) tar -tzf "$1" ;;
+    *) die "不支持的发布包格式: $1" ;;
+  esac
+}
+
+extract_release_archive() {
+  # extract_release_archive ARCHIVE DEST
+  local archive="$1" dest="$2"
+  case "$archive" in
+    *.tar.xz|*.txz) xz -dc "$archive" | tar -xf - -C "$dest" ;;
+    *.tar.gz|*.tgz) tar -xzf "$archive" -C "$dest" ;;
+    *) die "不支持的发布包格式: $archive" ;;
+  esac
+}
+
 # verify_release_signature 校验 checksums.txt 的 Ed25519 分离签名。
 # 公钥使用与 config.yaml upgrade.program.public_key 相同的 32 字节原始公钥
 # base64 格式；同时兼容 44 字节 SPKI DER base64，便于从标准工具导出。
@@ -1106,13 +1125,31 @@ main() {
 
   resolve_release_tag "$VERSION"
   RELEASE_VERSION="${TAG#[vV]}"
-  ASSET="${APP}_${RELEASE_VERSION}_linux_${ARCH}.tar.gz"
+  ASSET_BASE="${APP}_${RELEASE_VERSION}_linux_${ARCH}"
+  # 优先使用体积更小的 xz；未安装 xz 时回退到 gz（旧版本发布包也仅有 gz）。
+  if command -v xz >/dev/null 2>&1; then
+    ASSET_FORMAT="xz"
+  else
+    ASSET_FORMAT="gz"
+  fi
+  ASSET="$ASSET_BASE.tar.$ASSET_FORMAT"
   ASSET_URL="$GITHUB/$REPO/releases/download/$TAG/$ASSET"
   CHECKSUMS_URL="$GITHUB/$REPO/releases/download/$TAG/checksums.txt"
 
   TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lactssl-install.XXXXXX")"
   log "下载发布包: $ASSET"
-  fetch_url "$ASSET_URL" "$TMP_DIR/$ASSET" || die "下载失败: $ASSET_URL"
+  if ! fetch_url "$ASSET_URL" "$TMP_DIR/$ASSET"; then
+    if [ "$ASSET_FORMAT" = "xz" ]; then
+      warn "下载 $ASSET 失败，回退到 tar.gz（可能是旧版本发布包）"
+      ASSET_FORMAT="gz"
+      ASSET="$ASSET_BASE.tar.gz"
+      ASSET_URL="$GITHUB/$REPO/releases/download/$TAG/$ASSET"
+      log "下载发布包: $ASSET"
+      fetch_url "$ASSET_URL" "$TMP_DIR/$ASSET" || die "下载失败: $ASSET_URL"
+    else
+      die "下载失败: $ASSET_URL（若发布包仅提供 .tar.xz，请先安装 xz）"
+    fi
+  fi
 
   if [ "$SKIP_CHECKSUM" -eq 1 ]; then
     warn "已跳过 SHA-256 校验（--skip-checksum）"
@@ -1129,11 +1166,11 @@ main() {
     verify_release_signature "$RELEASE_PUBLIC_KEY" "$TMP_DIR/checksums.txt" "${CHECKSUMS_URL}.sig" "$TMP_DIR"
   fi
 
-  if tar -tzf "$TMP_DIR/$ASSET" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null; then
+  if list_release_archive "$TMP_DIR/$ASSET" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null; then
     die "发布包包含不安全路径，拒绝解压"
   fi
   mkdir -p "$TMP_DIR/extract"
-  tar -xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR/extract"
+  extract_release_archive "$TMP_DIR/$ASSET" "$TMP_DIR/extract"
   if [ -L "$TMP_DIR/extract/$APP" ]; then
     die "发布包中的 $APP 不能是符号链接"
   fi

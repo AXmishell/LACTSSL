@@ -1,0 +1,14 @@
+{
+  "value": "leaseweb",
+  "label_key": "meta.dns.leaseweb.label",
+  "desc_key": "meta.dns.leaseweb.desc",
+  "fields": [
+    {
+      "key": "leaseweb_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "LEASEWEB_API_KEY"
+    }
+  ]
+}

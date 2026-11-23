@@ -19,7 +19,7 @@ LACTSSL 是一个自包含的 Go 二进制：
     ├── lactssl.db          # SQLite 主库
     ├── lactssl.db-wal      # WAL（运行时）
     ├── lactssl.db-shm      # 共享内存（运行时）
-    ├── plugins/            # dns / deploy / notify helper
+    ├── plugins/            # 上传 helper（dns / deploy / notify）
     ├── plugin-icons/       # 插件图标缓存
     ├── upgrade-backups/    # 迁移与程序升级备份
     └── restore-pending/    # 待应用的恢复包

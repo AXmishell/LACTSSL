@@ -1,0 +1,4 @@
+{
+  "meta.deploy.ucloud_cdn.desc": "上传证书并更新 UCloud CDN 域名 HTTPS 配置",
+  "meta.deploy.ucloud_cdn.label": "UCloud CDN"
+}

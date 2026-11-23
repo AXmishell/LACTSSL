@@ -1,0 +1,46 @@
+{
+  "value": "ucloud_cdn",
+  "label_key": "meta.deploy.ucloud_cdn.label",
+  "desc_key": "meta.deploy.ucloud_cdn.desc",
+  "fields": [
+    {
+      "key": "project_id",
+      "label_key": "meta.field.ucloud_project_id.label",
+      "type": "text",
+      "required": true,
+      "help_key": "meta.field.ucloud_project_id.help"
+    },
+    {
+      "key": "public_key",
+      "label_key": "meta.field.ucloud_public_key.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "private_key",
+      "label_key": "meta.field.private_key.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "default": "cn-bj2"
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help"
+    }
+  ]
+}

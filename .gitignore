@@ -41,6 +41,7 @@
 /web/.cache/
 /web/*.tsbuildinfo
 /internal/webui/dist/
+/internal/i18n/dist/
 
 # 文档站点构建缓存与预览服务运行时文件（scripts/docs-serve.sh）
 /.cache/
@@ -61,6 +62,7 @@ __pycache__/
 # 临时文件
 /tmp/
 /.tmp-*/
+/pid
 *.tmp
 *.bak
 *.orig
@@ -79,3 +81,13 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# 插件构建产物
+/plugins/bin/
+/plugins/dist/
+/plugins/out/
+/plugins/index.json*
+/internal/plugin/impl/bin/
+/internal/plugin/impl/dist/
+/internal/plugin/impl/out/
+/internal/plugin/impl/index.json*

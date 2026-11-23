@@ -1,0 +1,4 @@
+{
+  "meta.dns.plesk.desc": "Manage DNS records through the Plesk DNS API.",
+  "meta.dns.plesk.label": "Plesk DNS"
+}

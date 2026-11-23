@@ -10,7 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
-	"lactssl/internal/plugin/dns"
+	deployplugin "lactssl/internal/plugin/deploy"
+	dnsplugin "lactssl/internal/plugin/dns"
+	notifyplugin "lactssl/internal/plugin/notify"
 	"lactssl/internal/service"
 )
 
@@ -333,10 +335,22 @@ func isBuiltinPluginID(kind, id string) bool {
 	}
 	switch kind {
 	case pluginKindDeploy:
+		// 未启用的内置部署目标只保留在元数据中、未注册到运行期，
+		// 因此必须同时查询元数据，不能只看注册表。
+		if _, ok := deployplugin.BuiltinDeployerInfo(id); ok {
+			return true
+		}
 		return service.BuiltinDeployTypeIDs()[id]
 	case pluginKindNotify:
+		if _, ok := notifyplugin.BuiltinChannelInfo(id); ok {
+			return true
+		}
 		return service.BuiltinNotifyChannelIDs()[id]
 	case pluginKindDNS:
+		// 同样按元数据判断：已编译但未启用的服务商也是保留 ID。
+		if _, ok := dnsplugin.BuiltinProviderInfo(id); ok {
+			return true
+		}
 		if plugin, ok := dnsplugin.Lookup(id); ok && plugin.Source() != dnsplugin.SourceExec {
 			return true
 		}

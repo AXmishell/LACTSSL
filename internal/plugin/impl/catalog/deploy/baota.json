@@ -1,0 +1,76 @@
+{
+  "value": "baota",
+  "label_key": "meta.deploy.baota.label",
+  "desc_key": "meta.deploy.baota.desc",
+  "fields": [
+    {
+      "key": "panel_url",
+      "label_key": "meta.field.panel_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.panel_url.placeholder",
+      "help_key": "meta.field.panel_url.help"
+    },
+    {
+      "key": "api_secret",
+      "label_key": "meta.field.panel_api_secret.label",
+      "type": "password",
+      "required": true,
+      "help_key": "meta.field.panel_api_secret.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "target",
+      "label_key": "meta.field.deploy_target.label",
+      "type": "select",
+      "help_key": "meta.field.deploy_target.help",
+      "default": "site",
+      "options": [
+        {
+          "label_key": "meta.field.deploy_target.option.site",
+          "value": "site"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.panel",
+          "value": "panel"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.docker",
+          "value": "docker"
+        }
+      ]
+    },
+    {
+      "key": "sites",
+      "label_key": "meta.field.sites.label",
+      "type": "text",
+      "help_key": "meta.field.baota_deploy_sites.help",
+      "options_source": "baota_sites",
+      "multiple": true,
+      "show_if": {
+        "key": "target",
+        "values": [
+          "site",
+          "docker"
+        ]
+      }
+    }
+  ]
+}

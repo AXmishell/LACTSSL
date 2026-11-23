@@ -1,0 +1,4 @@
+{
+  "meta.dns.scaleway.desc": "Manage DNS records through the Scaleway Domains API API.",
+  "meta.dns.scaleway.label": "Scaleway Domains API"
+}

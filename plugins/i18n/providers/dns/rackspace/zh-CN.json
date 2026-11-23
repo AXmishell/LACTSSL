@@ -1,0 +1,4 @@
+{
+  "meta.dns.rackspace.desc": "通过 Rackspace DNS 接口管理 DNS 记录。",
+  "meta.dns.rackspace.label": "Rackspace DNS"
+}

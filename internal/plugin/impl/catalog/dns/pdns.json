@@ -1,0 +1,39 @@
+{
+  "value": "pdns",
+  "label_key": "meta.dns.pdns.label",
+  "desc_key": "meta.dns.pdns.desc",
+  "fields": [
+    {
+      "key": "api_url",
+      "label_key": "meta.field.api_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.api_url.placeholder",
+      "help_key": "meta.field.api_url.help",
+      "env": "PDNS_API_URL"
+    },
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.pdns",
+      "type": "password",
+      "required": true,
+      "env": "PDNS_API_KEY"
+    },
+    {
+      "key": "server_name",
+      "label_key": "meta.field.server_name.label",
+      "type": "text",
+      "help_key": "meta.field.server_name.help",
+      "default": "localhost",
+      "env": "PDNS_SERVER_NAME"
+    },
+    {
+      "key": "api_version",
+      "label_key": "meta.field.api_version.label",
+      "type": "number",
+      "help_key": "meta.field.api_version.help.pdns",
+      "default": "0",
+      "env": "PDNS_API_VERSION"
+    }
+  ]
+}

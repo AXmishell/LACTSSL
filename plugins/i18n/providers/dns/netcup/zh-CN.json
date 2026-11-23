@@ -1,0 +1,4 @@
+{
+  "meta.dns.netcup.desc": "通过 Netcup DNS 接口管理 DNS 记录。",
+  "meta.dns.netcup.label": "Netcup DNS"
+}

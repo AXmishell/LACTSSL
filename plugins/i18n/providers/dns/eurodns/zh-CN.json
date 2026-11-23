@@ -1,0 +1,4 @@
+{
+  "meta.dns.eurodns.desc": "通过 EuroDNS 接口管理 DNS 记录。",
+  "meta.dns.eurodns.label": "EuroDNS"
+}

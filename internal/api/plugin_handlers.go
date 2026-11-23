@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
+	"lactssl/internal/plugin/builtin"
 	"lactssl/internal/plugin/deploy"
 	"lactssl/internal/plugin/dns"
 	"lactssl/internal/plugin/install"
@@ -24,8 +25,8 @@ import (
 )
 
 // dnsPluginEnabledSetting 保存被管理员启用的插件服务商 ID（JSON 数组）。
-// 使用“启用白名单”：迁移前内置的服务商默认启用，其余插件服务商默认停用，
-// 必须显式启用后才会出现在 DNS 服务商列表中。
+// 使用“启用白名单”：新安装默认不启用任何 DNS 服务商，
+// 管理员必须显式启用后才会出现在 DNS 服务商列表中。
 const dnsPluginEnabledSetting = "plugins.dns.enabled_providers"
 
 // dnsPluginLegacyDisabledSetting 是旧版“停用列表”键，写入新白名单时顺手清理。
@@ -120,11 +121,24 @@ func (s *Server) dropPluginInstallationsForFile(kind, filename string) {
 
 // DiscoverPlugins 按当前配置重新扫描外部 DNS 插件目录，并记录最近一次结果。
 func (s *Server) DiscoverPlugins() dnsplugin.DiscoverResult {
+	// 内置替换与外部扫描必须作为一个整体串行执行，否则并发启停/重扫会交错注册。
+	s.pluginDiscoverMu.Lock()
+	defer s.pluginDiscoverMu.Unlock()
+
+	// 先移除上一轮上传插件，避免别名与即将注册的内置实现冲突。
+	dnsplugin.UnregisterSource(dnsplugin.SourceExec)
+	// 内置实现按类别与条目白名单重新注册；未启用条目只保留元数据。
+	dnsBuiltin := s.BuiltinPluginsEnabled && s.PluginsEnabled
+	var syncErrors []string
+	if err := builtin.SyncDNS(s.BuiltinPluginsEnabled, dnsBuiltin, builtin.IDSet(s.dnsPluginEnabledProviders())); err != nil {
+		syncErrors = append(syncErrors, "内置 DNS 插件注册失败: "+err.Error())
+	}
 	cfg := dnsplugin.DiscoverConfig{
-		MemoryLimitMB:   s.PluginMemoryLimitMB,
-		Timeout:         s.PluginTimeout,
-		MaxOutputKB:     s.PluginMaxOutputKB,
-		ExpectedDigests: s.expectedPluginDigests(pluginKindDNS),
+		UploadSandboxProfile: s.PluginSandbox,
+		MemoryLimitMB:        s.PluginMemoryLimitMB,
+		Timeout:              s.PluginTimeout,
+		MaxOutputKB:          s.PluginMaxOutputKB,
+		ExpectedDigests:      s.expectedPluginDigests(pluginKindDNS),
 	}
 	if s.PluginsEnabled {
 		cfg.Dir = s.PluginDir
@@ -132,6 +146,7 @@ func (s *Server) DiscoverPlugins() dnsplugin.DiscoverResult {
 		cfg.DisabledHelpers = s.disabledHelpers(pluginKindDNS)
 	}
 	result := dnsplugin.Discover(cfg)
+	result.Errors = append(syncErrors, result.Errors...)
 	s.pluginMu.Lock()
 	s.pluginResult = result
 	s.pluginMu.Unlock()
@@ -142,12 +157,26 @@ func (s *Server) DiscoverPlugins() dnsplugin.DiscoverResult {
 
 // DiscoverDeployPlugins 按当前配置重新扫描外部证书部署插件目录。
 func (s *Server) DiscoverDeployPlugins() deployplugin.DiscoverResult {
+	s.pluginDiscoverMu.Lock()
+	defer s.pluginDiscoverMu.Unlock()
+
+	deployplugin.UnregisterSource(deployplugin.SourceExec)
+	deployBuiltin := s.BuiltinPluginsEnabled && s.DeployPluginsEnabled
+	var syncErrors []string
+	if err := builtin.SyncDeploy(s.BuiltinPluginsEnabled, deployBuiltin, builtin.IDSet(s.deployPluginEnabledDeployers())); err != nil {
+		syncErrors = append(syncErrors, "内置部署插件注册失败: "+err.Error())
+	}
+	knownIDs := service.BuiltinDeployTypeIDs()
+	for id := range deployplugin.BuiltinDeployerIDs() {
+		knownIDs[id] = true
+	}
 	cfg := deployplugin.DiscoverConfig{
-		MemoryLimitMB:   s.DeployPluginMemoryLimitMB,
-		Timeout:         s.DeployPluginTimeout,
-		MaxOutputKB:     s.DeployPluginMaxOutputKB,
-		KnownIDs:        service.BuiltinDeployTypeIDs(),
-		ExpectedDigests: s.expectedPluginDigests(pluginKindDeploy),
+		UploadSandboxProfile: s.DeployPluginSandbox,
+		MemoryLimitMB:        s.DeployPluginMemoryLimitMB,
+		Timeout:              s.DeployPluginTimeout,
+		MaxOutputKB:          s.DeployPluginMaxOutputKB,
+		KnownIDs:             knownIDs,
+		ExpectedDigests:      s.expectedPluginDigests(pluginKindDeploy),
 	}
 	if s.DeployPluginsEnabled {
 		cfg.Dir = s.DeployPluginDir
@@ -155,6 +184,7 @@ func (s *Server) DiscoverDeployPlugins() deployplugin.DiscoverResult {
 		cfg.DisabledHelpers = s.disabledHelpers(pluginKindDeploy)
 	}
 	result := deployplugin.Discover(cfg)
+	result.Errors = append(syncErrors, result.Errors...)
 	s.deployPluginMu.Lock()
 	s.deployPluginResult = result
 	s.deployPluginMu.Unlock()
@@ -171,12 +201,22 @@ func (s *Server) DiscoverDeployPlugins() deployplugin.DiscoverResult {
 
 // DiscoverNotifyPlugins 按当前配置重新扫描外部通知插件目录。
 func (s *Server) DiscoverNotifyPlugins() notifyplugin.DiscoverResult {
+	s.pluginDiscoverMu.Lock()
+	defer s.pluginDiscoverMu.Unlock()
+
+	notifyplugin.UnregisterSource(notifyplugin.SourceExec)
+	notifyBuiltin := s.BuiltinPluginsEnabled && s.NotifyPluginsEnabled
+	var syncErrors []string
+	if err := builtin.SyncNotify(s.BuiltinPluginsEnabled, notifyBuiltin, builtin.IDSet(s.notifyPluginEnabledChannels())); err != nil {
+		syncErrors = append(syncErrors, "内置通知插件注册失败: "+err.Error())
+	}
 	cfg := notifyplugin.DiscoverConfig{
-		MemoryLimitMB:   s.NotifyPluginMemoryLimitMB,
-		Timeout:         s.NotifyPluginTimeout,
-		MaxOutputKB:     s.NotifyPluginMaxOutputKB,
-		KnownIDs:        service.BuiltinNotifyChannelIDs(),
-		ExpectedDigests: s.expectedPluginDigests(pluginKindNotify),
+		UploadSandboxProfile: s.NotifyPluginSandbox,
+		MemoryLimitMB:        s.NotifyPluginMemoryLimitMB,
+		Timeout:              s.NotifyPluginTimeout,
+		MaxOutputKB:          s.NotifyPluginMaxOutputKB,
+		KnownIDs:             service.BuiltinNotifyChannelIDs(),
+		ExpectedDigests:      s.expectedPluginDigests(pluginKindNotify),
 	}
 	if s.NotifyPluginsEnabled {
 		cfg.Dir = s.NotifyPluginDir
@@ -184,6 +224,7 @@ func (s *Server) DiscoverNotifyPlugins() notifyplugin.DiscoverResult {
 		cfg.DisabledHelpers = s.disabledHelpers(pluginKindNotify)
 	}
 	result := notifyplugin.Discover(cfg)
+	result.Errors = append(syncErrors, result.Errors...)
 	s.notifyPluginMu.Lock()
 	s.notifyPluginResult = result
 	s.notifyPluginMu.Unlock()
@@ -204,13 +245,16 @@ func (s *Server) listPlugins(c *gin.Context) {
 	notifyResult := s.notifyPluginResult
 	s.notifyPluginMu.Unlock()
 
-	providers := append([]dnsplugin.ExternalProvider{}, dnsplugin.ExternalProviders()...)
+	providers := append([]dnsplugin.ExternalProvider{}, dnsplugin.BuiltinProviders()...)
+	providers = append(providers, dnsplugin.ExternalProviders()...)
 	providers = append(providers, s.shadowDNSProviders()...)
 	sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
-	deployers := append([]deployplugin.ExternalDeployer{}, visibleExternalDeployers()...)
+	deployers := append([]deployplugin.ExternalDeployer{}, deployplugin.BuiltinDeployers()...)
+	deployers = append(deployers, visibleExternalDeployers()...)
 	deployers = append(deployers, s.shadowDeployers()...)
 	sort.Slice(deployers, func(i, j int) bool { return deployers[i].ID < deployers[j].ID })
-	channels := append([]notifyplugin.ExternalChannel{}, notifyplugin.ExternalChannels()...)
+	channels := append([]notifyplugin.ExternalChannel{}, notifyplugin.BuiltinChannels()...)
+	channels = append(channels, notifyplugin.ExternalChannels()...)
 	channels = append(channels, s.shadowNotifyChannels()...)
 	sort.Slice(channels, func(i, j int) bool { return channels[i].ID < channels[j].ID })
 
@@ -682,9 +726,10 @@ func (s *Server) inspectUploadedPlugin(kind, path string) (uploadedPlugin, error
 	switch kind {
 	case pluginKindDNS:
 		manifest, digest, err := dnsplugin.InspectHelper(path, dnsplugin.DiscoverConfig{
-			MemoryLimitMB: s.PluginMemoryLimitMB,
-			Timeout:       s.PluginTimeout,
-			MaxOutputKB:   s.PluginMaxOutputKB,
+			UploadSandboxProfile: s.PluginSandbox,
+			MemoryLimitMB:        s.PluginMemoryLimitMB,
+			Timeout:              s.PluginTimeout,
+			MaxOutputKB:          s.PluginMaxOutputKB,
 		})
 		if err != nil {
 			return uploadedPlugin{}, err
@@ -697,10 +742,11 @@ func (s *Server) inspectUploadedPlugin(kind, path string) (uploadedPlugin, error
 		return info, nil
 	case pluginKindDeploy:
 		manifest, digest, err := deployplugin.InspectHelper(path, deployplugin.DiscoverConfig{
-			MemoryLimitMB: s.DeployPluginMemoryLimitMB,
-			Timeout:       s.DeployPluginTimeout,
-			MaxOutputKB:   s.DeployPluginMaxOutputKB,
-			KnownIDs:      service.BuiltinDeployTypeIDs(),
+			UploadSandboxProfile: s.DeployPluginSandbox,
+			MemoryLimitMB:        s.DeployPluginMemoryLimitMB,
+			Timeout:              s.DeployPluginTimeout,
+			MaxOutputKB:          s.DeployPluginMaxOutputKB,
+			KnownIDs:             service.BuiltinDeployTypeIDs(),
 		})
 		if err != nil {
 			return uploadedPlugin{}, err
@@ -713,10 +759,11 @@ func (s *Server) inspectUploadedPlugin(kind, path string) (uploadedPlugin, error
 		return info, nil
 	case pluginKindNotify:
 		manifest, digest, err := notifyplugin.InspectHelper(path, notifyplugin.DiscoverConfig{
-			MemoryLimitMB: s.NotifyPluginMemoryLimitMB,
-			Timeout:       s.NotifyPluginTimeout,
-			MaxOutputKB:   s.NotifyPluginMaxOutputKB,
-			KnownIDs:      service.BuiltinNotifyChannelIDs(),
+			UploadSandboxProfile: s.NotifyPluginSandbox,
+			MemoryLimitMB:        s.NotifyPluginMemoryLimitMB,
+			Timeout:              s.NotifyPluginTimeout,
+			MaxOutputKB:          s.NotifyPluginMaxOutputKB,
+			KnownIDs:             service.BuiltinNotifyChannelIDs(),
 		})
 		if err != nil {
 			return uploadedPlugin{}, err
@@ -985,8 +1032,25 @@ func (s *Server) setPluginProvidersEnabled(c *gin.Context) {
 	}
 	ids := body.IDs
 	if len(ids) == 0 {
+		seen := map[string]bool{}
+		add := func(id string) {
+			id = strings.ToLower(strings.TrimSpace(id))
+			if id != "" && !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+		for _, provider := range dnsplugin.BuiltinProviders() {
+			add(provider.ID)
+		}
+		for _, provider := range dnsplugin.List() {
+			add(provider.ID())
+		}
 		for _, provider := range dnsplugin.ExternalProviders() {
-			ids = append(ids, provider.ID)
+			add(provider.ID)
+		}
+		for _, provider := range s.shadowDNSProviders() {
+			add(provider.ID)
 		}
 	}
 	updated, skipped, err := s.updateDNSPluginProviders(ids, *body.Enabled)
@@ -1043,14 +1107,9 @@ func (s *Server) updateDNSPluginProviders(ids []string, enabled bool) ([]string,
 }
 
 // defaultDNSPluginEnabledSet 返回默认启用的插件服务商集合。
-// 迁移前内置的 35 家服务商改由 helper 提供后仍默认启用；其余服务商默认停用。
+// 新安装默认不启用任何 DNS 服务商，由管理员在插件页按需开启。
 func defaultDNSPluginEnabledSet() map[string]bool {
-	ids := service.BuiltinDNSProviderIDs()
-	out := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		out[strings.ToLower(strings.TrimSpace(id))] = true
-	}
-	return out
+	return map[string]bool{}
 }
 
 func isDefaultDNSPluginProvider(id string) bool {
@@ -1066,7 +1125,7 @@ func isDefaultDNSPluginProvider(id string) bool {
 func (s *Server) dnsPluginEnabledSet() map[string]bool {
 	raw, err := s.Store.GetSetting(dnsPluginEnabledSetting)
 	if err != nil || strings.TrimSpace(raw) == "" {
-		// 尚未保存过启用状态：使用默认白名单，避免升级后内置服务商全部消失。
+		// 尚未保存过启用状态：默认不启用任何 DNS 服务商。
 		return defaultDNSPluginEnabledSet()
 	}
 	var ids []string
@@ -1094,12 +1153,15 @@ func (s *Server) dnsPluginEnabledProviders() []string {
 
 func (s *Server) saveDNSPluginEnabledSet(set map[string]bool) error {
 	known := s.pluginFileKnownItems(pluginKindDNS)
+	for id := range dnsplugin.BuiltinProviderIDs() {
+		known[id] = true
+	}
 	ids := make([]string, 0, len(set))
 	for id, enabled := range set {
 		if !enabled {
 			continue
 		}
-		// 顺手清理已卸载 helper 留下的陈旧 ID，但保留默认启用的内置服务商，
+		// 顺手清理已卸载 helper 留下的陈旧 ID，但保留内置服务商，
 		// 以及仍属于已安装文件（含已停用文件）的条目。
 		if known[normalizePluginItemID(pluginKindDNS, id)] || isDefaultDNSPluginProvider(id) {
 			ids = append(ids, id)
@@ -1181,8 +1243,25 @@ func (s *Server) setDeployPluginDeployersEnabled(c *gin.Context) {
 	}
 	ids := body.IDs
 	if len(ids) == 0 {
+		seen := map[string]bool{}
+		add := func(id string) {
+			id = strings.ToLower(strings.TrimSpace(id))
+			if id != "" && !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+		for _, deployer := range deployplugin.BuiltinDeployers() {
+			add(deployer.ID)
+		}
+		for _, deployer := range deployplugin.List() {
+			add(deployer.ID())
+		}
 		for _, deployer := range visibleExternalDeployers() {
-			ids = append(ids, deployer.ID)
+			add(deployer.ID)
+		}
+		for _, deployer := range s.shadowDeployers() {
+			add(deployer.ID)
 		}
 	}
 	updated, skipped, err := s.updateDeployPluginDeployers(ids, *body.Enabled)
@@ -1302,6 +1381,9 @@ func (s *Server) deployPluginEnabledDeployers() []string {
 
 func (s *Server) saveDeployPluginEnabledSet(set map[string]bool) error {
 	known := s.pluginFileKnownItems(pluginKindDeploy)
+	for id := range deployplugin.BuiltinDeployerIDs() {
+		known[id] = true
+	}
 	ids := make([]string, 0, len(set))
 	for id, enabled := range set {
 		if !enabled {
@@ -1383,8 +1465,25 @@ func (s *Server) setNotifyPluginChannelsEnabled(c *gin.Context) {
 	}
 	ids := body.IDs
 	if len(ids) == 0 {
+		seen := map[string]bool{}
+		add := func(id string) {
+			id = strings.ToLower(strings.TrimSpace(id))
+			if id != "" && !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+		for _, channel := range notifyplugin.BuiltinChannels() {
+			add(channel.ID)
+		}
+		for _, channel := range notifyplugin.List() {
+			add(channel.Definition().ID)
+		}
 		for _, channel := range notifyplugin.ExternalChannels() {
-			ids = append(ids, channel.ID)
+			add(channel.ID)
+		}
+		for _, channel := range s.shadowNotifyChannels() {
+			add(channel.ID)
 		}
 	}
 	updated, skipped, err := s.updateNotifyPluginChannels(ids, *body.Enabled)
@@ -1490,6 +1589,9 @@ func (s *Server) notifyPluginEnabledChannels() []string {
 
 func (s *Server) saveNotifyPluginEnabledSet(set map[string]bool) error {
 	known := s.pluginFileKnownItems(pluginKindNotify)
+	for id := range notifyplugin.BuiltinChannelIDs() {
+		known[id] = true
+	}
 	ids := make([]string, 0, len(set))
 	for id, enabled := range set {
 		if !enabled {

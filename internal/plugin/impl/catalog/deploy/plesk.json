@@ -1,0 +1,50 @@
+{
+  "value": "plesk",
+  "label_key": "meta.deploy.plesk.label",
+  "desc_key": "meta.deploy.plesk.desc",
+  "fields": [
+    {
+      "key": "url",
+      "label_key": "meta.field.plesk_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.plesk_url.placeholder"
+    },
+    {
+      "key": "username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "domains",
+      "label_key": "meta.field.plesk_domains.label",
+      "type": "text",
+      "help_key": "meta.field.plesk_domains.help"
+    }
+  ]
+}

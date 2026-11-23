@@ -1,0 +1,21 @@
+/bin/
+/out/
+/dist/
+coverage.out
+*.test
+*.exe
+.DS_Store
+
+# 本地密钥/凭据，禁止提交
+*.pem
+*.key
+*.b64
+.env
+.env.*
+index.key
+
+# 生成索引不是权威文件；发布索引在 plugin-index Release
+/index.json
+/index.json.sig
+/index.json.sig.json
+/index.json.sig.v2

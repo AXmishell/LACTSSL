@@ -1,0 +1,4 @@
+{
+  "meta.dns.bindman.desc": "通过 Bindman 接口管理 DNS 记录。",
+  "meta.dns.bindman.label": "Bindman"
+}

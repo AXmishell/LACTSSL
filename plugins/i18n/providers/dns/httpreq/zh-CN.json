@@ -1,0 +1,4 @@
+{
+  "meta.dns.httpreq.desc": "通过 HTTP Request 接口管理 DNS 记录。",
+  "meta.dns.httpreq.label": "HTTP Request"
+}

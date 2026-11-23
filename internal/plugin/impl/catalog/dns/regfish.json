@@ -1,0 +1,14 @@
+{
+  "value": "regfish",
+  "label_key": "meta.dns.regfish.label",
+  "desc_key": "meta.dns.regfish.desc",
+  "fields": [
+    {
+      "key": "regfish_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "REGFISH_API_KEY"
+    }
+  ]
+}

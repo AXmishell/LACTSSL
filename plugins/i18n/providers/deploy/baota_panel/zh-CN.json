@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baota_panel.desc": "替换宝塔面板自身的 SSL 证书",
+  "meta.deploy.baota_panel.label": "宝塔面板 SSL 证书"
+}

@@ -1,0 +1,54 @@
+{
+  "value": "aliyun_waf",
+  "label_key": "meta.deploy.aliyun_waf.label",
+  "desc_key": "meta.deploy.aliyun_waf.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "access_key_secret",
+      "label_key": "meta.field.access_key_secret.label",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "required": true,
+      "default": "cn-hangzhou",
+      "help_key": "meta.field.aliyun_waf_region.help"
+    },
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help"
+    },
+    {
+      "key": "tls_version",
+      "label_key": "meta.field.tls_version.label",
+      "type": "text",
+      "default": "tlsv1.2"
+    },
+    {
+      "key": "enable_tlsv3",
+      "label_key": "meta.field.enable_tlsv3.label",
+      "type": "switch",
+      "default": "true"
+    }
+  ],
+  "deprecated": true
+}

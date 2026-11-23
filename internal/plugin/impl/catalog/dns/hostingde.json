@@ -1,0 +1,19 @@
+{
+  "value": "hostingde",
+  "label_key": "meta.dns.hostingde.label",
+  "desc_key": "meta.dns.hostingde.desc",
+  "fields": [
+    {
+      "key": "hostingde_zone_name",
+      "label_key": "meta.field.zone_name.label",
+      "type": "text",
+      "env": "HOSTINGDE_ZONE_NAME"
+    },
+    {
+      "key": "hostingde_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "HOSTINGDE_API_KEY"
+    }
+  ]
+}

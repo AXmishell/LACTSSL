@@ -1,0 +1,31 @@
+{
+  "value": "conohav3",
+  "label_key": "meta.dns.conohav3.label",
+  "desc_key": "meta.dns.conohav3.desc",
+  "fields": [
+    {
+      "key": "conohav3_region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "env": "CONOHAV3_REGION"
+    },
+    {
+      "key": "conohav3_tenant_id",
+      "label": "Tenant ID",
+      "type": "text",
+      "env": "CONOHAV3_TENANT_ID"
+    },
+    {
+      "key": "conohav3_api_user_id",
+      "label": "API User ID",
+      "type": "text",
+      "env": "CONOHAV3_API_USER_ID"
+    },
+    {
+      "key": "conohav3_api_password",
+      "label": "API Password",
+      "type": "password",
+      "env": "CONOHAV3_API_PASSWORD"
+    }
+  ]
+}

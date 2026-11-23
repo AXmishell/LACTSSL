@@ -1,0 +1,21 @@
+{
+  "value": "beget",
+  "label_key": "meta.dns.beget.label",
+  "desc_key": "meta.dns.beget.desc",
+  "fields": [
+    {
+      "key": "beget_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "BEGET_USERNAME"
+    },
+    {
+      "key": "beget_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "BEGET_PASSWORD"
+    }
+  ]
+}

@@ -49,6 +49,11 @@ func dropPrivileges() error {
 	return nil
 }
 
+// runningAsRoot 判断降权后是否仍为 root，用于启动提示。
+func runningAsRoot() bool {
+	return os.Geteuid() == 0
+}
+
 func parseID(name, raw string) (int, error) {
 	id, err := strconv.Atoi(raw)
 	if err != nil || id < 0 {

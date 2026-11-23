@@ -1,0 +1,53 @@
+{
+  "value": "route53",
+  "label_key": "meta.dns.route53.label",
+  "desc_key": "meta.dns.route53.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "help_key": "meta.field.access_key_id.help.route53",
+      "env": "AWS_ACCESS_KEY_ID"
+    },
+    {
+      "key": "secret_access_key",
+      "label_key": "meta.field.secret_access_key.label",
+      "type": "password",
+      "help_key": "meta.field.secret_access_key.help.route53",
+      "env": "AWS_SECRET_ACCESS_KEY"
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "placeholder_key": "meta.field.region.placeholder.aws",
+      "env": "AWS_REGION"
+    },
+    {
+      "key": "hosted_zone_id",
+      "label_key": "meta.field.hosted_zone_id.label",
+      "type": "text",
+      "help_key": "meta.field.hosted_zone_id.help",
+      "env": "AWS_HOSTED_ZONE_ID"
+    },
+    {
+      "key": "private_zone",
+      "label_key": "meta.field.private_zone.label",
+      "type": "select",
+      "help_key": "meta.field.private_zone.help",
+      "default": "false",
+      "env": "AWS_PRIVATE_ZONE",
+      "options": [
+        {
+          "label_key": "meta.field.boolean.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.boolean.true",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

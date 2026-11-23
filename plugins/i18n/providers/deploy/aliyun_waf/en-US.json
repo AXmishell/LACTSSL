@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun_waf.desc": "Update Aliyun WAF domain certificates, including CNAME access",
+  "meta.deploy.aliyun_waf.label": "Aliyun WAF"
+}

@@ -1,0 +1,43 @@
+{
+  "value": "vkcloud",
+  "label_key": "meta.dns.vkcloud.label",
+  "desc_key": "meta.dns.vkcloud.desc",
+  "fields": [
+    {
+      "key": "vk_cloud_project_id",
+      "label": "Project ID",
+      "type": "text",
+      "env": "VK_CLOUD_PROJECT_ID"
+    },
+    {
+      "key": "vk_cloud_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "VK_CLOUD_USERNAME"
+    },
+    {
+      "key": "vk_cloud_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "VK_CLOUD_PASSWORD"
+    },
+    {
+      "key": "vk_cloud_identity_endpoint",
+      "label": "Identity Endpoint",
+      "type": "text",
+      "env": "VK_CLOUD_IDENTITY_ENDPOINT"
+    },
+    {
+      "key": "vk_cloud_domain_name",
+      "label": "Domain Name",
+      "type": "text",
+      "env": "VK_CLOUD_DOMAIN_NAME"
+    },
+    {
+      "key": "vk_cloud_dns_endpoint",
+      "label": "DNS Endpoint",
+      "type": "text",
+      "env": "VK_CLOUD_DNS_ENDPOINT"
+    }
+  ]
+}

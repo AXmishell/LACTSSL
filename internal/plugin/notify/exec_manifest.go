@@ -39,6 +39,8 @@ type DiscoverConfig struct {
 	// DisabledHelpers 是管理员已停用的 helper 文件名列表。
 	// 列出的文件不会被探测或加载；其条目元数据由宿主缓存提供。
 	DisabledHelpers []string
+	// UploadSandboxProfile 是上传 helper 的沙箱策略：strict/basic/off。
+	UploadSandboxProfile string
 	// ExpectedDigests 是仓库安装记录中的文件名到可执行文件 SHA-256 的映射。
 	ExpectedDigests map[string]string
 }

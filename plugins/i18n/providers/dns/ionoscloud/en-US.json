@@ -1,0 +1,4 @@
+{
+  "meta.dns.ionoscloud.desc": "Manage DNS records through the IONOS Cloud API.",
+  "meta.dns.ionoscloud.label": "IONOS Cloud"
+}

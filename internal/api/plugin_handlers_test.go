@@ -126,22 +126,20 @@ func TestPluginProviderToggle(t *testing.T) {
 		t.Fatal("bulk disable should unregister all providers")
 	}
 	raw, _ = s.Store.GetSetting(dnsPluginEnabledSetting)
-	// 批量停用只作用于当前发现的服务商；默认启用的内置服务商 ID 仍保留，
-	// 以便安装 helper 后无需重新启用。
+	// 批量停用只作用于当前发现的服务商；默认白名单为空，不再保留历史 35 个 ID。
 	if strings.Contains(raw, "alphadns") || strings.Contains(raw, "betadns") {
 		t.Fatalf("discovered providers should be removed after bulk disable: %q", raw)
 	}
-	if !strings.Contains(raw, "cloudflare") {
-		t.Fatalf("default providers should stay in whitelist: %q", raw)
+	if strings.Contains(raw, "cloudflare") {
+		t.Fatalf("no DNS provider should be enabled by default: %q", raw)
 	}
 }
 
-func TestPluginDefaultProvidersEnabled(t *testing.T) {
+func TestPluginProvidersDisabledByDefault(t *testing.T) {
 	if dnsplugin.Has("cloudflare") {
 		t.Skip("cloudflare is compiled in this build")
 	}
 	s, r, dir := newPluginTestServer(t)
-	// 用一个包含迁移前内置服务商的 helper 覆盖测试清单。
 	script := `#!/bin/sh
 case "$1" in
 manifest)
@@ -155,39 +153,27 @@ esac
 		t.Fatal(err)
 	}
 	result := s.DiscoverPlugins()
-	if result.Providers != 1 || len(result.Disabled) != 1 {
+	// 新安装默认不启用任何 DNS 服务商。
+	if result.Providers != 0 || len(result.Disabled) != 2 {
 		t.Fatalf("discover result: %+v", result)
 	}
-	// 迁移前内置的服务商默认启用，其余插件服务商默认停用。
-	if !dnsplugin.Has("cloudflare") {
-		t.Fatal("migrated built-in provider should be enabled by default")
+	if dnsplugin.Has("cloudflare") || dnsplugin.Has("external-only") {
+		t.Fatal("all DNS providers should be disabled by default")
 	}
-	if dnsplugin.Has("external-only") {
-		t.Fatal("other plugin providers should stay disabled by default")
-	}
-	meta, ok := dnsplugin.ExternalProviderInfo("cloudflare")
-	if !ok || !meta.Enabled {
-		t.Fatalf("cloudflare metadata = %+v, %v", meta, ok)
-	}
-	// 未保存过设置时使用默认白名单，不应写入数据库。
 	if raw, _ := s.Store.GetSetting(dnsPluginEnabledSetting); strings.TrimSpace(raw) != "" {
 		t.Fatalf("enabled setting should stay empty before user changes: %q", raw)
 	}
 
-	// 管理员仍可停用默认服务商，且停用状态会持久化。
-	if rec := putPluginToggle(t, r, "/entry/api/plugins/providers/cloudflare", `{"enabled":false}`); rec.Code != http.StatusOK {
-		t.Fatalf("disable default status = %d: %s", rec.Code, rec.Body.String())
+	// 管理员可以显式启用服务商并持久化。
+	if rec := putPluginToggle(t, r, "/entry/api/plugins/providers/cloudflare", `{"enabled":true}`); rec.Code != http.StatusOK {
+		t.Fatalf("enable status = %d: %s", rec.Code, rec.Body.String())
 	}
-	if dnsplugin.Has("cloudflare") {
-		t.Fatal("disabled default provider should be unregistered")
+	if !dnsplugin.Has("cloudflare") {
+		t.Fatal("explicitly enabled provider should be registered")
 	}
 	raw, _ := s.Store.GetSetting(dnsPluginEnabledSetting)
-	if strings.Contains(raw, "cloudflare") {
-		t.Fatalf("disabled default provider should not remain in whitelist: %q", raw)
-	}
-	// 其它默认服务商仍保留在白名单中，避免误伤。
-	if !strings.Contains(raw, "alidns") {
-		t.Fatalf("other default providers should stay enabled: %q", raw)
+	if !strings.Contains(raw, "cloudflare") || strings.Contains(raw, "external-only") {
+		t.Fatalf("enabled setting = %q", raw)
 	}
 }
 

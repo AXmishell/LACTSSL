@@ -1,0 +1,4 @@
+{
+  "meta.deploy.cdnfly.desc": "Update sites or certificates through the CDNfly API",
+  "meta.deploy.cdnfly.label": "CDNfly"
+}

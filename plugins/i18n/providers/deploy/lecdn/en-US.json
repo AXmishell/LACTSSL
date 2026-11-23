@@ -1,0 +1,4 @@
+{
+  "meta.deploy.lecdn.desc": "Upload a certificate and bind a site domain through the LeCDN API",
+  "meta.deploy.lecdn.label": "LeCDN"
+}

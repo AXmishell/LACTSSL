@@ -1,0 +1,19 @@
+{
+  "value": "liara",
+  "label_key": "meta.dns.liara.label",
+  "desc_key": "meta.dns.liara.desc",
+  "fields": [
+    {
+      "key": "liara_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "LIARA_API_KEY"
+    },
+    {
+      "key": "liara_team_id",
+      "label": "Team ID",
+      "type": "text",
+      "env": "LIARA_TEAM_ID"
+    }
+  ]
+}

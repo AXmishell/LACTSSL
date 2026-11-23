@@ -1,6 +1,6 @@
 # Configuration reference
 
-LACTSSL application configuration comes only from `config.yaml` and built-in defaults; no application-level environment variables are read. Restart the service for configuration changes to take effect. Some runtime settings (secure entry, plugin repository, plugin enablement state) are stored in the database and take precedence over the configuration file.
+LACTSSL application configuration comes only from `config.yaml` and built-in defaults; no application-level environment variables are read. Restart the service for configuration changes to take effect. Some runtime settings (secure entry, plugin enablement state) are stored in the database and take precedence over the configuration file.
 
 ## 1. Configuration file model
 
@@ -150,20 +150,10 @@ acme:
 plugins:
   enabled: true
   dir: ""                 # Empty means <data_dir>/plugins/dns
+  sandbox: strict
   memory_limit_mb: 128
   timeout_seconds: 60
   max_output_kb: 64
-  repo:
-    enabled: true
-    url: "https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json"
-    channel: stable
-    auto_update: false
-    public_key: "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
-    # Explicit proxy for index fetches and plugin downloads; empty uses HTTP_PROXY/HTTPS_PROXY/ALL_PROXY
-    proxy: "socks5://127.0.0.1:1080"
-    timeout_seconds: 30
-    max_download_mb: 256
-    check_interval_hours: 24
 
 deploy_plugins:
   enabled: false
@@ -308,23 +298,13 @@ The three plugin kinds use `<data_dir>/plugins/dns`, `<data_dir>/plugins/deploy`
 plugins:
   enabled: true
   dir: ""                 # Empty means <data_dir>/plugins/dns
+  sandbox: strict
   memory_limit_mb: 128
   timeout_seconds: 60
   max_output_kb: 64
-  repo:
-    enabled: true
-    url: "https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json"
-    channel: stable
-    auto_update: false
-    public_key: "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
-    # Explicit proxy for index fetches and plugin downloads; empty uses HTTP_PROXY/HTTPS_PROXY/ALL_PROXY
-    proxy: "socks5://127.0.0.1:1080"
-    timeout_seconds: 30
-    max_download_mb: 256
-    check_interval_hours: 24
 ```
 
-`repo.proxy` applies to index fetches and plugin package downloads. It supports `http://`, `https://`, `socks5://`, and `socks5h://`; when empty, `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` environment variables are used. You can also edit it in the repository settings on the Plugins page; the saved value is stored in the database and takes precedence over the configuration file.
+Uploaded plugins use the `strict` sandbox by default. On Linux it applies Landlock file rules, rlimits, and `no_new_privs`; if unsupported, the host falls back to `basic`. Do not use `off` in production.
 
 ### 8.2 Deployment plugins
 

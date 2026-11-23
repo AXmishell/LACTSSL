@@ -1,0 +1,4 @@
+{
+  "meta.dns.yandex.desc": "通过 Yandex PDD 接口管理 DNS 记录。",
+  "meta.dns.yandex.label": "Yandex PDD"
+}

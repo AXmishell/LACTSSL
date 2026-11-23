@@ -1,0 +1,28 @@
+{
+  "value": "mailinabox",
+  "label_key": "meta.dns.mailinabox.label",
+  "desc_key": "meta.dns.mailinabox.desc",
+  "fields": [
+    {
+      "key": "mailinabox_base_url",
+      "label_key": "meta.field.base_url.label",
+      "type": "text",
+      "required": true,
+      "env": "MAILINABOX_BASE_URL"
+    },
+    {
+      "key": "mailinabox_email",
+      "label_key": "meta.field.email.label",
+      "type": "text",
+      "required": true,
+      "env": "MAILINABOX_EMAIL"
+    },
+    {
+      "key": "mailinabox_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "MAILINABOX_PASSWORD"
+    }
+  ]
+}

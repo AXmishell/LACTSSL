@@ -1,0 +1,4 @@
+{
+  "meta.dns.selectel.desc": "通过 Selectel Domains API 接口管理 DNS 记录。",
+  "meta.dns.selectel.label": "Selectel Domains API"
+}

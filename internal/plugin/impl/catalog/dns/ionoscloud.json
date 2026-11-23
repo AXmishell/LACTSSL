@@ -1,0 +1,14 @@
+{
+  "value": "ionoscloud",
+  "label_key": "meta.dns.ionoscloud.label",
+  "desc_key": "meta.dns.ionoscloud.desc",
+  "fields": [
+    {
+      "key": "ionoscloud_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "required": true,
+      "env": "IONOSCLOUD_API_TOKEN"
+    }
+  ]
+}

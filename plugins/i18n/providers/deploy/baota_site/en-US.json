@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baota_site.desc": "Deploy an SSL certificate to a website through the BaoTa panel API",
+  "meta.deploy.baota_site.label": "BaoTa Panel Website"
+}

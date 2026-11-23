@@ -1,0 +1,31 @@
+{
+  "value": "vinyldns",
+  "label_key": "meta.dns.vinyldns.label",
+  "desc_key": "meta.dns.vinyldns.desc",
+  "fields": [
+    {
+      "key": "vinyldns_access_key",
+      "label_key": "meta.field.access_key.label",
+      "type": "password",
+      "env": "VINYLDNS_ACCESS_KEY"
+    },
+    {
+      "key": "vinyldns_secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "env": "VINYLDNS_SECRET_KEY"
+    },
+    {
+      "key": "vinyldns_host",
+      "label": "Host",
+      "type": "text",
+      "env": "VINYLDNS_HOST"
+    },
+    {
+      "key": "vinyldns_quote_value",
+      "label": "Quote Value",
+      "type": "text",
+      "env": "VINYLDNS_QUOTE_VALUE"
+    }
+  ]
+}

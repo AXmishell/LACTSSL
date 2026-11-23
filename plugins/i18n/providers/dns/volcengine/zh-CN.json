@@ -1,0 +1,4 @@
+{
+  "meta.dns.volcengine.desc": "使用火山引擎 AccessKey / SecretKey，可自定义 API 上游地址",
+  "meta.dns.volcengine.label": "火山引擎 DNS"
+}

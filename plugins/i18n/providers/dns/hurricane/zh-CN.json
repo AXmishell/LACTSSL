@@ -1,0 +1,4 @@
+{
+  "meta.dns.hurricane.desc": "通过 Hurricane Electric 接口管理 DNS 记录。",
+  "meta.dns.hurricane.label": "Hurricane Electric"
+}

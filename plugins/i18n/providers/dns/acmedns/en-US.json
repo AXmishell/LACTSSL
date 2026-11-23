@@ -1,0 +1,4 @@
+{
+  "meta.dns.acmedns.desc": "Manage DNS records through the acme-dns API.",
+  "meta.dns.acmedns.label": "acme-dns"
+}

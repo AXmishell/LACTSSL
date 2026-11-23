@@ -1,0 +1,4 @@
+{
+  "meta.deploy.safeline_portal.desc": "更新雷池认证中心已绑定的证书",
+  "meta.deploy.safeline_portal.label": "雷池 WAF 认证中心"
+}

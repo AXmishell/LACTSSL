@@ -123,7 +123,7 @@ curl -X POST \
 | `private_cas:read` | 查看私有 CA 证书与证书链 | 否 |
 | `private_cas:write` | 创建、导入和删除私有 CA | 是 |
 | `private_cas:key` | 下载私有 CA 私钥 | 是 |
-| `plugins:read` | 查看插件、插件仓库与启用状态 | 否 |
+| `plugins:read` | 查看插件与启用状态 | 否 |
 | `plugins:write` | 上传、安装、更新、卸载和启用插件 | 是 |
 | `logs:read` | 查看和导出操作日志，查看/下载日志归档 | 否 |
 | `logs:write` | 清空全部操作日志、删除日志归档（清空动作本身会留下审计记录） | 是 |

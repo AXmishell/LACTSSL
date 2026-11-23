@@ -1,0 +1,21 @@
+{
+  "value": "com35",
+  "label_key": "meta.dns.com35.label",
+  "desc_key": "meta.dns.com35.desc",
+  "fields": [
+    {
+      "key": "com35_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "COM35_USERNAME"
+    },
+    {
+      "key": "com35_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "COM35_PASSWORD"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "value": "allinkl",
+  "label_key": "meta.dns.allinkl.label",
+  "desc_key": "meta.dns.allinkl.desc",
+  "fields": [
+    {
+      "key": "all_inkl_login",
+      "label": "Login",
+      "type": "text",
+      "required": true,
+      "env": "ALL_INKL_LOGIN"
+    },
+    {
+      "key": "all_inkl_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "ALL_INKL_PASSWORD"
+    }
+  ]
+}

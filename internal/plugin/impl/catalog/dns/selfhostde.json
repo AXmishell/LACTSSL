@@ -1,0 +1,28 @@
+{
+  "value": "selfhostde",
+  "label_key": "meta.dns.selfhostde.label",
+  "desc_key": "meta.dns.selfhostde.desc",
+  "fields": [
+    {
+      "key": "selfhostde_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "SELFHOSTDE_USERNAME"
+    },
+    {
+      "key": "selfhostde_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "SELFHOSTDE_PASSWORD"
+    },
+    {
+      "key": "selfhostde_records_mapping",
+      "label": "Records Mapping",
+      "type": "text",
+      "required": true,
+      "env": "SELFHOSTDE_RECORDS_MAPPING"
+    }
+  ]
+}

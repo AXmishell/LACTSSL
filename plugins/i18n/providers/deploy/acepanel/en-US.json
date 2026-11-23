@@ -1,0 +1,4 @@
+{
+  "meta.deploy.acepanel.desc": "Upload a certificate to an AcePanel website or replace the panel HTTPS certificate",
+  "meta.deploy.acepanel.label": "AcePanel"
+}

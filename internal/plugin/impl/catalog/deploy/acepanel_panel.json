@@ -1,0 +1,46 @@
+{
+  "value": "acepanel_panel",
+  "label_key": "meta.deploy.acepanel_panel.label",
+  "desc_key": "meta.deploy.acepanel_panel.desc",
+  "fields": [
+    {
+      "key": "panel_url",
+      "label_key": "meta.field.panel_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.panel_url.placeholder",
+      "help_key": "meta.field.acepanel_url.help"
+    },
+    {
+      "key": "token_id",
+      "label_key": "meta.field.acepanel_token_id.label",
+      "type": "number",
+      "required": true,
+      "help_key": "meta.field.acepanel_token_id.help"
+    },
+    {
+      "key": "access_token",
+      "label_key": "meta.field.acepanel_access_token.label",
+      "type": "password",
+      "required": true,
+      "help_key": "meta.field.acepanel_access_token.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deprecated": true
+}

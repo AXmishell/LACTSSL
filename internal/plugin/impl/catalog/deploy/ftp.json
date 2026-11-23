@@ -1,0 +1,87 @@
+{
+  "value": "ftp",
+  "label_key": "meta.deploy.ftp.label",
+  "desc_key": "meta.deploy.ftp.desc",
+  "fields": [
+    {
+      "key": "host",
+      "label_key": "meta.field.host.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.host.placeholder"
+    },
+    {
+      "key": "port",
+      "label_key": "meta.field.ftp_port.label",
+      "type": "number",
+      "default": "21"
+    },
+    {
+      "key": "user",
+      "label_key": "meta.field.user.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.user.placeholder"
+    },
+    {
+      "key": "password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "tls",
+      "label_key": "meta.field.ftp_tls.label",
+      "type": "select",
+      "help_key": "meta.field.ftp_tls.help",
+      "default": "explicit",
+      "options": [
+        {
+          "label_key": "meta.field.ftp_tls.option.none",
+          "value": "none"
+        },
+        {
+          "label_key": "meta.field.ftp_tls.option.explicit",
+          "value": "explicit"
+        },
+        {
+          "label_key": "meta.field.ftp_tls.option.implicit",
+          "value": "implicit"
+        }
+      ]
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "help_key": "meta.field.ftp_skip_verify.help",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "cert_path",
+      "label_key": "meta.field.remote_cert_path.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.remote_cert_path.placeholder"
+    },
+    {
+      "key": "key_path",
+      "label_key": "meta.field.remote_key_path.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.remote_key_path.placeholder"
+    }
+  ]
+}

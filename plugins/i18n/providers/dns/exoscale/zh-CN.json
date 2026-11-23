@@ -1,0 +1,4 @@
+{
+  "meta.dns.exoscale.desc": "通过 Exoscale DNS 接口管理 DNS 记录。",
+  "meta.dns.exoscale.label": "Exoscale DNS"
+}

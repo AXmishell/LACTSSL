@@ -1,0 +1,79 @@
+{
+  "value": "designate",
+  "label_key": "meta.dns.designate.label",
+  "desc_key": "meta.dns.designate.desc",
+  "fields": [
+    {
+      "key": "os_auth_url",
+      "label": "OS Auth URL",
+      "type": "text",
+      "env": "OS_AUTH_URL"
+    },
+    {
+      "key": "os_username",
+      "label": "OS Username",
+      "type": "text",
+      "env": "OS_USERNAME"
+    },
+    {
+      "key": "os_password",
+      "label": "OS Password",
+      "type": "password",
+      "env": "OS_PASSWORD"
+    },
+    {
+      "key": "os_user_id",
+      "label": "OS User ID",
+      "type": "text",
+      "env": "OS_USER_ID"
+    },
+    {
+      "key": "os_application_credential_id",
+      "label": "OS Application Credential ID",
+      "type": "text",
+      "env": "OS_APPLICATION_CREDENTIAL_ID"
+    },
+    {
+      "key": "os_application_credential_name",
+      "label": "OS Application Credential Name",
+      "type": "text",
+      "env": "OS_APPLICATION_CREDENTIAL_NAME"
+    },
+    {
+      "key": "os_application_credential_secret",
+      "label": "OS Application Credential Secret",
+      "type": "password",
+      "env": "OS_APPLICATION_CREDENTIAL_SECRET"
+    },
+    {
+      "key": "os_tenant_name",
+      "label": "OS Tenant Name",
+      "type": "text",
+      "env": "OS_TENANT_NAME"
+    },
+    {
+      "key": "os_region_name",
+      "label": "OS Region Name",
+      "type": "text",
+      "env": "OS_REGION_NAME"
+    },
+    {
+      "key": "os_project_id",
+      "label": "OS Project ID",
+      "type": "text",
+      "env": "OS_PROJECT_ID"
+    },
+    {
+      "key": "designate_zone_name",
+      "label": "Designate Zone Name",
+      "type": "text",
+      "env": "DESIGNATE_ZONE_NAME"
+    },
+    {
+      "key": "os_cloud",
+      "label": "OS Cloud",
+      "type": "text",
+      "env": "OS_CLOUD"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baidu_cdn.desc": "通过百度智能云 CDN API 上传并绑定域名证书",
+  "meta.deploy.baidu_cdn.label": "百度智能云 CDN"
+}

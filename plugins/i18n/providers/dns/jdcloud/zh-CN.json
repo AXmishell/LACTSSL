@@ -1,0 +1,4 @@
+{
+  "meta.dns.jdcloud.desc": "使用京东云 AccessKey ID / AccessKey Secret 与 Region",
+  "meta.dns.jdcloud.label": "京东云 DNS"
+}

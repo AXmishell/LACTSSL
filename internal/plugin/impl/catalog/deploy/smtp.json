@@ -1,0 +1,88 @@
+{
+  "value": "smtp",
+  "label_key": "meta.deploy.smtp.label",
+  "desc_key": "meta.deploy.smtp.desc",
+  "fields": [
+    {
+      "key": "host",
+      "label_key": "meta.field.host.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.host.placeholder"
+    },
+    {
+      "key": "port",
+      "label_key": "meta.field.service_port.label",
+      "type": "number",
+      "default": "465"
+    },
+    {
+      "key": "user",
+      "label_key": "meta.field.username.label",
+      "type": "text"
+    },
+    {
+      "key": "password",
+      "label_key": "meta.field.password.label",
+      "type": "password"
+    },
+    {
+      "key": "from",
+      "label_key": "meta.field.mail_from.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.mail_from.placeholder"
+    },
+    {
+      "key": "tls",
+      "label_key": "meta.field.smtp_tls.label",
+      "type": "select",
+      "default": "tls",
+      "options": [
+        {
+          "label_key": "meta.field.smtp_tls.option.none",
+          "value": "none"
+        },
+        {
+          "label_key": "meta.field.smtp_tls.option.starttls",
+          "value": "starttls"
+        },
+        {
+          "label_key": "meta.field.smtp_tls.option.tls",
+          "value": "tls"
+        }
+      ]
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "to",
+      "label_key": "meta.field.mail_to.label",
+      "type": "text",
+      "required": true,
+      "help_key": "meta.field.mail_to.help"
+    },
+    {
+      "key": "subject",
+      "label_key": "meta.field.mail_subject.label",
+      "type": "text",
+      "help_key": "meta.field.mail_subject.help"
+    }
+  ]
+}

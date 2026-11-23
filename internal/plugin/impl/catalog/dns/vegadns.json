@@ -1,0 +1,25 @@
+{
+  "value": "vegadns",
+  "label_key": "meta.dns.vegadns.label",
+  "desc_key": "meta.dns.vegadns.desc",
+  "fields": [
+    {
+      "key": "vegadns_url",
+      "label": "Vegadns URL",
+      "type": "text",
+      "env": "VEGADNS_URL"
+    },
+    {
+      "key": "secret_vegadns_key",
+      "label": "Secret Vegadns Key",
+      "type": "password",
+      "env": "SECRET_VEGADNS_KEY"
+    },
+    {
+      "key": "secret_vegadns_secret",
+      "label": "Secret Vegadns Secret",
+      "type": "password",
+      "env": "SECRET_VEGADNS_SECRET"
+    }
+  ]
+}

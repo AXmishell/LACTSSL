@@ -1,0 +1,4 @@
+{
+  "meta.deploy.cdnfly.desc": "通过 CDNfly API 更新站点或证书",
+  "meta.deploy.cdnfly.label": "CDNfly"
+}

@@ -1,0 +1,14 @@
+{
+  "value": "mijnhost",
+  "label_key": "meta.dns.mijnhost.label",
+  "desc_key": "meta.dns.mijnhost.desc",
+  "fields": [
+    {
+      "key": "mijnhost_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "MIJNHOST_API_KEY"
+    }
+  ]
+}

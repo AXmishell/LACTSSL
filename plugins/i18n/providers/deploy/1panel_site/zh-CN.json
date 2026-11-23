@@ -1,0 +1,4 @@
+{
+  "meta.deploy.1panel_site.desc": "通过 1Panel API 更新网站 HTTPS 证书",
+  "meta.deploy.1panel_site.label": "1Panel 网站"
+}

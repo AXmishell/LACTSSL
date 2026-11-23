@@ -1,0 +1,4 @@
+{
+  "meta.dns.gcloud.desc": "使用 Google Cloud 服务账号 JSON 管理 Cloud DNS",
+  "meta.dns.gcloud.label": "Google Cloud DNS"
+}

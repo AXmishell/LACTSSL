@@ -1,0 +1,4 @@
+{
+  "meta.deploy.tencent_cos.desc": "Deploy a certificate to COS custom domains through Tencent Cloud SSL",
+  "meta.deploy.tencent_cos.label": "Tencent Cloud COS"
+}

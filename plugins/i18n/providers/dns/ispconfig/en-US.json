@@ -1,0 +1,4 @@
+{
+  "meta.dns.ispconfig.desc": "Manage DNS records through the ISPConfig API.",
+  "meta.dns.ispconfig.label": "ISPConfig"
+}

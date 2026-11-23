@@ -1,0 +1,4 @@
+{
+  "meta.dns.hostingnl.desc": "Manage DNS records through the hosting.nl API.",
+  "meta.dns.hostingnl.label": "hosting.nl"
+}

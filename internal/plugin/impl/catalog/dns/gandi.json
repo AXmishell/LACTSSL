@@ -1,0 +1,14 @@
+{
+  "value": "gandi",
+  "label_key": "meta.dns.gandi.label",
+  "desc_key": "meta.dns.gandi.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "GANDI_API_KEY"
+    }
+  ]
+}

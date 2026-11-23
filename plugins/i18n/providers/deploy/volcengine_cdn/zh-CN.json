@@ -1,0 +1,4 @@
+{
+  "meta.deploy.volcengine_cdn.desc": "上传证书并更新火山引擎 CDN 加速域名",
+  "meta.deploy.volcengine_cdn.label": "火山引擎 CDN"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.vegadns.desc": "Manage DNS records through the VegaDNS API.",
+  "meta.dns.vegadns.label": "VegaDNS"
+}

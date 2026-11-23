@@ -1,0 +1,21 @@
+{
+  "value": "nearlyfreespeech",
+  "label_key": "meta.dns.nearlyfreespeech.label",
+  "desc_key": "meta.dns.nearlyfreespeech.desc",
+  "fields": [
+    {
+      "key": "nearlyfreespeech_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "NEARLYFREESPEECH_API_KEY"
+    },
+    {
+      "key": "nearlyfreespeech_login",
+      "label": "Login",
+      "type": "text",
+      "required": true,
+      "env": "NEARLYFREESPEECH_LOGIN"
+    }
+  ]
+}

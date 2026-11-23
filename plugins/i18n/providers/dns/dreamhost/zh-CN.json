@@ -1,0 +1,4 @@
+{
+  "meta.dns.dreamhost.desc": "通过 DreamHost 接口管理 DNS 记录。",
+  "meta.dns.dreamhost.label": "DreamHost"
+}

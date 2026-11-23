@@ -1,0 +1,4 @@
+{
+  "meta.dns.ucloud.desc": "Manage DNS records through the UCloud API.",
+  "meta.dns.ucloud.label": "UCloud"
+}

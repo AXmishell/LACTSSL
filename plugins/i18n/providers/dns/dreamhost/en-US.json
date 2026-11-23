@@ -1,0 +1,4 @@
+{
+  "meta.dns.dreamhost.desc": "Manage DNS records through the DreamHost API.",
+  "meta.dns.dreamhost.label": "DreamHost"
+}

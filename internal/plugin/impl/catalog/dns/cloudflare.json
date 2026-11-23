@@ -1,0 +1,36 @@
+{
+  "value": "cloudflare",
+  "label_key": "meta.dns.cloudflare.label",
+  "desc_key": "meta.dns.cloudflare.desc",
+  "fields": [
+    {
+      "key": "api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "help_key": "meta.field.api_token.help",
+      "env": "CLOUDFLARE_DNS_API_TOKEN"
+    },
+    {
+      "key": "email",
+      "label_key": "meta.field.email.label",
+      "type": "text",
+      "help_key": "meta.field.email.help",
+      "env": "CLOUDFLARE_EMAIL"
+    },
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label",
+      "type": "password",
+      "help_key": "meta.field.api_key.help",
+      "env": "CLOUDFLARE_API_KEY"
+    },
+    {
+      "key": "base_url",
+      "label_key": "meta.field.base_url.label",
+      "type": "text",
+      "placeholder_key": "meta.field.base_url.placeholder",
+      "help_key": "meta.field.base_url.help",
+      "env": "CLOUDFLARE_BASE_URL"
+    }
+  ]
+}

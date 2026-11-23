@@ -1,0 +1,15 @@
+{
+  "value": "dnspod",
+  "label_key": "meta.dns.dnspod.label",
+  "desc_key": "meta.dns.dnspod.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.dnspod",
+      "type": "password",
+      "required": true,
+      "placeholder_key": "meta.field.api_key.placeholder.dnspod",
+      "env": "DNSPOD_API_KEY"
+    }
+  ]
+}

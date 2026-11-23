@@ -1,0 +1,4 @@
+{
+  "meta.dns.huaweicloud.desc": "Use a Huawei Cloud AccessKey ID / SecretAccessKey and Region",
+  "meta.dns.huaweicloud.label": "Huawei Cloud DNS"
+}

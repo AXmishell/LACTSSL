@@ -1,0 +1,14 @@
+{
+  "value": "hostinger",
+  "label_key": "meta.dns.hostinger.label",
+  "desc_key": "meta.dns.hostinger.desc",
+  "fields": [
+    {
+      "key": "hostinger_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "required": true,
+      "env": "HOSTINGER_API_TOKEN"
+    }
+  ]
+}

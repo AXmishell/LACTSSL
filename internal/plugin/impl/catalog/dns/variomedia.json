@@ -1,0 +1,14 @@
+{
+  "value": "variomedia",
+  "label_key": "meta.dns.variomedia.label",
+  "desc_key": "meta.dns.variomedia.desc",
+  "fields": [
+    {
+      "key": "variomedia_api_token",
+      "label_key": "meta.field.api_token.label",
+      "type": "password",
+      "required": true,
+      "env": "VARIOMEDIA_API_TOKEN"
+    }
+  ]
+}

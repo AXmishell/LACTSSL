@@ -1,0 +1,31 @@
+{
+  "value": "liquidweb",
+  "label_key": "meta.dns.liquidweb.label",
+  "desc_key": "meta.dns.liquidweb.desc",
+  "fields": [
+    {
+      "key": "liquid_web_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "LIQUID_WEB_USERNAME"
+    },
+    {
+      "key": "liquid_web_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "LIQUID_WEB_PASSWORD"
+    },
+    {
+      "key": "liquid_web_url",
+      "label": "URL",
+      "type": "text",
+      "env": "LIQUID_WEB_URL"
+    },
+    {
+      "key": "liquid_web_zone",
+      "label": "Zone",
+      "type": "text",
+      "env": "LIQUID_WEB_ZONE"
+    }
+  ]
+}

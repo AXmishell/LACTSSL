@@ -1,0 +1,4 @@
+{
+  "meta.deploy.plesk.desc": "Deploy website certificates through the Plesk HTTP API",
+  "meta.deploy.plesk.label": "Plesk"
+}

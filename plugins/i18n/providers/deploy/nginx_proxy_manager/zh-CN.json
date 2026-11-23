@@ -1,0 +1,4 @@
+{
+  "meta.deploy.nginx_proxy_manager.desc": "上传自定义证书并绑定 NPM 代理主机",
+  "meta.deploy.nginx_proxy_manager.label": "Nginx Proxy Manager"
+}

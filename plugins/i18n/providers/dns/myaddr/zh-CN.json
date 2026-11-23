@@ -1,0 +1,4 @@
+{
+  "meta.dns.myaddr.desc": "通过 myaddr 接口管理 DNS 记录。",
+  "meta.dns.myaddr.label": "myaddr"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.hostingnl.desc": "通过 hosting.nl 接口管理 DNS 记录。",
+  "meta.dns.hostingnl.label": "hosting.nl"
+}

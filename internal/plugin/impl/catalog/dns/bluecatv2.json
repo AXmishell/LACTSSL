@@ -1,0 +1,43 @@
+{
+  "value": "bluecatv2",
+  "label_key": "meta.dns.bluecatv2.label",
+  "desc_key": "meta.dns.bluecatv2.desc",
+  "fields": [
+    {
+      "key": "bluecatv2_skip_deploy",
+      "label": "Skip Deploy",
+      "type": "text",
+      "env": "BLUECATV2_SKIP_DEPLOY"
+    },
+    {
+      "key": "bluecatv2_server_url",
+      "label": "Server URL",
+      "type": "text",
+      "env": "BLUECATV2_SERVER_URL"
+    },
+    {
+      "key": "bluecatv2_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "BLUECATV2_USERNAME"
+    },
+    {
+      "key": "bluecatv2_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "BLUECATV2_PASSWORD"
+    },
+    {
+      "key": "bluecatv2_config_name",
+      "label": "Config Name",
+      "type": "text",
+      "env": "BLUECATV2_CONFIG_NAME"
+    },
+    {
+      "key": "bluecatv2_view_name",
+      "label": "View Name",
+      "type": "text",
+      "env": "BLUECATV2_VIEW_NAME"
+    }
+  ]
+}

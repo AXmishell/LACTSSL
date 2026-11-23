@@ -1,0 +1,14 @@
+{
+  "value": "uniteddomains",
+  "label_key": "meta.dns.uniteddomains.label",
+  "desc_key": "meta.dns.uniteddomains.desc",
+  "fields": [
+    {
+      "key": "uniteddomains_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "UNITEDDOMAINS_API_KEY"
+    }
+  ]
+}

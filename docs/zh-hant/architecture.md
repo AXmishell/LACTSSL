@@ -19,7 +19,7 @@ LACTSSL 是一個自包含的 Go 二進位制：
     ├── lactssl.db          # SQLite 主庫
     ├── lactssl.db-wal      # WAL（執行時）
     ├── lactssl.db-shm      # 共享記憶體（執行時）
-    ├── plugins/            # dns / deploy / notify helper
+    ├── plugins/            # 上傳 helper（dns / deploy / notify）
     ├── plugin-icons/       # 外掛圖示快取
     ├── upgrade-backups/    # 遷移與程式升級備份
     └── restore-pending/    # 待應用的恢復包

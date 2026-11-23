@@ -312,7 +312,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, Close, Delete, Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import { ArrowDown, Close, Delete, Lock, Plus, Refresh, Upload } from '@element-plus/icons-vue'
 import { api, downloadFile } from '../api'
 import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta } from '../store'

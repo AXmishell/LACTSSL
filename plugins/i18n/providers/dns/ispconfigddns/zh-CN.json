@@ -1,0 +1,4 @@
+{
+  "meta.dns.ispconfigddns.desc": "通过 ISPConfig 3 Dynamic DNS (DDNS) Module 接口管理 DNS 记录。",
+  "meta.dns.ispconfigddns.label": "ISPConfig 3 Dynamic DNS (DDNS) Module"
+}

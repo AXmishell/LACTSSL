@@ -1,0 +1,14 @@
+{
+  "value": "octenium",
+  "label_key": "meta.dns.octenium.label",
+  "desc_key": "meta.dns.octenium.desc",
+  "fields": [
+    {
+      "key": "octenium_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "OCTENIUM_API_KEY"
+    }
+  ]
+}

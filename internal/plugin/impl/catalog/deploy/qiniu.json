@@ -1,0 +1,50 @@
+{
+  "value": "qiniu",
+  "label_key": "meta.deploy.qiniu.label",
+  "desc_key": "meta.deploy.qiniu.desc",
+  "fields": [
+    {
+      "key": "access_key",
+      "label_key": "meta.field.access_key.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "domain_type",
+      "label_key": "meta.field.qiniu_domain_type.label",
+      "type": "select",
+      "help_key": "meta.field.qiniu_domain_type.help",
+      "default": "cdn",
+      "options": [
+        {
+          "label_key": "meta.field.qiniu_domain_type.option.cdn",
+          "value": "cdn"
+        },
+        {
+          "label_key": "meta.field.qiniu_domain_type.option.kodo",
+          "value": "kodo"
+        }
+      ]
+    },
+    {
+      "key": "domains",
+      "label_key": "meta.field.qiniu_domains.label",
+      "type": "text",
+      "help_key": "meta.field.qiniu_domains.help"
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help"
+    }
+  ]
+}

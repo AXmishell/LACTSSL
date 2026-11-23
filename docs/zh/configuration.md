@@ -1,6 +1,6 @@
 # 配置参考
 
-LACTSSL 的应用配置只来自 `config.yaml` 和内置默认值，不读取应用级环境变量。修改配置后需要重启服务生效；部分运行时设置（门禁入口、插件仓库、插件启用状态）保存在数据库中，优先级高于配置文件。
+LACTSSL 的应用配置只来自 `config.yaml` 和内置默认值，不读取应用级环境变量。修改配置后需要重启服务生效；部分运行时设置（门禁入口、插件启用状态）保存在数据库中，优先级高于配置文件。
 
 ## 1. 配置文件模型
 
@@ -56,7 +56,6 @@ log:
 | --- | --- | --- |
 | 监听地址、日志、密钥、ACME | `config.yaml` | 修改后重启生效 |
 | 门禁入口 | 数据库，`config.yaml` 可覆盖 | 界面修改立即生效；`security.entry` 非空时启动覆盖 |
-| 插件仓库地址/渠道/自动更新/公钥/下载代理 | 数据库优先，`config.yaml` 提供默认值 | 插件页保存不写回配置文件 |
 | 插件启用状态 | 数据库白名单 | 重启和重扫后保持 |
 | 系统语言、通知渠道等 | 数据库 | 界面修改 |
 
@@ -156,20 +155,10 @@ acme:
 plugins:
   enabled: true
   dir: ""                 # 留空表示 <data_dir>/plugins/dns
+  sandbox: strict
   memory_limit_mb: 128
   timeout_seconds: 60
   max_output_kb: 64
-  repo:
-    enabled: true
-    url: "https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json"
-    channel: stable
-    auto_update: false
-    public_key: "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
-    # 拉取索引/下载插件的显式代理；留空沿用 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY
-    proxy: "socks5://127.0.0.1:1080"
-    timeout_seconds: 30
-    max_download_mb: 256
-    check_interval_hours: 24
 
 deploy_plugins:
   enabled: false
@@ -334,23 +323,13 @@ database:
 plugins:
   enabled: true
   dir: ""                 # 留空表示 <data_dir>/plugins/dns
+  sandbox: strict
   memory_limit_mb: 128
   timeout_seconds: 60
   max_output_kb: 64
-  repo:
-    enabled: true
-    url: "https://github.com/AXmishell/LACTSSL-Plugins/releases/download/plugin-index/index.json"
-    channel: stable
-    auto_update: false
-    public_key: "t7Q4vd0B1zh3mRf0t6Q6qlBViL7cKhoipgpGWx5WSss="
-    # 拉取索引/下载插件的显式代理；留空沿用 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY
-    proxy: "socks5://127.0.0.1:1080"
-    timeout_seconds: 30
-    max_download_mb: 256
-    check_interval_hours: 24
 ```
 
-`repo.proxy` 用于插件索引拉取与插件包下载，支持 `http://`、`https://`、`socks5://` 与 `socks5h://`；留空时沿用 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 环境变量。也可以在「插件」页的仓库设置中修改，保存后写入数据库并优先于配置文件。
+上传插件默认使用 `strict` 沙箱。Linux 下使用 Landlock 文件白名单、rlimit 与 `no_new_privs`；内核或容器不支持时自动降级为 `basic`。生产环境不要配置 `off`。
 
 ### 8.2 部署插件
 

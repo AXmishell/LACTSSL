@@ -1,0 +1,4 @@
+{
+  "meta.dns.lightsail.desc": "Manage DNS records through the AWS Lightsail DNS API.",
+  "meta.dns.lightsail.label": "AWS Lightsail DNS"
+}

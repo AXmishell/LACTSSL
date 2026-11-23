@@ -1,0 +1,4 @@
+{
+  "meta.dns.infomaniak.desc": "通过 Infomaniak DNS 接口管理 DNS 记录。",
+  "meta.dns.infomaniak.label": "Infomaniak DNS"
+}

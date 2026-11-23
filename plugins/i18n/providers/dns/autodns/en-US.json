@@ -1,0 +1,4 @@
+{
+  "meta.dns.autodns.desc": "Manage DNS records through the AutoDNS API.",
+  "meta.dns.autodns.label": "AutoDNS"
+}

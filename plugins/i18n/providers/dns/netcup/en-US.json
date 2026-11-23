@@ -1,0 +1,4 @@
+{
+  "meta.dns.netcup.desc": "Manage DNS records through the Netcup DNS API.",
+  "meta.dns.netcup.label": "Netcup DNS"
+}

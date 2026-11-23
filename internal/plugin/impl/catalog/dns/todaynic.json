@@ -1,0 +1,21 @@
+{
+  "value": "todaynic",
+  "label_key": "meta.dns.todaynic.label",
+  "desc_key": "meta.dns.todaynic.desc",
+  "fields": [
+    {
+      "key": "todaynic_auth_user_id",
+      "label": "Auth User ID",
+      "type": "text",
+      "required": true,
+      "env": "TODAYNIC_AUTH_USER_ID"
+    },
+    {
+      "key": "todaynic_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "TODAYNIC_API_KEY"
+    }
+  ]
+}

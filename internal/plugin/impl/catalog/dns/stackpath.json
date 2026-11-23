@@ -1,0 +1,28 @@
+{
+  "value": "stackpath",
+  "label_key": "meta.dns.stackpath.label",
+  "desc_key": "meta.dns.stackpath.desc",
+  "fields": [
+    {
+      "key": "stackpath_client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": true,
+      "env": "STACKPATH_CLIENT_ID"
+    },
+    {
+      "key": "stackpath_client_secret",
+      "label": "Client Secret",
+      "type": "password",
+      "required": true,
+      "env": "STACKPATH_CLIENT_SECRET"
+    },
+    {
+      "key": "stackpath_stack_id",
+      "label": "Stack ID",
+      "type": "text",
+      "required": true,
+      "env": "STACKPATH_STACK_ID"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.btwaf.desc": "通过宝塔 WAF API 为站点部署证书",
+  "meta.deploy.btwaf.label": "宝塔 WAF"
+}

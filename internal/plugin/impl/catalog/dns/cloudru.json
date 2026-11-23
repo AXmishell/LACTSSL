@@ -1,0 +1,28 @@
+{
+  "value": "cloudru",
+  "label_key": "meta.dns.cloudru.label",
+  "desc_key": "meta.dns.cloudru.desc",
+  "fields": [
+    {
+      "key": "cloudru_service_instance_id",
+      "label": "Service Instance ID",
+      "type": "text",
+      "required": true,
+      "env": "CLOUDRU_SERVICE_INSTANCE_ID"
+    },
+    {
+      "key": "cloudru_key_id",
+      "label": "Key ID",
+      "type": "text",
+      "required": true,
+      "env": "CLOUDRU_KEY_ID"
+    },
+    {
+      "key": "cloudru_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "CLOUDRU_SECRET"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "value": "bunny",
+  "label_key": "meta.dns.bunny.label",
+  "desc_key": "meta.dns.bunny.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "BUNNY_API_KEY"
+    }
+  ]
+}

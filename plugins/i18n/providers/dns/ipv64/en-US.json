@@ -1,0 +1,4 @@
+{
+  "meta.dns.ipv64.desc": "Manage DNS records through the IPv64 API.",
+  "meta.dns.ipv64.label": "IPv64"
+}

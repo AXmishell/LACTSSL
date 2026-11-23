@@ -1,0 +1,14 @@
+{
+  "value": "bindman",
+  "label_key": "meta.dns.bindman.label",
+  "desc_key": "meta.dns.bindman.desc",
+  "fields": [
+    {
+      "key": "bindman_manager_address",
+      "label": "Bindman Manager Address",
+      "type": "text",
+      "required": true,
+      "env": "BINDMAN_MANAGER_ADDRESS"
+    }
+  ]
+}

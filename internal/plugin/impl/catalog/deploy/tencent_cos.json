@@ -1,0 +1,54 @@
+{
+  "value": "tencent_cos",
+  "label_key": "meta.deploy.tencent_cos.label",
+  "desc_key": "meta.deploy.tencent_cos.desc",
+  "fields": [
+    {
+      "key": "secret_id",
+      "label_key": "meta.field.secret_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "intl",
+      "label_key": "meta.field.tencent_intl.label",
+      "type": "switch",
+      "default": "false",
+      "help_key": "meta.field.tencent_intl.help"
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "bucket",
+      "label_key": "meta.field.bucket.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.region.placeholder"
+    },
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help"
+    }
+  ],
+  "deprecated": true
+}

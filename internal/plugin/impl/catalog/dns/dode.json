@@ -1,0 +1,14 @@
+{
+  "value": "dode",
+  "label_key": "meta.dns.dode.label",
+  "desc_key": "meta.dns.dode.desc",
+  "fields": [
+    {
+      "key": "dode_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "DODE_TOKEN"
+    }
+  ]
+}

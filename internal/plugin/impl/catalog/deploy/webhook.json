@@ -1,0 +1,36 @@
+{
+  "value": "webhook",
+  "label_key": "meta.deploy.webhook.label",
+  "desc_key": "meta.deploy.webhook.desc",
+  "fields": [
+    {
+      "key": "url",
+      "label_key": "meta.field.url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.url.placeholder"
+    },
+    {
+      "key": "auth_header",
+      "label_key": "meta.field.auth_header.label",
+      "type": "password",
+      "help_key": "meta.field.auth_header.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

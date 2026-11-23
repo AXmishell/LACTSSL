@@ -1,0 +1,4 @@
+{
+  "meta.dns.vscale.desc": "Manage DNS records through the Vscale Domains API API.",
+  "meta.dns.vscale.label": "Vscale Domains API"
+}

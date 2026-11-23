@@ -1,0 +1,25 @@
+{
+  "value": "gigahostno",
+  "label_key": "meta.dns.gigahostno.label",
+  "desc_key": "meta.dns.gigahostno.desc",
+  "fields": [
+    {
+      "key": "gigahostno_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "GIGAHOSTNO_USERNAME"
+    },
+    {
+      "key": "gigahostno_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "GIGAHOSTNO_PASSWORD"
+    },
+    {
+      "key": "gigahostno_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "env": "GIGAHOSTNO_SECRET"
+    }
+  ]
+}

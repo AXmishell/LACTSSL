@@ -1,0 +1,4 @@
+{
+  "meta.dns.directadmin.desc": "Manage DNS records through the DirectAdmin API.",
+  "meta.dns.directadmin.label": "DirectAdmin"
+}

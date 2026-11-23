@@ -1,0 +1,4 @@
+{
+  "meta.dns.virtualname.desc": "Manage DNS records through the Virtualname DNS API.",
+  "meta.dns.virtualname.label": "Virtualname DNS"
+}

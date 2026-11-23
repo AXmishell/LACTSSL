@@ -14,7 +14,7 @@ If no DNS plugin is installed, the DNS provider list is empty. Existing DNS acco
 
 ## 2. Choosing a plugin package
 
-The official [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) repository provides three DNS packages covering all 194 providers:
+Official DNS implementations are built into the host and cover about 235 provider entries (including legacy IDs). No providers are enabled by default; enable them on the Plugins page:
 
 | Package | Coverage | Extracted size | Recommended for |
 | --- | --- | ---: | --- |
@@ -94,7 +94,7 @@ Install, update, and uninstall require only a login session or `plugins:write`. 
 - Upload a single helper executable on the **Plugins** page, up to 256 MB.
 - After upload, the `manifest` is probed from a temporary file, and the protocol, provider IDs, and SHA-256 are validated before the file is written to the plugin directory and rescanned.
 - Overwriting a file with the same name is rejected by default. When upgrading, select **Allow overwriting a plugin with the same filename**; the old file is backed up first.
-- Alternatively, point `plugins.repo.url` at an internal mirror index:
+- Built-in implementations ship with the host; no offline index is required. Upload a trusted helper for third-party providers:
 
 ```yaml
 plugins:

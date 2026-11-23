@@ -1,0 +1,21 @@
+{
+  "value": "transip",
+  "label_key": "meta.dns.transip.label",
+  "desc_key": "meta.dns.transip.desc",
+  "fields": [
+    {
+      "key": "transip_account_name",
+      "label": "Account Name",
+      "type": "text",
+      "required": true,
+      "env": "TRANSIP_ACCOUNT_NAME"
+    },
+    {
+      "key": "transip_private_key_path",
+      "label": "Private Key Path",
+      "type": "text",
+      "required": true,
+      "env": "TRANSIP_PRIVATE_KEY_PATH"
+    }
+  ]
+}

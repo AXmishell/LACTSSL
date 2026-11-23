@@ -1,0 +1,21 @@
+{
+  "value": "sakuracloud",
+  "label_key": "meta.dns.sakuracloud.label",
+  "desc_key": "meta.dns.sakuracloud.desc",
+  "fields": [
+    {
+      "key": "sakuracloud_access_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "required": true,
+      "env": "SAKURACLOUD_ACCESS_TOKEN"
+    },
+    {
+      "key": "sakuracloud_access_token_secret",
+      "label": "Token Secret",
+      "type": "password",
+      "required": true,
+      "env": "SAKURACLOUD_ACCESS_TOKEN_SECRET"
+    }
+  ]
+}

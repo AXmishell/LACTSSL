@@ -1,0 +1,4 @@
+{
+  "meta.dns.pdns.desc": "通过 PowerDNS HTTP API 管理记录，可填写自建 API 上游地址",
+  "meta.dns.pdns.label": "PowerDNS"
+}

@@ -1,0 +1,49 @@
+{
+  "value": "edgedns",
+  "label_key": "meta.dns.edgedns.label",
+  "desc_key": "meta.dns.edgedns.desc",
+  "fields": [
+    {
+      "key": "akamai_host",
+      "label": "Host",
+      "type": "text",
+      "env": "AKAMAI_HOST"
+    },
+    {
+      "key": "akamai_client_token",
+      "label": "Client Token",
+      "type": "password",
+      "env": "AKAMAI_CLIENT_TOKEN"
+    },
+    {
+      "key": "akamai_client_secret",
+      "label": "Client Secret",
+      "type": "password",
+      "env": "AKAMAI_CLIENT_SECRET"
+    },
+    {
+      "key": "akamai_access_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "env": "AKAMAI_ACCESS_TOKEN"
+    },
+    {
+      "key": "akamai_edgerc",
+      "label": "Edgerc",
+      "type": "text",
+      "env": "AKAMAI_EDGERC"
+    },
+    {
+      "key": "akamai_edgerc_section",
+      "label": "Edgerc Section",
+      "type": "text",
+      "env": "AKAMAI_EDGERC_SECTION"
+    },
+    {
+      "key": "akamai_account_switch_key",
+      "label": "Account Switch Key",
+      "type": "password",
+      "env": "AKAMAI_ACCOUNT_SWITCH_KEY"
+    }
+  ]
+}

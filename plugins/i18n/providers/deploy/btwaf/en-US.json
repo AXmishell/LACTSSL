@@ -1,0 +1,4 @@
+{
+  "meta.deploy.btwaf.desc": "Deploy a site certificate through the Baota WAF API",
+  "meta.deploy.btwaf.label": "Baota WAF"
+}

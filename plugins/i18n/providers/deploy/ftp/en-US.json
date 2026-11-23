@@ -1,0 +1,4 @@
+{
+  "meta.deploy.ftp.desc": "Upload the certificate and private key to a remote server over FTP or FTPS",
+  "meta.deploy.ftp.label": "FTP / FTPS"
+}

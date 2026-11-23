@@ -1,0 +1,4 @@
+{
+  "meta.deploy.upyun_cdn.desc": "Upload a certificate and deploy it to Upyun CDN/USS domains",
+  "meta.deploy.upyun_cdn.label": "Upyun CDN"
+}

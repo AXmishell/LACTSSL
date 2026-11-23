@@ -1,0 +1,21 @@
+{
+  "value": "dyndnsfree",
+  "label_key": "meta.dns.dyndnsfree.label",
+  "desc_key": "meta.dns.dyndnsfree.desc",
+  "fields": [
+    {
+      "key": "dyndnsfree_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "DYNDNSFREE_USERNAME"
+    },
+    {
+      "key": "dyndnsfree_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "DYNDNSFREE_PASSWORD"
+    }
+  ]
+}

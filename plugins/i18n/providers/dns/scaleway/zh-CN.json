@@ -1,0 +1,4 @@
+{
+  "meta.dns.scaleway.desc": "通过 Scaleway Domains API 接口管理 DNS 记录。",
+  "meta.dns.scaleway.label": "Scaleway Domains API"
+}

@@ -1,0 +1,31 @@
+{
+  "value": "autodns",
+  "label_key": "meta.dns.autodns.label",
+  "desc_key": "meta.dns.autodns.desc",
+  "fields": [
+    {
+      "key": "autodns_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "AUTODNS_ENDPOINT"
+    },
+    {
+      "key": "autodns_context",
+      "label": "Context",
+      "type": "text",
+      "env": "AUTODNS_CONTEXT"
+    },
+    {
+      "key": "autodns_api_user",
+      "label": "API User",
+      "type": "text",
+      "env": "AUTODNS_API_USER"
+    },
+    {
+      "key": "autodns_api_password",
+      "label": "API Password",
+      "type": "password",
+      "env": "AUTODNS_API_PASSWORD"
+    }
+  ]
+}

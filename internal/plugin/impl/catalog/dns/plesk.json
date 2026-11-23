@@ -1,0 +1,28 @@
+{
+  "value": "plesk",
+  "label_key": "meta.dns.plesk.label",
+  "desc_key": "meta.dns.plesk.desc",
+  "fields": [
+    {
+      "key": "plesk_server_base_url",
+      "label": "Server Base URL",
+      "type": "text",
+      "required": true,
+      "env": "PLESK_SERVER_BASE_URL"
+    },
+    {
+      "key": "plesk_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "PLESK_USERNAME"
+    },
+    {
+      "key": "plesk_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "PLESK_PASSWORD"
+    }
+  ]
+}

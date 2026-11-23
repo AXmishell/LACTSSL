@@ -1,0 +1,21 @@
+{
+  "value": "yandex360",
+  "label_key": "meta.dns.yandex360.label",
+  "desc_key": "meta.dns.yandex360.desc",
+  "fields": [
+    {
+      "key": "yandex360_oauth_token",
+      "label": "OAuth Token",
+      "type": "password",
+      "required": true,
+      "env": "YANDEX360_OAUTH_TOKEN"
+    },
+    {
+      "key": "yandex360_org_id",
+      "label": "Org ID",
+      "type": "text",
+      "required": true,
+      "env": "YANDEX360_ORG_ID"
+    }
+  ]
+}

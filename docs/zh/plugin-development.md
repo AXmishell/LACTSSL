@@ -2,11 +2,13 @@
 
 本文面向插件开发者、集成商和企业平台团队，说明 LACTSSL 插件协议、仓库结构、开发流程、构建、打包、索引、签名和发布。**运维人员通常只需阅读[插件治理](plugins.md)和对应的 DNS/部署/通知插件页面。**
 
-插件源码、构建工具与仓库索引位于独立仓库 [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins)。主程序只实现协议 v1 的 manifest 解码，运行期从插件索引下载按类型合并的插件包；两个仓库不通过 `go.mod` 共享源码。
+官方 DNS/部署/通知实现位于本仓库 `internal/plugin/impl/`，随主程序编译；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具）。上传插件仍使用协议 v1 的子进程通信。主程序不使用插件索引或外部插件仓库。
+
+下文涉及的生成器、合并包与索引工具位于 `internal/plugin/impl/`，命令默认在该目录执行；外部插件只需引用 `plugins/protocol` 与 `plugins/sdk`。
 
 ## 1. 架构与心智模型
 
-插件不是动态库，而是**一次性子进程**：
+官方插件在宿主进程内调用；上传插件仍是一次性子进程：
 
 ```text
 LACTSSL 宿主

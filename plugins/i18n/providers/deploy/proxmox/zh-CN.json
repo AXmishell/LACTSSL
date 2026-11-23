@@ -1,0 +1,4 @@
+{
+  "meta.deploy.proxmox.desc": "上传自定义证书到 Proxmox 节点",
+  "meta.deploy.proxmox.label": "Proxmox VE"
+}

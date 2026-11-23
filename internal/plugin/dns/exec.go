@@ -56,6 +56,8 @@ type ExternalProvider struct {
 	// FileEnabled 表示该服务商所属的 helper 文件未被管理员停用。
 	// 文件停用时条目仍会以元数据形式展示，但不能启用。
 	FileEnabled bool `json:"file_enabled"`
+	// Source 是服务商来源：builtin 或 exec。
+	Source string `json:"source,omitempty"`
 }
 
 var externalState = struct {
@@ -183,7 +185,12 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 	UnregisterSource(SourceExec)
 	for _, item := range candidates {
 		accepted := 0
+		builtinIDs := BuiltinProviderIDs()
 		for _, provider := range item.manifest.Providers {
+			if builtinIDs[normalize(provider.ID)] {
+				result.Skipped = append(result.Skipped, provider.ID)
+				continue
+			}
 			if existing, found := Lookup(provider.ID); found && existing.Source() != SourceExec {
 				result.Skipped = append(result.Skipped, provider.ID)
 				continue
@@ -199,6 +206,7 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 						memoryLimitMB: cfg.MemoryLimitMB,
 						timeout:       cfg.Timeout,
 						maxOutputKB:   cfg.MaxOutputKB,
+						uploadSandbox: cfg.UploadSandboxProfile,
 					},
 				}
 				if err := RegisterExternal(plugin); err != nil {
@@ -223,6 +231,7 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 				Version:         item.manifest.Version,
 				Enabled:         enabled,
 				FileEnabled:     true,
+				Source:          string(SourceExec),
 			}
 			externalState.Unlock()
 			accepted++
@@ -267,18 +276,20 @@ func ExternalEnabledProviders() []ExternalProvider {
 func ExternalProviderInfo(id string) (ExternalProvider, bool) {
 	key := normalize(id)
 	externalState.RLock()
-	defer externalState.RUnlock()
 	if provider, ok := externalState.providers[key]; ok {
+		externalState.RUnlock()
 		return provider, true
 	}
 	for _, provider := range externalState.providers {
 		for _, alias := range provider.Aliases {
 			if normalize(alias) == key {
+				externalState.RUnlock()
 				return provider, true
 			}
 		}
 	}
-	return ExternalProvider{}, false
+	externalState.RUnlock()
+	return BuiltinProviderInfo(key)
 }
 
 // ExternalHelpers 返回已加载的 helper 数量。
@@ -442,6 +453,7 @@ type execSettings struct {
 	memoryLimitMB int
 	timeout       time.Duration
 	maxOutputKB   int
+	uploadSandbox string
 }
 
 type externalPlugin struct {
@@ -552,6 +564,7 @@ func (p *externalPlugin) Verify(ctx context.Context, cfg map[string]string, doma
 		Timeout:       timeout,
 		MemoryLimitMB: p.settings.memoryLimitMB,
 		MaxOutputKB:   p.settings.maxOutputKB,
+		Sandbox:       pluginexec.SandboxOptions{Profile: p.settings.uploadSandbox},
 		Env: []string{
 			"LACTSSL_PLUGIN_PROTOCOL=" + execProtocol,
 			"LACTSSL_DNS_PLUGIN_FEATURES=" + pluginproto.FeatureVerify + "," + pluginproto.FeatureVerifyWrite,
@@ -627,8 +640,9 @@ func (p *execProvider) call(action, domain, token, keyAuth string) error {
 		return fmt.Errorf("编码插件请求失败: %w", err)
 	}
 	stdout, stderr, err := runHelper(p.helper, action, body, p.settings.timeout, DiscoverConfig{
-		MemoryLimitMB: p.settings.memoryLimitMB,
-		MaxOutputKB:   p.settings.maxOutputKB,
+		MemoryLimitMB:        p.settings.memoryLimitMB,
+		MaxOutputKB:          p.settings.maxOutputKB,
+		UploadSandboxProfile: p.settings.uploadSandbox,
 	})
 	if err != nil {
 		message := pluginexec.Redact(stderr, p.cfg)
@@ -650,6 +664,7 @@ func runHelper(path, action string, stdin []byte, timeout time.Duration, cfg Dis
 		Timeout:       timeout,
 		MemoryLimitMB: cfg.MemoryLimitMB,
 		MaxOutputKB:   cfg.MaxOutputKB,
+		Sandbox:       pluginexec.SandboxOptions{Profile: cfg.UploadSandboxProfile},
 		Env: []string{
 			"LACTSSL_PLUGIN_PROTOCOL=" + execProtocol,
 			"LACTSSL_DNS_PLUGIN_FEATURES=" + pluginproto.FeatureVerify + "," + pluginproto.FeatureVerifyWrite,

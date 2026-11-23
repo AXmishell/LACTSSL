@@ -5,7 +5,6 @@
 package i18n
 
 import (
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,9 +38,6 @@ const messagePrefix = "@@i18n:"
 // ContextKey 是 Gin 上下文中保存当前语言的键。
 const ContextKey = "lactssl.locale"
 
-//go:embed locales/*.json
-var localeFS embed.FS
-
 type catalog map[string]string
 
 var (
@@ -55,16 +51,12 @@ func load() {
 	loadOnce.Do(func() {
 		catalogs = map[Locale]catalog{}
 		languages = map[string]Locale{}
-		entries, err := localeFS.ReadDir("locales")
+		files, err := readLocaleFiles()
 		if err != nil {
 			return
 		}
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-				continue
-			}
-			raw, err := localeFS.ReadFile("locales/" + entry.Name())
-			if err != nil {
+		for name, raw := range files {
+			if !strings.HasSuffix(name, ".json") {
 				continue
 			}
 			var values map[string]string
@@ -72,7 +64,7 @@ func load() {
 				// 单个语言文件损坏时跳过，不影响其他语言。
 				continue
 			}
-			locale := Locale(strings.TrimSuffix(entry.Name(), ".json"))
+			locale := Locale(strings.TrimSuffix(name, ".json"))
 			catalogs[locale] = catalog(values)
 			locales = append(locales, locale)
 		}

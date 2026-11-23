@@ -1,0 +1,4 @@
+{
+  "meta.dns.clouddns.desc": "Manage DNS records through the CloudDNS API API.",
+  "meta.dns.clouddns.label": "CloudDNS API"
+}

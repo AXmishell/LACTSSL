@@ -1,0 +1,22 @@
+{
+  "value": "rainyun",
+  "label_key": "meta.deploy.rainyun.label",
+  "desc_key": "meta.deploy.rainyun.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "cert_id",
+      "label_key": "meta.field.rainyun_cert_id.label",
+      "type": "text",
+      "required": true,
+      "help_key": "meta.field.rainyun_cert_id.help"
+    }
+  ]
+}

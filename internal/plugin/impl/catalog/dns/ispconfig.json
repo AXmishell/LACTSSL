@@ -1,0 +1,31 @@
+{
+  "value": "ispconfig",
+  "label_key": "meta.dns.ispconfig.label",
+  "desc_key": "meta.dns.ispconfig.desc",
+  "fields": [
+    {
+      "key": "ispconfig_server_url",
+      "label": "Server URL",
+      "type": "text",
+      "env": "ISPCONFIG_SERVER_URL"
+    },
+    {
+      "key": "ispconfig_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "ISPCONFIG_USERNAME"
+    },
+    {
+      "key": "ispconfig_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "ISPCONFIG_PASSWORD"
+    },
+    {
+      "key": "ispconfig_insecure_skip_verify",
+      "label": "Insecure Skip Verify",
+      "type": "text",
+      "env": "ISPCONFIG_INSECURE_SKIP_VERIFY"
+    }
+  ]
+}

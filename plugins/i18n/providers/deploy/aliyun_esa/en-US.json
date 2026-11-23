@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun_esa.desc": "Upload a certificate to an Aliyun ESA site",
+  "meta.deploy.aliyun_esa.label": "Aliyun ESA"
+}

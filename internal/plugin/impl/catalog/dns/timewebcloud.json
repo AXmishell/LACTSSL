@@ -1,0 +1,14 @@
+{
+  "value": "timewebcloud",
+  "label_key": "meta.dns.timewebcloud.label",
+  "desc_key": "meta.dns.timewebcloud.desc",
+  "fields": [
+    {
+      "key": "timewebcloud_auth_token",
+      "label": "Timewebcloud Auth Token",
+      "type": "password",
+      "required": true,
+      "env": "TIMEWEBCLOUD_AUTH_TOKEN"
+    }
+  ]
+}

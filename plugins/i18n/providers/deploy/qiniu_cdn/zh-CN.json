@@ -1,0 +1,4 @@
+{
+  "meta.deploy.qiniu_cdn.desc": "上传证书并通过七牛云 CDN API 绑定加速域名",
+  "meta.deploy.qiniu_cdn.label": "七牛云 CDN"
+}

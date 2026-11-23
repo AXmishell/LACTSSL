@@ -1,0 +1,21 @@
+{
+  "value": "webnamesca",
+  "label_key": "meta.dns.webnamesca.label",
+  "desc_key": "meta.dns.webnamesca.desc",
+  "fields": [
+    {
+      "key": "webnamesca_api_user",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "WEBNAMESCA_API_USER"
+    },
+    {
+      "key": "webnamesca_api_key",
+      "label": "Key",
+      "type": "password",
+      "required": true,
+      "env": "WEBNAMESCA_API_KEY"
+    }
+  ]
+}

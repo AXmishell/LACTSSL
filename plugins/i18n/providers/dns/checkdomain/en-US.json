@@ -1,0 +1,4 @@
+{
+  "meta.dns.checkdomain.desc": "Manage DNS records through the CheckDomain DNS API.",
+  "meta.dns.checkdomain.label": "CheckDomain DNS"
+}

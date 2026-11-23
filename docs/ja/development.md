@@ -15,7 +15,8 @@ internal/logging/    プロセスログ、レベル、フォーマット、フ�
 internal/model/      データベースエンティティとタスクフロー
 internal/acme/       組み込み ACME サーバープロトコル
 internal/service/    ACME クライアント、デプロイ、通知、監視、スケジューリング
-internal/plugin/     プラグインホスト: dns/deploy/notify、exec、install、meta、proto、repo
+internal/plugin/     プラグインホストと公式実装: ホストパッケージ + impl/
+plugins/             外部プラグイン SDK: プロトコル v1、helper フレームワーク、共通ユーティリティ
 internal/store/      データアクセス層
 internal/util/       暗号化、検証などのユーティリティ
 internal/webui/      埋め込みフロントエンドビルド成果物
@@ -28,7 +29,7 @@ docs/ja/             日本語ドキュメント
 docs/ru/             ロシア語ドキュメント
 ```
 
-プラグイン実装、公式 helper、プラグインプロトコルとメタデータは独立リポジトリ [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins) にあります。メインリポジトリはホスト内でプロトコル v1 のマニフェストデコードを実装し、2 つのリポジトリは署名インデックスと `min_host` で実行時互換性を保ち、ビルド時に相互依存しません。
+公式 DNS/デプロイ/通知実装は本リポジトリの `internal/plugin/impl/` にあり、メインモジュールと一緒にビルド・テストされます。`plugins/` は外部プラグイン開発 SDK（プロトコル、helper フレームワーク、共通ユーティリティ）です。アップロードプラグインは引き続きプロトコル v1 のサブプロセスとして実行されます。メインプログラムは外部プラグインリポジトリや署名インデックスに依存しません。
 
 ## 2. ローカル開発
 
@@ -166,14 +167,18 @@ gh release create v1.0.1 --generate-notes
 
 成果物:
 
+- `lactssl_<version>_linux_amd64.tar.xz`
 - `lactssl_<version>_linux_amd64.tar.gz`
+- `lactssl_<version>_linux_arm64.tar.xz`
 - `lactssl_<version>_linux_arm64.tar.gz`
+- `lactssl_<version>_darwin_amd64.tar.xz`
 - `lactssl_<version>_darwin_amd64.tar.gz`
+- `lactssl_<version>_darwin_arm64.tar.xz`
 - `lactssl_<version>_darwin_arm64.tar.gz`
 - `lactssl_<version>_windows_amd64.zip`
 - `checksums.txt`（SHA-256）
 
-アーカイブにはバイナリ、`README.md`、`LICENSE`、`config.yaml.example` が含まれます。バージョン番号は tag から直接取得し（`v` プレフィックスを除去）、ローカル git の導出に依存しません。
+アーカイブにはバイナリ、`README.md`、`LICENSE`、`config.yaml.example` が含まれます。バージョン番号は tag から直接取得し（`v` プレフィックスを除去）、ローカル git の導出に依存しません。Windows 以外では `.tar.xz` と `.tar.gz` の両方を公開します。`.tar.xz` はダウンロードサイズが小さく、`.tar.gz` は旧バージョンの自動アップグレードクライアントとの互換用です。
 
 同時に `linux/amd64`、`linux/arm64` イメージをビルドし、GHCR へプッシュします:
 
@@ -206,11 +211,11 @@ make release TAG=v1.0.1
 ./scripts/release.sh v1.0.1 --upload
 ```
 
-`--multiarch` には Docker Buildx が必要です。クロスアーキテクチャビルドにはさらに QEMU が必要です。
+`--multiarch` には Docker Buildx が必要です。イメージはホストでクロスコンパイルしたバイナリをコピーするだけで、ビルド中にターゲットアーキテクチャのコマンドを実行しないため、QEMU は不要です。
 
 ## 8. プラグイン連携デバッグ
 
-プラグインのソース、ビルドツール、インデックスは `LACTSSL-Plugins` にあります。2 つのリポジトリは Go モジュールを共有しなくなり、メインリポジトリは独立してビルドできます。プラグイン実装を同時に変更してエンドツーエンド検証を行う場合は、一時的に `go.work` を作成できます:
+公式実装は `internal/plugin/impl/` にあり、`plugins/` は外部プラグイン SDK のみを含みます。SDK はメインリポジトリの `go.mod` からローカル `replace` で参照されます。公式実装を変更した後は、リポジトリルートからビルドしてください:
 
 ```bash
 go work init . ../LACTSSL-Plugins

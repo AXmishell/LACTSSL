@@ -1,0 +1,4 @@
+{
+  "meta.dns.azion.desc": "Manage DNS records through the Azion Edge DNS API.",
+  "meta.dns.azion.label": "Azion Edge DNS"
+}

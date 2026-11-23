@@ -1,0 +1,4 @@
+{
+  "meta.deploy.1panel_site.desc": "Update a website HTTPS certificate through the 1Panel API",
+  "meta.deploy.1panel_site.label": "1Panel Website"
+}

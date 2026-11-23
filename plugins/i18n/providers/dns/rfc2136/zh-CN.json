@@ -1,0 +1,4 @@
+{
+  "meta.dns.rfc2136.desc": "通过 RFC 2136 DNS UPDATE 协议管理记录，可配置 TSIG 认证与 Zone 列表",
+  "meta.dns.rfc2136.label": "RFC 2136 动态更新"
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.volcengine.desc": "Upload the certificate and deploy it to Volcengine CDN or DCDN according to the selected target",
+  "meta.deploy.volcengine.label": "Volcengine"
+}

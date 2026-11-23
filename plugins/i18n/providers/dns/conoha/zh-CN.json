@@ -1,0 +1,4 @@
+{
+  "meta.dns.conoha.desc": "通过 ConoHa DNS 接口管理 DNS 记录。",
+  "meta.dns.conoha.label": "ConoHa DNS"
+}

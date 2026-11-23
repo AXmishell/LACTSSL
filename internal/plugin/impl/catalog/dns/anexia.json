@@ -1,0 +1,19 @@
+{
+  "value": "anexia",
+  "label_key": "meta.dns.anexia.label",
+  "desc_key": "meta.dns.anexia.desc",
+  "fields": [
+    {
+      "key": "anexia_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "env": "ANEXIA_TOKEN"
+    },
+    {
+      "key": "anexia_api_url",
+      "label_key": "meta.field.api_url.label",
+      "type": "text",
+      "env": "ANEXIA_API_URL"
+    }
+  ]
+}

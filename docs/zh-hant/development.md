@@ -15,7 +15,8 @@ internal/logging/    程序日誌、級別、格式、檔案輪轉與非同步�
 internal/model/      資料庫實體與任務流程
 internal/acme/       內建 ACME 服務端協議
 internal/service/    ACME 客戶端、部署、通知、監控、排程
-internal/plugin/     外掛宿主：dns/deploy/notify、exec、install、meta、proto、repo
+internal/plugin/     外掛宿主與官方實現：宿主套件 + impl/ 內建 DNS/部署/通知
+plugins/             外部外掛開發 SDK：協議 v1、helper 框架與通用工具
 internal/store/      資料訪問層
 internal/util/       加密、校驗等工具
 internal/webui/      嵌入的前端構建產物
@@ -28,7 +29,7 @@ docs/ja/             日語文件
 docs/ru/             俄語文件
 ```
 
-外掛實現、官方 helper、外掛協議與後設資料位於獨立倉庫 [LACTSSL-Plugins](https://github.com/AXmishell/LACTSSL-Plugins)。主倉庫在宿主內實現協議 v1 的 manifest 解碼，兩個倉庫透過簽名索引與 `min_host` 做執行期相容，構建期不再互相依賴。
+官方 DNS/部署/通知實現位於本倉庫 `internal/plugin/impl/`，隨主模組編譯與測試；`plugins/` 是外部外掛開發 SDK（協議、helper 框架與通用工具）。上傳外掛仍透過協議 v1 子程序執行。主程式不依賴外部外掛倉庫或簽名索引。
 
 ## 2. 本地開發
 
@@ -166,14 +167,18 @@ gh release create v1.0.1 --generate-notes
 
 產物包括：
 
+- `lactssl_<version>_linux_amd64.tar.xz`
 - `lactssl_<version>_linux_amd64.tar.gz`
+- `lactssl_<version>_linux_arm64.tar.xz`
 - `lactssl_<version>_linux_arm64.tar.gz`
+- `lactssl_<version>_darwin_amd64.tar.xz`
 - `lactssl_<version>_darwin_amd64.tar.gz`
+- `lactssl_<version>_darwin_arm64.tar.xz`
 - `lactssl_<version>_darwin_arm64.tar.gz`
 - `lactssl_<version>_windows_amd64.zip`
 - `checksums.txt`（SHA-256）
 
-歸檔內包含二進位制、`README.md`、`LICENSE` 和 `config.yaml.example`。版本號直接取自 tag（去掉 `v` 字首），不依賴本地 git 推導。
+歸檔內包含二進位制、`README.md`、`LICENSE` 和 `config.yaml.example`。版本號直接取自 tag（去掉 `v` 字首），不依賴本地 git 推導。非 Windows 平臺同時發布 `.tar.xz` 與 `.tar.gz`：前者下載體積更小，後者用於相容舊版本自動升級客戶端。
 
 同時構建 `linux/amd64`、`linux/arm64` 映象並推送到 GHCR：
 
@@ -206,11 +211,11 @@ make release TAG=v1.0.1
 ./scripts/release.sh v1.0.1 --upload
 ```
 
-`--multiarch` 需要 Docker Buildx；跨架構構建還需 QEMU。
+`--multiarch` 需要 Docker Buildx。鏡像只複製主機交叉編譯的二進位，建置期間不執行目標架構命令，因此不需要 QEMU。
 
 ## 8. 外掛聯調
 
-外掛原始碼、構建工具和索引位於 `LACTSSL-Plugins`。兩個倉庫不再共享 Go 模組，主倉庫可以獨立構建；需要同時修改外掛實現並做端到端驗證時，可臨時建立 `go.work`：
+官方外掛實現位於 `internal/plugin/impl/`；`plugins/` 僅包含外部外掛 SDK，並透過主倉庫 `go.mod` 的本地 `replace` 引用。修改官方實現後直接在主倉庫構建即可：
 
 ```bash
 go work init . ../LACTSSL-Plugins

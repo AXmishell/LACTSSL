@@ -2,7 +2,10 @@ name: Release
 
 # 触发方式：
 #   1. 发布 GitHub Release（gh release create、网页发布、草稿转为正式发布）
-#   2. 手动重跑：Actions → Release → Run workflow，填写要重建的 tag
+#   2. 手动重跑：Actions → Release → Run workflow，填写要重建的 tag。
+#      注意：工作流文件取自 “Use workflow from” 选中的 ref；重跑旧 tag 时
+#      请在该下拉框选择对应 tag，否则 main 上更新的脚本/工作流步骤可能与
+#      旧 tag 的仓库内容不兼容（例如新增的构建步骤、Dockerfile 约定）。
 on:
   release:
     types: [published]
@@ -183,6 +186,9 @@ jobs:
       - name: Compress web assets
         run: go run ./scripts/compress-assets.go internal/webui/dist
 
+      - name: Bundle i18n locales
+        run: go run ./scripts/bundle-i18n.go
+
       - name: Build binary
         shell: bash
         env:
@@ -199,7 +205,7 @@ jobs:
           build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           mkdir -p out
 
-          CGO_ENABLED=0 go build -trimpath -tags "embed nomsgpack" \
+          CGO_ENABLED=0 go build -trimpath -tags "embed nomsgpack validator_novalidatefn" \
             -ldflags "-s -w -X 'lactssl/internal/api.Version=${VERSION}' -X 'lactssl/internal/api.BuildTime=${build_time}' -X 'lactssl/internal/api.BuildArch=${GOOS}/${GOARCH}' -X 'lactssl/internal/config.OfficialProgramPublicKey=${PROGRAM_PUBLIC_KEY}'" \
             -o "out/lactssl${ext}" ./cmd/server
 
@@ -225,6 +231,8 @@ jobs:
             (cd stage && zip -q -r "../dist/${name}.zip" .)
           else
             cp out/lactssl stage/
+            # xz 为默认下载包；同时输出 gz 供旧版本自动升级客户端回退使用。
+            XZ_OPT=-9e tar -cJf "dist/${name}.tar.xz" -C stage .
             tar -czf "dist/${name}.tar.gz" -C stage .
           fi
 
@@ -260,7 +268,7 @@ jobs:
       - name: Generate checksums.txt
         working-directory: dist
         run: |
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum *.tar.xz *.tar.gz *.zip > checksums.txt
           cat checksums.txt
 
       # 稳定版密钥已在 meta 阶段强制校验；预发布版未配置密钥时跳过签名。
@@ -315,7 +323,7 @@ jobs:
           set -euo pipefail
           for arch in amd64 arm64; do
             mkdir -p "dist/docker/linux-${arch}"
-            tar -xzf "dist/lactssl_${VERSION}_linux_${arch}.tar.gz" \
+            tar -xJf "dist/lactssl_${VERSION}_linux_${arch}.tar.xz" \
               -C "dist/docker/linux-${arch}" ./lactssl
             chmod 0755 "dist/docker/linux-${arch}/lactssl"
             ls -lh "dist/docker/linux-${arch}/lactssl"

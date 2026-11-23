@@ -1,0 +1,35 @@
+{
+  "value": "nicru",
+  "label_key": "meta.dns.nicru.label",
+  "desc_key": "meta.dns.nicru.desc",
+  "fields": [
+    {
+      "key": "nicru_user",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "NICRU_USER"
+    },
+    {
+      "key": "nicru_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "NICRU_PASSWORD"
+    },
+    {
+      "key": "nicru_service_id",
+      "label": "Service ID",
+      "type": "text",
+      "required": true,
+      "env": "NICRU_SERVICE_ID"
+    },
+    {
+      "key": "nicru_secret",
+      "label_key": "meta.field.api_secret.label",
+      "type": "password",
+      "required": true,
+      "env": "NICRU_SECRET"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "value": "mydnsjp",
+  "label_key": "meta.dns.mydnsjp.label",
+  "desc_key": "meta.dns.mydnsjp.desc",
+  "fields": [
+    {
+      "key": "mydnsjp_master_id",
+      "label": "Master ID",
+      "type": "text",
+      "required": true,
+      "env": "MYDNSJP_MASTER_ID"
+    },
+    {
+      "key": "mydnsjp_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "MYDNSJP_PASSWORD"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "value": "huawei_cdn",
+  "label_key": "meta.deploy.huawei_cdn.label",
+  "desc_key": "meta.deploy.huawei_cdn.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "secret_access_key",
+      "label_key": "meta.field.secret_access_key.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "enterprise_project_id",
+      "label_key": "meta.field.enterprise_project_id.label",
+      "type": "text",
+      "help_key": "meta.field.enterprise_project_id.help"
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help"
+    }
+  ]
+}

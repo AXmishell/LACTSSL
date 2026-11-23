@@ -1,0 +1,58 @@
+{
+  "value": "volcengine",
+  "label_key": "meta.deploy.volcengine.label",
+  "desc_key": "meta.deploy.volcengine.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "secret_access_key",
+      "label_key": "meta.field.secret_access_key.label",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "target",
+      "label_key": "meta.field.deploy_target.label",
+      "type": "select",
+      "help_key": "meta.field.deploy_target.help",
+      "default": "cdn",
+      "options": [
+        {
+          "label_key": "meta.field.deploy_target.option.cdn",
+          "value": "cdn"
+        },
+        {
+          "label_key": "meta.field.deploy_target.option.dcdn",
+          "value": "dcdn"
+        }
+      ]
+    },
+    {
+      "key": "region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "default": "cn-north-1",
+      "placeholder_key": "meta.field.region.placeholder.volcengine",
+      "help_key": "meta.field.region.help.volcengine"
+    },
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help"
+    }
+  ]
+}

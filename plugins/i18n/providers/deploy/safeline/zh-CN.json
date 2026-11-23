@@ -1,0 +1,4 @@
+{
+  "meta.deploy.safeline.desc": "按所选对象更新雷池 WAF 匹配的证书、控制台证书或认证中心证书",
+  "meta.deploy.safeline.label": "雷池 WAF"
+}

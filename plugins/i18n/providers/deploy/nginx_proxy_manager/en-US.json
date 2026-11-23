@@ -1,0 +1,4 @@
+{
+  "meta.deploy.nginx_proxy_manager.desc": "Upload a custom certificate and bind it to NPM proxy hosts",
+  "meta.deploy.nginx_proxy_manager.label": "Nginx Proxy Manager"
+}

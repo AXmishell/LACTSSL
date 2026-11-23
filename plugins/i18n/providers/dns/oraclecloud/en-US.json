@@ -1,0 +1,4 @@
+{
+  "meta.dns.oraclecloud.desc": "Manage DNS records through the Oracle Cloud DNS API.",
+  "meta.dns.oraclecloud.label": "Oracle Cloud DNS"
+}

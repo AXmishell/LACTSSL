@@ -57,6 +57,8 @@ type ExternalDeployer struct {
 	Enabled bool `json:"enabled"`
 	// FileEnabled 表示该目标所属的 helper 文件未被管理员停用。
 	FileEnabled bool `json:"file_enabled"`
+	// Source 是部署目标来源：builtin 或 exec。
+	Source string `json:"source,omitempty"`
 }
 
 var externalState = struct {
@@ -196,6 +198,7 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 						memoryLimitMB: cfg.MemoryLimitMB,
 						timeout:       cfg.Timeout,
 						maxOutputKB:   cfg.MaxOutputKB,
+						uploadSandbox: cfg.UploadSandboxProfile,
 					},
 				})
 				result.Deployers++
@@ -217,6 +220,7 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 				Version:         item.manifest.Version,
 				Enabled:         enabled,
 				FileEnabled:     true,
+				Source:          string(SourceExec),
 			}
 			externalState.Unlock()
 			accepted++
@@ -297,8 +301,8 @@ func ExternalDeployerInfo(id string) (ExternalDeployer, bool) {
 		return deployer, true
 	}
 	plugin, ok := Lookup(id)
-	if !ok || plugin.Source() != SourceExec {
-		return ExternalDeployer{}, false
+	if !ok || (plugin.Source() != SourceExec && plugin.Source() != SourceBuiltin) {
+		return BuiltinDeployerInfo(key)
 	}
 	if provider, ok := plugin.(interface{ Info() ExternalDeployer }); ok {
 		info := provider.Info()
@@ -306,7 +310,7 @@ func ExternalDeployerInfo(id string) (ExternalDeployer, bool) {
 		info.Enabled = true
 		return info, true
 	}
-	return ExternalDeployer{}, false
+	return BuiltinDeployerInfo(key)
 }
 
 // ExternalDeployHelpers 返回已加载的部署 helper 数量。
@@ -321,6 +325,7 @@ func inspectHelper(path string, cfg DiscoverConfig) (Manifest, error) {
 		Timeout:       cfg.ManifestTimeout,
 		MemoryLimitMB: cfg.MemoryLimitMB,
 		MaxOutputKB:   manifestOutputKB,
+		Sandbox:       pluginexec.SandboxOptions{Profile: cfg.UploadSandboxProfile},
 		Env: []string{
 			"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol,
 			"LACTSSL_DEPLOY_PLUGIN_FEATURES=" + FeatureMergedDeployers + "," + FeatureDynamicOptions + "," + pluginproto.FeatureVerify + "," + pluginproto.FeaturePlan,
@@ -585,6 +590,7 @@ type execSettings struct {
 	memoryLimitMB int
 	timeout       time.Duration
 	maxOutputKB   int
+	uploadSandbox string
 }
 
 type externalDeployer struct {
@@ -668,6 +674,7 @@ func (d *externalDeployer) Deploy(ctx context.Context, req Request) error {
 		Timeout:       d.settings.timeout,
 		MemoryLimitMB: d.settings.memoryLimitMB,
 		MaxOutputKB:   d.settings.maxOutputKB,
+		Sandbox:       pluginexec.SandboxOptions{Profile: d.settings.uploadSandbox},
 		Env:           []string{"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol},
 	})
 	secrets := redactionSecrets(req)
@@ -749,6 +756,7 @@ func (d *externalDeployer) Verify(ctx context.Context, req Request) (pluginproto
 		Timeout:       timeout,
 		MemoryLimitMB: d.settings.memoryLimitMB,
 		MaxOutputKB:   d.settings.maxOutputKB,
+		Sandbox:       pluginexec.SandboxOptions{Profile: d.settings.uploadSandbox},
 		Env:           []string{"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol},
 	})
 	secrets := redactionSecrets(req)
@@ -823,6 +831,7 @@ func (d *externalDeployer) Plan(ctx context.Context, req PlanRequest) (PlanResul
 		Timeout:       timeout,
 		MemoryLimitMB: d.settings.memoryLimitMB,
 		MaxOutputKB:   d.settings.maxOutputKB,
+		Sandbox:       pluginexec.SandboxOptions{Profile: d.settings.uploadSandbox},
 		Env:           []string{"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol},
 	})
 	secrets := redactionSecrets(Request{Auth: req.Auth, Config: req.Config})
@@ -947,6 +956,7 @@ func (d *externalDeployer) ListOptions(ctx context.Context, req OptionsRequest) 
 		Timeout:       timeout,
 		MemoryLimitMB: d.settings.memoryLimitMB,
 		MaxOutputKB:   512,
+		Sandbox:       pluginexec.SandboxOptions{Profile: d.settings.uploadSandbox},
 		Env:           []string{"LACTSSL_DEPLOY_PLUGIN_PROTOCOL=" + execProtocol},
 	})
 	secrets := redactionSecrets(Request{Auth: req.Auth, Config: req.Config})

@@ -1,10 +1,13 @@
 //go:build ignore
 
-// compress-assets 把前端构建产物预压缩为 .gz，并删除原始文件。
+// compress-assets 把前端构建产物预压缩为 .br，并删除原始文件。
 //
-// 生产构建会把 internal/webui/dist 嵌入二进制；预压缩后只保留压缩
+// 生产构建会把 internal/webui/dist 嵌入二进制；预压缩后只保留 Brotli
 // 表示，可显著减小二进制与运行时文件页。index.html 需要由服务端注入
 // 运行时配置，保持原文不压缩。
+//
+// Brotli 相比 gzip 对 JS/CSS 通常再小 15%~25%，现代浏览器均支持。
+// 不支持 br 的客户端由服务端流式解压，无需保留 gzip 副本。
 //
 // 用法：go run ./scripts/compress-assets.go internal/webui/dist
 package main
@@ -18,6 +21,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/andybalholm/brotli"
 )
 
 func main() {
@@ -33,7 +38,7 @@ func main() {
 	root := flag.Arg(0)
 
 	var files int
-	var rawBytes, gzipBytes int64
+	var rawBytes, brBytes int64
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -43,7 +48,29 @@ func main() {
 		}
 		name := entry.Name()
 		// 已压缩文件不重复处理；index.html 保留原文供服务端注入。
-		if strings.HasSuffix(name, ".gz") || name == "index.html" {
+		if strings.HasSuffix(name, ".br") || name == "index.html" {
+			return nil
+		}
+		// 旧版 gzip 产物不再使用：有原始文件时直接删除，只剩 .gz 时先还原
+		// 再转成 .br，避免在旧构建目录上直接运行本脚本导致资源丢失。
+		if strings.HasSuffix(name, ".gz") {
+			rawPath := strings.TrimSuffix(path, ".gz")
+			if _, err := os.Stat(rawPath); err == nil {
+				return os.Remove(path)
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			size, compressed, ok, err := convertGzip(path, rawPath, info.Mode().Perm())
+			if err != nil {
+				return err
+			}
+			if ok {
+				files++
+				rawBytes += size
+				brBytes += compressed
+			}
 			return nil
 		}
 		info, err := entry.Info()
@@ -60,7 +87,7 @@ func main() {
 		}
 		files++
 		rawBytes += size
-		gzipBytes += compressed
+		brBytes += compressed
 		return nil
 	})
 	if err != nil {
@@ -70,12 +97,62 @@ func main() {
 		fmt.Printf("前端资源无需压缩（已处理或全部小于压缩收益）: %s\n", root)
 		return
 	}
-	saved := rawBytes - gzipBytes
+	saved := rawBytes - brBytes
 	fmt.Printf("前端资源已压缩: %d 个文件, %d -> %d 字节 (%.1f%%), 节省 %.2f MB\n",
-		files, rawBytes, gzipBytes, float64(gzipBytes)*100/float64(rawBytes), float64(saved)/(1<<20))
+		files, rawBytes, brBytes, float64(brBytes)*100/float64(rawBytes), float64(saved)/(1<<20))
 }
 
-// compressFile 把 path 压缩为 path+".gz"，成功且更小时删除原文件。
+// convertGzip 把旧版 gzip 产物还原为原始文件，再调用 compressFile 转成 .br。
+// 仅用于兼容在旧构建目录上直接运行本脚本的情况。
+func convertGzip(path, rawPath string, mode os.FileMode) (int64, int64, bool, error) {
+	src, err := os.Open(path)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	defer src.Close()
+	zr, err := gzip.NewReader(src)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	defer zr.Close()
+
+	tmp, err := os.CreateTemp(filepath.Dir(rawPath), ".decompress-*")
+	if err != nil {
+		return 0, 0, false, err
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}
+	if _, err := io.Copy(tmp, zr); err != nil {
+		cleanup()
+		return 0, 0, false, err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return 0, 0, false, err
+	}
+	if err := os.Chmod(tmpPath, mode); err != nil {
+		_ = os.Remove(tmpPath)
+		return 0, 0, false, err
+	}
+	if err := os.Rename(tmpPath, rawPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return 0, 0, false, err
+	}
+
+	size, compressed, ok, err := compressFile(rawPath, mode)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return 0, 0, false, err
+	}
+	return size, compressed, ok, nil
+}
+
+// compressFile 把 path 压缩为 path+".br"，成功且更小时删除原文件。
 // 返回原始大小、压缩大小以及是否采用了压缩结果。
 func compressFile(path string, mode os.FileMode) (int64, int64, bool, error) {
 	src, err := os.Open(path)
@@ -98,11 +175,8 @@ func compressFile(path string, mode os.FileMode) (int64, int64, bool, error) {
 		_ = os.Remove(tmpPath)
 	}
 
-	zw, err := gzip.NewWriterLevel(tmp, gzip.BestCompression)
-	if err != nil {
-		cleanup()
-		return 0, 0, false, err
-	}
+	// 构建期一次性压缩，使用最高质量换取最小体积。
+	zw := brotli.NewWriterLevel(tmp, brotli.BestCompression)
 	if _, err := io.Copy(zw, src); err != nil {
 		cleanup()
 		return 0, 0, false, err
@@ -124,7 +198,7 @@ func compressFile(path string, mode os.FileMode) (int64, int64, bool, error) {
 	if outInfo.Size() >= info.Size() {
 		_ = os.Remove(tmpPath)
 		// 清理可能残留的旧压缩产物，避免服务端优先命中过期内容。
-		_ = os.Remove(path + ".gz")
+		_ = os.Remove(path + ".br")
 		return info.Size(), outInfo.Size(), false, nil
 	}
 	if err := os.Chmod(tmpPath, mode); err != nil {
@@ -132,8 +206,8 @@ func compressFile(path string, mode os.FileMode) (int64, int64, bool, error) {
 		return 0, 0, false, err
 	}
 	// Windows 上 Rename 不会覆盖已存在的目标，先删除旧产物。
-	_ = os.Remove(path + ".gz")
-	if err := os.Rename(tmpPath, path+".gz"); err != nil {
+	_ = os.Remove(path + ".br")
+	if err := os.Rename(tmpPath, path+".br"); err != nil {
 		_ = os.Remove(tmpPath)
 		return 0, 0, false, err
 	}

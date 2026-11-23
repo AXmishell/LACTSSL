@@ -45,7 +45,7 @@ LACTSSL has accumulated historical data formats and compatibility branches acros
 | Oversized WAL | The `-wal` file keeps growing after long uptime | `wal_checkpoint(TRUNCATE)` folds and truncates it |
 | Missing hot-path indexes | Certificate filtering, scheduling, and log cleanup perform full table scans | Automatically adds indexes; safe to run repeatedly |
 | Split log tables | System logs lived in `system_logs`, operation logs in `logs` | Copies system logs to `logs(category=runtime)` and keeps the old table for rollback |
-| Outdated configuration structure | Missing new sections such as `plugins.repo`, `notify_plugins`, `log.system`, and `upgrade` | Fills in missing fields for the current version, preserves comments, and normalizes equivalent forms |
+| Outdated configuration structure | Missing new sections such as `notify_plugins`, `log.system`, and `upgrade` | Fills in missing fields for the current version, preserves comments, and normalizes equivalent forms |
 
 ## 3. Pre-Upgrade Checks
 
@@ -95,7 +95,7 @@ Notes:
 The top of the `/upgrade` page provides **Program upgrade**:
 
 - **Check for updates**: queries Releases according to `upgrade.program.channel`; `stable` accepts only final releases, while `beta` includes pre-releases.
-- **Install update**: downloads `lactssl_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows), enforces SHA-256 verification using `checksums.txt`, extracts `lactssl`, and replaces the current executable.
+- **Install update**: downloads `lactssl_<version>_<os>_<arch>.tar.xz` (falls back to `.tar.gz`; `.zip` on Windows), enforces SHA-256 verification using `checksums.txt`, extracts `lactssl`, and replaces the current executable.
 - **Release signature**: official builds embed the release public key automatically and enforce `checksums.txt.sig` verification by default; missing or invalid signatures are rejected. Self-built binaries without `upgrade.program.public_key` reject online upgrades by default; set `upgrade.program.allow_unsigned: true` only in controlled environments to install unsigned packages.
 - **Backup and rollback**: before replacement, the old binary is copied to `<data_dir>/upgrade-backups/program/`; the latest 3 are retained by default.
 - **Restart to apply**: after installation, the page prompts for a restart; session persistence is enabled by default, so the existing session remains usable. Setting `security.session_persistence: false` clears sessions on restart.
@@ -188,7 +188,7 @@ Results are written to the system logs and the `upgrade.last_run` setting.
 - Fills in all standard configuration sections and default values for the current version.
 - Normalizes whitespace in `server.addr`, `acme.addr`, and similar fields.
 - Removes trailing slashes from `security.public_url` and `acme.base_url`.
-- Lowercases `log.level`, `log.format`, `log.system.level`, and `plugins.repo.channel`.
+- Lowercases `log.level`, `log.format`, and `log.system.level`.
 - Deduplicates and trims `server.trusted_proxies`.
 - Checks risks such as ACME without a fixed endpoint, plugin repository without a signing public key, deployment plugins handling private keys, and overly short secrets.
 - Before writing, fully validates using the startup loading logic; validation failures do not overwrite the original file.

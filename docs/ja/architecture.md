@@ -19,7 +19,7 @@ LACTSSL は自己完結型の Go バイナリです：
     ├── lactssl.db            # SQLite メイン DB
     ├── lactssl.db-wal        # WAL（実行時）
     ├── lactssl.db-shm        # 共有メモリ（実行時）
-    ├── plugins/              # dns / deploy / notify ヘルパー
+    ├── plugins/              # アップロード helper（dns / deploy / notify）
     ├── plugin-icons/         # プラグインアイコンのキャッシュ
     ├── upgrade-backups/      # 移行とプログラムアップグレードのバックアップ
     └── restore-pending/      # 適用待ちの復元パッケージ

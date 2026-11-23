@@ -1,0 +1,21 @@
+{
+  "value": "iwantmyname",
+  "label_key": "meta.dns.iwantmyname.label",
+  "desc_key": "meta.dns.iwantmyname.desc",
+  "fields": [
+    {
+      "key": "iwantmyname_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "IWANTMYNAME_USERNAME"
+    },
+    {
+      "key": "iwantmyname_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "IWANTMYNAME_PASSWORD"
+    }
+  ]
+}

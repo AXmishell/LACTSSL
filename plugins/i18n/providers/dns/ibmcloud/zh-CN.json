@@ -1,0 +1,4 @@
+{
+  "meta.dns.ibmcloud.desc": "通过 IBM Cloud (SoftLayer) 接口管理 DNS 记录。",
+  "meta.dns.ibmcloud.label": "IBM Cloud (SoftLayer)"
+}

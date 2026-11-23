@@ -1,0 +1,4 @@
+{
+  "meta.deploy.webhook.desc": "Push the certificate as JSON to a URL",
+  "meta.deploy.webhook.label": "Webhook"
+}

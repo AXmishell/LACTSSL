@@ -1,0 +1,14 @@
+{
+  "value": "gandiv5",
+  "label_key": "meta.dns.gandiv5.label",
+  "desc_key": "meta.dns.gandiv5.desc",
+  "fields": [
+    {
+      "key": "personal_access_token",
+      "label_key": "meta.field.personal_access_token.label",
+      "type": "password",
+      "required": true,
+      "env": "GANDIV5_PERSONAL_ACCESS_TOKEN"
+    }
+  ]
+}

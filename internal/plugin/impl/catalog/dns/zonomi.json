@@ -1,0 +1,14 @@
+{
+  "value": "zonomi",
+  "label_key": "meta.dns.zonomi.label",
+  "desc_key": "meta.dns.zonomi.desc",
+  "fields": [
+    {
+      "key": "zonomi_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "ZONOMI_API_KEY"
+    }
+  ]
+}

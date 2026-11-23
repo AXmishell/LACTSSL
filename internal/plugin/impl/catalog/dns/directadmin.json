@@ -1,0 +1,31 @@
+{
+  "value": "directadmin",
+  "label_key": "meta.dns.directadmin.label",
+  "desc_key": "meta.dns.directadmin.desc",
+  "fields": [
+    {
+      "key": "directadmin_zone_name",
+      "label_key": "meta.field.zone_name.label",
+      "type": "text",
+      "env": "DIRECTADMIN_ZONE_NAME"
+    },
+    {
+      "key": "directadmin_api_url",
+      "label_key": "meta.field.api_url.label",
+      "type": "text",
+      "env": "DIRECTADMIN_API_URL"
+    },
+    {
+      "key": "directadmin_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "DIRECTADMIN_USERNAME"
+    },
+    {
+      "key": "directadmin_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "DIRECTADMIN_PASSWORD"
+    }
+  ]
+}

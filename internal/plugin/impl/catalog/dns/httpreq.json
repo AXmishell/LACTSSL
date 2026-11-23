@@ -1,0 +1,31 @@
+{
+  "value": "httpreq",
+  "label_key": "meta.dns.httpreq.label",
+  "desc_key": "meta.dns.httpreq.desc",
+  "fields": [
+    {
+      "key": "httpreq_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "HTTPREQ_ENDPOINT"
+    },
+    {
+      "key": "httpreq_mode",
+      "label": "Mode",
+      "type": "text",
+      "env": "HTTPREQ_MODE"
+    },
+    {
+      "key": "httpreq_username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "env": "HTTPREQ_USERNAME"
+    },
+    {
+      "key": "httpreq_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "env": "HTTPREQ_PASSWORD"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "value": "westcn",
+  "label_key": "meta.dns.westcn.label",
+  "desc_key": "meta.dns.westcn.desc",
+  "fields": [
+    {
+      "key": "username",
+      "label_key": "meta.field.username.label",
+      "type": "text",
+      "required": true,
+      "env": "WESTCN_USERNAME"
+    },
+    {
+      "key": "password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "WESTCN_PASSWORD"
+    }
+  ]
+}

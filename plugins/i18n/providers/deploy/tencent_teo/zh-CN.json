@@ -1,0 +1,4 @@
+{
+  "meta.deploy.tencent_teo.desc": "通过腾讯云 SSL 证书服务部署到 EdgeOne",
+  "meta.deploy.tencent_teo.label": "腾讯云 EdgeOne"
+}

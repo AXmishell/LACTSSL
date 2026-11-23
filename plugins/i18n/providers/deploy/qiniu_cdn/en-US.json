@@ -1,0 +1,4 @@
+{
+  "meta.deploy.qiniu_cdn.desc": "Upload the certificate and bind accelerated domains through the Qiniu Cloud CDN API",
+  "meta.deploy.qiniu_cdn.label": "Qiniu Cloud CDN"
+}

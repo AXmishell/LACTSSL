@@ -1,0 +1,21 @@
+{
+  "value": "simply",
+  "label_key": "meta.dns.simply.label",
+  "desc_key": "meta.dns.simply.desc",
+  "fields": [
+    {
+      "key": "simply_account_name",
+      "label": "Account Name",
+      "type": "text",
+      "required": true,
+      "env": "SIMPLY_ACCOUNT_NAME"
+    },
+    {
+      "key": "simply_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "SIMPLY_API_KEY"
+    }
+  ]
+}

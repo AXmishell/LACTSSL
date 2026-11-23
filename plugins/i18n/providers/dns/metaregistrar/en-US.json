@@ -1,0 +1,4 @@
+{
+  "meta.dns.metaregistrar.desc": "Manage DNS records through the Metaregistrar API.",
+  "meta.dns.metaregistrar.label": "Metaregistrar"
+}

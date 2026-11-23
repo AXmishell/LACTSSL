@@ -1,0 +1,4 @@
+{
+  "meta.dns.httpnet.desc": "通过 http.net 接口管理 DNS 记录。",
+  "meta.dns.httpnet.label": "http.net"
+}

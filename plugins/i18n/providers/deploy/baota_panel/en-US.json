@@ -1,0 +1,4 @@
+{
+  "meta.deploy.baota_panel.desc": "Replace the SSL certificate used by the BaoTa panel itself",
+  "meta.deploy.baota_panel.label": "BaoTa Panel SSL Certificate"
+}

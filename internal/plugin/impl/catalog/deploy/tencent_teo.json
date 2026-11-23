@@ -1,0 +1,41 @@
+{
+  "value": "tencent_teo",
+  "label_key": "meta.deploy.tencent_teo.label",
+  "desc_key": "meta.deploy.tencent_teo.desc",
+  "fields": [
+    {
+      "key": "secret_id",
+      "label_key": "meta.field.secret_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "intl",
+      "label_key": "meta.field.tencent_intl.label",
+      "type": "switch",
+      "default": "false",
+      "help_key": "meta.field.tencent_intl.help"
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "domains",
+      "label_key": "meta.field.domains.label",
+      "type": "text",
+      "help_key": "meta.field.domains.help"
+    },
+    {
+      "key": "cert_name",
+      "label_key": "meta.field.cert_name.label",
+      "type": "text",
+      "help_key": "meta.field.cert_name.help"
+    }
+  ],
+  "deprecated": true
+}

@@ -229,8 +229,16 @@ make_tgz() {
   tar -czf "$out" -C "$src" .
 }
 
+make_txz() {
+  # 语义等价于 tar -cJf dist/<name>.tar.xz -C stage .（xz -9e 压缩率更高）
+  local src="$1" out="$2"
+  XZ_OPT="${XZ_OPT:--9e}" tar -cJf "$out" -C "$src" .
+}
+
 if [ "$RUN_BUILD" -eq 1 ]; then
   require go
+  # 发布包默认使用 xz；缺失时无法生成主推的 .tar.xz 资产。
+  require xz
 
   step "build: 清理旧的 dist/ 与打包临时目录"
   rm -rf "$DIST" "$STAGE_ROOT"
@@ -240,6 +248,7 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   rm -rf internal/webui/dist
   cp -a web/dist internal/webui/dist
   go run ./scripts/compress-assets.go internal/webui/dist
+  go run ./scripts/bundle-i18n.go
 
   for target in "${TARGETS[@]}"; do
     read -r goos goarch <<<"$target"
@@ -254,7 +263,7 @@ if [ "$RUN_BUILD" -eq 1 ]; then
     if [ -n "$program_public_key" ]; then
       ldflags="${ldflags} -X 'lactssl/internal/config.OfficialProgramPublicKey=${program_public_key}'"
     fi
-    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -tags "embed nomsgpack" \
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -tags "embed nomsgpack validator_novalidatefn" \
       -ldflags "$ldflags" \
       -o "out/$goos-$goarch/lactssl${ext}" ./cmd/server
 
@@ -275,13 +284,15 @@ if [ "$RUN_BUILD" -eq 1 ]; then
       make_zip "$stage" "$DIST/${name}.zip"
     else
       cp "out/$goos-$goarch/lactssl" "$stage/"
+      # xz 为默认下载包；同时保留 gz 以兼容旧版本自动升级客户端。
+      make_txz "$stage" "$DIST/${name}.tar.xz"
       make_tgz "$stage" "$DIST/${name}.tar.gz"
     fi
   done
 
   # ---------- checksums ----------
   step "checksums: 生成 checksums.txt"
-  (cd "$DIST" && shopt -s nullglob && sha256sum *.tar.gz *.zip > checksums.txt && cat checksums.txt)
+  (cd "$DIST" && shopt -s nullglob && sha256sum *.tar.xz *.tar.gz *.zip > checksums.txt && cat checksums.txt)
 
   # 与 release.yml 一致：稳定版上传必须签名；预发布/本地 dry-run 可跳过。
   if [ -n "${ED25519_PRIVATE_KEY_B64:-}" ]; then
@@ -420,7 +431,7 @@ fi
 if [ "$RUN_PUBLISH" -eq 1 ]; then
   step "publish: GitHub Release 资产"
   shopt -s nullglob
-  assets=("$DIST"/*.tar.gz "$DIST"/*.zip "$DIST/checksums.txt")
+  assets=("$DIST"/*.tar.xz "$DIST"/*.tar.gz "$DIST"/*.zip "$DIST/checksums.txt")
   if [ -f "$DIST/checksums.txt.sig" ]; then
     assets+=("$DIST/checksums.txt.sig")
   fi

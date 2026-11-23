@@ -1,0 +1,4 @@
+{
+  "meta.dns.dnspod.desc": "Use a DNSPod API Token in the format ID,Token",
+  "meta.dns.dnspod.label": "DNSPod (Tencent Cloud)"
+}

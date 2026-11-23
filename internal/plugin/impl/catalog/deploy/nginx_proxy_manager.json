@@ -1,0 +1,63 @@
+{
+  "value": "nginx_proxy_manager",
+  "label_key": "meta.deploy.nginx_proxy_manager.label",
+  "desc_key": "meta.deploy.nginx_proxy_manager.desc",
+  "fields": [
+    {
+      "key": "panel_url",
+      "label_key": "meta.field.panel_url.label",
+      "type": "text",
+      "required": true,
+      "placeholder_key": "meta.field.panel_url.placeholder",
+      "help_key": "meta.field.npm_url.help"
+    },
+    {
+      "key": "email",
+      "label_key": "meta.field.email.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true
+    },
+    {
+      "key": "totp_secret",
+      "label_key": "meta.field.totp_secret.label",
+      "type": "password",
+      "help_key": "meta.field.totp_secret.help"
+    },
+    {
+      "key": "skip_verify",
+      "label_key": "meta.field.skip_verify.label",
+      "type": "select",
+      "default": "false",
+      "options": [
+        {
+          "label_key": "meta.field.skip_verify.option.false",
+          "value": "false"
+        },
+        {
+          "label_key": "meta.field.skip_verify.option.true",
+          "value": "true"
+        }
+      ]
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "proxy_hosts",
+      "label_key": "meta.field.npm_proxy_hosts.label",
+      "type": "text",
+      "help_key": "meta.field.npm_proxy_hosts.help"
+    },
+    {
+      "key": "certificate_label",
+      "label_key": "meta.field.npm_cert_label.label",
+      "type": "text",
+      "help_key": "meta.field.npm_cert_label.help"
+    }
+  ]
+}

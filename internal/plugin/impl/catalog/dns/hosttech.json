@@ -1,0 +1,14 @@
+{
+  "value": "hosttech",
+  "label_key": "meta.dns.hosttech.label",
+  "desc_key": "meta.dns.hosttech.desc",
+  "fields": [
+    {
+      "key": "hosttech_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "HOSTTECH_API_KEY"
+    }
+  ]
+}

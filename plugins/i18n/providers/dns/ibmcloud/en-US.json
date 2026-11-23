@@ -1,0 +1,4 @@
+{
+  "meta.dns.ibmcloud.desc": "Manage DNS records through the IBM Cloud (SoftLayer) API.",
+  "meta.dns.ibmcloud.label": "IBM Cloud (SoftLayer)"
+}

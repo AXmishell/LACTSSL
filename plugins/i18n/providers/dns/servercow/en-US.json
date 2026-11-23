@@ -1,0 +1,4 @@
+{
+  "meta.dns.servercow.desc": "Manage DNS records through the Servercow DNS API.",
+  "meta.dns.servercow.label": "Servercow DNS"
+}

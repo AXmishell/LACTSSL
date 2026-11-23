@@ -1,0 +1,19 @@
+{
+  "value": "checkdomain",
+  "label_key": "meta.dns.checkdomain.label",
+  "desc_key": "meta.dns.checkdomain.desc",
+  "fields": [
+    {
+      "key": "checkdomain_token",
+      "label_key": "meta.field.token.label",
+      "type": "password",
+      "env": "CHECKDOMAIN_TOKEN"
+    },
+    {
+      "key": "checkdomain_endpoint",
+      "label": "Endpoint",
+      "type": "text",
+      "env": "CHECKDOMAIN_ENDPOINT"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "value": "limacity",
+  "label_key": "meta.dns.limacity.label",
+  "desc_key": "meta.dns.limacity.desc",
+  "fields": [
+    {
+      "key": "limacity_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "LIMACITY_API_KEY"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun_cdn.desc": "调用阿里云 CDN API 更新域名证书",
+  "meta.deploy.aliyun_cdn.label": "阿里云 CDN"
+}

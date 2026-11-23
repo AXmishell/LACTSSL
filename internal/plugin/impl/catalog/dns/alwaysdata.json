@@ -1,0 +1,19 @@
+{
+  "value": "alwaysdata",
+  "label_key": "meta.dns.alwaysdata.label",
+  "desc_key": "meta.dns.alwaysdata.desc",
+  "fields": [
+    {
+      "key": "alwaysdata_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "env": "ALWAYSDATA_API_KEY"
+    },
+    {
+      "key": "alwaysdata_account",
+      "label": "Account",
+      "type": "text",
+      "env": "ALWAYSDATA_ACCOUNT"
+    }
+  ]
+}

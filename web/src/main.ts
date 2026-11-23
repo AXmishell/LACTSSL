@@ -1,21 +1,18 @@
 import { createApp } from 'vue'
-import ElementPlus from 'element-plus'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+// 组件按需引入（vite.config.ts 的 ElementPlusResolver），但样式仍使用整份
+// Element Plus CSS：按组件拆分的样式会在路由 chunk 之后加载，可能覆盖
+// styles.css 中的全局定制。整份 CSS 必须位于 styles.css 之前。
 import 'element-plus/dist/index.css'
 import './styles.css'
 import App from './App.vue'
 import router from './router'
-import { i18n, currentLocale, elementLocaleFor } from './i18n'
+import { i18n } from './i18n'
 import { installConsoleEasterEgg } from './consoleEasterEgg'
 
 const bootedAt = performance.now()
 const BOOT_MIN_VISIBLE = 240
 
 const app = createApp(App)
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
-}
-app.use(ElementPlus, { locale: elementLocaleFor(currentLocale()) })
 app.use(i18n)
 app.use(router)
 app.mount('#app')

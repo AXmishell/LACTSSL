@@ -1,0 +1,31 @@
+{
+  "value": "scaleway",
+  "label_key": "meta.dns.scaleway.label",
+  "desc_key": "meta.dns.scaleway.desc",
+  "fields": [
+    {
+      "key": "scaleway_api_token",
+      "label": "Scaleway API Token",
+      "type": "password",
+      "env": "SCALEWAY_API_TOKEN"
+    },
+    {
+      "key": "scw_secret_key",
+      "label": "Scw Secret Key",
+      "type": "password",
+      "env": "SCW_SECRET_KEY"
+    },
+    {
+      "key": "scw_access_key",
+      "label": "Scw Access Key",
+      "type": "password",
+      "env": "SCW_ACCESS_KEY"
+    },
+    {
+      "key": "scaleway_project_id",
+      "label": "Scaleway Project ID",
+      "type": "text",
+      "env": "SCALEWAY_PROJECT_ID"
+    }
+  ]
+}

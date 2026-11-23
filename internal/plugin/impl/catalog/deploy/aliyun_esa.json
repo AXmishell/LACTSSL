@@ -1,0 +1,29 @@
+{
+  "value": "aliyun_esa",
+  "label_key": "meta.deploy.aliyun_esa.label",
+  "desc_key": "meta.deploy.aliyun_esa.desc",
+  "fields": [
+    {
+      "key": "access_key_id",
+      "label_key": "meta.field.access_key_id.label",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "access_key_secret",
+      "label_key": "meta.field.access_key_secret.label",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "deploy_fields": [
+    {
+      "key": "site_id",
+      "label_key": "meta.field.site_id.label",
+      "type": "text",
+      "required": true,
+      "help_key": "meta.field.site_id.help"
+    }
+  ],
+  "deprecated": true
+}

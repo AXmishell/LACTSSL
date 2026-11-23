@@ -1,0 +1,4 @@
+{
+  "meta.deploy.aliyun_dcdn.desc": "调用阿里云全站加速 DCDN 接口更新域名证书",
+  "meta.deploy.aliyun_dcdn.label": "阿里云 DCDN"
+}

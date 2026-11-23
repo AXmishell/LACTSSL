@@ -1,0 +1,4 @@
+{
+  "meta.dns.dnspod.desc": "使用 DNSPod API Token，格式为 ID,Token",
+  "meta.dns.dnspod.label": "DNSPod（腾讯云）"
+}

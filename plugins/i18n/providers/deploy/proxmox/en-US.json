@@ -1,0 +1,4 @@
+{
+  "meta.deploy.proxmox.desc": "Upload a custom certificate to Proxmox nodes",
+  "meta.deploy.proxmox.label": "Proxmox VE"
+}

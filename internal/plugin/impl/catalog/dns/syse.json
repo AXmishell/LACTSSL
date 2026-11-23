@@ -1,0 +1,15 @@
+{
+  "value": "syse",
+  "label_key": "meta.dns.syse.label",
+  "desc_key": "meta.dns.syse.desc",
+  "fields": [
+    {
+      "key": "syse_credentials",
+      "label": "Syse Credentials",
+      "type": "textarea",
+      "required": true,
+      "secret": true,
+      "env": "SYSE_CREDENTIALS"
+    }
+  ]
+}

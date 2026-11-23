@@ -1,0 +1,37 @@
+{
+  "value": "edgeone",
+  "label_key": "meta.dns.edgeone.label",
+  "desc_key": "meta.dns.edgeone.desc",
+  "fields": [
+    {
+      "key": "edgeone_secret_id",
+      "label_key": "meta.field.secret_id.label",
+      "type": "text",
+      "env": "EDGEONE_SECRET_ID"
+    },
+    {
+      "key": "edgeone_secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "env": "EDGEONE_SECRET_KEY"
+    },
+    {
+      "key": "edgeone_region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "env": "EDGEONE_REGION"
+    },
+    {
+      "key": "edgeone_session_token",
+      "label": "Session Token",
+      "type": "password",
+      "env": "EDGEONE_SESSION_TOKEN"
+    },
+    {
+      "key": "edgeone_zones_mapping",
+      "label": "Zones Mapping",
+      "type": "text",
+      "env": "EDGEONE_ZONES_MAPPING"
+    }
+  ]
+}

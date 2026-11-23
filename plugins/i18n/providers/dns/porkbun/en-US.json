@@ -1,0 +1,4 @@
+{
+  "meta.dns.porkbun.desc": "Porkbun DNS using an API Key and Secret API Key",
+  "meta.dns.porkbun.label": "Porkbun"
+}

@@ -6,7 +6,8 @@ import (
 )
 
 // builtinDNSProviderIDs 记录迁移前直接编译进主程序的 DNS 服务商 ID。
-// 这些服务商现在由 DNS 插件提供，但仍默认启用，保证升级后行为不变。
+// 这些服务商是迁移前内置的历史 ID，用于旧版停用列表迁移与兼容；
+// 新安装不再默认启用任何 DNS 服务商。
 var builtinDNSProviderIDs = []string{
 	"alidns",
 	"aliesa",

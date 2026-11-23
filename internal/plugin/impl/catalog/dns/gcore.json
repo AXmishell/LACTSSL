@@ -1,0 +1,14 @@
+{
+  "value": "gcore",
+  "label_key": "meta.dns.gcore.label",
+  "desc_key": "meta.dns.gcore.desc",
+  "fields": [
+    {
+      "key": "gcore_permanent_api_token",
+      "label": "Gcore Permanent API Token",
+      "type": "password",
+      "required": true,
+      "env": "GCORE_PERMANENT_API_TOKEN"
+    }
+  ]
+}

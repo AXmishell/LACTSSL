@@ -1,0 +1,4 @@
+{
+  "meta.dns.autodns.desc": "通过 AutoDNS 接口管理 DNS 记录。",
+  "meta.dns.autodns.label": "AutoDNS"
+}

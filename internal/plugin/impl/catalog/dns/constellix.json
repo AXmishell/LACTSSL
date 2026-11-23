@@ -1,0 +1,21 @@
+{
+  "value": "constellix",
+  "label_key": "meta.dns.constellix.label",
+  "desc_key": "meta.dns.constellix.desc",
+  "fields": [
+    {
+      "key": "constellix_api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "CONSTELLIX_API_KEY"
+    },
+    {
+      "key": "constellix_secret_key",
+      "label_key": "meta.field.secret_key.label",
+      "type": "password",
+      "required": true,
+      "env": "CONSTELLIX_SECRET_KEY"
+    }
+  ]
+}

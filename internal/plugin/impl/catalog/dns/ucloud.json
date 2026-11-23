@@ -1,0 +1,31 @@
+{
+  "value": "ucloud",
+  "label_key": "meta.dns.ucloud.label",
+  "desc_key": "meta.dns.ucloud.desc",
+  "fields": [
+    {
+      "key": "ucloud_public_key",
+      "label": "Public Key",
+      "type": "password",
+      "env": "UCLOUD_PUBLIC_KEY"
+    },
+    {
+      "key": "ucloud_private_key",
+      "label": "Private Key",
+      "type": "password",
+      "env": "UCLOUD_PRIVATE_KEY"
+    },
+    {
+      "key": "ucloud_region",
+      "label_key": "meta.field.region.label",
+      "type": "text",
+      "env": "UCLOUD_REGION"
+    },
+    {
+      "key": "ucloud_project_id",
+      "label": "Project ID",
+      "type": "text",
+      "env": "UCLOUD_PROJECT_ID"
+    }
+  ]
+}

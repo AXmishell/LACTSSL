@@ -1,0 +1,4 @@
+{
+  "meta.dns.internetbs.desc": "通过 internet.bs 接口管理 DNS 记录。",
+  "meta.dns.internetbs.label": "internet.bs"
+}

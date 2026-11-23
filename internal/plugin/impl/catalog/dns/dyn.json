@@ -1,0 +1,28 @@
+{
+  "value": "dyn",
+  "label_key": "meta.dns.dyn.label",
+  "desc_key": "meta.dns.dyn.desc",
+  "fields": [
+    {
+      "key": "dyn_customer_name",
+      "label": "Customer Name",
+      "type": "text",
+      "required": true,
+      "env": "DYN_CUSTOMER_NAME"
+    },
+    {
+      "key": "dyn_user_name",
+      "label": "User Name",
+      "type": "text",
+      "required": true,
+      "env": "DYN_USER_NAME"
+    },
+    {
+      "key": "dyn_password",
+      "label_key": "meta.field.password.label",
+      "type": "password",
+      "required": true,
+      "env": "DYN_PASSWORD"
+    }
+  ]
+}

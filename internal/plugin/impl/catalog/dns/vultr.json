@@ -1,0 +1,14 @@
+{
+  "value": "vultr",
+  "label_key": "meta.dns.vultr.label",
+  "desc_key": "meta.dns.vultr.desc",
+  "fields": [
+    {
+      "key": "api_key",
+      "label_key": "meta.field.api_key.label.godaddy",
+      "type": "password",
+      "required": true,
+      "env": "VULTR_API_KEY"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "meta.dns.civo.desc": "Manage DNS records through the Civo API.",
+  "meta.dns.civo.label": "Civo"
+}
