@@ -126,17 +126,19 @@ jobs:
             -c "CREATE DATABASE lactssl_p1" \
             -c "CREATE DATABASE lactssl_p2" \
             -c "CREATE DATABASE lactssl_p3"
-          docker exec "$(docker ps -q --filter ancestor=mysql:5.7)" \
-            mysql -uroot -prootpass \
-            -e "CREATE DATABASE lactssl_m1 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" \
-            -e "CREATE DATABASE lactssl_m2 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" \
-            -e "CREATE DATABASE lactssl_m3 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci" \
-            -e "CREATE USER 'lactssl'@'%' IDENTIFIED BY 'lactsslpass'" \
-            -e "GRANT ALL PRIVILEGES ON lactssl_db.* TO 'lactssl'@'%'" \
-            -e "GRANT ALL PRIVILEGES ON lactssl_m1.* TO 'lactssl'@'%'" \
-            -e "GRANT ALL PRIVILEGES ON lactssl_m2.* TO 'lactssl'@'%'" \
-            -e "GRANT ALL PRIVILEGES ON lactssl_m3.* TO 'lactssl'@'%'" \
-            -e "FLUSH PRIVILEGES"
+          # mysql 客户端会把多个 -e 用空格拼成同一条语句执行，必须用分号分隔后整体传入。
+          docker exec -i "$(docker ps -q --filter ancestor=mysql:5.7)" \
+            env MYSQL_PWD=rootpass mysql -uroot --default-character-set=utf8mb4 <<'SQL'
+          CREATE DATABASE lactssl_m1 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+          CREATE DATABASE lactssl_m2 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+          CREATE DATABASE lactssl_m3 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+          CREATE USER 'lactssl'@'%' IDENTIFIED BY 'lactsslpass';
+          GRANT ALL PRIVILEGES ON lactssl_db.* TO 'lactssl'@'%';
+          GRANT ALL PRIVILEGES ON lactssl_m1.* TO 'lactssl'@'%';
+          GRANT ALL PRIVILEGES ON lactssl_m2.* TO 'lactssl'@'%';
+          GRANT ALL PRIVILEGES ON lactssl_m3.* TO 'lactssl'@'%';
+          FLUSH PRIVILEGES;
+          SQL
 
       - name: Run database compatibility tests
         env:
