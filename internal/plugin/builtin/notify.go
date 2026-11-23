@@ -7,13 +7,11 @@
 package builtin
 
 import (
+	notifyplugin "lactssl/internal/plugin/notify"
+	"lactssl/internal/plugin/notify/providers/channels"
+	pluginproto "lactssl/internal/plugin/proto"
 	"strings"
 	"sync"
-
-	plugnotify "lactssl/internal/plugin/impl/notify"
-	"lactssl/internal/plugin/impl/notify/providers/channels"
-	notifyplugin "lactssl/internal/plugin/notify"
-	pluginproto "lactssl/internal/plugin/proto"
 )
 
 var notifyOnce sync.Once
@@ -25,7 +23,7 @@ func loadNotify() {
 }
 
 type builtinNotifier struct {
-	inner plugnotify.Notifier
+	inner notifyplugin.NativeNotifier
 	def   notifyplugin.Definition
 	info  notifyplugin.ExternalChannel
 }
@@ -33,7 +31,7 @@ type builtinNotifier struct {
 func (n *builtinNotifier) Definition() notifyplugin.Definition { return n.def }
 func (n *builtinNotifier) Source() notifyplugin.Source         { return notifyplugin.SourceBuiltin }
 func (n *builtinNotifier) Notify(cfg map[string]any, msg notifyplugin.Message) error {
-	return n.inner.Notify(cfg, plugnotify.Message{Title: msg.Title, Body: msg.Body})
+	return n.inner.Notify(cfg, notifyplugin.NativeMessage{Title: msg.Title, Body: msg.Body})
 }
 func (n *builtinNotifier) Info() notifyplugin.ExternalChannel { return n.info }
 
@@ -48,7 +46,7 @@ func SyncNotify(available, enabled bool, ids map[string]bool) error {
 		return nil
 	}
 	loadNotify()
-	all := plugnotify.List()
+	all := notifyplugin.ListNative()
 	infos := make([]notifyplugin.ExternalChannel, 0, len(all))
 	adapters := make([]*builtinNotifier, 0, len(all))
 	for _, notifier := range all {
@@ -85,7 +83,7 @@ func SyncNotify(available, enabled bool, ids map[string]bool) error {
 	return nil
 }
 
-func buildNotifyDefinition(definition plugnotify.Definition) (notifyplugin.Definition, []notifyplugin.Field) {
+func buildNotifyDefinition(definition notifyplugin.NativeDefinition) (notifyplugin.Definition, []notifyplugin.Field) {
 	fields := make([]notifyplugin.Field, 0, len(definition.Fields))
 	for _, field := range definition.Fields {
 		options := make([]notifyplugin.Option, 0, len(field.Options))

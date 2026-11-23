@@ -1,6 +1,6 @@
 # Plugin governance
 
-LACTSSL provides DNS, certificate deployment, and notification capabilities through plugins. Official implementations live in `internal/plugin/impl/` and are compiled into the host; `plugins/` is the external plugin development SDK. Uploaded third-party helpers still run as one-shot subprocesses and are sandboxed by default.
+LACTSSL provides DNS, certificate deployment, and notification capabilities through plugins. Official implementations live in `internal/plugin/` and are compiled into the host; `plugins/` is the external plugin development SDK. Uploaded third-party helpers still run as one-shot subprocesses and are sandboxed by default.
 
 ## 1. Model
 

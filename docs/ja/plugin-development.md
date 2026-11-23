@@ -2,9 +2,9 @@
 
 本文はプラグイン開発者、インテグレーター、企業プラットフォームチーム向けで、LACTSSL のプラグインプロトコル、リポジトリ構造、開発フロー、ビルド、パッケージング、インデックス、署名、リリースについて説明します。**運用担当者は通常、[プラグインガバナンス](plugins.md)と対応する DNS/デプロイ/通知プラグインのページのみを読めば十分です。**
 
-公式 DNS/デプロイ/通知実装は `internal/plugin/impl/` にあり、メインプログラムと一緒にコンパイルされます。`plugins/` は外部プラグイン開発 SDK（プロトコル、helper フレームワーク、共通ユーティリティ）です。アップロードプラグインは引き続きプロトコル v1 のサブプロセスを使用します。メインプログラムはプラグインインデックスや外部プラグインリポジトリを使用しません。
+公式 DNS/デプロイ/通知実装は `internal/plugin/` にあり、メインプログラムと一緒にコンパイルされます。`plugins/` は外部プラグイン開発 SDK（プロトコル、helper フレームワーク、共通ユーティリティ）です。アップロードプラグインは引き続きプロトコル v1 のサブプロセスを使用します。メインプログラムはプラグインインデックスや外部プラグインリポジトリを使用しません。
 
-以下で説明する生成器、バンドル、インデックスツールは `internal/plugin/impl/` にあり、コマンドはそのディレクトリで実行します。外部プラグインは `plugins/protocol` と `plugins/sdk` のみを参照します。
+以下で説明する生成器、バンドル、インデックスツールは `internal/plugin/` にあり、コマンドはそのディレクトリで実行します。外部プラグインは `plugins/protocol` と `plugins/sdk` のみを参照します。
 
 ## 1. アーキテクチャとメンタルモデル
 
@@ -166,14 +166,14 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) New(cfg map[string]string) (dns.ChallengeProvider, error) {
+func (plugin) New(cfg map[string]string) (dns.NativeChallengeProvider, error) {
     return newProvider(cfg)
 }
 
 func init() {
-    dns.Register(plugin{})
+    dns.RegisterNative(plugin{})
     // Verify を実装した場合のみ宣言
-    // dns.MarkVerifiable("example")
+    // dns.MarkNativeVerifiable("example")
 }
 ```
 
@@ -198,7 +198,7 @@ DNS-01 の必須ルール:
 func (p *provider) Verify(ctx context.Context, domain string) (string, error)
 ```
 
-実装後は `dns.MarkVerifiable("example")` を忘れないでください。そうしないとホストは `verify` を呼び出しません。
+実装後は `dns.MarkNativeVerifiable("example")` を忘れないでください。そうしないとホストは `verify` を呼び出しません。
 
 ### 4.2 lego v4 ラッパー
 
@@ -261,18 +261,18 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) Deploy(ctx context.Context, req deploy.Request) error { ... }
+func (plugin) Deploy(ctx context.Context, req deploy.NativeRequest) error { ... }
 
-func init() { deploy.Register(plugin{}) }
+func init() { deploy.RegisterNative(plugin{}) }
 ```
 
 任意機能:
 
 | インターフェース | 用途 | 宣言 |
 |---|---|---|
-| `deploy.Verifier` | 認証情報/ターゲットを読み取り専用で検証 | `deploy.MarkVerifiable("example")` |
-| `deploy.OptionLister` | 動的ドロップダウンオプション | catalog フィールド `options_source` |
-| `deploy.Planner` | 一括デプロイ前にサイト/オブジェクトを読み取る | `deploy.MarkPlannable("example")` |
+| `deploy.NativeVerifier` | 認証情報/ターゲットを読み取り専用で検証 | `deploy.MarkNativeVerifiable("example")` |
+| `deploy.NativeOptionLister` | 動的ドロップダウンオプション | catalog フィールド `options_source` |
+| `deploy.NativePlanner` | 一括デプロイ前にサイト/オブジェクトを読み取る | `deploy.MarkNativePlannable("example")` |
 
 開発手順:
 
@@ -299,13 +299,13 @@ func init() { deploy.Register(plugin{}) }
 package channels
 
 func init() {
-    registerChannel(newChannel("example", []notify.Field{
+    registerChannel(newChannel("example", []notify.NativeField{
         text("url", "notifications.fieldServerUrl", true),
         password("token", "notifications.fieldToken", true),
     }, sendExample))
 }
 
-func sendExample(cfg map[string]any, msg notify.Message) error { ... }
+func sendExample(cfg map[string]any, msg notify.NativeMessage) error { ... }
 ```
 
 フィールドコンストラクター:

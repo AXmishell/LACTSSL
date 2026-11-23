@@ -1,14 +1,13 @@
 package builtin
 
 import (
+	dnsplugin "lactssl/internal/plugin/dns"
 	"testing"
-
-	plugdns "lactssl/internal/plugin/impl/dns"
 )
 
 func TestSyncDNSAllBuiltins(t *testing.T) {
 	ids := make([]string, 0, 256)
-	for _, p := range plugdns.List() {
+	for _, p := range dnsplugin.ListNative() {
 		ids = append(ids, p.ID())
 	}
 	SyncDNS(true, true, IDSet(ids))

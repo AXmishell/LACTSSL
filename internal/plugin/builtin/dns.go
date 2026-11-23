@@ -16,10 +16,9 @@ import (
 	plugi18n "github.com/AXmishell/LACTSSL-Plugins/i18n"
 	plugdnsutil "github.com/AXmishell/LACTSSL-Plugins/sdk/dnsutil"
 	"lactssl/internal/i18n"
+	plugcatalog "lactssl/internal/plugin/catalog"
 	dnsplugin "lactssl/internal/plugin/dns"
-	plugcatalog "lactssl/internal/plugin/impl/catalog"
-	plugdns "lactssl/internal/plugin/impl/dns"
-	plugmeta "lactssl/internal/plugin/impl/dnsv5/meta"
+	plugmeta "lactssl/internal/plugin/dnsv5/meta"
 	pluginproto "lactssl/internal/plugin/proto"
 )
 
@@ -31,7 +30,7 @@ import (
 var dnsEnvMu sync.Mutex
 
 type builtinDNSPlugin struct {
-	inner plugdns.Provider
+	inner dnsplugin.NativeProvider
 	info  dnsplugin.ExternalProvider
 }
 
@@ -51,7 +50,7 @@ func (p *builtinDNSPlugin) New(cfg map[string]string) (challenge.Provider, error
 }
 
 type builtinChallenge struct {
-	inner plugdns.ChallengeProvider
+	inner dnsplugin.NativeChallengeProvider
 }
 
 func (p builtinChallenge) Present(domain, token, keyAuth string) error {
@@ -88,7 +87,7 @@ func (p *builtinDNSPlugin) Verify(ctx context.Context, cfg map[string]string, do
 				Message: i18n.T(loc, "service.verify.init_failed", map[string]any{"error": err.Error()}),
 			}}}, nil
 		}
-		verifier, ok := provider.(plugdns.Verifier)
+		verifier, ok := provider.(dnsplugin.NativeVerifier)
 		if !ok {
 			return pluginproto.VerifyResponse{OK: false, Checks: []pluginproto.VerifyCheck{{
 				Key: "verify", Status: pluginproto.VerifyStatusUnsupported,
@@ -110,7 +109,7 @@ func (p *builtinDNSPlugin) Verify(ctx context.Context, cfg map[string]string, do
 	return p.verifyWrite(ctx, cfg, domain, loc)
 }
 
-func (p *builtinDNSPlugin) newProvider(cfg map[string]string) (plugdns.ChallengeProvider, error) {
+func (p *builtinDNSPlugin) newProvider(cfg map[string]string) (dnsplugin.NativeChallengeProvider, error) {
 	def, _ := plugmeta.LookupDNS(p.info.ID)
 	envs := plugcatalog.EnvForProvider(def, cfg)
 
@@ -196,7 +195,7 @@ func SyncDNS(available, enabled bool, ids map[string]bool) error {
 		return nil
 	}
 	plugdnsutil.EnableCNAMEResolution()
-	all := plugdns.List()
+	all := dnsplugin.ListNative()
 	infos := make([]dnsplugin.ExternalProvider, 0, len(all))
 	adapters := make([]*builtinDNSPlugin, 0, len(all))
 	for _, provider := range all {
@@ -223,7 +222,7 @@ func SyncDNS(available, enabled bool, ids map[string]bool) error {
 	return nil
 }
 
-func buildDNSInfo(provider plugdns.Provider, enabled bool) dnsplugin.ExternalProvider {
+func buildDNSInfo(provider dnsplugin.NativeProvider, enabled bool) dnsplugin.ExternalProvider {
 	id := strings.ToLower(strings.TrimSpace(provider.ID()))
 	info := dnsplugin.ExternalProvider{
 		ID:          id,
@@ -245,7 +244,7 @@ func buildDNSInfo(provider plugdns.Provider, enabled bool) dnsplugin.ExternalPro
 		info.Name = id
 	}
 	info.Capabilities = append(info.Capabilities, pluginproto.FeatureVerifyWrite)
-	if plugdns.IsVerifiable(id) {
+	if dnsplugin.IsNativeVerifiable(id) {
 		info.Capabilities = append(info.Capabilities, pluginproto.FeatureVerify)
 	}
 	return info

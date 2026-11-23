@@ -2,9 +2,9 @@
 
 本文面向插件开发者、集成商和企业平台团队，说明 LACTSSL 插件协议、仓库结构、开发流程、构建、打包、索引、签名和发布。**运维人员通常只需阅读[插件治理](plugins.md)和对应的 DNS/部署/通知插件页面。**
 
-官方 DNS/部署/通知实现位于本仓库 `internal/plugin/impl/`，随主程序编译；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具）。上传插件仍使用协议 v1 的子进程通信。主程序不使用插件索引或外部插件仓库。
+官方 DNS/部署/通知实现位于本仓库 `internal/plugin/`，随主程序编译；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具）。上传插件仍使用协议 v1 的子进程通信。主程序不使用插件索引或外部插件仓库。
 
-下文涉及的生成器、合并包与索引工具位于 `internal/plugin/impl/`，命令默认在该目录执行；外部插件只需引用 `plugins/protocol` 与 `plugins/sdk`。
+下文涉及的生成器、合并包与索引工具位于 `internal/plugin/`，命令默认在该目录执行；外部插件只需引用 `plugins/protocol` 与 `plugins/sdk`。
 
 ## 1. 架构与心智模型
 
@@ -166,14 +166,14 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) New(cfg map[string]string) (dns.ChallengeProvider, error) {
+func (plugin) New(cfg map[string]string) (dns.NativeChallengeProvider, error) {
     return newProvider(cfg)
 }
 
 func init() {
-    dns.Register(plugin{})
+    dns.RegisterNative(plugin{})
     // 只有实现 Verify 时才声明
-    // dns.MarkVerifiable("example")
+    // dns.MarkNativeVerifiable("example")
 }
 ```
 
@@ -198,7 +198,7 @@ DNS-01 的硬性规则：
 func (p *provider) Verify(ctx context.Context, domain string) (string, error)
 ```
 
-实现后记得 `dns.MarkVerifiable("example")`，否则宿主不会调用 `verify`。
+实现后记得 `dns.MarkNativeVerifiable("example")`，否则宿主不会调用 `verify`。
 
 ### 4.2 lego v4 包装
 
@@ -261,18 +261,18 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) Deploy(ctx context.Context, req deploy.Request) error { ... }
+func (plugin) Deploy(ctx context.Context, req deploy.NativeRequest) error { ... }
 
-func init() { deploy.Register(plugin{}) }
+func init() { deploy.RegisterNative(plugin{}) }
 ```
 
 可选能力：
 
 | 接口 | 用途 | 声明 |
 |---|---|---|
-| `deploy.Verifier` | 只读验证凭据/目标 | `deploy.MarkVerifiable("example")` |
-| `deploy.OptionLister` | 动态下拉选项 | catalog 字段 `options_source` |
-| `deploy.Planner` | 批量部署前读取网站/对象 | `deploy.MarkPlannable("example")` |
+| `deploy.NativeVerifier` | 只读验证凭据/目标 | `deploy.MarkNativeVerifiable("example")` |
+| `deploy.NativeOptionLister` | 动态下拉选项 | catalog 字段 `options_source` |
+| `deploy.NativePlanner` | 批量部署前读取网站/对象 | `deploy.MarkNativePlannable("example")` |
 
 开发步骤：
 
@@ -299,13 +299,13 @@ func init() { deploy.Register(plugin{}) }
 package channels
 
 func init() {
-    registerChannel(newChannel("example", []notify.Field{
+    registerChannel(newChannel("example", []notify.NativeField{
         text("url", "notifications.fieldServerUrl", true),
         password("token", "notifications.fieldToken", true),
     }, sendExample))
 }
 
-func sendExample(cfg map[string]any, msg notify.Message) error { ... }
+func sendExample(cfg map[string]any, msg notify.NativeMessage) error { ... }
 ```
 
 字段构造器：

@@ -87,7 +87,7 @@ desktop.ini
 /plugins/dist/
 /plugins/out/
 /plugins/index.json*
-/internal/plugin/impl/bin/
-/internal/plugin/impl/dist/
-/internal/plugin/impl/out/
-/internal/plugin/impl/index.json*
+/internal/plugin/bin/
+/internal/plugin/dist/
+/internal/plugin/out/
+/internal/plugin/index.json*

@@ -1,6 +1,6 @@
 # 贡献指南（外部插件 SDK）
 
-本目录只维护插件协议与外部开发 SDK。官方 DNS / 部署 / 通知实现、元数据、生成器和发布工具位于 [`internal/plugin/impl`](../internal/plugin/impl)。
+本目录只维护插件协议与外部开发 SDK。官方 DNS / 部署 / 通知实现、元数据、生成器和发布工具位于 [`internal/plugin`](../internal/plugin)。
 
 ## 修改范围
 
@@ -18,7 +18,7 @@ go vet ./...
 gofmt -l .   # 输出应为空
 ```
 
-官方实现的开发流程见 [`internal/plugin/impl/CONTRIBUTING.md`](../internal/plugin/impl/CONTRIBUTING.md) 和主仓库 [插件开发文档](../docs/zh/plugin-development.md)。
+官方实现的开发流程见 [`internal/plugin/CONTRIBUTING.md`](../internal/plugin/CONTRIBUTING.md) 和主仓库 [插件开发文档](../docs/zh/plugin-development.md)。
 
 ## 安全
 

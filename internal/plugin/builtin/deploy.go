@@ -9,10 +9,9 @@ import (
 
 	plugi18n "github.com/AXmishell/LACTSSL-Plugins/i18n"
 	plugproto "github.com/AXmishell/LACTSSL-Plugins/protocol"
+	plugcatalog "lactssl/internal/plugin/catalog"
 	deployplugin "lactssl/internal/plugin/deploy"
-	plugcatalog "lactssl/internal/plugin/impl/catalog"
-	plugdeploy "lactssl/internal/plugin/impl/deploy"
-	"lactssl/internal/plugin/impl/deploy/providers/panels"
+	"lactssl/internal/plugin/deploy/providers/panels"
 	pluginproto "lactssl/internal/plugin/proto"
 )
 
@@ -27,7 +26,7 @@ func loadDeploy() {
 }
 
 type builtinDeployer struct {
-	inner plugdeploy.Deployer
+	inner deployplugin.NativeDeployer
 	info  deployplugin.ExternalDeployer
 }
 
@@ -39,7 +38,7 @@ func (d *builtinDeployer) Source() deployplugin.Source {
 func (d *builtinDeployer) Info() deployplugin.ExternalDeployer { return d.info }
 
 func (d *builtinDeployer) Deploy(ctx context.Context, req deployplugin.Request) error {
-	return d.inner.Deploy(ctx, plugdeploy.Request{
+	return d.inner.Deploy(ctx, deployplugin.NativeRequest{
 		Auth:        cloneStringMap(req.Auth),
 		Config:      cloneStringMap(req.Config),
 		Certificate: convertCertificate(req.Certificate),
@@ -48,11 +47,11 @@ func (d *builtinDeployer) Deploy(ctx context.Context, req deployplugin.Request) 
 }
 
 func (d *builtinDeployer) Verify(ctx context.Context, req deployplugin.Request) (pluginproto.VerifyResponse, error) {
-	verifier, ok := d.inner.(plugdeploy.Verifier)
+	verifier, ok := d.inner.(deployplugin.NativeVerifier)
 	if !ok {
 		return pluginproto.VerifyResponse{}, deployplugin.ErrVerifyUnsupported
 	}
-	checks, err := verifier.Verify(ctx, plugdeploy.Request{
+	checks, err := verifier.Verify(ctx, deployplugin.NativeRequest{
 		Auth:        cloneStringMap(req.Auth),
 		Config:      cloneStringMap(req.Config),
 		Certificate: convertCertificate(req.Certificate),
@@ -76,11 +75,11 @@ func (d *builtinDeployer) Verify(ctx context.Context, req deployplugin.Request) 
 }
 
 func (d *builtinDeployer) ListOptions(ctx context.Context, req deployplugin.OptionsRequest) ([]deployplugin.ManifestOption, error) {
-	lister, ok := d.inner.(plugdeploy.OptionLister)
+	lister, ok := d.inner.(deployplugin.NativeOptionLister)
 	if !ok {
 		return nil, deployplugin.ErrOptionsUnsupported
 	}
-	options, err := lister.ListOptions(ctx, plugdeploy.OptionsRequest{
+	options, err := lister.ListOptions(ctx, deployplugin.NativeOptionsRequest{
 		Field:  req.Field,
 		Source: req.Source,
 		Query:  req.Query,
@@ -102,11 +101,11 @@ func (d *builtinDeployer) ListOptions(ctx context.Context, req deployplugin.Opti
 }
 
 func (d *builtinDeployer) Plan(ctx context.Context, req deployplugin.PlanRequest) (deployplugin.PlanResult, error) {
-	planner, ok := d.inner.(plugdeploy.Planner)
+	planner, ok := d.inner.(deployplugin.NativePlanner)
 	if !ok {
 		return deployplugin.PlanResult{}, deployplugin.ErrPlanUnsupported
 	}
-	plan, err := planner.Plan(ctx, plugdeploy.PlanRequest{
+	plan, err := planner.Plan(ctx, deployplugin.NativePlanRequest{
 		Auth:   cloneStringMap(req.Auth),
 		Config: cloneStringMap(req.Config),
 		Locale: req.Locale,
@@ -138,7 +137,7 @@ func SyncDeploy(available, enabled bool, ids map[string]bool) error {
 		return nil
 	}
 	loadDeploy()
-	all := plugdeploy.List()
+	all := deployplugin.ListNative()
 	infos := make([]deployplugin.ExternalDeployer, 0, len(all))
 	adapters := make([]*builtinDeployer, 0, len(all))
 	for _, deployer := range all {
@@ -169,7 +168,7 @@ func SyncDeploy(available, enabled bool, ids map[string]bool) error {
 	return nil
 }
 
-func buildDeployerInfo(deployer plugdeploy.Deployer, enabled bool) deployplugin.ExternalDeployer {
+func buildDeployerInfo(deployer deployplugin.NativeDeployer, enabled bool) deployplugin.ExternalDeployer {
 	id := strings.ToLower(strings.TrimSpace(deployer.ID()))
 	def, found := plugcatalog.LookupDeployer(id)
 	info := deployplugin.ExternalDeployer{
@@ -191,10 +190,10 @@ func buildDeployerInfo(deployer plugdeploy.Deployer, enabled bool) deployplugin.
 	if info.Name == "" {
 		info.Name = id
 	}
-	if plugdeploy.IsVerifiable(id) {
+	if deployplugin.IsNativeVerifiable(id) {
 		info.Capabilities = append(info.Capabilities, pluginproto.FeatureVerify)
 	}
-	if plugdeploy.IsPlannable(id) {
+	if deployplugin.IsNativePlannable(id) {
 		info.Capabilities = append(info.Capabilities, pluginproto.FeaturePlan)
 	}
 	if hasDynamicOptions(info.Fields) || hasDynamicOptions(info.DeployFields) {

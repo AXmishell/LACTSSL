@@ -15,7 +15,7 @@ internal/logging/    程序日誌、級別、格式、檔案輪轉與非同步�
 internal/model/      資料庫實體與任務流程
 internal/acme/       內建 ACME 服務端協議
 internal/service/    ACME 客戶端、部署、通知、監控、排程
-internal/plugin/     外掛宿主與官方實現：宿主套件 + impl/ 內建 DNS/部署/通知
+internal/plugin/     外掛宿主與官方實現：宿主套件 + 內建 DNS/部署/通知
 plugins/             外部外掛開發 SDK：協議 v1、helper 框架與通用工具
 internal/store/      資料訪問層
 internal/util/       加密、校驗等工具
@@ -29,7 +29,7 @@ docs/ja/             日語文件
 docs/ru/             俄語文件
 ```
 
-官方 DNS/部署/通知實現位於本倉庫 `internal/plugin/impl/`，隨主模組編譯與測試；`plugins/` 是外部外掛開發 SDK（協議、helper 框架與通用工具）。上傳外掛仍透過協議 v1 子程序執行。主程式不依賴外部外掛倉庫或簽名索引。
+官方 DNS/部署/通知實現位於本倉庫 `internal/plugin/`，隨主模組編譯與測試；`plugins/` 是外部外掛開發 SDK（協議、helper 框架與通用工具）。上傳外掛仍透過協議 v1 子程序執行。主程式不依賴外部外掛倉庫或簽名索引。
 
 ## 2. 本地開發
 
@@ -215,7 +215,7 @@ make release TAG=v1.0.1
 
 ## 8. 外掛聯調
 
-官方外掛實現位於 `internal/plugin/impl/`；`plugins/` 僅包含外部外掛 SDK，並透過主倉庫 `go.mod` 的本地 `replace` 引用。修改官方實現後直接在主倉庫構建即可：
+官方外掛實現位於 `internal/plugin/`；`plugins/` 僅包含外部外掛 SDK，並透過主倉庫 `go.mod` 的本地 `replace` 引用。修改官方實現後直接在主倉庫構建即可：
 
 ```bash
 go work init . ../LACTSSL-Plugins

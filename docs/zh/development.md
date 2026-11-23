@@ -15,7 +15,7 @@ internal/logging/    进程日志、级别、格式、文件轮转与异步落�
 internal/model/      数据库实体与任务流程
 internal/acme/       内置 ACME 服务端协议
 internal/service/    ACME 客户端、部署、通知、监控、调度
-internal/plugin/     插件宿主与官方实现：宿主包 + impl/ 内置 DNS/部署/通知
+internal/plugin/     插件宿主与官方实现：宿主包 + 内置 DNS/部署/通知
 plugins/             外部插件开发 SDK：协议 v1、helper 框架与通用工具
 internal/store/      数据访问层
 internal/util/       加密、校验等工具
@@ -29,7 +29,7 @@ docs/ja/             日语文档
 docs/ru/             俄语文档
 ```
 
-官方 DNS/部署/通知实现位于本仓库 `internal/plugin/impl/`，随主模块编译与测试；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具）。上传插件仍通过协议 v1 子进程运行。主程序不依赖外部插件仓库或签名索引。
+官方 DNS/部署/通知实现位于本仓库 `internal/plugin/`，随主模块编译与测试；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具）。上传插件仍通过协议 v1 子进程运行。主程序不依赖外部插件仓库或签名索引。
 
 ## 2. 本地开发
 
@@ -215,7 +215,7 @@ make release TAG=v1.0.1
 
 ## 8. 插件联调
 
-官方插件实现位于 `internal/plugin/impl/`；`plugins/` 仅包含外部插件 SDK，并通过主仓库 `go.mod` 的本地 `replace` 引用。修改官方实现后直接在主仓库构建即可：
+官方插件实现位于 `internal/plugin/`；`plugins/` 仅包含外部插件 SDK，并通过主仓库 `go.mod` 的本地 `replace` 引用。修改官方实现后直接在主仓库构建即可：
 
 ```bash
 make backend

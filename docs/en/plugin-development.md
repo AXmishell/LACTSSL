@@ -2,9 +2,9 @@
 
 This page is intended for plugin developers, integrators, and enterprise platform teams. It describes the LACTSSL plugin protocol, repository layout, development workflow, build, packaging, index, signing, and release process. **Operations staff usually only need [Plugin governance](plugins.md) and the relevant DNS, deployment, or notification plugin pages.**
 
-Official DNS/deploy/notify implementations live in `internal/plugin/impl/` and are compiled into the host. `plugins/` is the external plugin development SDK (protocol, helper framework, and shared utilities). Uploaded plugins still use protocol v1 subprocesses. The host no longer uses a plugin index or external plugin repository.
+Official DNS/deploy/notify implementations live in `internal/plugin/` and are compiled into the host. `plugins/` is the external plugin development SDK (protocol, helper framework, and shared utilities). Uploaded plugins still use protocol v1 subprocesses. The host no longer uses a plugin index or external plugin repository.
 
-Generators, bundle packaging, and index tooling described below live in `internal/plugin/impl/`, and commands are run from that directory. External plugins only need `plugins/protocol` and `plugins/sdk`.
+Generators, bundle packaging, and index tooling described below live in `internal/plugin/`, and commands are run from that directory. External plugins only need `plugins/protocol` and `plugins/sdk`.
 
 ## 1. Architecture
 
@@ -166,14 +166,14 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) New(cfg map[string]string) (dns.ChallengeProvider, error) {
+func (plugin) New(cfg map[string]string) (dns.NativeChallengeProvider, error) {
     return newProvider(cfg)
 }
 
 func init() {
-    dns.Register(plugin{})
+    dns.RegisterNative(plugin{})
     // Declare only when Verify is implemented:
-    // dns.MarkVerifiable("example")
+    // dns.MarkNativeVerifiable("example")
 }
 ```
 
@@ -198,7 +198,7 @@ Optional read-only verification:
 func (p *provider) Verify(ctx context.Context, domain string) (string, error)
 ```
 
-After implementing it, call `dns.MarkVerifiable("example")`; otherwise the host will not invoke `verify`.
+After implementing it, call `dns.MarkNativeVerifiable("example")`; otherwise the host will not invoke `verify`.
 
 ### 4.2 lego v4 wrappers
 
@@ -261,18 +261,18 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) Deploy(ctx context.Context, req deploy.Request) error { ... }
+func (plugin) Deploy(ctx context.Context, req deploy.NativeRequest) error { ... }
 
-func init() { deploy.Register(plugin{}) }
+func init() { deploy.RegisterNative(plugin{}) }
 ```
 
 Optional capabilities:
 
 | Interface | Purpose | Declaration |
 |---|---|---|
-| `deploy.Verifier` | Read-only credential/target check | `deploy.MarkVerifiable("example")` |
-| `deploy.OptionLister` | Dynamic select options | catalog `options_source` |
-| `deploy.Planner` | Read deployable objects before batch deploy | `deploy.MarkPlannable("example")` |
+| `deploy.NativeVerifier` | Read-only credential/target check | `deploy.MarkNativeVerifiable("example")` |
+| `deploy.NativeOptionLister` | Dynamic select options | catalog `options_source` |
+| `deploy.NativePlanner` | Read deployable objects before batch deploy | `deploy.MarkNativePlannable("example")` |
 
 Steps:
 
@@ -299,13 +299,13 @@ Location: `notify/providers/channels/channel_<id>.go`
 package channels
 
 func init() {
-    registerChannel(newChannel("example", []notify.Field{
+    registerChannel(newChannel("example", []notify.NativeField{
         text("url", "notifications.fieldServerUrl", true),
         password("token", "notifications.fieldToken", true),
     }, sendExample))
 }
 
-func sendExample(cfg map[string]any, msg notify.Message) error { ... }
+func sendExample(cfg map[string]any, msg notify.NativeMessage) error { ... }
 ```
 
 Field helpers:

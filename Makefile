@@ -92,7 +92,7 @@ dev-web:
 test:
 	$(GO) test ./...
 
-# ./plugins 是外部插件开发 SDK；官方实现位于 internal/plugin/impl，随主模块编译与测试。
+# ./plugins 是外部插件开发 SDK；官方实现位于 internal/plugin，随主模块编译与测试。
 plugins-test:
 	(cd plugins && $(GO) test ./...)
 

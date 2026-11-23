@@ -2,9 +2,9 @@
 
 Эта статья предназначена для разработчиков плагинов, интеграторов и команд корпоративных платформ и описывает протокол плагинов LACTSSL, структуру репозитория, процесс разработки, сборку, упаковку, индексацию, подпись и публикацию. **Специалистам по эксплуатации обычно достаточно прочитать [Управление плагинами](plugins.md) и соответствующие страницы плагинов DNS/развёртывания/уведомлений.**
 
-Официальные реализации DNS/развёртывания/уведомлений находятся в `internal/plugin/impl/` и компилируются в основную программу. `plugins/` — SDK для разработки внешних плагинов (протокол, helper-фреймворк и общие утилиты). Загруженные плагины по-прежнему используют подпроцессы протокола v1. Основная программа не использует индекс плагинов или внешний репозиторий плагинов.
+Официальные реализации DNS/развёртывания/уведомлений находятся в `internal/plugin/` и компилируются в основную программу. `plugins/` — SDK для разработки внешних плагинов (протокол, helper-фреймворк и общие утилиты). Загруженные плагины по-прежнему используют подпроцессы протокола v1. Основная программа не использует индекс плагинов или внешний репозиторий плагинов.
 
-Описанные ниже генераторы, упаковка бандлов и инструменты индекса находятся в `internal/plugin/impl/`; команды выполняются из этого каталога. Внешним плагинам нужны только `plugins/protocol` и `plugins/sdk`.
+Описанные ниже генераторы, упаковка бандлов и инструменты индекса находятся в `internal/plugin/`; команды выполняются из этого каталога. Внешним плагинам нужны только `plugins/protocol` и `plugins/sdk`.
 
 ## 1. Архитектура и концептуальная модель
 
@@ -166,14 +166,14 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) New(cfg map[string]string) (dns.ChallengeProvider, error) {
+func (plugin) New(cfg map[string]string) (dns.NativeChallengeProvider, error) {
     return newProvider(cfg)
 }
 
 func init() {
-    dns.Register(plugin{})
+    dns.RegisterNative(plugin{})
     // Объявлять только при реализации Verify
-    // dns.MarkVerifiable("example")
+    // dns.MarkNativeVerifiable("example")
 }
 ```
 
@@ -198,7 +198,7 @@ CleanUp(domain, token, keyAuth string) error
 func (p *provider) Verify(ctx context.Context, domain string) (string, error)
 ```
 
-После реализации не забудьте вызвать `dns.MarkVerifiable("example")`, иначе хост не будет вызывать `verify`.
+После реализации не забудьте вызвать `dns.MarkNativeVerifiable("example")`, иначе хост не будет вызывать `verify`.
 
 ### 4.2 Обёртка lego v4
 
@@ -261,18 +261,18 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) Deploy(ctx context.Context, req deploy.Request) error { ... }
+func (plugin) Deploy(ctx context.Context, req deploy.NativeRequest) error { ... }
 
-func init() { deploy.Register(plugin{}) }
+func init() { deploy.RegisterNative(plugin{}) }
 ```
 
 Необязательные возможности:
 
 | Интерфейс | Назначение | Объявление |
 |---|---|---|
-| `deploy.Verifier` | Проверка учётных данных/цели только для чтения | `deploy.MarkVerifiable("example")` |
-| `deploy.OptionLister` | Динамические параметры раскрывающегося списка | поле catalog `options_source` |
-| `deploy.Planner` | Чтение сайтов/объектов перед пакетным развёртыванием | `deploy.MarkPlannable("example")` |
+| `deploy.NativeVerifier` | Проверка учётных данных/цели только для чтения | `deploy.MarkNativeVerifiable("example")` |
+| `deploy.NativeOptionLister` | Динамические параметры раскрывающегося списка | поле catalog `options_source` |
+| `deploy.NativePlanner` | Чтение сайтов/объектов перед пакетным развёртыванием | `deploy.MarkNativePlannable("example")` |
 
 Шаги разработки:
 
@@ -299,13 +299,13 @@ func init() { deploy.Register(plugin{}) }
 package channels
 
 func init() {
-    registerChannel(newChannel("example", []notify.Field{
+    registerChannel(newChannel("example", []notify.NativeField{
         text("url", "notifications.fieldServerUrl", true),
         password("token", "notifications.fieldToken", true),
     }, sendExample))
 }
 
-func sendExample(cfg map[string]any, msg notify.Message) error { ... }
+func sendExample(cfg map[string]any, msg notify.NativeMessage) error { ... }
 ```
 
 Конструкторы полей:

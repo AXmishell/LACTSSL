@@ -2,9 +2,9 @@
 
 本文面向外掛開發者、整合商和企業平臺團隊，說明 LACTSSL 外掛協議、倉庫結構、開發流程、構建、打包、索引、簽名和釋出。**運維人員通常只需閱讀[外掛治理](plugins.md)和對應的 DNS/部署/通知外掛頁面。**
 
-官方 DNS/部署/通知實現位於 `internal/plugin/impl/`，隨主程式編譯；`plugins/` 是外部外掛開發 SDK（協議、helper 框架與通用工具）。上傳外掛仍使用協議 v1 的子程序通訊。主程式不使用外掛索引或外部外掛倉庫。
+官方 DNS/部署/通知實現位於 `internal/plugin/`，隨主程式編譯；`plugins/` 是外部外掛開發 SDK（協議、helper 框架與通用工具）。上傳外掛仍使用協議 v1 的子程序通訊。主程式不使用外掛索引或外部外掛倉庫。
 
-下文涉及的生成器、合併包與索引工具位於 `internal/plugin/impl/`，命令預設在該目錄執行；外部外掛只需引用 `plugins/protocol` 與 `plugins/sdk`。
+下文涉及的生成器、合併包與索引工具位於 `internal/plugin/`，命令預設在該目錄執行；外部外掛只需引用 `plugins/protocol` 與 `plugins/sdk`。
 
 ## 1. 架構與心智模型
 
@@ -166,14 +166,14 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) New(cfg map[string]string) (dns.ChallengeProvider, error) {
+func (plugin) New(cfg map[string]string) (dns.NativeChallengeProvider, error) {
     return newProvider(cfg)
 }
 
 func init() {
-    dns.Register(plugin{})
+    dns.RegisterNative(plugin{})
     // 只有實現 Verify 時才宣告
-    // dns.MarkVerifiable("example")
+    // dns.MarkNativeVerifiable("example")
 }
 ```
 
@@ -198,7 +198,7 @@ DNS-01 的硬性規則：
 func (p *provider) Verify(ctx context.Context, domain string) (string, error)
 ```
 
-實現後記得 `dns.MarkVerifiable("example")`，否則宿主不會呼叫 `verify`。
+實現後記得 `dns.MarkNativeVerifiable("example")`，否則宿主不會呼叫 `verify`。
 
 ### 4.2 lego v4 包裝
 
@@ -261,18 +261,18 @@ type plugin struct{}
 
 func (plugin) ID() string        { return "example" }
 func (plugin) Aliases() []string { return nil }
-func (plugin) Deploy(ctx context.Context, req deploy.Request) error { ... }
+func (plugin) Deploy(ctx context.Context, req deploy.NativeRequest) error { ... }
 
-func init() { deploy.Register(plugin{}) }
+func init() { deploy.RegisterNative(plugin{}) }
 ```
 
 可選能力：
 
 | 介面 | 用途 | 宣告 |
 |---|---|---|
-| `deploy.Verifier` | 只讀驗證憑據/目標 | `deploy.MarkVerifiable("example")` |
-| `deploy.OptionLister` | 動態下拉選項 | catalog 欄位 `options_source` |
-| `deploy.Planner` | 批次部署前讀取網站/物件 | `deploy.MarkPlannable("example")` |
+| `deploy.NativeVerifier` | 只讀驗證憑據/目標 | `deploy.MarkNativeVerifiable("example")` |
+| `deploy.NativeOptionLister` | 動態下拉選項 | catalog 欄位 `options_source` |
+| `deploy.NativePlanner` | 批次部署前讀取網站/物件 | `deploy.MarkNativePlannable("example")` |
 
 開發步驟：
 
@@ -299,13 +299,13 @@ func init() { deploy.Register(plugin{}) }
 package channels
 
 func init() {
-    registerChannel(newChannel("example", []notify.Field{
+    registerChannel(newChannel("example", []notify.NativeField{
         text("url", "notifications.fieldServerUrl", true),
         password("token", "notifications.fieldToken", true),
     }, sendExample))
 }
 
-func sendExample(cfg map[string]any, msg notify.Message) error { ... }
+func sendExample(cfg map[string]any, msg notify.NativeMessage) error { ... }
 ```
 
 欄位構造器：

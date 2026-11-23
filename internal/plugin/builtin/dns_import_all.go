@@ -2,4 +2,4 @@
 
 package builtin
 
-import _ "lactssl/internal/plugin/impl/dnsv5/groups/all"
+import _ "lactssl/internal/plugin/dnsv5/groups/all"

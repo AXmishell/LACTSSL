@@ -15,7 +15,7 @@ internal/logging/    Process logging, levels, formats, file rotation, and async 
 internal/model/      Database entities and task workflows
 internal/acme/       Built-in ACME server protocol
 internal/service/    ACME client, deployment, notifications, monitoring, scheduling
-internal/plugin/     plugin host and official implementations: host packages + impl/
+internal/plugin/     plugin host and official implementations: host packages + built-in DNS/deploy/notify
 plugins/             external plugin SDK: protocol v1, helper framework, shared utilities
 internal/store/      Data access layer
 internal/util/       Encryption, validation, and other utilities
@@ -29,7 +29,7 @@ docs/ja/             Japanese documentation
 docs/ru/             Russian documentation
 ```
 
-Official DNS/deploy/notify implementations live in `internal/plugin/impl/` and are compiled and tested with the main module. `plugins/` is the external plugin development SDK (protocol, helper framework, and shared utilities). Uploaded helpers still run as protocol v1 subprocesses. The host does not depend on an external plugin repository or signed index.
+Official DNS/deploy/notify implementations live in `internal/plugin/` and are compiled and tested with the main module. `plugins/` is the external plugin development SDK (protocol, helper framework, and shared utilities). Uploaded helpers still run as protocol v1 subprocesses. The host does not depend on an external plugin repository or signed index.
 
 ## 2. Local development
 
@@ -215,7 +215,7 @@ make release TAG=v1.0.1
 
 ## 8. Plugin integration
 
-Official implementations live in `internal/plugin/impl/`; `plugins/` only contains the external plugin SDK, referenced by the host `go.mod` through a local `replace`. After changing an official implementation, build from the repository root:
+Official implementations live in `internal/plugin/`; `plugins/` only contains the external plugin SDK, referenced by the host `go.mod` through a local `replace`. After changing an official implementation, build from the repository root:
 
 ```bash
 make backend

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	dnsplugin "lactssl/internal/plugin/dns"
-	plugdns "lactssl/internal/plugin/impl/dns"
 )
 
 // TestSyncDNSConcurrentReplace 确保并发重扫不会因为重复注册而 panic。
@@ -13,7 +12,7 @@ import (
 // "dns plugin already registered"；ReplaceBuiltin 在单次锁内原子替换。
 func TestSyncDNSConcurrentReplace(t *testing.T) {
 	ids := make([]string, 0, 256)
-	for _, provider := range plugdns.List() {
+	for _, provider := range dnsplugin.ListNative() {
 		ids = append(ids, provider.ID())
 	}
 	set := IDSet(ids)

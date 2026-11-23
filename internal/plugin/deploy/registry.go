@@ -1,7 +1,7 @@
 // Package deployplugin 提供证书部署目标的插件注册表。
 //
-// 内置部署目标由 internal/service 实现；外部目标通过一次性 exec helper
-// 提供，由 Discover 在启动或手动重扫时注册。
+// 官方实现随主程序编译，定义在 native_registry.go 与 providers/ 中；
+// 外部目标通过一次性 exec helper 提供，由 Discover 在启动或手动重扫时注册。
 package deployplugin
 
 import (

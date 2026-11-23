@@ -1,6 +1,6 @@
 # LACTSSL 插件开发 SDK
 
-本目录面向**外部插件开发者**，提供 LACTSSL 插件协议 v1 的线格式、helper 框架与常用工具。官方 DNS / 部署 / 通知实现已经迁移到主仓库 [`internal/plugin/impl`](../internal/plugin/impl)，随主程序编译，不再放在这里。
+本目录面向**外部插件开发者**，提供 LACTSSL 插件协议 v1 的线格式、helper 框架与常用工具。官方 DNS / 部署 / 通知实现已经迁移到主仓库 [`internal/plugin`](../internal/plugin)，随主程序编译，不再放在这里。
 
 模块路径保持 `github.com/AXmishell/LACTSSL-Plugins`，便于已有外部 helper 继续引用。
 
@@ -19,7 +19,7 @@ outbound/              带 SSRF 防护的出站 HTTP 客户端
 i18n/                  插件侧公共文案与语言枚举
 ```
 
-官方实现的元数据、文案、图标、构建工具和生成器位于 [`internal/plugin/impl`](../internal/plugin/impl)。
+官方实现的元数据、文案、图标、构建工具和生成器位于 [`internal/plugin`](../internal/plugin)。
 
 ## 最小 helper
 

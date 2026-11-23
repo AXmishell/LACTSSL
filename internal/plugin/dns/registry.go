@@ -1,8 +1,7 @@
 // Package dnsplugin 提供 DNS 服务商插件注册表。
 //
-// 主程序不编译任何服务商实现，全部通过外部 helper 插件提供；
-// 服务商实现与官方 helper 位于 LACTSSL-Plugins 仓库。
-// 外部插件通过一次性 exec helper 提供服务，由 Discover 在启动或手动重扫时注册。
+// 官方实现随主程序编译，定义在 native_*.go 中；上传插件通过一次性
+// exec helper 提供服务，由 Discover 在启动或手动重扫时注册。
 package dnsplugin
 
 import (

@@ -1,6 +1,6 @@
 # 插件治理
 
-LACTSSL 的 DNS、证书部署与通知能力由插件提供。官方插件实现位于 `internal/plugin/impl/` 并编译进主程序；`plugins/` 是外部插件开发 SDK。上传的第三方 helper 仍以一次性子进程运行，默认受沙箱限制。
+LACTSSL 的 DNS、证书部署与通知能力由插件提供。官方插件实现位于 `internal/plugin/` 并编译进主程序；`plugins/` 是外部插件开发 SDK。上传的第三方 helper 仍以一次性子进程运行，默认受沙箱限制。
 
 ## 1. 插件模型
 

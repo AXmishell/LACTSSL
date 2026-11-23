@@ -1,7 +1,7 @@
 // Package notifyplugin 提供通知渠道的插件注册表。
 //
-// 主程序只内置邮件通知；Gotify、ServerChan、Telegram、Webhook 等渠道由
-// 通知插件通过一次性 exec helper 提供，由 Discover 在启动或手动重扫时注册。
+// 官方渠道实现随主程序编译，定义在 native_registry.go 与 providers/ 中；
+// 外部渠道通过一次性 exec helper 提供，由 Discover 在启动或手动重扫时注册。
 package notifyplugin
 
 import (
