@@ -164,7 +164,7 @@ if [ "$RUN_BUILD" -eq 1 ]; then
   build_version="$(./scripts/version.sh)"
   build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   build_arch="$(go env GOOS)/$(go env GOARCH)"
-  CGO_ENABLED=0 go build -trimpath -tags embed \
+  CGO_ENABLED=0 go build -trimpath -tags "embed nomsgpack" \
     -ldflags "-s -w -X 'lactssl/internal/api.Version=$build_version' -X 'lactssl/internal/api.BuildTime=$build_time' -X 'lactssl/internal/api.BuildArch=$build_arch'" \
     -o bin/lactssl ./cmd/server
 

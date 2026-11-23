@@ -226,7 +226,7 @@ jobs:
           BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           BUILD_ARCH=$(go env GOOS)/$(go env GOARCH)
           mkdir -p bin
-          CGO_ENABLED=0 go build -trimpath -tags embed \
+          CGO_ENABLED=0 go build -trimpath -tags "embed nomsgpack" \
             -ldflags "-s -w -X 'lactssl/internal/api.Version=$BUILD_VERSION' -X 'lactssl/internal/api.BuildTime=$BUILD_TIME' -X 'lactssl/internal/api.BuildArch=$BUILD_ARCH'" \
             -o bin/lactssl ./cmd/server
 

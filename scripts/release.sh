@@ -253,7 +253,7 @@ if [ "$RUN_BUILD" -eq 1 ]; then
     if [ -n "$program_public_key" ]; then
       ldflags="${ldflags} -X 'lactssl/internal/config.OfficialProgramPublicKey=${program_public_key}'"
     fi
-    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -tags "embed" \
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -tags "embed nomsgpack" \
       -ldflags "$ldflags" \
       -o "out/$goos-$goarch/lactssl${ext}" ./cmd/server
 

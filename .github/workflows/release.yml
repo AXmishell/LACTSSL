@@ -196,7 +196,7 @@ jobs:
           build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           mkdir -p out
 
-          CGO_ENABLED=0 go build -trimpath -tags "embed" \
+          CGO_ENABLED=0 go build -trimpath -tags "embed nomsgpack" \
             -ldflags "-s -w -X 'lactssl/internal/api.Version=${VERSION}' -X 'lactssl/internal/api.BuildTime=${build_time}' -X 'lactssl/internal/api.BuildArch=${GOOS}/${GOARCH}' -X 'lactssl/internal/config.OfficialProgramPublicKey=${PROGRAM_PUBLIC_KEY}'" \
             -o "out/lactssl${ext}" ./cmd/server
 
