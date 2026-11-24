@@ -2,7 +2,7 @@
 
 package builtin
 
-import notifyplugin "lactssl/internal/plugin/notify"
+import notifyplugin "lactssl/internal/plugin/host/notify"
 
 // SyncNotify 在裁剪通知内置实现的构建中清空内置注册。
 func SyncNotify(available, enabled bool, ids map[string]bool) error {

@@ -6,6 +6,8 @@
     :close-on-click-modal="false"
     :close-on-press-escape="false"
     :before-close="handleBeforeClose"
+    append-to-body
+    :z-index="2700"
   >
     <div class="reauth-dialog">
       <p class="reauth-hint">{{ t('settings.reauthHint') }}</p>

@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	deployplugin "lactssl/internal/plugin/deploy"
-	notifyplugin "lactssl/internal/plugin/notify"
+	deployplugin "lactssl/internal/plugin/host/deploy"
+	notifyplugin "lactssl/internal/plugin/host/notify"
 )
 
 func TestBatchEnableAllBuiltinDeployAndNotifyWithoutIDs(t *testing.T) {

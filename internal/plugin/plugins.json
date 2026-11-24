@@ -4,7 +4,7 @@
     {
       "kind": "deploy",
       "id": "all",
-      "version": "1.0.34",
+      "version": "1.0.41",
       "tag": "bundle_deploy_all",
       "name": "部署插件包",
       "description": "包含全部官方证书部署目标实现。",
@@ -36,7 +36,7 @@
         "volcengine",
         "webhook"
       ],
-      "source_hash": "4b79f7153942d7e66f6f73b106ccbd9364d8c5563ccf1958894dd0790baf5557"
+      "source_hash": "e717e882f4441d1282f056da018af3080889abda873a323e4c8240eb9392c4d3"
     },
     {
       "kind": "dns",
@@ -289,12 +289,12 @@
       ],
       "hide_icon": true,
       "sdk": "lego-v5",
-      "source_hash": "f0c7ee28ab4b64c6612dec2e93310835e4487b0ac0e799be72fbbd5cb5e3ae8c"
+      "source_hash": "f437d73b0115f15e378a6012df37e9903459d089c34a474770586d5519738cb4"
     },
     {
       "kind": "notify",
       "id": "all",
-      "version": "1.0.32",
+      "version": "1.0.38",
       "tag": "bundle_notify_all",
       "name": "通知插件包",
       "description": "包含全部官方通知渠道实现。",
@@ -324,7 +324,7 @@
         "wxpusher",
         "wxpusher_spt"
       ],
-      "source_hash": "15260023a2232893eb1be08ca62da63f2b0982dab89235ed4bb91a754b4fe8d3"
+      "source_hash": "331b634e038564c44934d5ac1dc51ed8ceb782af4bfb772c1a073d7c0ad674c9"
     }
   ]
 }

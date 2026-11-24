@@ -2,7 +2,7 @@
 
 package builtin
 
-import deployplugin "lactssl/internal/plugin/deploy"
+import deployplugin "lactssl/internal/plugin/host/deploy"
 
 // SyncDeploy 在裁剪部署内置实现的构建中清空内置注册。
 func SyncDeploy(available, enabled bool, ids map[string]bool) error {

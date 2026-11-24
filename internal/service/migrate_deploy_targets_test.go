@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"lactssl/internal/model"
-	"lactssl/internal/plugin/deploy"
+	"lactssl/internal/plugin/host/deploy"
 )
 
 type targetMergeDeployer struct{ id string }

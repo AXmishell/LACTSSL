@@ -30,10 +30,46 @@
 </template>
 
 <script setup lang="ts">
+import { onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { loadingState } from '../loading'
 
 const { t } = useI18n()
+
+// 全屏加载层出现时锁住背景滚动，并让 #app 进入 inert：
+// 遮罩挡住了视觉，但滚轮和 Tab 仍能作用到下层页面，这里一并拦住。
+// 再认证对话框已 teleport 到 body，不受 inert 影响。
+let lockedScroll: { html: string; body: string } | null = null
+
+function lockPage(): void {
+  if (lockedScroll) return
+  const html = document.documentElement
+  const body = document.body
+  lockedScroll = { html: html.style.overflow, body: body.style.overflow }
+  html.style.overflow = 'hidden'
+  body.style.overflow = 'hidden'
+  document.getElementById('app')?.setAttribute('inert', '')
+}
+
+function unlockPage(): void {
+  if (!lockedScroll) return
+  const html = document.documentElement
+  const body = document.body
+  html.style.overflow = lockedScroll.html
+  body.style.overflow = lockedScroll.body
+  lockedScroll = null
+  document.getElementById('app')?.removeAttribute('inert')
+}
+
+watch(
+  () => loadingState.visible,
+  (visible) => {
+    if (visible) lockPage()
+    else unlockPage()
+  }
+)
+
+onBeforeUnmount(unlockPage)
 </script>
 
 <style scoped>

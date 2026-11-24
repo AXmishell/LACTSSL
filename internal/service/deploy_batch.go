@@ -6,7 +6,7 @@ import (
 
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
-	"lactssl/internal/plugin/deploy"
+	"lactssl/internal/plugin/host/deploy"
 )
 
 // DeployObject 是一个可部署对象，例如面板上的网站。

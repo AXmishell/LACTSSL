@@ -3,7 +3,7 @@
     <div class="table-scroll">
       <el-table
         ref="tableRef"
-        :data="visibleGroups"
+        :data="pagedGroups"
         row-key="key"
         size="small"
         :height="fill ? '100%' : undefined"
@@ -74,7 +74,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('plugins.providerStatus')" width="58" align="center" class-name="plugin-status-cell">
+        <el-table-column :label="t('plugins.providerStatus')" width="64" align="center" class-name="plugin-status-cell">
           <template #default="{ row }">
             <div v-if="row.file" class="plugin-group-status" :title="fileToggleHint(row)">
               <el-switch
@@ -109,13 +109,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('plugins.repoAction')" width="50" align="center" class-name="plugin-action-cell">
+        <el-table-column :label="t('plugins.repoAction')" width="64" align="center" class-name="plugin-action-cell">
           <template #default="{ row }">
             <el-button
               v-if="row.file"
-              size="small"
+              link
               type="danger"
-              plain
+              size="small"
               :loading="!!deleting[row.file.file]"
               @click="emit('delete', row.file)"
             >{{ t('plugins.fileDelete') }}</el-button>
@@ -150,7 +150,18 @@
       </div>
       <span class="plugin-batch-count">{{ t('plugins.selectedCount', { count: selectedGroups.length }) }}</span>
     </div>
-    <div v-if="files.length" class="sub plugin-file-hint">{{ t('plugins.fileHint') }}</div>
+    <div v-if="files.length && !(showBatchBar && selectedGroups.length)" class="sub plugin-file-hint">{{ t('plugins.fileHint') }}</div>
+    <div class="plugin-table-foot flex-between">
+      <span class="muted">{{ t('plugins.totalRecords', { count: visibleGroups.length }) }}</span>
+      <el-pagination
+        v-if="visibleGroups.length > pageSize"
+        v-model:current-page="page"
+        :page-size="pageSize"
+        :total="visibleGroups.length"
+        layout="prev, pager, next"
+        background
+      />
+    </div>
 
     <el-drawer
       v-model="manageOpen"
@@ -386,6 +397,22 @@ const visibleGroups = computed<PluginGroup[]>(() => {
 
 const resolvedEmptyText = computed(() => props.emptyText || t('plugins.noMatched'))
 
+// 客户端分页：分组数量可能上百，分页只截取当前页，筛选条件变化时回到第一页。
+const page = ref(1)
+// 插件行包含两行元信息，20 条一页比日志页更紧凑；三个标签共用同一分页逻辑。
+const pageSize = 20
+const pagedGroups = computed<PluginGroup[]>(() => {
+  const start = (page.value - 1) * pageSize
+  return visibleGroups.value.slice(start, start + pageSize)
+})
+watch(() => props.keyword, () => {
+  page.value = 1
+})
+watch(visibleGroups, (rows) => {
+  const maxPage = Math.max(1, Math.ceil(rows.length / pageSize))
+  if (page.value > maxPage) page.value = maxPage
+})
+
 // 选择状态只保存 row key，数据刷新后自动映射到最新分组，避免批量操作引用过期对象。
 const tableRef = ref<{ clearSelection: () => void } | null>(null)
 const selectedKeys = ref<string[]>([])
@@ -577,14 +604,15 @@ function fileAuditText(file: PluginFile): string {
   min-height: 0;
 }
 .plugin-group-fill > .plugin-batch-bar,
-.plugin-group-fill > .plugin-file-hint {
+.plugin-group-fill > .plugin-file-hint,
+.plugin-group-fill > .plugin-table-foot {
   flex: none;
 }
 .plugin-group-fill .plugin-table {
   margin-top: 0;
 }
 .plugin-table {
-  margin-top: 10px;
+  margin-top: 0;
 }
 .plugin-name {
   font-weight: 500;
@@ -617,15 +645,30 @@ function fileAuditText(file: PluginFile): string {
   padding: 0;
 }
 .plugin-file-hint {
-  margin-top: 8px;
+  margin: 0;
+  padding: 8px 16px 10px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  font-size: 12px;
+  line-height: 1.5;
 }
-/* 多选列：复选框 12px，右侧保留 14px 外边距；取消单元格内边距，贴齐列边缘。 */
+/* 底部统计与分页：固定在表格下方，随卡片宽度自适应换行。 */
+.plugin-table-foot {
+  flex: none;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--kp-border);
+}
+.plugin-table-foot .muted {
+  font-size: 12px;
+}
+/* 多选列：复选框 12px，左右各保留 16px 外边距；取消单元格内边距。 */
 .plugin-table :deep(.plugin-select-cell .cell) {
   padding: 0;
   justify-content: center;
 }
 .plugin-table :deep(.plugin-select-cell .el-checkbox) {
-  margin-right: 14px;
+  margin: 0 16px;
 }
 /* 操作列取消单元格左右内边距，让窄列下的删除按钮不被挤压。 */
 .plugin-table :deep(.plugin-action-cell .cell) {
@@ -647,10 +690,10 @@ function fileAuditText(file: PluginFile): string {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--el-color-primary-light-7);
-  border-radius: 10px;
+  margin-top: 0;
+  padding: 8px 16px;
+  border: 0;
+  border-top: 1px solid var(--el-color-primary-light-7);
   background: var(--el-color-primary-light-9);
   animation: plugin-batch-bar-in 0.18s ease-out;
 }

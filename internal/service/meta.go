@@ -5,10 +5,10 @@ import (
 	"strings"
 
 	"lactssl/internal/i18n"
-	"lactssl/internal/plugin/deploy"
-	"lactssl/internal/plugin/dns"
-	"lactssl/internal/plugin/meta"
+	"lactssl/internal/plugin/host/deploy"
+	"lactssl/internal/plugin/host/dns"
 	"lactssl/internal/plugin/proto"
+	"lactssl/internal/plugin/runtime/metadata"
 )
 
 // FieldDef 描述前端动态表单字段。

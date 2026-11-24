@@ -94,12 +94,6 @@ a {
   letter-spacing: -0.02em;
 }
 
-.page-head p {
-  margin: 6px 0 0;
-  color: var(--kp-muted);
-  font-size: 13px;
-}
-
 .page-actions {
   display: flex;
   align-items: center;
@@ -629,6 +623,93 @@ a {
 
 .table-scroll::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* ---------- 列表页底部批量操作行 ---------- */
+/*
+ * 批量栏与统计信息共用卡片底部固定高度的一行：
+ * 勾选/取消首尾项时只替换行内内容，表格高度和滚动条保持稳定。
+ */
+.batch-foot {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 46px;
+  padding: 10px 14px;
+  border-top: 1px solid transparent;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.batch-foot.is-selecting {
+  background: #f5f9ff;
+  border-top-color: #dbe7fb;
+}
+
+.batch-foot .batch-bar {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  animation: batch-foot-actions 0.16s ease;
+}
+
+.batch-foot .batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.batch-foot .batch-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+.batch-foot .batch-count {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d4ed8;
+  white-space: nowrap;
+}
+
+@keyframes batch-foot-actions {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 窄屏页面不固定高度，允许批量操作换行，避免挤压按钮。 */
+@media (max-width: 860px) {
+  .batch-foot {
+    height: auto;
+    min-height: 46px;
+    flex-wrap: wrap;
+  }
+
+  .batch-foot .batch-bar,
+  .batch-foot .batch-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .batch-foot {
+    transition: none;
+  }
+
+  .batch-foot .batch-bar {
+    animation: none;
+  }
 }
 
 /* ---------- 一屏表格页 ---------- */

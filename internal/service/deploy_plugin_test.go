@@ -8,7 +8,7 @@ import (
 
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
-	"lactssl/internal/plugin/deploy"
+	"lactssl/internal/plugin/host/deploy"
 )
 
 type captureDeployer struct {

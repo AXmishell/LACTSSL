@@ -3,8 +3,8 @@ package service
 import (
 	"strings"
 
-	"lactssl/internal/plugin/deploy"
-	"lactssl/internal/plugin/meta"
+	"lactssl/internal/plugin/host/deploy"
+	"lactssl/internal/plugin/runtime/metadata"
 )
 
 // deprecatedDeployTypeReplaced 判断旧目标的合并目标及对应部署对象是否已经可用。

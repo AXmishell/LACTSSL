@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('privateCA.title') }}</h1>
-        <p>{{ t('privateCA.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Upload" @click="openImport">{{ t('privateCA.import') }}</el-button>
@@ -102,16 +101,18 @@
           </template>
         </el-table>
       </div>
-    </div>
-
-    <div v-if="showBatchBar && selectedCAs.length" class="batch-bar">
-      <div class="batch-actions">
-        <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchDelete">
-          {{ t('privateCA.batchDelete') }}
-        </el-button>
-        <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('privateCA.clearSelection') }}</el-button>
+      <div class="batch-foot" :class="{ 'is-selecting': showBatchBar && selectedCAs.length }">
+        <div v-if="showBatchBar && selectedCAs.length" class="batch-bar">
+          <div class="batch-actions">
+            <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchDelete">
+              {{ t('privateCA.batchDelete') }}
+            </el-button>
+            <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('privateCA.clearSelection') }}</el-button>
+          </div>
+          <span class="batch-count">{{ t('privateCA.selectedCount', { count: selectedCAs.length }) }}</span>
+        </div>
+        <span v-else class="muted">{{ t('common.totalItems', { count: items.length }) }}</span>
       </div>
-      <span class="batch-count">{{ t('privateCA.selectedCount', { count: selectedCAs.length }) }}</span>
     </div>
 
     <!-- 生成私有 CA -->
@@ -657,35 +658,6 @@ onMounted(load)
   color: #94a3b8;
   margin-top: 6px;
   line-height: 1.6;
-}
-
-.batch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border: 1px solid #dbe7fb;
-  border-radius: 12px;
-  background: #f5f9ff;
-}
-
-.batch-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.batch-actions .el-button + .el-button {
-  margin-left: 0;
-}
-
-.batch-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1d4ed8;
 }
 
 :deep(.ca-actions-cell .cell) {

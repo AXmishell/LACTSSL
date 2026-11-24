@@ -3,10 +3,19 @@
     <div class="page-head">
       <div>
         <h1>{{ t('plugins.title') }}</h1>
-        <p>{{ t('plugins.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle :loading="loading" @click="load" />
+        <el-dropdown trigger="click" @command="openUploadFromMenu">
+          <el-button :icon="UploadFilled">{{ t('plugins.upload') }}</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="dns" :disabled="!plugins?.enabled">{{ t('plugins.dnsTitle') }}</el-dropdown-item>
+              <el-dropdown-item command="deploy" :disabled="!plugins?.deploy?.enabled">{{ t('plugins.deployTitle') }}</el-dropdown-item>
+              <el-dropdown-item command="notify" :disabled="!plugins?.notify?.enabled">{{ t('plugins.notifyTitle') }}</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button
           type="primary"
           plain
@@ -126,210 +135,157 @@
       </el-collapse>
     </div>
 
-    <div class="plugin-tabs">
-      <el-radio-group v-model="activeTab" size="default">
-        <el-radio-button value="dns">{{ t('plugins.dnsTab', { count: providers.length }) }}</el-radio-button>
-        <el-radio-button value="deploy">{{ t('plugins.deployTab', { count: deployers.length }) }}</el-radio-button>
-        <el-radio-button value="notify">{{ t('plugins.notifyTab', { count: notifyChannels.length }) }}</el-radio-button>
-      </el-radio-group>
-    </div>
+    <div class="k-card plugin-card" v-loading="loading">
+      <div class="plugin-tabs">
+        <el-radio-group v-model="activeTab" size="default">
+          <el-radio-button value="dns">{{ t('plugins.dnsTab', { count: providers.length }) }}</el-radio-button>
+          <el-radio-button value="deploy">{{ t('plugins.deployTab', { count: deployers.length }) }}</el-radio-button>
+          <el-radio-button value="notify">{{ t('plugins.notifyTab', { count: notifyChannels.length }) }}</el-radio-button>
+        </el-radio-group>
+      </div>
 
-    <div v-if="activeTab === 'dns'" class="k-card plugin-card" v-loading="loading">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('plugins.dnsTitle') }}</h3>
-          <div class="sub">{{ t('plugins.dnsSubtitle') }}</div>
+      <div v-if="activeTab === 'dns'" class="plugin-pane">
+        <div v-if="activePluginStatus" class="plugin-status" :title="activePluginStatus.text">
+          <el-alert
+            :title="activePluginStatus.text"
+            :type="activePluginStatus.type"
+            :closable="false"
+            show-icon
+          />
         </div>
-        <div class="plugin-head-actions">
-          <span class="tag-soft" :class="plugins?.enabled ? 'tag-green' : 'tag-gray'">{{ statusText(plugins?.enabled) }}</span>
-          <el-button
-            size="small"
-            :icon="UploadFilled"
-            :disabled="!plugins?.enabled"
-            @click="openUpload('dns')"
-          >
-            {{ t('plugins.upload') }}
-          </el-button>
+        <div v-if="providers.length" class="plugin-toolbar">
+          <el-input
+            v-model="providerFilter"
+            :placeholder="t('plugins.searchProvider')"
+            :prefix-icon="Search"
+            clearable
+            class="plugin-search"
+          />
+          <div class="plugin-bulk">
+            <el-button size="small" :loading="bulkLoading" :disabled="!plugins?.enabled" @click="bulkProviders(true)">{{ t('plugins.enableAll') }}</el-button>
+            <el-button size="small" :loading="bulkLoading" :disabled="!plugins?.enabled" @click="bulkProviders(false)">{{ t('plugins.disableAll') }}</el-button>
+          </div>
+        </div>
+        <div class="plugin-scroll">
+          <PluginGroupTable
+            v-if="providers.length || dnsFiles.length"
+            :fill="useFillLayout"
+            kind="dns"
+            :items="providers"
+            :files="dnsFiles"
+            :keyword="providerFilter"
+            :toggling="toggling"
+            :deleting="deletingFiles"
+            :file-toggling="fileToggling"
+            :aggregate-loading="dnsGroupToggling"
+            :empty-text="t('plugins.noMatched')"
+            :batch-action="batchAction"
+            @toggle="toggleProvider"
+            @toggle-group="toggleDnsGroup"
+            @toggle-items="(items, enabled) => togglePluginItems('dns', items, enabled)"
+            @toggle-file="(file, enabled) => togglePluginFile('dns', file, enabled)"
+            @delete="deletePluginFile"
+            @batch-toggle="batchToggleDnsGroups"
+            @batch-delete="batchDeletePluginFiles"
+          />
+          <div v-else class="plugin-scroll-empty sub">{{ t('plugins.noProviders') }}</div>
         </div>
       </div>
-      <div class="plugin-summary">
-        <div v-for="item in activeSummary" :key="item.label" class="plugin-summary-item">
-          <span class="plugin-summary-label">{{ item.label }}</span>
-          <span class="plugin-summary-value" :class="{ mono: item.mono }" :title="item.title || item.value">{{ item.value }}</span>
-        </div>
-      </div>
-      <div v-if="activePluginStatus" class="plugin-status" :title="activePluginStatus.text">
-        <el-alert
-          :title="activePluginStatus.text"
-          :type="activePluginStatus.type"
-          :closable="false"
-          show-icon
-        />
-      </div>
-      <div v-if="providers.length" class="plugin-toolbar">
-        <el-input v-model="providerFilter" :placeholder="t('plugins.searchProvider')" clearable class="plugin-search" />
-        <div class="plugin-bulk">
-          <el-button size="small" :loading="bulkLoading" :disabled="!plugins?.enabled" @click="bulkProviders(true)">{{ t('plugins.enableAll') }}</el-button>
-          <el-button size="small" :loading="bulkLoading" :disabled="!plugins?.enabled" @click="bulkProviders(false)">{{ t('plugins.disableAll') }}</el-button>
-        </div>
-      </div>
-      <div class="plugin-scroll">
-        <PluginGroupTable
-          v-if="providers.length || dnsFiles.length"
-          :fill="useFillLayout"
-          kind="dns"
-          :items="providers"
-          :files="dnsFiles"
-          :keyword="providerFilter"
-          :toggling="toggling"
-          :deleting="deletingFiles"
-          :file-toggling="fileToggling"
-          :aggregate-loading="dnsGroupToggling"
-          :empty-text="t('plugins.noMatched')"
-          :batch-action="batchAction"
-          @toggle="toggleProvider"
-          @toggle-group="toggleDnsGroup"
-          @toggle-items="(items, enabled) => togglePluginItems('dns', items, enabled)"
-          @toggle-file="(file, enabled) => togglePluginFile('dns', file, enabled)"
-          @delete="deletePluginFile"
-          @batch-toggle="batchToggleDnsGroups"
-          @batch-delete="batchDeletePluginFiles"
-        />
-        <div v-else class="plugin-scroll-empty sub">{{ t('plugins.noProviders') }}</div>
-      </div>
-    </div>
 
-    <div v-if="activeTab === 'deploy'" class="k-card plugin-card" v-loading="loading">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('plugins.deployTitle') }}</h3>
-          <div class="sub">{{ t('plugins.deploySubtitle') }}</div>
+      <div v-if="activeTab === 'deploy'" class="plugin-pane">
+        <div v-if="activePluginStatus" class="plugin-status" :title="activePluginStatus.text">
+          <el-alert
+            :title="activePluginStatus.text"
+            :type="activePluginStatus.type"
+            :closable="false"
+            show-icon
+          />
         </div>
-        <div class="plugin-head-actions">
-          <span class="tag-soft" :class="plugins?.deploy?.enabled ? 'tag-green' : 'tag-gray'">
-            {{ statusText(plugins?.deploy?.enabled) }}
-          </span>
-          <el-button
-            size="small"
-            :icon="UploadFilled"
-            :disabled="!plugins?.deploy?.enabled"
-            @click="openUpload('deploy')"
-          >
-            {{ t('plugins.upload') }}
-          </el-button>
+        <div v-if="deployers.length" class="plugin-toolbar">
+          <el-input
+            v-model="deployerFilter"
+            :placeholder="t('plugins.searchDeployer')"
+            :prefix-icon="Search"
+            clearable
+            class="plugin-search"
+          />
+          <div class="plugin-bulk">
+            <el-button size="small" :loading="bulkDeployLoading" :disabled="!plugins?.deploy?.enabled" @click="bulkDeployers(true)">{{ t('plugins.enableAll') }}</el-button>
+            <el-button size="small" :loading="bulkDeployLoading" :disabled="!plugins?.deploy?.enabled" @click="bulkDeployers(false)">{{ t('plugins.disableAll') }}</el-button>
+          </div>
+        </div>
+        <div class="plugin-scroll">
+          <PluginGroupTable
+            v-if="deployers.length || deployFiles.length"
+            :fill="useFillLayout"
+            kind="deploy"
+            :items="deployers"
+            :files="deployFiles"
+            :keyword="deployerFilter"
+            :toggling="togglingDeployers"
+            :deleting="deletingFiles"
+            :file-toggling="fileToggling"
+            :aggregate-loading="deployGroupToggling"
+            :empty-text="t('plugins.noMatched')"
+            :batch-action="batchAction"
+            @toggle="toggleDeployer"
+            @toggle-group="toggleDeployGroup"
+            @toggle-items="(items, enabled) => togglePluginItems('deploy', items, enabled)"
+            @toggle-file="(file, enabled) => togglePluginFile('deploy', file, enabled)"
+            @delete="deletePluginFile"
+            @batch-toggle="batchToggleDeployGroups"
+            @batch-delete="batchDeletePluginFiles"
+          />
+          <div v-else class="plugin-scroll-empty sub">{{ t('plugins.noDeployers') }}</div>
         </div>
       </div>
-      <div class="plugin-summary">
-        <div v-for="item in activeSummary" :key="item.label" class="plugin-summary-item">
-          <span class="plugin-summary-label">{{ item.label }}</span>
-          <span class="plugin-summary-value" :class="{ mono: item.mono }" :title="item.title || item.value">{{ item.value }}</span>
-        </div>
-      </div>
-      <div v-if="activePluginStatus" class="plugin-status" :title="activePluginStatus.text">
-        <el-alert
-          :title="activePluginStatus.text"
-          :type="activePluginStatus.type"
-          :closable="false"
-          show-icon
-        />
-      </div>
-      <div v-if="deployers.length" class="plugin-toolbar">
-        <el-input v-model="deployerFilter" :placeholder="t('plugins.searchDeployer')" clearable class="plugin-search" />
-        <div class="plugin-bulk">
-          <el-button size="small" :loading="bulkDeployLoading" :disabled="!plugins?.deploy?.enabled" @click="bulkDeployers(true)">{{ t('plugins.enableAll') }}</el-button>
-          <el-button size="small" :loading="bulkDeployLoading" :disabled="!plugins?.deploy?.enabled" @click="bulkDeployers(false)">{{ t('plugins.disableAll') }}</el-button>
-        </div>
-      </div>
-      <div class="plugin-scroll">
-        <PluginGroupTable
-          v-if="deployers.length || deployFiles.length"
-          :fill="useFillLayout"
-          kind="deploy"
-          :items="deployers"
-          :files="deployFiles"
-          :keyword="deployerFilter"
-          :toggling="togglingDeployers"
-          :deleting="deletingFiles"
-          :file-toggling="fileToggling"
-          :aggregate-loading="deployGroupToggling"
-          :empty-text="t('plugins.noMatched')"
-          :batch-action="batchAction"
-          @toggle="toggleDeployer"
-          @toggle-group="toggleDeployGroup"
-          @toggle-items="(items, enabled) => togglePluginItems('deploy', items, enabled)"
-          @toggle-file="(file, enabled) => togglePluginFile('deploy', file, enabled)"
-          @delete="deletePluginFile"
-          @batch-toggle="batchToggleDeployGroups"
-          @batch-delete="batchDeletePluginFiles"
-        />
-        <div v-else class="plugin-scroll-empty sub">{{ t('plugins.noDeployers') }}</div>
-      </div>
-    </div>
 
-    <div v-if="activeTab === 'notify'" class="k-card plugin-card" v-loading="loading">
-      <div class="card-head">
-        <div>
-          <h3>{{ t('plugins.notifyTitle') }}</h3>
-          <div class="sub">{{ t('plugins.notifySubtitle') }}</div>
+      <div v-if="activeTab === 'notify'" class="plugin-pane">
+        <div v-if="activePluginStatus" class="plugin-status" :title="activePluginStatus.text">
+          <el-alert
+            :title="activePluginStatus.text"
+            :type="activePluginStatus.type"
+            :closable="false"
+            show-icon
+          />
         </div>
-        <div class="plugin-head-actions">
-          <span class="tag-soft" :class="plugins?.notify?.enabled ? 'tag-green' : 'tag-gray'">
-            {{ statusText(plugins?.notify?.enabled) }}
-          </span>
-          <el-button
-            size="small"
-            :icon="UploadFilled"
-            :disabled="!plugins?.notify?.enabled"
-            @click="openUpload('notify')"
-          >
-            {{ t('plugins.upload') }}
-          </el-button>
+        <div v-if="notifyChannels.length" class="plugin-toolbar">
+          <el-input
+            v-model="notifyFilter"
+            :placeholder="t('plugins.searchNotifyChannel')"
+            :prefix-icon="Search"
+            clearable
+            class="plugin-search"
+          />
+          <div class="plugin-bulk">
+            <el-button size="small" :loading="bulkNotifyLoading" :disabled="!plugins?.notify?.enabled" @click="bulkNotifyChannels(true)">{{ t('plugins.enableAll') }}</el-button>
+            <el-button size="small" :loading="bulkNotifyLoading" :disabled="!plugins?.notify?.enabled" @click="bulkNotifyChannels(false)">{{ t('plugins.disableAll') }}</el-button>
+          </div>
         </div>
-      </div>
-      <div class="plugin-summary">
-        <div v-for="item in activeSummary" :key="item.label" class="plugin-summary-item">
-          <span class="plugin-summary-label">{{ item.label }}</span>
-          <span class="plugin-summary-value" :class="{ mono: item.mono }" :title="item.title || item.value">{{ item.value }}</span>
+        <div class="plugin-scroll">
+          <PluginGroupTable
+            v-if="notifyChannels.length || notifyFiles.length"
+            :fill="useFillLayout"
+            kind="notify"
+            :items="notifyChannels"
+            :files="notifyFiles"
+            :keyword="notifyFilter"
+            :toggling="togglingNotify"
+            :deleting="deletingFiles"
+            :file-toggling="fileToggling"
+            :aggregate-loading="notifyGroupToggling"
+            :empty-text="t('plugins.noMatched')"
+            :batch-action="batchAction"
+            @toggle="toggleNotifyChannel"
+            @toggle-group="toggleNotifyGroup"
+            @toggle-items="(items, enabled) => togglePluginItems('notify', items, enabled)"
+            @toggle-file="(file, enabled) => togglePluginFile('notify', file, enabled)"
+            @delete="deletePluginFile"
+            @batch-toggle="batchToggleNotifyGroups"
+            @batch-delete="batchDeletePluginFiles"
+          />
+          <div v-else class="plugin-scroll-empty sub">{{ t('plugins.noNotifyChannels') }}</div>
         </div>
-      </div>
-      <div v-if="activePluginStatus" class="plugin-status" :title="activePluginStatus.text">
-        <el-alert
-          :title="activePluginStatus.text"
-          :type="activePluginStatus.type"
-          :closable="false"
-          show-icon
-        />
-      </div>
-      <div v-if="notifyChannels.length" class="plugin-toolbar">
-        <el-input v-model="notifyFilter" :placeholder="t('plugins.searchNotifyChannel')" clearable class="plugin-search" />
-        <div class="plugin-bulk">
-          <el-button size="small" :loading="bulkNotifyLoading" :disabled="!plugins?.notify?.enabled" @click="bulkNotifyChannels(true)">{{ t('plugins.enableAll') }}</el-button>
-          <el-button size="small" :loading="bulkNotifyLoading" :disabled="!plugins?.notify?.enabled" @click="bulkNotifyChannels(false)">{{ t('plugins.disableAll') }}</el-button>
-        </div>
-      </div>
-      <div class="plugin-scroll">
-        <PluginGroupTable
-          v-if="notifyChannels.length || notifyFiles.length"
-          :fill="useFillLayout"
-          kind="notify"
-          :items="notifyChannels"
-          :files="notifyFiles"
-          :keyword="notifyFilter"
-          :toggling="togglingNotify"
-          :deleting="deletingFiles"
-          :file-toggling="fileToggling"
-          :aggregate-loading="notifyGroupToggling"
-          :empty-text="t('plugins.noMatched')"
-          :batch-action="batchAction"
-          @toggle="toggleNotifyChannel"
-          @toggle-group="toggleNotifyGroup"
-          @toggle-items="(items, enabled) => togglePluginItems('notify', items, enabled)"
-          @toggle-file="(file, enabled) => togglePluginFile('notify', file, enabled)"
-          @delete="deletePluginFile"
-          @batch-toggle="batchToggleNotifyGroups"
-          @batch-delete="batchDeletePluginFiles"
-        />
-        <div v-else class="plugin-scroll-empty sub">{{ t('plugins.noNotifyChannels') }}</div>
       </div>
     </div>
 
@@ -477,7 +433,7 @@ import { computed, h, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile, UploadInstance } from 'element-plus'
-import { ArrowDown, ArrowUp, Document, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Document, Refresh, Search, UploadFilled } from '@element-plus/icons-vue'
 import { api, errorText } from '../api'
 import { notifyChannelLabelKey } from '../notifyChannels'
 import { formatSize, formatVersion } from '../utils'
@@ -605,58 +561,18 @@ const uploadTitle = computed(() => {
 })
 
 const providers = computed(() => plugins.value?.providers || [])
-const enabledCount = computed(() => providers.value.filter((item) => item.enabled).length)
 const dnsFiles = computed(() => plugins.value?.files || [])
 
 const deployers = computed(() => plugins.value?.deploy?.deployers || [])
-const enabledDeployCount = computed(() => deployers.value.filter((item) => item.enabled).length)
 const deployFiles = computed(() => plugins.value?.deploy?.files || [])
 
 const notifyChannels = computed(() => plugins.value?.notify?.channels || [])
-const enabledNotifyCount = computed(() => notifyChannels.value.filter((item) => item.enabled).length)
 const notifyFiles = computed(() => plugins.value?.notify?.files || [])
-
-interface PluginSummaryItem {
-  label: string
-  value: string
-  mono?: boolean
-  title?: string
-}
 
 interface PluginTabStatus {
   type: 'info' | 'warning' | 'error'
   text: string
 }
-
-// 当前标签页的一行指标：目录、helper、启用数量与资源限制。
-const activeSummary = computed<PluginSummaryItem[]>(() => {
-  const status = plugins.value
-  if (!status) return []
-  if (activeTab.value === 'dns') {
-    return [
-      { label: t('plugins.dir'), value: status.dir || t('common.none'), mono: true, title: status.dir },
-      { label: t('plugins.helpers'), value: String(status.helpers ?? 0) },
-      { label: t('plugins.providers'), value: `${enabledCount.value} / ${providers.value.length}` },
-      { label: t('plugins.memoryLimit'), value: `${status.limits?.memory_limit_mb ?? 0} MB` }
-    ]
-  }
-  if (activeTab.value === 'deploy') {
-    return [
-      { label: t('plugins.dir'), value: status.deploy?.dir || t('common.none'), mono: true, title: status.deploy?.dir },
-      { label: t('plugins.deployHelpers'), value: String(status.deploy?.helpers ?? 0) },
-      { label: t('plugins.deployers'), value: `${enabledDeployCount.value} / ${deployers.value.length}` },
-      { label: t('plugins.deployMemoryLimit'), value: `${status.deploy?.limits?.memory_limit_mb ?? 0} MB` },
-      { label: t('plugins.deployTimeout'), value: `${status.deploy?.limits?.timeout_seconds ?? 0} s` }
-    ]
-  }
-  return [
-    { label: t('plugins.dir'), value: status.notify?.dir || t('common.none'), mono: true, title: status.notify?.dir },
-    { label: t('plugins.notifyHelpers'), value: String(status.notify?.helpers ?? 0) },
-    { label: t('plugins.notifyChannels'), value: `${enabledNotifyCount.value} / ${notifyChannels.value.length}` },
-    { label: t('plugins.notifyMemoryLimit'), value: `${status.notify?.limits?.memory_limit_mb ?? 0} MB` },
-    { label: t('plugins.notifyTimeout'), value: `${status.notify?.limits?.timeout_seconds ?? 0} s` }
-  ]
-})
 
 // 表格上方的单行状态摘要：错误 > 跳过 > 未启用，避免多条 alert 把表头推走。
 const activePluginStatus = computed<PluginTabStatus | null>(() => {
@@ -697,11 +613,6 @@ const activePluginStatus = computed<PluginTabStatus | null>(() => {
 function notifyChannelLabel(channel: NotifyPluginChannel): string {
   const key = notifyChannelLabelKey(channel.id)
   return key ? t(key) : channel.name || channel.id
-}
-
-function statusText(enabled?: boolean): string {
-  if (!plugins.value) return t('common.none')
-  return enabled ? t('plugins.on') : t('plugins.off')
 }
 
 async function load(): Promise<void> {
@@ -1094,6 +1005,12 @@ async function rescan(): Promise<void> {
 function openUpload(kind: 'dns' | 'deploy' | 'notify'): void {
   uploadKind.value = kind
   uploadVisible.value = true
+}
+
+function openUploadFromMenu(command: string | number | object): void {
+  if (command === 'dns' || command === 'deploy' || command === 'notify') {
+    openUpload(command)
+  }
 }
 
 function resetUpload(): void {
@@ -1509,7 +1426,16 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  flex: none;
+  min-height: 46px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--kp-border);
+  background: #fbfcfe;
+}
+.plugin-tabs :deep(.el-radio-group) {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .plugin-tags {
   display: flex;
@@ -1598,37 +1524,26 @@ onUnmounted(() => {
   opacity: 0.75;
   word-break: break-all;
 }
-.plugin-summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 22px;
-  margin-top: 0;
-  padding: 6px 14px;
-  border-radius: 10px;
-  background: var(--el-fill-color-lighter);
-}
-.plugin-summary-item {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-.plugin-summary-label {
-  font-size: 12px;
-  color: var(--kp-muted);
-  white-space: nowrap;
-}
-.plugin-summary-value {
-  max-width: 320px;
-  overflow: hidden;
-  font-size: 13px;
-  color: var(--kp-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .plugin-status {
-  margin-top: 10px;
+  flex: none;
+  padding: 12px 16px 0;
+}
+/* 标签栏、工具栏与表格共用同一张卡片：内容铺满宽度，仅表格保持整行。 */
+.plugin-card {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--kp-border);
+  box-shadow: none;
+  overflow: hidden;
+}
+.plugin-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 .plugin-status :deep(.el-alert) {
   padding: 5px 12px;
@@ -1644,28 +1559,34 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .plugin-scroll {
+  flex: 1 1 auto;
   min-height: 0;
 }
 .plugin-scroll-empty {
-  padding: 12px 0 0;
+  padding: 18px 16px;
 }
 .plugin-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
+  gap: 8px 12px;
+  flex: none;
+  margin: 0;
+  padding: 10px 16px;
 }
 .plugin-search {
-  max-width: 260px;
+  flex: 0 1 260px;
+  width: 260px;
+  max-width: 100%;
 }
 .plugin-bulk {
   display: flex;
+  flex: none;
   gap: 8px;
 }
 .plugin-table {
-  margin-top: 10px;
+  margin-top: 0;
 }
 .plugin-name {
   font-weight: 500;
@@ -1759,8 +1680,7 @@ onUnmounted(() => {
     min-height: 0;
   }
   .plugin-page-fill > .page-head,
-  .plugin-page-fill > .plugin-repo-card,
-  .plugin-page-fill > .plugin-tabs {
+  .plugin-page-fill > .plugin-repo-card {
     flex: none;
   }
   .plugin-page-fill .plugin-card {
@@ -1769,18 +1689,16 @@ onUnmounted(() => {
     flex-direction: column;
     min-height: 0;
   }
-  .plugin-page-fill .plugin-card > .card-head,
-  .plugin-page-fill .plugin-card > .plugin-summary,
-  .plugin-page-fill .plugin-card > .plugin-status,
-  .plugin-page-fill .plugin-card > .plugin-toolbar {
-    flex: none;
+  .plugin-page-fill .plugin-pane {
+    flex: 1 1 auto;
+    min-height: 0;
   }
-  .plugin-page-fill .plugin-scroll {
+  .plugin-page-fill .plugin-pane > .plugin-scroll {
     flex: 1 1 auto;
     min-height: 0;
     overflow: hidden;
   }
-  .plugin-page-fill .plugin-scroll > * {
+  .plugin-page-fill .plugin-scroll > .plugin-group {
     height: 100%;
     min-height: 0;
   }
@@ -1801,21 +1719,6 @@ onUnmounted(() => {
   }
 }
 @media (max-width: 860px) {
-  .plugin-card .card-head {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .plugin-card .plugin-head-actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
-  .plugin-summary {
-    gap: 6px 16px;
-  }
-  .plugin-summary-value {
-    max-width: 100%;
-  }
   .plugin-scroll :deep(.plugin-group-fill) {
     height: auto;
   }
@@ -1829,9 +1732,15 @@ onUnmounted(() => {
     padding-right: 0;
     border-right: none;
   }
-  .plugin-summary {
-    align-items: flex-start;
-    flex-direction: column;
+}
+@media (max-width: 640px) {
+  .plugin-search {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .plugin-bulk {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 .legacy-row {

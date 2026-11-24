@@ -17,33 +17,33 @@
 签名使用独立命令，**不导入任何插件包**：
 
 ```bash
-go run ./cmd/signer sign \
+go run ./tools/helpers/signer sign \
   -key /secure/plugin-index-key.b64 \
   -in index.json \
   -out index.json.sig
 
-go run ./cmd/signer verify \
+go run ./tools/helpers/signer verify \
   -pub "$(cat /secure/plugin-index-public.b64)" \
   -in index.json \
   -sig index.json.sig
 
 # 生成 JSON 签名封套（新宿主优先使用）
-go run ./cmd/signer sign -envelope \
+go run ./tools/helpers/signer sign -envelope \
   -key /secure/plugin-index-key.b64 \
   -in index.json \
   -out index.json.sig.json
 
-go run ./cmd/signer verify \
+go run ./tools/helpers/signer verify \
   -pub "$(cat /secure/plugin-index-public.b64)" \
   -in index.json \
   -sig index.json.sig.json
 ```
 
-`cmd/signer` 只依赖标准库，避免 `go run` 时执行 `catalog`、`i18n`、`notify`、`dns`、`deploy` 等包的 `init()`。
+`tools/helpers/signer` 只依赖标准库，避免 `go run` 时执行 `catalog`、`i18n`、`notify`、`dns`、`deploy` 等包的 `init()`。
 
 **私钥要求**
 
-- 优先使用 HSM/KMS 或独立签名服务；当前 `cmd/signer` 尚未内置 KMS/HSM 接口，CI 会通过临时文件把私钥交给独立签名进程。若接入外部签名服务，应只发送 SHA256 digest。
+- 优先使用 HSM/KMS 或独立签名服务；当前 `tools/helpers/signer` 尚未内置 KMS/HSM 接口，CI 会通过临时文件把私钥交给独立签名进程。若接入外部签名服务，应只发送 SHA256 digest。
 - 如果只能使用文件：放在受保护 GitHub Environment 或离线签名机，`chmod 600`，不要放在仓库目录/家目录/备份中。
 - 不要通过普通环境变量向任意 `go run` 传递私钥。
 - 发布工作流会使用临时文件 + `umask 077` + `trap` 清理，并在签名后立即验签。
@@ -66,7 +66,7 @@ plugins:
 
    ```bash
    # 推荐使用仓库内独立工具生成（PEM，0600；公钥 base64 同时输出）
-   go run ./cmd/signer keygen -out /secure/new-index-key.pem -public-out /secure/new-index-key.pub
+   go run ./tools/helpers/signer keygen -out /secure/new-index-key.pem -public-out /secure/new-index-key.pub
    ```
 
    公钥的 base64（32 字节）用于 `plugins.repo.public_key`，指纹为
@@ -96,7 +96,7 @@ plugins:
 | `PLUGIN_INDEX_PUBLIC_KEY` | variable（可选） | 当前公钥，可用逗号分隔多个；未配置时使用仓库内置官方公钥 |
 | `PLUGIN_INDEX_NEXT_PUBLIC_KEY` | variable（可选） | 下一把公钥；配置 `NEXT_SIGNING_KEY` 时必须提供 |
 
-`cmd/signer verify -pub` 同样支持逗号分隔的多个公钥。
+`tools/helpers/signer verify -pub` 同样支持逗号分隔的多个公钥。
 
 发布 job 会：
 

@@ -9,13 +9,15 @@ v5.6.0 与新增 provider。旧的 `all-lego` / `all-native` 发布包及 v4 源
 | 项目 | 值 |
 |---|---|
 | 插件 ID | `all-lego-v5` |
-| Helper | `cmd/dns-helper-v5` |
-| 包装目录 | `dnsv5/providers/<id>` |
-| 兼容占位 | `dnsv5/legacy/<id>` |
-| 元数据补充 | `dnsv5/meta/meta_gen.go` |
+| Helper | `tools/helpers/dns-helper-v5` |
+| 包装目录 | `providers/dns/lego5/providers/<id>` |
+| 兼容占位 | `providers/dns/lego5/legacy/<id>` |
+| 元数据补充 | `providers/dns/lego5/meta/meta_gen.go` |
 | 构建 | `make bundle-lego-v5` |
 | 单包构建 | `make plugin KIND=dns ID=all-lego-v5 GOOS=linux GOARCH=amd64` |
 | 实测体积（linux/amd64） | 约 37.2 MiB；压缩包约 13.3 MiB |
+
+`providers/` 是独立 Go module（`lactssl/providers`），helper 与宿主通过 `go.mod` 的本地 `replace` 引用；`providers/api` 提供 Native 接口与注册表，`providers/catalog` 提供元数据。
 
 ## Provider 覆盖
 
@@ -43,10 +45,12 @@ make gen-v5
 生成器会读取 `go list -m -f '{{.Dir}}' github.com/go-acme/lego/v5`，
 并重新生成：
 
-- `dnsv5/providers/*/plugin.go`
-- `dnsv5/legacy/*/plugin.go`
-- `dnsv5/groups/all/all.go`
-- `dnsv5/meta/meta_gen.go`
+- `providers/dns/lego5/providers/*/plugin.go`
+- `providers/dns/lego5/legacy/*/plugin.go`
+- `providers/dns/lego5/groups/all/all.go`
+- `providers/dns/lego5/groups/common/all.go`
+- `providers/dns/lego5/groups/minimal/all.go`
+- `providers/dns/lego5/meta/meta_gen.go`
 
 修改 `plugins.json`、生成器或 v5 依赖后运行 `make manifest`，CI 会校验
 生成产物是否已提交。
@@ -54,7 +58,7 @@ make gen-v5
 ## 协议与 context
 
 lego v5 的 `challenge.Provider` 使用 `context.Context`，插件协议 v1 的
-`present` / `cleanup` 没有跨进程 context。`dnsv5.Wrap` 用
+`present` / `cleanup` 没有跨进程 context。`lego5.Wrap` 用
 `context.Background()` 适配；超时和进程终止仍由宿主控制。
 
 ## 验证能力

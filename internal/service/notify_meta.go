@@ -1,6 +1,6 @@
 package service
 
-import "lactssl/internal/plugin/notify"
+import "lactssl/internal/plugin/host/notify"
 
 // BuiltinNotifyChannelIDs 返回主程序内置、不允许通知插件覆盖的渠道 ID。
 // 邮件由主程序直接实现，其余渠道都需要通过通知插件提供。

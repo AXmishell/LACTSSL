@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	coreDir = "../../../plugins/i18n/core"
-	outDir  = "../../../plugins/i18n/locales"
+	coreDir = "../../plugins/i18n/core"
+	outDir  = "../../plugins/i18n/locales"
 )
 
 func main() {
@@ -59,7 +59,7 @@ func readLocales() []string {
 		}
 	}
 	collect(coreDir, false)
-	collect("../../../plugins/i18n/providers", true)
+	collect("../../plugins/i18n/providers", true)
 
 	out := make([]string, 0, len(seen))
 	for locale := range seen {
@@ -86,7 +86,7 @@ func mergeDir(dir string, locales []string, catalogs map[string]map[string]strin
 
 func mergeProviders(locales []string, catalogs map[string]map[string]string) {
 	for _, kind := range []string{"dns", "deploy"} {
-		root := filepath.Join("../../../plugins/i18n/providers", kind)
+		root := filepath.Join("../../plugins/i18n/providers", kind)
 		entries, err := os.ReadDir(root)
 		if os.IsNotExist(err) {
 			continue
@@ -97,8 +97,8 @@ func mergeProviders(locales []string, catalogs map[string]map[string]string) {
 				continue
 			}
 			id := entry.Name()
-			if _, err := os.Stat(filepath.Join("catalog", kind, id+".json")); err != nil {
-				fail(fmt.Sprintf("plugins/i18n/providers/%s/%s 没有对应的 catalog/%s/%s.json", kind, id, kind, id))
+			if _, err := os.Stat(filepath.Join("providers/catalog", kind, id+".json")); err != nil {
+				fail(fmt.Sprintf("plugins/i18n/providers/%s/%s 没有对应的 providers/catalog/%s/%s.json", kind, id, kind, id))
 			}
 			mergeDir(filepath.Join(root, id), locales, catalogs)
 		}

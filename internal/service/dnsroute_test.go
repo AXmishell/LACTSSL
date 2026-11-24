@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-acme/lego/v4/challenge"
 	"lactssl/internal/model"
-	dnsplugin "lactssl/internal/plugin/dns"
+	dnsplugin "lactssl/internal/plugin/host/dns"
 )
 
 type routedFakeDNSPlugin struct {

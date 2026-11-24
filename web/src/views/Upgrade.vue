@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('upgrade.title') }}</h1>
-        <p>{{ t('upgrade.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle :loading="loading" @click="load" />

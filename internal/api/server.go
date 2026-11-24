@@ -33,9 +33,7 @@ import (
 	"lactssl/internal/logarchive"
 	"lactssl/internal/model"
 	"lactssl/internal/netutil"
-	"lactssl/internal/plugin/deploy"
-	"lactssl/internal/plugin/dns"
-	"lactssl/internal/plugin/notify"
+	pluginmanager "lactssl/internal/plugin/manager"
 	"lactssl/internal/ratelimit"
 	"lactssl/internal/service"
 	"lactssl/internal/store"
@@ -47,8 +45,10 @@ type Server struct {
 	Store   *store.Store
 	Auth    *auth.Manager
 	Manager *service.Manager
-	Backup  *backup.Manager
-	WebFS   fs.FS
+	// Tasks 负责任务配置校验、规范化与调度时间计算。
+	Tasks  *service.TaskService
+	Backup *backup.Manager
+	WebFS  fs.FS
 	// Upgrade 是版本迁移与数据库/配置优化工具，由 main 注入。
 	Upgrade *upgrade.Manager
 	// LogArchives 是日志归档服务，由 main 在启用归档时注入。
@@ -137,22 +137,17 @@ type Server struct {
 	// 的授权竞态。任务执行改用授权时快照，不依赖该锁。
 	taskMu sync.Mutex
 
-	pluginMu     sync.Mutex
-	pluginResult dnsplugin.DiscoverResult
+	// whitelistOnce / pluginWhitelists 保存三类插件条目启用白名单。
+	// 白名单读写已收口到 internal/plugin/whitelist，Server 只保留访问入口。
+	whitelistOnce    sync.Once
+	pluginWhitelists *pluginWhitelists
 
-	// pluginDiscoverMu 串行化 DNS/部署/通知的完整发现流程。
-	// Discover 内部会先替换内置注册表再扫描外部 helper，若并发执行，
-	// 两次「替换内置 / 注册外部」可能交错并触发重复注册 panic。
-	pluginDiscoverMu sync.Mutex
+	// pluginManagerOnce / pluginManager 持有插件发现结果与发现锁。
+	pluginManagerOnce sync.Once
+	pluginManager     *pluginmanager.Manager
 
 	// pluginUploadMu 串行化插件上传/安装，避免并发写入同名文件或交错触发热加载。
 	pluginUploadMu sync.Mutex
-
-	deployPluginMu     sync.Mutex
-	deployPluginResult deployplugin.DiscoverResult
-
-	notifyPluginMu     sync.Mutex
-	notifyPluginResult notifyplugin.DiscoverResult
 
 	// passkeyCeremonies 暂存 WebAuthn 注册/登录的挑战数据。
 	passkeyMu         sync.Mutex
@@ -169,6 +164,7 @@ func New(st *store.Store, a *auth.Manager, mgr *service.Manager, entry string, w
 		Store:             st,
 		Auth:              a,
 		Manager:           mgr,
+		Tasks:             service.NewTaskService(st, mgr),
 		WebFS:             webFS,
 		TrustedProxies:    trustedProxies,
 		RateLimits:        rateLimits,
@@ -177,6 +173,7 @@ func New(st *store.Store, a *auth.Manager, mgr *service.Manager, entry string, w
 		passkeyCeremonies: make(map[string]passkeyCeremony),
 	}
 	s.entry.Store(entry)
+	s.whitelistServices()
 	return s
 }
 

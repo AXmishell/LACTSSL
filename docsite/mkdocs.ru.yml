@@ -1,0 +1,122 @@
+# Конфигурация русского сайта: сборка в /ru/. Сайт по умолчанию — английский (mkdocs.yml).
+# Для локального просмотра многоязычного сайта используйте scripts/docs-serve.sh (или make docs-serve):
+# `zensical serve` собирает только одну конфигурацию за раз.
+# Внимание: Zensical считает каталог этого файла (docsite/) корнем проекта, поэтому docs_dir/site_dir не могут быть вне его.
+site_name: LACTSSL
+site_url: https://lactssl.gpcn.cc/ru/
+site_description: "Самостоятельно размещаемая платформа управления SSL-сертификатами для команд и частных пользователей: выпуск и автопродление ACME, развёртывание сертификатов, мониторинг, частный CA и внутренний ACME-сервис."
+repo_url: https://github.com/AXmishell/LACTSSL
+repo_name: AXmishell/LACTSSL
+edit_uri: edit/main/docsite/docs/ru/
+copyright: Copyright &copy; LACTSSL · MIT License
+
+docs_dir: docs/ru
+site_dir: site/ru
+
+theme:
+  name: material
+  variant: modern
+  language: ru
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Переключить на тёмную тему
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Переключить на светлую тему
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Главная: index.md
+  - Начало работы и развёртывание:
+      - Начало работы и внедрение: getting-started.md
+      - Установка и запуск: install.md
+      - Архитектура: architecture.md
+  - Администрирование:
+      - Рабочее пространство: administration.md
+      - Возможности: features.md
+      - Управление плагинами: plugins.md
+  - Интеграция и безопасность:
+      - Интеграция по API: api.md
+      - Базовая безопасность: security.md
+  - Эксплуатация:
+      - Руководство по эксплуатации: operations.md
+      - Обновление и изменения: upgrade.md
+      - Мониторинг и устранение неполадок: troubleshooting.md
+  - Справочник:
+      - Конфигурация: configuration.md
+      - Плагины DNS: dns-plugins.md
+      - Плагины развёртывания: deploy-plugins.md
+      - Плагины уведомлений: notify-plugins.md
+  - Разработка расширений:
+      - Исходный код и сборка: development.md
+      - Разработка плагинов: plugin-development.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  alternate:
+    - name: English
+      link: /
+      lang: en
+    - name: 简体中文
+      link: /zh/
+      lang: zh
+    - name: 繁體中文
+      link: /zh-hant/
+      lang: zh-Hant
+    - name: 日本語
+      link: /ja/
+      lang: ja
+    - name: Русский
+      link: /ru/
+      lang: ru
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/AXmishell/LACTSSL
+      name: Репозиторий GitHub

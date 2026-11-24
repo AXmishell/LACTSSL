@@ -12,7 +12,7 @@
 //	go run scripts/pluginctl index -assets dist -base-url https://.../releases/download -valid-for 720h -out index.json
 //	go run scripts/pluginctl validate -in index.json
 //
-// 索引签名请使用独立命令 go run ./cmd/signer，避免签名进程导入/执行插件代码。
+// 索引签名请使用独立命令 go run ./tools/helpers/signer，避免签名进程导入/执行插件代码。
 package main
 
 import (
@@ -37,11 +37,11 @@ import (
 	"time"
 
 	"github.com/AXmishell/LACTSSL-Plugins/i18n"
-	"lactssl/internal/plugin/catalog"
-	dnsv5meta "lactssl/internal/plugin/dnsv5/meta"
-	notify "lactssl/internal/plugin/notify"
+	notify "lactssl/internal/plugin/host/notify"
 	"lactssl/internal/plugin/scripts/buildver"
 	"lactssl/internal/plugin/scripts/indexschema"
+	"lactssl/providers/catalog"
+	dnsv5meta "lactssl/providers/dns/lego5/meta"
 )
 
 const (
@@ -286,27 +286,29 @@ var tagPattern = regexp.MustCompile(`^[a-z0-9_]+$`)
 // 这样避免“版本相同但二进制内容不同”，代价是共享代码改动会触发多个包升版。
 func sourcePaths(entry pluginEntry) []string {
 	paths := []string{
-		"../../../go.mod",
-		"../../../go.sum",
+		"../../go.mod",
+		"../../go.sum",
 		"Makefile",
 		"scripts",
 		"LICENSE",
 		"assets/icons/icons.json",
-		"../../../plugins/protocol",
-		"../../../plugins/sdk",
-		"../../../plugins/outbound",
-		"../../../plugins/i18n",
-		"catalog",
+		"../../plugins/protocol",
+		"../../plugins/sdk",
+		"../../plugins/outbound",
+		"../../plugins/i18n",
+		"providers/catalog",
+		"providers/go.mod",
+		"providers/go.sum",
 	}
 	if entry.SDK == "lego-v5" {
 		// v5 helper 依赖 dns 的接口/注册表和跨进程 recordID 状态包。
-		return append(paths, "cmd/dns-helper-v5", "dnsv5", "dns/provider.go", "dns/registry.go", "dns/state")
+		return append(paths, "tools/helpers/dns-helper-v5", "providers/dns/lego5", "host/dns")
 	}
 	switch entry.Kind {
 	case "deploy":
-		return append(paths, "cmd/deploy-helper", "deploy", "assets/icons/deploy")
+		return append(paths, "tools/helpers/deploy-helper", "host/deploy", "providers/deploy", "assets/icons/deploy")
 	case "notify":
-		return append(paths, "cmd/notify-helper", "notify", "assets/icons/notify")
+		return append(paths, "tools/helpers/notify-helper", "host/notify", "providers/notify", "assets/icons/notify")
 	}
 	return paths
 }
@@ -377,7 +379,7 @@ func loadManifest() []pluginEntry {
 // moduleVersion 从 go.mod 读取指定模块的版本，并去掉 semver 的 v 前缀。
 // 只处理直接 require；replace / exclude 行会被忽略。
 func moduleVersion(module string) (string, error) {
-	raw, err := os.ReadFile("../../../go.mod")
+	raw, err := os.ReadFile("../../go.mod")
 	if err != nil {
 		return "", err
 	}
@@ -404,14 +406,14 @@ func cmdMatrix() {
 }
 
 // cmdGen 保留历史子命令以兼容 make manifest。v5 helper 直接导入
-// dnsv5/groups/all，不再生成 v4 分组或 cmd/dns-helper 选择器。
+// providers/dns/lego5/groups/all，不再生成 v4 分组或 tools/helpers/dns-helper 选择器。
 func cmdGen() {
 	for _, entry := range loadManifest() {
 		if entry.Kind == "dns" && entry.Bundle && entry.SDK != "lego-v5" {
 			fail("不再支持 v4 DNS 合并包: " + entry.ID)
 		}
 	}
-	fmt.Println("no generated DNS groups (v5 uses dnsv5/groups/all)")
+	fmt.Println("no generated DNS groups (v5 uses providers/dns/lego5/groups/all)")
 }
 
 // entryProviders 返回插件包覆盖的 provider 集合；单插件包没有 providers 时用自身 ID。
@@ -617,7 +619,7 @@ func buildPlugin(entry pluginEntry, version, goos, goarch, outdir string) (strin
 	}
 	buildDir := "./cmd/" + entry.Kind + "-helper"
 	if entry.SDK == "lego-v5" {
-		buildDir = "./cmd/dns-helper-v5"
+		buildDir = "./tools/helpers/dns-helper-v5"
 		// 与 lego v5 上游 release 一致，裁掉 validator/ozzo/urfave 的模板代码。
 		// v5 provider 依赖会引入这些包，实测可减少约 23MB。
 		tags += ",urfave_cli_no_template,ozzo_validation_no_template,grpcnotrace,validator_novalidatefn"

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"lactssl/internal/i18n"
-	"lactssl/internal/plugin/notify"
+	"lactssl/internal/plugin/host/notify"
 )
 
 var htmlTagPattern = regexp.MustCompile(`(?s)<[^>]*>`)

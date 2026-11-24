@@ -76,5 +76,5 @@ go vet ./...
 
 - 插件以一次性子进程运行，凭据通过 stdin JSON 传入，不写入磁盘。
 - 上传插件默认在 Linux Landlock / rlimit 受限环境中执行；不支持 strict 沙箱的平台降级为 basic 资源限制。
-- 完整字段说明、示例与宿主行为见主仓库文档：[扩展开发：插件协议与贡献指南](../docs/zh/plugin-development.md)。
+- 完整字段说明、示例与宿主行为见主仓库文档：[扩展开发：插件协议与贡献指南](../docsite/docs/zh/plugin-development.md)。
 - 安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。

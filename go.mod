@@ -7,13 +7,11 @@ require (
 	github.com/andybalholm/brotli v1.3.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-acme/lego/v4 v4.35.2
-	github.com/go-acme/lego/v5 v5.6.0
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.13.0
-	github.com/jlaffaye/ftp v0.2.4
 	github.com/pkg/sftp v1.13.12
 	github.com/pquerna/otp v1.5.0
 	github.com/ulikunitz/xz v0.5.17
@@ -25,6 +23,7 @@ require (
 	golang.org/x/sync v0.25.0
 	golang.org/x/sys v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
+	lactssl/providers v0.0.0
 	modernc.org/sqlite v1.62.0
 )
 
@@ -94,6 +93,7 @@ require (
 	github.com/go-acme/alidns-20150109/v5 v5.6.1 // indirect
 	github.com/go-acme/esa-20240910/v3 v3.14.0 // indirect
 	github.com/go-acme/jdcloud-sdk-go v1.64.0 // indirect
+	github.com/go-acme/lego/v5 v5.6.0 // indirect
 	github.com/go-acme/tencentclouddnspod v1.3.131 // indirect
 	github.com/go-acme/tencentedgdeone v1.3.186 // indirect
 	github.com/go-errors/errors v1.0.1 // indirect
@@ -142,6 +142,7 @@ require (
 	github.com/jcmturner/goidentity/v6 v6.0.1 // indirect
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
+	github.com/jlaffaye/ftp v0.2.4 // indirect
 	github.com/json-iterator/go v1.1.13-0.20220915233716-71ac16282d12 // indirect
 	github.com/k0kubun/go-ansi v0.0.0-20180517002512-3bf9e2903213 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
@@ -254,3 +255,5 @@ require (
 )
 
 replace github.com/AXmishell/LACTSSL-Plugins => ./plugins
+
+replace lactssl/providers => ./internal/plugin/providers

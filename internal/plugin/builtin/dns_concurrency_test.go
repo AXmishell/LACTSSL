@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	dnsplugin "lactssl/internal/plugin/dns"
+	dnsplugin "lactssl/internal/plugin/host/dns"
 )
 
 // TestSyncDNSConcurrentReplace 确保并发重扫不会因为重复注册而 panic。

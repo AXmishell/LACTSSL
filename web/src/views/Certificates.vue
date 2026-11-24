@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('certs.title') }}</h1>
-        <p>{{ t('certs.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-input v-model="keyword" :placeholder="t('certs.searchDomain')" clearable style="width: 200px">
@@ -29,7 +28,6 @@
               <el-option :label="t('certs.sourceACME')" value="acme" />
               <el-option :label="t('certs.sourceCSR')" value="csr" />
             </el-select>
-            <span class="muted">{{ t('certs.count', { count: filtered.length }) }}</span>
           </div>
         </div>
 
@@ -110,23 +108,49 @@
             </template>
           </el-table>
         </div>
+        <div class="batch-foot" :class="{ 'is-selecting': showBatchBar && selectedCerts.length }">
+          <div v-if="showBatchBar && selectedCerts.length" class="batch-bar">
+            <div class="batch-actions">
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :icon="Download"
+                :loading="batchDownloading"
+                :title="t('certs.batchDownload')"
+                @click="batchDownload"
+              >
+                <span class="cert-batch-label">{{ t('certs.batchDownload') }}</span>
+              </el-button>
+              <el-button
+                size="small"
+                :icon="UploadFilled"
+                :disabled="deployableSelected.length === 0"
+                :title="t('certs.batchDeploy')"
+                @click="openBatchDeploy"
+              >
+                <span class="cert-batch-label">{{ t('certs.batchDeploy') }}</span>
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                :icon="Delete"
+                :loading="batchDeleting"
+                :title="t('certs.batchDelete')"
+                @click="batchRemove"
+              >
+                <span class="cert-batch-label">{{ t('certs.batchDelete') }}</span>
+              </el-button>
+              <el-button size="small" text :icon="Close" :title="t('certs.clearSelection')" @click="clearSelection">
+                <span class="cert-batch-label">{{ t('certs.clearSelection') }}</span>
+              </el-button>
+            </div>
+            <span class="batch-count">{{ t('certs.selectedCount', { count: selectedCerts.length }) }}</span>
+          </div>
+          <span v-else class="muted">{{ t('certs.count', { count: filtered.length }) }}</span>
+        </div>
       </div>
-    </div>
-
-    <div v-if="showBatchBar && selectedCerts.length" class="batch-bar">
-      <div class="batch-actions">
-        <el-button size="small" type="primary" plain :icon="Download" :loading="batchDownloading" @click="batchDownload">
-          {{ t('certs.batchDownload') }}
-        </el-button>
-        <el-button size="small" :icon="UploadFilled" :disabled="deployableSelected.length === 0" @click="openBatchDeploy">
-          {{ t('certs.batchDeploy') }}
-        </el-button>
-        <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchRemove">
-          {{ t('certs.batchDelete') }}
-        </el-button>
-        <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('certs.clearSelection') }}</el-button>
-      </div>
-      <span class="batch-count">{{ t('certs.selectedCount', { count: selectedCerts.length }) }}</span>
     </div>
 
     <!-- 证书详情 -->
@@ -964,46 +988,15 @@ onMounted(load)
   flex-wrap: wrap;
   border-bottom: 1px solid var(--kp-border);
 }
-.filter-row .muted {
-  margin-right: 12px;
-}
 .filter-meta {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-left: auto;
 }
-.filter-meta .muted {
-  margin-right: 0;
-}
 /* 分段按钮自身已有描边，不再叠加一条底线 */
 .filter-row :deep(.el-radio-group) {
   border-bottom: 0;
-}
-.batch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border: 1px solid #dbe7fb;
-  border-radius: 12px;
-  background: #f5f9ff;
-}
-.batch-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.batch-actions .el-button + .el-button {
-  margin-left: 0;
-}
-.batch-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1d4ed8;
 }
 /* 筛选行底边即表头分隔线 */
 .cert-list :deep(.el-table__header-wrapper) {
@@ -1122,5 +1115,11 @@ onMounted(load)
 }
 .deploy-status :deep(.el-tag__content) {
   font-size: 11px;
+}
+/* 批量操作较多：窄屏隐藏文字只留图标，避免底部操作行换行。 */
+@media (max-width: 1360px) {
+  .cert-batch-label {
+    display: none;
+  }
 }
 </style>

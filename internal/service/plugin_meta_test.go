@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"lactssl/internal/i18n"
-	"lactssl/internal/plugin/dns"
-	"lactssl/internal/plugin/meta"
+	"lactssl/internal/plugin/host/dns"
+	"lactssl/internal/plugin/runtime/metadata"
 )
 
 func TestLocalizeDNSProvidersMarksAvailability(t *testing.T) {

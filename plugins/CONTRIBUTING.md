@@ -18,7 +18,7 @@ go vet ./...
 gofmt -l .   # 输出应为空
 ```
 
-官方实现的开发流程见 [`internal/plugin/CONTRIBUTING.md`](../internal/plugin/CONTRIBUTING.md) 和主仓库 [插件开发文档](../docs/zh/plugin-development.md)。
+官方实现的开发流程见 [`internal/plugin/CONTRIBUTING.md`](../internal/plugin/CONTRIBUTING.md) 和主仓库 [插件开发文档](../docsite/docs/zh/plugin-development.md)。
 
 ## 安全
 

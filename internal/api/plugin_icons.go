@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"lactssl/internal/plugin/icons"
+	"lactssl/internal/plugin/runtime/icon"
 	"lactssl/internal/service"
 )
 

@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('acmeDiagnostics.title') }}</h1>
-        <p>{{ t('acmeDiagnostics.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button type="warning" plain :icon="Delete" @click="openCleanup">{{ t('acmeDiagnostics.cleanup') }}</el-button>

@@ -15,8 +15,8 @@ import (
 	"github.com/pkg/sftp"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
-	deployplugin "lactssl/internal/plugin/deploy"
-	dnsplugin "lactssl/internal/plugin/dns"
+	deployplugin "lactssl/internal/plugin/host/deploy"
+	dnsplugin "lactssl/internal/plugin/host/dns"
 	pluginproto "lactssl/internal/plugin/proto"
 	"lactssl/internal/util"
 )

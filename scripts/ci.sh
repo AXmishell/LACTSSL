@@ -111,6 +111,31 @@ if [ "$RUN_BACKEND" -eq 1 ]; then
   step "go vet"
   go vet ./...
 
+  step "插件元数据一致性"
+  (cd internal/plugin && go run ./scripts/metadatacheck/main.go)
+
+  step "插件导入边界"
+  if go list -f '{{.ImportPath}} {{join .Imports " "}}' ./internal/plugin/host/... | grep -qE 'lactssl/providers/(dns|deploy|notify)'; then
+    echo "host 层不得依赖 providers 实现（api/catalog 除外）" >&2
+    go list -f '{{.ImportPath}} {{join .Imports " "}}' ./internal/plugin/host/... | grep -E 'lactssl/providers/(dns|deploy|notify)' >&2
+    exit 1
+  fi
+  if go list -f '{{.ImportPath}} {{join .Imports " "}}' ./internal/plugin/runtime/... | grep -qE 'internal/plugin/(host|providers)'; then
+    echo "runtime 层不得依赖 host/providers" >&2
+    go list -f '{{.ImportPath}} {{join .Imports " "}}' ./internal/plugin/runtime/... | grep -E 'internal/plugin/(host|providers)' >&2
+    exit 1
+  fi
+
+  step "模块边界"
+  if go list -deps -tags nobuiltin_dns ./cmd/server | grep -q 'go-acme/lego/v5'; then
+    echo "nobuiltin_dns 构建仍依赖 lego v5" >&2
+    exit 1
+  fi
+  if (cd internal/plugin/providers && go list -deps ./... | grep -q '^lactssl/internal'); then
+    echo "providers module 不得依赖宿主 internal 包" >&2
+    exit 1
+  fi
+
   step "go test（含 race 检测）"
   test_flags=()
   if [ "$(go env CGO_ENABLED)" = "1" ] && command -v "$(go env CC)" >/dev/null 2>&1; then
@@ -120,11 +145,19 @@ if [ "$RUN_BACKEND" -eq 1 ]; then
   fi
   go test "${test_flags[@]}" -covermode=atomic -coverprofile=coverage.out ./...
 
+  step "插件裁剪构建"
+  for tags in nobuiltin_dns dns_providers_common dns_providers_minimal; do
+    CGO_ENABLED=0 go build -trimpath -tags "$tags nomsgpack validator_novalidatefn" -o /dev/null ./cmd/server
+  done
+
   step "覆盖率"
   go tool cover -func=coverage.out | tail -n 1
 
   step "插件 module 检查（plugins/）"
   (cd plugins && go vet ./... && go test ./...)
+
+  step "官方 provider module 检查（internal/plugin/providers/）"
+  (cd internal/plugin/providers && go vet ./... && go test ./...)
 
   if command -v govulncheck >/dev/null 2>&1; then
     step "govulncheck"

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,11 +15,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
-	"lactssl/internal/plugin/builtin"
-	"lactssl/internal/plugin/deploy"
-	"lactssl/internal/plugin/dns"
-	"lactssl/internal/plugin/install"
-	"lactssl/internal/plugin/notify"
+	"lactssl/internal/plugin/host/deploy"
+	"lactssl/internal/plugin/host/dns"
+	"lactssl/internal/plugin/host/notify"
+	"lactssl/internal/plugin/runtime/install"
 	"lactssl/internal/service"
 )
 
@@ -62,36 +60,6 @@ type uploadedPlugin struct {
 // expectedPluginDigests 返回 helper 文件名到可执行文件摘要的映射。
 // 仓库安装记录优先；上传文件没有安装记录时回退到 plugin_file_meta 的摘要。
 // 发现阶段先比对摘要再执行 manifest，防止安装后的 helper 被替换。
-func (s *Server) expectedPluginDigests(kind string) map[string]string {
-	out := make(map[string]string)
-	if s.Store == nil {
-		return out
-	}
-	list, err := s.Store.ListPluginInstallations()
-	if err != nil {
-		return out
-	}
-	for _, record := range list {
-		if record.Kind == kind && strings.TrimSpace(record.Filename) != "" && strings.TrimSpace(record.SHA256) != "" {
-			out[record.Filename] = record.SHA256
-		}
-	}
-	// 上传的 helper 没有 PluginInstallation，但上传时缓存了 digest。
-	// 合并后，上传文件被替换同样会在执行 manifest 前被发现。
-	if metas, err := s.Store.ListPluginFileMeta(kind); err == nil {
-		for _, meta := range metas {
-			filename := strings.TrimSpace(meta.Filename)
-			digest := strings.TrimSpace(meta.SHA256)
-			if filename == "" || digest == "" {
-				continue
-			}
-			if _, exists := out[filename]; !exists {
-				out[filename] = digest
-			}
-		}
-	}
-	return out
-}
 
 // dropPluginInstallationsForFile 删除与 helper 文件名匹配的仓库安装记录。
 // 上传覆盖后文件不再受仓库安装记录锚定，保留旧记录会让发现阶段按旧摘要
@@ -121,129 +89,25 @@ func (s *Server) dropPluginInstallationsForFile(kind, filename string) {
 
 // DiscoverPlugins 按当前配置重新扫描外部 DNS 插件目录，并记录最近一次结果。
 func (s *Server) DiscoverPlugins() dnsplugin.DiscoverResult {
-	// 内置替换与外部扫描必须作为一个整体串行执行，否则并发启停/重扫会交错注册。
-	s.pluginDiscoverMu.Lock()
-	defer s.pluginDiscoverMu.Unlock()
-
-	// 先移除上一轮上传插件，避免别名与即将注册的内置实现冲突。
-	dnsplugin.UnregisterSource(dnsplugin.SourceExec)
-	// 内置实现按类别与条目白名单重新注册；未启用条目只保留元数据。
-	dnsBuiltin := s.BuiltinPluginsEnabled && s.PluginsEnabled
-	var syncErrors []string
-	if err := builtin.SyncDNS(s.BuiltinPluginsEnabled, dnsBuiltin, builtin.IDSet(s.dnsPluginEnabledProviders())); err != nil {
-		syncErrors = append(syncErrors, "内置 DNS 插件注册失败: "+err.Error())
-	}
-	cfg := dnsplugin.DiscoverConfig{
-		UploadSandboxProfile: s.PluginSandbox,
-		MemoryLimitMB:        s.PluginMemoryLimitMB,
-		Timeout:              s.PluginTimeout,
-		MaxOutputKB:          s.PluginMaxOutputKB,
-		ExpectedDigests:      s.expectedPluginDigests(pluginKindDNS),
-	}
-	if s.PluginsEnabled {
-		cfg.Dir = s.PluginDir
-		cfg.EnabledProviders = s.dnsPluginEnabledProviders()
-		cfg.DisabledHelpers = s.disabledHelpers(pluginKindDNS)
-	}
-	result := dnsplugin.Discover(cfg)
-	result.Errors = append(syncErrors, result.Errors...)
-	s.pluginMu.Lock()
-	s.pluginResult = result
-	s.pluginMu.Unlock()
-	s.syncPluginFileMeta(pluginKindDNS)
-	s.syncPluginMetadata(pluginKindDNS)
-	return result
+	return s.pluginManagerService().DiscoverDNS()
 }
 
 // DiscoverDeployPlugins 按当前配置重新扫描外部证书部署插件目录。
 func (s *Server) DiscoverDeployPlugins() deployplugin.DiscoverResult {
-	s.pluginDiscoverMu.Lock()
-	defer s.pluginDiscoverMu.Unlock()
-
-	deployplugin.UnregisterSource(deployplugin.SourceExec)
-	deployBuiltin := s.BuiltinPluginsEnabled && s.DeployPluginsEnabled
-	var syncErrors []string
-	if err := builtin.SyncDeploy(s.BuiltinPluginsEnabled, deployBuiltin, builtin.IDSet(s.deployPluginEnabledDeployers())); err != nil {
-		syncErrors = append(syncErrors, "内置部署插件注册失败: "+err.Error())
-	}
-	knownIDs := service.BuiltinDeployTypeIDs()
-	for id := range deployplugin.BuiltinDeployerIDs() {
-		knownIDs[id] = true
-	}
-	cfg := deployplugin.DiscoverConfig{
-		UploadSandboxProfile: s.DeployPluginSandbox,
-		MemoryLimitMB:        s.DeployPluginMemoryLimitMB,
-		Timeout:              s.DeployPluginTimeout,
-		MaxOutputKB:          s.DeployPluginMaxOutputKB,
-		KnownIDs:             knownIDs,
-		ExpectedDigests:      s.expectedPluginDigests(pluginKindDeploy),
-	}
-	if s.DeployPluginsEnabled {
-		cfg.Dir = s.DeployPluginDir
-		cfg.EnabledDeployers = s.deployPluginEnabledDeployers()
-		cfg.DisabledHelpers = s.disabledHelpers(pluginKindDeploy)
-	}
-	result := deployplugin.Discover(cfg)
-	result.Errors = append(syncErrors, result.Errors...)
-	s.deployPluginMu.Lock()
-	s.deployPluginResult = result
-	s.deployPluginMu.Unlock()
-	s.syncPluginFileMeta(pluginKindDeploy)
-	s.syncPluginMetadata(pluginKindDeploy)
-	// 首次启动时升级步骤可能早于插件发现，无法解析部署目标字段而保留迁移标记。
-	// 发现完成后重试这两个幂等迁移，成功后才写入完成标记。
-	if s.Manager != nil {
-		_ = s.Manager.MigrateDeployConfigSplit()
-		_ = s.Manager.MigrateDeployTargets()
-	}
-	return result
+	return s.pluginManagerService().DiscoverDeploy()
 }
 
 // DiscoverNotifyPlugins 按当前配置重新扫描外部通知插件目录。
 func (s *Server) DiscoverNotifyPlugins() notifyplugin.DiscoverResult {
-	s.pluginDiscoverMu.Lock()
-	defer s.pluginDiscoverMu.Unlock()
-
-	notifyplugin.UnregisterSource(notifyplugin.SourceExec)
-	notifyBuiltin := s.BuiltinPluginsEnabled && s.NotifyPluginsEnabled
-	var syncErrors []string
-	if err := builtin.SyncNotify(s.BuiltinPluginsEnabled, notifyBuiltin, builtin.IDSet(s.notifyPluginEnabledChannels())); err != nil {
-		syncErrors = append(syncErrors, "内置通知插件注册失败: "+err.Error())
-	}
-	cfg := notifyplugin.DiscoverConfig{
-		UploadSandboxProfile: s.NotifyPluginSandbox,
-		MemoryLimitMB:        s.NotifyPluginMemoryLimitMB,
-		Timeout:              s.NotifyPluginTimeout,
-		MaxOutputKB:          s.NotifyPluginMaxOutputKB,
-		KnownIDs:             service.BuiltinNotifyChannelIDs(),
-		ExpectedDigests:      s.expectedPluginDigests(pluginKindNotify),
-	}
-	if s.NotifyPluginsEnabled {
-		cfg.Dir = s.NotifyPluginDir
-		cfg.EnabledChannels = s.notifyPluginEnabledChannels()
-		cfg.DisabledHelpers = s.disabledHelpers(pluginKindNotify)
-	}
-	result := notifyplugin.Discover(cfg)
-	result.Errors = append(syncErrors, result.Errors...)
-	s.notifyPluginMu.Lock()
-	s.notifyPluginResult = result
-	s.notifyPluginMu.Unlock()
-	s.syncPluginFileMeta(pluginKindNotify)
-	s.syncPluginMetadata(pluginKindNotify)
-	return result
+	return s.pluginManagerService().DiscoverNotify()
 }
 
 // listPlugins 返回外部插件状态与目标清单，供设置页展示与排障。
 func (s *Server) listPlugins(c *gin.Context) {
-	s.pluginMu.Lock()
-	dnsResult := s.pluginResult
-	s.pluginMu.Unlock()
-	s.deployPluginMu.Lock()
-	deployResult := s.deployPluginResult
-	s.deployPluginMu.Unlock()
-	s.notifyPluginMu.Lock()
-	notifyResult := s.notifyPluginResult
-	s.notifyPluginMu.Unlock()
+	manager := s.pluginManagerService()
+	dnsResult := manager.DNSResult()
+	deployResult := manager.DeployResult()
+	notifyResult := manager.NotifyResult()
 
 	providers := append([]dnsplugin.ExternalProvider{}, dnsplugin.BuiltinProviders()...)
 	providers = append(providers, dnsplugin.ExternalProviders()...)
@@ -1076,109 +940,9 @@ func (s *Server) setPluginProvidersEnabled(c *gin.Context) {
 
 // updateDNSPluginProviders 写入启用白名单并返回实际更新的服务商。
 // 找不到对应插件元数据的 ID 会被跳过，避免白名单无限膨胀。
-func (s *Server) updateDNSPluginProviders(ids []string, enabled bool) ([]string, []string, error) {
-	// 串行化读改写，避免两个管理员同时操作时丢失彼此的启用/停用结果。
-	s.pluginMu.Lock()
-	defer s.pluginMu.Unlock()
-
-	set := s.dnsPluginEnabledSet()
-	updated := make([]string, 0, len(ids))
-	skipped := make([]string, 0)
-	for _, raw := range ids {
-		id := strings.ToLower(strings.TrimSpace(raw))
-		if id == "" {
-			continue
-		}
-		if _, found := dnsplugin.ExternalProviderInfo(id); !found {
-			skipped = append(skipped, id)
-			continue
-		}
-		if enabled {
-			set[id] = true
-		} else {
-			delete(set, id)
-		}
-		updated = append(updated, id)
-	}
-	if len(updated) == 0 {
-		return updated, skipped, nil
-	}
-	return updated, skipped, s.saveDNSPluginEnabledSet(set)
-}
 
 // defaultDNSPluginEnabledSet 返回默认启用的插件服务商集合。
 // 新安装默认不启用任何 DNS 服务商，由管理员在插件页按需开启。
-func defaultDNSPluginEnabledSet() map[string]bool {
-	return map[string]bool{}
-}
-
-func isDefaultDNSPluginProvider(id string) bool {
-	id = strings.ToLower(strings.TrimSpace(id))
-	for _, builtin := range service.BuiltinDNSProviderIDs() {
-		if strings.ToLower(strings.TrimSpace(builtin)) == id {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *Server) dnsPluginEnabledSet() map[string]bool {
-	raw, err := s.Store.GetSetting(dnsPluginEnabledSetting)
-	if err != nil || strings.TrimSpace(raw) == "" {
-		// 尚未保存过启用状态：默认不启用任何 DNS 服务商。
-		return defaultDNSPluginEnabledSet()
-	}
-	var ids []string
-	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
-		return defaultDNSPluginEnabledSet()
-	}
-	out := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		if id = strings.ToLower(strings.TrimSpace(id)); id != "" {
-			out[id] = true
-		}
-	}
-	return out
-}
-
-func (s *Server) dnsPluginEnabledProviders() []string {
-	set := s.dnsPluginEnabledSet()
-	ids := make([]string, 0, len(set))
-	for id := range set {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
-}
-
-func (s *Server) saveDNSPluginEnabledSet(set map[string]bool) error {
-	known := s.pluginFileKnownItems(pluginKindDNS)
-	for id := range dnsplugin.BuiltinProviderIDs() {
-		known[id] = true
-	}
-	ids := make([]string, 0, len(set))
-	for id, enabled := range set {
-		if !enabled {
-			continue
-		}
-		// 顺手清理已卸载 helper 留下的陈旧 ID，但保留内置服务商，
-		// 以及仍属于已安装文件（含已停用文件）的条目。
-		if known[normalizePluginItemID(pluginKindDNS, id)] || isDefaultDNSPluginProvider(id) {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	data, err := json.Marshal(ids)
-	if err != nil {
-		return err
-	}
-	if err := s.Store.SetSetting(dnsPluginEnabledSetting, string(data)); err != nil {
-		return err
-	}
-	// 旧键不再参与判断，删除以免后续排查时产生误解。
-	_ = s.Store.DeleteSetting(dnsPluginLegacyDisabledSetting)
-	return nil
-}
 
 // setDeployPluginDeployerEnabled 启用或停用单个插件部署目标。
 // 本地文件与 SSH 属于内置目标，始终可用，不能通过该接口修改。
@@ -1287,121 +1051,11 @@ func (s *Server) setDeployPluginDeployersEnabled(c *gin.Context) {
 
 // updateDeployPluginDeployers 写入启用白名单并返回实际更新的部署目标。
 // 找不到对应插件元数据的 ID 会被跳过，避免白名单无限膨胀。
-func (s *Server) updateDeployPluginDeployers(ids []string, enabled bool) ([]string, []string, error) {
-	// 串行化读改写，避免两个管理员同时操作时丢失彼此的启用/停用结果。
-	s.deployPluginMu.Lock()
-	defer s.deployPluginMu.Unlock()
-
-	set := s.deployPluginEnabledSet()
-	updated := make([]string, 0, len(ids))
-	skipped := make([]string, 0)
-	for _, raw := range ids {
-		id := strings.ToLower(strings.TrimSpace(raw))
-		if id == "" {
-			continue
-		}
-		if _, found := deployplugin.ExternalDeployerInfo(id); !found {
-			skipped = append(skipped, id)
-			continue
-		}
-		if enabled {
-			set[id] = true
-		} else {
-			delete(set, id)
-			// 停用合并目标时一并移除旧 ID，避免白名单补全逻辑把它重新启用。
-			for legacy, canonical := range service.DeprecatedDeployTypeCanonical {
-				if canonical == id {
-					delete(set, legacy)
-				}
-			}
-		}
-		updated = append(updated, id)
-	}
-	if len(updated) == 0 {
-		return updated, skipped, nil
-	}
-	return updated, skipped, s.saveDeployPluginEnabledSet(set)
-}
 
 // defaultDeployPluginEnabledSet 返回默认启用的插件部署目标集合。
 // 迁移前内置的部署目标改由 helper 提供后仍默认启用；其余插件目标默认停用。
-func defaultDeployPluginEnabledSet() map[string]bool {
-	ids := service.DefaultPluginDeployIDs()
-	out := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		out[id] = true
-	}
-	return out
-}
-
-func isDefaultDeployPluginDeployer(id string) bool {
-	return service.IsDefaultPluginDeployID(id)
-}
-
-func (s *Server) deployPluginEnabledSet() map[string]bool {
-	raw, err := s.Store.GetSetting(deployPluginEnabledSetting)
-	if err != nil || strings.TrimSpace(raw) == "" {
-		// 尚未保存过启用状态：使用默认白名单，避免升级后内置部署目标全部消失。
-		return defaultDeployPluginEnabledSet()
-	}
-	var ids []string
-	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
-		return defaultDeployPluginEnabledSet()
-	}
-	out := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		if id = strings.ToLower(strings.TrimSpace(id)); id != "" {
-			out[id] = true
-		}
-	}
-	// 已合并目标：旧版本白名单只有 qiniu_cdn/qiniu_kodo 等旧 ID，
-	// 升级后需要自动启用新的规范 ID，否则合并目标会被判定为未启用。
-	promoteMergedDeployTypes(out)
-	return out
-}
 
 // promoteMergedDeployTypes 在白名单包含旧目标时补充其合并后的规范目标。
-func promoteMergedDeployTypes(set map[string]bool) {
-	for legacy, canonical := range service.DeprecatedDeployTypeCanonical {
-		if set[legacy] && !set[canonical] {
-			set[canonical] = true
-		}
-	}
-}
-
-func (s *Server) deployPluginEnabledDeployers() []string {
-	set := s.deployPluginEnabledSet()
-	ids := make([]string, 0, len(set))
-	for id := range set {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
-}
-
-func (s *Server) saveDeployPluginEnabledSet(set map[string]bool) error {
-	known := s.pluginFileKnownItems(pluginKindDeploy)
-	for id := range deployplugin.BuiltinDeployerIDs() {
-		known[id] = true
-	}
-	ids := make([]string, 0, len(set))
-	for id, enabled := range set {
-		if !enabled {
-			continue
-		}
-		// 顺手清理已卸载 helper 留下的陈旧 ID，但保留默认启用的部署目标，
-		// 以及仍属于已安装文件（含已停用文件）的条目。
-		if known[normalizePluginItemID(pluginKindDeploy, id)] || isDefaultDeployPluginDeployer(id) {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	data, err := json.Marshal(ids)
-	if err != nil {
-		return err
-	}
-	return s.Store.SetSetting(deployPluginEnabledSetting, string(data))
-}
 
 // setNotifyPluginChannelEnabled 启用或停用单个插件通知渠道。
 // 邮件属于内置渠道，始终可用，不能通过该接口修改。
@@ -1508,104 +1162,6 @@ func (s *Server) setNotifyPluginChannelsEnabled(c *gin.Context) {
 }
 
 // updateNotifyPluginChannels 写入启用白名单并返回实际更新的渠道。
-func (s *Server) updateNotifyPluginChannels(ids []string, enabled bool) ([]string, []string, error) {
-	// 串行化读改写，避免两个管理员同时操作时丢失彼此的启用/停用结果。
-	s.notifyPluginMu.Lock()
-	defer s.notifyPluginMu.Unlock()
-
-	set := s.notifyPluginEnabledSet()
-	updated := make([]string, 0, len(ids))
-	skipped := make([]string, 0)
-	for _, raw := range ids {
-		id := strings.ToLower(strings.TrimSpace(raw))
-		if id == "" {
-			continue
-		}
-		if _, found := notifyplugin.ExternalChannelInfo(id); !found {
-			skipped = append(skipped, id)
-			continue
-		}
-		if enabled {
-			set[id] = true
-		} else {
-			delete(set, id)
-		}
-		updated = append(updated, id)
-	}
-	if len(updated) == 0 {
-		return updated, skipped, nil
-	}
-	return updated, skipped, s.saveNotifyPluginEnabledSet(set)
-}
 
 // defaultNotifyPluginEnabledSet 返回默认启用的通知渠道集合。
 // 迁移前内置的渠道改由 helper 提供后仍默认启用；其余插件渠道默认停用。
-func defaultNotifyPluginEnabledSet() map[string]bool {
-	ids := service.DefaultNotifyChannelIDs()
-	out := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		out[strings.ToLower(strings.TrimSpace(id))] = true
-	}
-	return out
-}
-
-func isDefaultNotifyPluginChannel(id string) bool {
-	id = strings.ToLower(strings.TrimSpace(id))
-	for _, builtin := range service.DefaultNotifyChannelIDs() {
-		if strings.ToLower(strings.TrimSpace(builtin)) == id {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *Server) notifyPluginEnabledSet() map[string]bool {
-	raw, err := s.Store.GetSetting(notifyPluginEnabledSetting)
-	if err != nil || strings.TrimSpace(raw) == "" {
-		return defaultNotifyPluginEnabledSet()
-	}
-	var ids []string
-	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
-		return defaultNotifyPluginEnabledSet()
-	}
-	out := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		if id = strings.ToLower(strings.TrimSpace(id)); id != "" {
-			out[id] = true
-		}
-	}
-	return out
-}
-
-func (s *Server) notifyPluginEnabledChannels() []string {
-	set := s.notifyPluginEnabledSet()
-	ids := make([]string, 0, len(set))
-	for id := range set {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
-}
-
-func (s *Server) saveNotifyPluginEnabledSet(set map[string]bool) error {
-	known := s.pluginFileKnownItems(pluginKindNotify)
-	for id := range notifyplugin.BuiltinChannelIDs() {
-		known[id] = true
-	}
-	ids := make([]string, 0, len(set))
-	for id, enabled := range set {
-		if !enabled {
-			continue
-		}
-		// 保留默认启用的渠道，以及仍属于已安装文件（含已停用文件）的条目。
-		if known[normalizePluginItemID(pluginKindNotify, id)] || isDefaultNotifyPluginChannel(id) {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	data, err := json.Marshal(ids)
-	if err != nil {
-		return err
-	}
-	return s.Store.SetSetting(notifyPluginEnabledSetting, string(data))
-}

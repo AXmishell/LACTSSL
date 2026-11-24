@@ -26,7 +26,7 @@
 *.prof
 *.test
 *.exe
-/site/
+/docsite/site/
 # 本地 release 流程（scripts/release.sh）
 /dist/
 /out/
@@ -45,6 +45,7 @@
 
 # 文档站点构建缓存与预览服务运行时文件（scripts/docs-serve.sh）
 /.cache/
+/docsite/.cache/
 /.docs-serve/
 
 # 内部文档（不公开发布，不进 git）

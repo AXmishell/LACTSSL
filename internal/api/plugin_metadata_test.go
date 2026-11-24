@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"lactssl/internal/plugin/meta"
+	"lactssl/internal/plugin/runtime/metadata"
 	"lactssl/internal/service"
 )
 

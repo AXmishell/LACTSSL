@@ -1,0 +1,122 @@
+# 日本語サイト設定：/ja/ にビルドします。既定サイトは英語（mkdocs.yml）です。
+# ローカルで多言語サイトをプレビューするには scripts/docs-serve.sh（または make docs-serve）を使ってください。
+# `zensical serve` は一度に 1 つの設定しかビルドできないためです。
+# 注意: Zensical はこのファイルのあるディレクトリ（docsite/）をプロジェクトルートとするため、docs_dir/site_dir をその外に置けません。
+site_name: LACTSSL
+site_url: https://lactssl.gpcn.cc/ja/
+site_description: 企業チームと個人 / 小規模チーム向けのセルフホスト型 SSL 証明書管理プラットフォーム。ACME 発行と自動更新、証明書デプロイ、監視、プライベート CA、内部 ACME サービスを提供します。
+repo_url: https://github.com/AXmishell/LACTSSL
+repo_name: AXmishell/LACTSSL
+edit_uri: edit/main/docsite/docs/ja/
+copyright: Copyright &copy; LACTSSL · MIT License
+
+docs_dir: docs/ja
+site_dir: site/ja
+
+theme:
+  name: material
+  variant: modern
+  language: ja
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: ダークモードに切り替え
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: ライトモードに切り替え
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+
+nav:
+  - ホーム: index.md
+  - はじめに・デプロイ:
+      - はじめに・導入手順: getting-started.md
+      - インストールと起動: install.md
+      - アーキテクチャ: architecture.md
+  - 管理・運用:
+      - 管理ワークスペース: administration.md
+      - 機能一覧: features.md
+      - プラグインガバナンス: plugins.md
+  - 連携・セキュリティ:
+      - API 連携: api.md
+      - セキュリティ基準: security.md
+  - 運用:
+      - 運用ハンドブック: operations.md
+      - アップグレードと変更: upgrade.md
+      - 監視とトラブルシューティング: troubleshooting.md
+  - リファレンス:
+      - 設定リファレンス: configuration.md
+      - DNS プラグイン: dns-plugins.md
+      - デプロイプラグイン: deploy-plugins.md
+      - 通知プラグイン: notify-plugins.md
+  - 拡張開発:
+      - ソースとビルド: development.md
+      - プラグイン開発: plugin-development.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  alternate:
+    - name: English
+      link: /
+      lang: en
+    - name: 简体中文
+      link: /zh/
+      lang: zh
+    - name: 繁體中文
+      link: /zh-hant/
+      lang: zh-Hant
+    - name: 日本語
+      link: /ja/
+      lang: ja
+    - name: Русский
+      link: /ru/
+      lang: ru
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/AXmishell/LACTSSL
+      name: GitHub リポジトリ

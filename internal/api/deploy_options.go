@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	deployplugin "lactssl/internal/plugin/deploy"
+	deployplugin "lactssl/internal/plugin/host/deploy"
 	"lactssl/internal/service"
 )
 

@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('monitors.title') }}</h1>
-        <p>{{ t('monitors.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle @click="load" />
@@ -100,16 +99,18 @@
           <el-button text type="danger" size="small" @click="remove(monitor)">{{ t('monitors.delete') }}</el-button>
         </div>
       </div>
-    </div>
-
-    <div v-if="showBatchBar && selectedIds.length" class="batch-bar">
-      <div class="batch-actions">
-        <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchDelete">
-          {{ t('monitors.batchDelete') }}
-        </el-button>
-        <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('monitors.clearSelection') }}</el-button>
+      <div class="batch-foot" :class="{ 'is-selecting': showBatchBar && selectedIds.length }">
+        <div v-if="showBatchBar && selectedIds.length" class="batch-bar">
+          <div class="batch-actions">
+            <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchDelete">
+              {{ t('monitors.batchDelete') }}
+            </el-button>
+            <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('monitors.clearSelection') }}</el-button>
+          </div>
+          <span class="batch-count">{{ t('monitors.selectedCount', { count: selectedIds.length }) }}</span>
+        </div>
+        <span v-else class="muted">{{ t('common.totalItems', { count: monitors.length }) }}</span>
       </div>
-      <span class="batch-count">{{ t('monitors.selectedCount', { count: selectedIds.length }) }}</span>
     </div>
 
     <el-dialog v-model="dialogVisible" :title="editingId ? t('monitors.editTitle') : t('monitors.addTitle')" width="520px" destroy-on-close>
@@ -420,31 +421,6 @@ onMounted(load)
 .monitor-check {
   flex: none;
   margin-right: 0;
-}
-.batch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border: 1px solid #dbe7fb;
-  border-radius: 12px;
-  background: #f5f9ff;
-}
-.batch-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.batch-actions .el-button + .el-button {
-  margin-left: 0;
-}
-.batch-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1d4ed8;
 }
 .monitor-cell {
   min-width: 0;

@@ -1,14 +1,12 @@
 name: Pages
 
-# 将 docs/ 通过 Zensical 构建为静态站点并发布到 GitHub Pages。
+# 将 docsite/ 通过 Zensical 构建为静态站点并发布到 GitHub Pages。
 # 首次使用需要在仓库 Settings → Pages → Build and deployment 中把 Source 设为 GitHub Actions。
 on:
   push:
     branches: [main]
     paths:
-      - "docs/**"
-      - "mkdocs*.yml"
-      - "requirements-docs.txt"
+      - "docsite/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -36,28 +34,28 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-docs.txt
+          cache-dependency-path: docsite/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements-docs.txt
+        run: pip install -r docsite/requirements.txt
 
       - name: Build site (English, default)
         # 英文站点作为默认首页构建到根目录；
         # Zensical 仍处于快速迭代期，使用 --clean 避免旧构建缓存影响产物。
-        run: zensical build --strict --clean
+        run: zensical build -f docsite/mkdocs.yml --strict --clean
 
       - name: Build site (Simplified Chinese)
         # 每个语言使用独立配置，输出到 config 中指定的 site_dir。
-        run: zensical build -f mkdocs.zh.yml --strict
+        run: zensical build -f docsite/mkdocs.zh.yml --strict
 
       - name: Build site (Traditional Chinese)
-        run: zensical build -f mkdocs.zh-hant.yml --strict
+        run: zensical build -f docsite/mkdocs.zh-hant.yml --strict
 
       - name: Build site (Japanese)
-        run: zensical build -f mkdocs.ja.yml --strict
+        run: zensical build -f docsite/mkdocs.ja.yml --strict
 
       - name: Build site (Russian)
-        run: zensical build -f mkdocs.ru.yml --strict
+        run: zensical build -f docsite/mkdocs.ru.yml --strict
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
@@ -65,7 +63,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
-          path: site
+          path: docsite/site
           # v5 默认排除隐藏文件，v3 会打包隐藏文件；显式保持原有行为。
           include-hidden-files: true
 

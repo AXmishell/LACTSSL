@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('acmeServer.title') }}</h1>
-        <p>{{ t('acmeServer.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="DataAnalysis" @click="router.push('/acme-diagnostics')">{{ t('acmeServer.diagnostics') }}</el-button>
@@ -87,16 +86,18 @@
           </template>
         </el-table>
       </div>
-    </div>
-
-    <div v-if="showBatchBar && selectedEndpoints.length" class="batch-bar">
-      <div class="batch-actions">
-        <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchDelete">
-          {{ t('acmeServer.batchDelete') }}
-        </el-button>
-        <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('acmeServer.clearSelection') }}</el-button>
+      <div class="batch-foot" :class="{ 'is-selecting': showBatchBar && selectedEndpoints.length }">
+        <div v-if="showBatchBar && selectedEndpoints.length" class="batch-bar">
+          <div class="batch-actions">
+            <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchDelete">
+              {{ t('acmeServer.batchDelete') }}
+            </el-button>
+            <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('acmeServer.clearSelection') }}</el-button>
+          </div>
+          <span class="batch-count">{{ t('acmeServer.selectedCount', { count: selectedEndpoints.length }) }}</span>
+        </div>
+        <span v-else class="muted">{{ t('common.totalItems', { count: endpoints.length }) }}</span>
       </div>
-      <span class="batch-count">{{ t('acmeServer.selectedCount', { count: selectedEndpoints.length }) }}</span>
     </div>
 
     <!-- 端点配置 -->
@@ -817,30 +818,5 @@ onMounted(load)
   display: grid;
   gap: 8px;
   font-size: 12px;
-}
-.batch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border: 1px solid #dbe7fb;
-  border-radius: 12px;
-  background: #f5f9ff;
-}
-.batch-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.batch-actions .el-button + .el-button {
-  margin-left: 0;
-}
-.batch-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1d4ed8;
 }
 </style>

@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('apiKeys.title') }}</h1>
-        <p>{{ t('apiKeys.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle :loading="loading" @click="load" />
@@ -128,19 +127,18 @@
           </template>
         </el-table>
       </div>
-      <div class="flex-between key-foot">
-        <span class="muted">{{ t('apiKeys.total', { count: items.length }) }}</span>
+      <div class="batch-foot" :class="{ 'is-selecting': showBatchBar && selectedIds.length }">
+        <div v-if="showBatchBar && selectedIds.length" class="batch-bar">
+          <div class="batch-actions">
+            <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchRemove">
+              {{ t('apiKeys.batchDelete') }}
+            </el-button>
+            <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('apiKeys.clearSelection') }}</el-button>
+          </div>
+          <span class="batch-count">{{ t('apiKeys.batchSelected', { count: selectedIds.length }) }}</span>
+        </div>
+        <span v-else class="muted">{{ t('apiKeys.total', { count: items.length }) }}</span>
       </div>
-    </div>
-
-    <div v-if="showBatchBar && selectedIds.length" class="batch-bar">
-      <div class="batch-actions">
-        <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchRemove">
-          {{ t('apiKeys.batchDelete') }}
-        </el-button>
-        <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('apiKeys.clearSelection') }}</el-button>
-      </div>
-      <span class="batch-count">{{ t('apiKeys.batchSelected', { count: selectedIds.length }) }}</span>
     </div>
 
     <!-- 创建 / 编辑 -->
@@ -1146,39 +1144,6 @@ onMounted(load)
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.key-foot {
-  padding: 12px 16px 16px;
-}
-
-.batch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border: 1px solid #dbe7fb;
-  border-radius: 12px;
-  background: #f5f9ff;
-}
-
-.batch-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.batch-actions .el-button + .el-button {
-  margin-left: 0;
-}
-
-.batch-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1d4ed8;
 }
 
 /*

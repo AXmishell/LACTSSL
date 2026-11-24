@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/model"
-	deployplugin "lactssl/internal/plugin/deploy"
+	deployplugin "lactssl/internal/plugin/host/deploy"
 	"lactssl/internal/service"
 )
 

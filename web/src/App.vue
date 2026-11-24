@@ -1,6 +1,7 @@
 <template>
   <el-config-provider :locale="elementLocale">
     <router-view />
+    <RouteProgress />
     <LoadingLayer />
     <ReauthDialog />
   </el-config-provider>
@@ -10,6 +11,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import LoadingLayer from './components/LoadingLayer.vue'
+import RouteProgress from './components/RouteProgress.vue'
 import ReauthDialog from './components/ReauthDialog.vue'
 import { elementLocaleFor } from './i18n'
 

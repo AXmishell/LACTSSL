@@ -16,10 +16,10 @@ import (
 	plugi18n "github.com/AXmishell/LACTSSL-Plugins/i18n"
 	plugdnsutil "github.com/AXmishell/LACTSSL-Plugins/sdk/dnsutil"
 	"lactssl/internal/i18n"
-	plugcatalog "lactssl/internal/plugin/catalog"
-	dnsplugin "lactssl/internal/plugin/dns"
-	plugmeta "lactssl/internal/plugin/dnsv5/meta"
+	dnsplugin "lactssl/internal/plugin/host/dns"
 	pluginproto "lactssl/internal/plugin/proto"
+	plugcatalog "lactssl/providers/catalog"
+	plugmeta "lactssl/providers/dns/lego5/meta"
 )
 
 // dnsEnvMu 串行化 lego v5 provider 的构造。

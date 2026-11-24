@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('logs.title') }}</h1>
-        <p>{{ subtitle }}</p>
       </div>
       <el-tabs v-model="tab" class="logs-tabs" @tab-change="onTabChange">
         <el-tab-pane :label="t('logs.tabOperation')" name="operation" />
@@ -300,7 +299,6 @@ const component = ref('')
 const systemQuery = ref('')
 const systemRange = ref<[Date, Date] | null>(null)
 const components = ref<string[]>([])
-const retentionDays = ref(7)
 const enabled = ref(true)
 const autoRefresh = ref(true)
 
@@ -364,14 +362,6 @@ const componentKeys: Record<string, string> = {
   service: 'systemLogs.componentService',
   acme: 'systemLogs.componentACME'
 }
-
-const subtitle = computed(() => {
-  if (tab.value === 'archive') return t('logs.archiveSubtitle')
-  if (tab.value === 'notify') return t('logs.notifySubtitle')
-  return tab.value === 'operation'
-    ? t('logs.subtitle')
-    : t('systemLogs.subtitle', { days: retentionDays.value })
-})
 
 const activeRange = computed({
   get: () => {
@@ -505,7 +495,6 @@ async function load(silent = false): Promise<void> {
       items.value = data.items || []
       total.value = data.total || 0
       components.value = data.components || []
-      retentionDays.value = data.retention_days || 7
       enabled.value = data.enabled !== false
     } else {
       const data = await api.get<LogArchivePage>('/log-archives', {

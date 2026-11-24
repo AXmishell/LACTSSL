@@ -10,9 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/i18n"
-	deployplugin "lactssl/internal/plugin/deploy"
-	dnsplugin "lactssl/internal/plugin/dns"
-	notifyplugin "lactssl/internal/plugin/notify"
+	deployplugin "lactssl/internal/plugin/host/deploy"
+	dnsplugin "lactssl/internal/plugin/host/dns"
+	notifyplugin "lactssl/internal/plugin/host/notify"
 	"lactssl/internal/service"
 )
 

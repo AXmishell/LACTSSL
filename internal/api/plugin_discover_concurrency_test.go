@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	deployplugin "lactssl/internal/plugin/deploy"
-	dnsplugin "lactssl/internal/plugin/dns"
-	notifyplugin "lactssl/internal/plugin/notify"
+	deployplugin "lactssl/internal/plugin/host/deploy"
+	dnsplugin "lactssl/internal/plugin/host/dns"
+	notifyplugin "lactssl/internal/plugin/host/notify"
 )
 
 // TestConcurrentDiscoverDoesNotPanic 覆盖两个管理员同时启停/重扫的场景。

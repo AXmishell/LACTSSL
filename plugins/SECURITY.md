@@ -26,7 +26,7 @@
 ## 签名与 CI
 
 - 索引签名私钥只能放在受保护 GitHub Environment、HSM/KMS 或离线签名机；不得进入仓库、普通家目录或未经审查的 `go run` 环境。
-- 签名必须使用独立的 `cmd/signer`，该工具不得导入插件包；签名后必须立即验签。
+- 签名必须使用独立的 `tools/helpers/signer`，该工具不得导入插件包；签名后必须立即验签。
 - PR 工作流不得接触仓库 secrets 或写 token；生成物校验只读，bot 回写通过受信任的 post-merge 流程创建 PR。
 - 发布 tag 应受 ruleset 保护，发布 job 应使用 required reviewers，并校验 tag 提交位于 `main`。
 - 旧索引在合并前必须用固定公钥验签；索引缺少插件、artifact 缺失或签名失败时必须 fail-closed。

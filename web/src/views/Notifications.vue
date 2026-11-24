@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('notifications.title') }}</h1>
-        <p>{{ t('notifications.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle @click="reload" />

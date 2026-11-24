@@ -7,9 +7,9 @@
 package builtin
 
 import (
-	notifyplugin "lactssl/internal/plugin/notify"
-	"lactssl/internal/plugin/notify/providers/channels"
+	notifyplugin "lactssl/internal/plugin/host/notify"
 	pluginproto "lactssl/internal/plugin/proto"
+	"lactssl/providers/notify/channels"
 	"strings"
 	"sync"
 )

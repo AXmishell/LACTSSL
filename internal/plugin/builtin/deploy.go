@@ -9,10 +9,10 @@ import (
 
 	plugi18n "github.com/AXmishell/LACTSSL-Plugins/i18n"
 	plugproto "github.com/AXmishell/LACTSSL-Plugins/protocol"
-	plugcatalog "lactssl/internal/plugin/catalog"
-	deployplugin "lactssl/internal/plugin/deploy"
-	"lactssl/internal/plugin/deploy/providers/panels"
+	deployplugin "lactssl/internal/plugin/host/deploy"
 	pluginproto "lactssl/internal/plugin/proto"
+	plugcatalog "lactssl/providers/catalog"
+	"lactssl/providers/deploy/panels"
 )
 
 var deployOnce sync.Once

@@ -9,8 +9,8 @@ import (
 
 	"github.com/go-acme/lego/v4/challenge"
 	"lactssl/internal/i18n"
-	deployplugin "lactssl/internal/plugin/deploy"
-	dnsplugin "lactssl/internal/plugin/dns"
+	deployplugin "lactssl/internal/plugin/host/deploy"
+	dnsplugin "lactssl/internal/plugin/host/dns"
 	pluginproto "lactssl/internal/plugin/proto"
 )
 

@@ -24,18 +24,19 @@
 
 ## 文档入口
 
-- [快速上手与上线](docs/zh/getting-started.md)：个人快速上手，企业试点、验收与生产切换。
-- [部署架构](docs/zh/architecture.md)：拓扑、端口、容量、可用性。
-- [管理工作台](docs/zh/administration.md)：账户、API 密钥、审计和职责。
-- [安全基线](docs/zh/security.md)：身份、加密、审计、供应链和控制项映射。
-- [运维手册](docs/zh/operations.md)：备份恢复、监控、变更和演练。
-- [API 集成](docs/zh/api.md)：密钥权限和自动化示例。
-- [监控与排障](docs/zh/troubleshooting.md)：常见故障和应急处理。
+- [快速上手与上线](docsite/docs/zh/getting-started.md)：个人快速上手，企业试点、验收与生产切换。
+- [部署架构](docsite/docs/zh/architecture.md)：拓扑、端口、容量、可用性。
+- [管理工作台](docsite/docs/zh/administration.md)：账户、API 密钥、审计和职责。
+- [安全基线](docsite/docs/zh/security.md)：身份、加密、审计、供应链和控制项映射。
+- [运维手册](docsite/docs/zh/operations.md)：备份恢复、监控、变更和演练。
+- [API 集成](docsite/docs/zh/api.md)：密钥权限和自动化示例。
+- [监控与排障](docsite/docs/zh/troubleshooting.md)：常见故障和应急处理。
 
 ## 仓库结构
 
 - 本仓库：插件宿主、官方 DNS / 部署 / 通知插件实现、ACME、部署编排、通知、Web UI。
-- 官方插件实现位于 `internal/plugin/`，随主模块编译；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具），发布物为单一主程序。
+- 文档站点工程位于 `docsite/`：多语言配置、`docs/` 源文件与构建产物 `site/` 放在同一目录（Zensical 以配置文件所在目录为项目根）。
+- 官方插件实现位于 `internal/plugin/`（`host/`、`runtime/`、`builtin/`）与独立 module `internal/plugin/providers/`（`lactssl/providers`），随主模块编译；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具），发布物为单一主程序。
 
 官方 DNS / 部署 / 通知插件已编译进主程序；DNS 服务商默认全部停用，需在插件页按需启用，部署/通知也按类别和条目启停。主程序不再依赖外部插件仓库，也不再提供在线索引与插件市场。仍保留上传第三方 helper 的能力，上传插件默认在 Linux Landlock / rlimit 受限环境中执行；不支持 strict 沙箱的平台自动降级为 basic 资源限制。
 

@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"lactssl/internal/plugin/meta"
 	"lactssl/internal/plugin/proto"
+	"lactssl/internal/plugin/runtime/metadata"
 )
 
 // TestMain 为 service 包提供一份离线 manifest 缓存基线。

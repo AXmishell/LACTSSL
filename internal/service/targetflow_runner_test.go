@@ -10,7 +10,7 @@ import (
 
 	"lactssl/internal/db"
 	"lactssl/internal/model"
-	deployplugin "lactssl/internal/plugin/deploy"
+	deployplugin "lactssl/internal/plugin/host/deploy"
 	"lactssl/internal/store"
 	"lactssl/internal/util"
 )

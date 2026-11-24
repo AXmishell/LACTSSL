@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ isDNS ? t('credentials.dnsTitle') : t('credentials.deployTitle') }}</h1>
-        <p>{{ isDNS ? t('credentials.dnsSubtitle') : t('credentials.deploySubtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle @click="load" />
@@ -96,8 +95,8 @@
       </div>
       </div>
 
-      <div v-if="showBatchBar && selectedIds.length" class="cred-footer">
-        <div class="batch-bar">
+      <div class="batch-foot" :class="{ 'is-selecting': showBatchBar && selectedIds.length }">
+        <div v-if="showBatchBar && selectedIds.length" class="batch-bar">
           <div class="batch-actions">
             <el-button size="small" type="danger" plain :icon="Delete" :loading="batchDeleting" @click="batchDelete">
               {{ t('credentials.batchDelete') }}
@@ -106,6 +105,7 @@
           </div>
           <span class="batch-count">{{ t('credentials.selectedCount', { count: selectedIds.length }) }}</span>
         </div>
+        <span v-else class="muted">{{ t('common.totalItems', { count: items.length }) }}</span>
       </div>
     </div>
 
@@ -1054,13 +1054,6 @@ onMounted(() => {
   flex: none;
 }
 
-.cred-footer {
-  flex: none;
-  padding: 12px 20px;
-  border-top: 1px solid var(--kp-border);
-  background: #ffffff;
-}
-
 .cred-empty-card {
   display: flex;
   flex-direction: column;
@@ -1084,35 +1077,6 @@ onMounted(() => {
 .cred-check {
   flex: none;
   margin-right: 0;
-}
-
-.batch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border: 1px solid #dbe7fb;
-  border-radius: 12px;
-  background: #f5f9ff;
-}
-
-.batch-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.batch-actions .el-button + .el-button {
-  margin-left: 0;
-}
-
-.batch-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1d4ed8;
 }
 
 .zone-hint {

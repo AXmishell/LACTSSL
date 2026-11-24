@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/model"
-	dnsplugin "lactssl/internal/plugin/dns"
+	dnsplugin "lactssl/internal/plugin/host/dns"
 )
 
 func writeConflictTestFile(t *testing.T, dir, name string) {

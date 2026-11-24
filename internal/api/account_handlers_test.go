@@ -9,7 +9,7 @@ import (
 
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
-	deployplugin "lactssl/internal/plugin/deploy"
+	deployplugin "lactssl/internal/plugin/host/deploy"
 	"lactssl/internal/service"
 )
 

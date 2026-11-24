@@ -42,14 +42,17 @@
 #   ZENSICAL                            指定 zensical 可执行文件路径
 #
 # 依赖（缺失时脚本会提示安装命令）：
-#   python3 -m venv .venv && .venv/bin/pip install -r requirements-docs.txt
+#   python3 -m venv .venv && .venv/bin/pip install -r docsite/requirements.txt
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 SCRIPT_PATH="$ROOT/scripts/$(basename "${BASH_SOURCE[0]}")"
 
-SITE_DIR="$ROOT/site"
+# 文档工程独立放在 docsite/：zensical 以配置文件所在目录为项目根，
+# 因此 mkdocs*.yml、docs/ 源文件与 site/ 产物必须在同一目录下。
+DOCS_ROOT="$ROOT/docsite"
+SITE_DIR="$DOCS_ROOT/site"
 # 注意: 不要放在 .cache/，那是 zensical/mkdocs 的缓存目录，构建时会被清理。
 CACHE_DIR="$ROOT/.docs-serve"
 STAMP_FILE="$CACHE_DIR/docs-serve.stamp"
@@ -75,8 +78,8 @@ SUPPORTED_LANGS=(en zh zh-hant ja ru)
 
 lang_config() {
   case "$1" in
-    en) printf 'mkdocs.yml' ;;
-    *) printf 'mkdocs.%s.yml' "$1" ;;
+    en) printf '%s/mkdocs.yml' "$DOCS_ROOT" ;;
+    *) printf '%s/mkdocs.%s.yml' "$DOCS_ROOT" "$1" ;;
   esac
 }
 
@@ -143,7 +146,7 @@ usage() {
   ZENSICAL                            指定 zensical 可执行文件路径
 
 依赖（缺失时脚本会提示安装命令）：
-  python3 -m venv .venv && .venv/bin/pip install -r requirements-docs.txt
+  python3 -m venv .venv && .venv/bin/pip install -r docsite/requirements.txt
 EOF
 }
 
@@ -552,7 +555,7 @@ if [ "$DO_BUILD" = 1 ]; then
 
 安装文档依赖（推荐使用虚拟环境）：
   python3 -m venv .venv
-  .venv/bin/pip install -r requirements-docs.txt
+  .venv/bin/pip install -r docsite/requirements.txt
 
 也可以直接指定可执行文件：
   ZENSICAL=/path/to/zensical ./scripts/docs-serve.sh
@@ -573,7 +576,7 @@ build_once() {
 
   for l in "${LANGS_TO_BUILD[@]}"; do
     cfg="$(lang_config "$l")"
-    echo "--> $(lang_label "$l") ($cfg)"
+    echo "--> $(lang_label "$l") (${cfg#"$ROOT"/})"
     if [ "$first" = 1 ]; then
       # 只在第一次构建时清理，避免后续语言删除前面语言的产物。
       "${ZENSICAL_CMD[@]}" build -f "$cfg" --strict ${base_clean[@]+"${base_clean[@]}"}
@@ -611,7 +614,7 @@ if [ "$WATCH" = 1 ]; then
   watch_loop() {
     while :; do
       sleep 1
-      if find docs mkdocs.yml mkdocs.*.yml -newer "$STAMP_FILE" -print -quit 2>/dev/null | grep -q .; then
+      if find "$DOCS_ROOT/docs" "$DOCS_ROOT"/mkdocs*.yml -newer "$STAMP_FILE" -print -quit 2>/dev/null | grep -q .; then
         # 先更新时间戳，避免构建过程中反复触发。
         touch "$STAMP_FILE"
         echo
@@ -628,7 +631,7 @@ if [ "$WATCH" = 1 ]; then
 
   watch_loop &
   WATCH_PID=$!
-  echo "==> 已开启文件监听（docs/、mkdocs*.yml）"
+  echo "==> 已开启文件监听（docsite/docs/、docsite/mkdocs*.yml）"
 fi
 
 # ---- 端口检查 --------------------------------------------------------------

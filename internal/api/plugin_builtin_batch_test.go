@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	dnsplugin "lactssl/internal/plugin/dns"
+	dnsplugin "lactssl/internal/plugin/host/dns"
 )
 
 func putBatchToggle(t *testing.T, r interface {

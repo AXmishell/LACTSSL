@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	dnsplugin "lactssl/internal/plugin/dns"
+	dnsplugin "lactssl/internal/plugin/host/dns"
 )
 
 func TestBuiltinDNSEnvIsRestored(t *testing.T) {

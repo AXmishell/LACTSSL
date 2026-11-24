@@ -19,8 +19,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
-	"lactssl/internal/plugin/deploy"
-	"lactssl/internal/plugin/exec"
+	"lactssl/internal/plugin/host/deploy"
+	"lactssl/internal/plugin/runtime/exec"
 )
 
 // Deploy 将证书部署到指定目标。deployConfig 由任务流程部署节点提供，

@@ -17,10 +17,10 @@ import (
 	"sort"
 	"strings"
 
-	"lactssl/internal/plugin/catalog"
+	"lactssl/providers/catalog"
 )
 
-const dataPath = "catalog/data.json"
+const dataPath = "providers/catalog/data.json"
 
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
@@ -53,7 +53,7 @@ type migrations struct {
 }
 
 func readMigrations() migrations {
-	raw, err := os.ReadFile("catalog/migrations.json")
+	raw, err := os.ReadFile("providers/catalog/migrations.json")
 	check(err)
 	var out migrations
 	check(json.Unmarshal(raw, &out))
@@ -67,7 +67,7 @@ func readMigrations() migrations {
 }
 
 func readProviders(kind string) map[string]catalog.Provider {
-	dir := filepath.Join("catalog", kind)
+	dir := filepath.Join("providers/catalog", kind)
 	entries, err := os.ReadDir(dir)
 	check(err)
 	out := make(map[string]catalog.Provider, len(entries))

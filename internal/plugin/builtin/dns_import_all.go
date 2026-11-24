@@ -1,5 +1,5 @@
-//go:build !nobuiltin_dns
+//go:build !nobuiltin_dns && !dns_providers_common && !dns_providers_minimal
 
 package builtin
 
-import _ "lactssl/internal/plugin/dnsv5/groups/all"
+import _ "lactssl/providers/dns/lego5/groups/all"

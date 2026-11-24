@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('tasks.title') }}</h1>
-        <p>{{ t('tasks.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle @click="loadAll" />
@@ -18,7 +17,6 @@
           <el-radio-button value="standard">{{ t('tasks.flowStandardCount', { count: flowCounts.standard }) }}</el-radio-button>
           <el-radio-button value="target_beta">{{ t('tasks.flowBetaCount', { count: flowCounts.beta }) }}</el-radio-button>
         </el-radio-group>
-        <span class="muted">{{ t('tasks.flowFiltered', { count: filteredTasks.length }) }}</span>
       </div>
       <div class="table-scroll">
         <el-table
@@ -105,22 +103,46 @@
           </template>
         </el-table>
       </div>
-    </div>
-
-    <div v-if="showBatchBar && selectedTasks.length" class="batch-bar">
-      <div class="batch-actions">
-        <el-button size="small" type="primary" plain :icon="VideoPlay" :loading="batchRunning" @click="batchRun">
-          {{ t('tasks.batchRun') }}
-        </el-button>
-        <el-button size="small" :icon="VideoPause" :loading="batchToggling" @click="batchSetEnabled(false)">
-          {{ t('tasks.batchPause') }}
-        </el-button>
-        <el-button size="small" :icon="VideoPlay" :loading="batchToggling" @click="batchSetEnabled(true)">
-          {{ t('tasks.batchEnable') }}
-        </el-button>
-        <el-button size="small" text :icon="Close" @click="clearSelection">{{ t('tasks.clearSelection') }}</el-button>
+      <div class="batch-foot" :class="{ 'is-selecting': showBatchBar && selectedTasks.length }">
+        <div v-if="showBatchBar && selectedTasks.length" class="batch-bar">
+          <div class="batch-actions">
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :icon="VideoPlay"
+              :loading="batchRunning"
+              :title="t('tasks.batchRun')"
+              @click="batchRun"
+            >
+              <span class="task-batch-label">{{ t('tasks.batchRun') }}</span>
+            </el-button>
+            <el-button
+              size="small"
+              :icon="VideoPause"
+              :loading="batchToggling"
+              :title="t('tasks.batchPause')"
+              @click="batchSetEnabled(false)"
+            >
+              <span class="task-batch-label">{{ t('tasks.batchPause') }}</span>
+            </el-button>
+            <el-button
+              size="small"
+              :icon="VideoPlay"
+              :loading="batchToggling"
+              :title="t('tasks.batchEnable')"
+              @click="batchSetEnabled(true)"
+            >
+              <span class="task-batch-label">{{ t('tasks.batchEnable') }}</span>
+            </el-button>
+            <el-button size="small" text :icon="Close" :title="t('tasks.clearSelection')" @click="clearSelection">
+              <span class="task-batch-label">{{ t('tasks.clearSelection') }}</span>
+            </el-button>
+          </div>
+          <span class="batch-count">{{ t('tasks.selectedCount', { count: selectedTasks.length }) }}</span>
+        </div>
+        <span v-else class="muted">{{ t('tasks.flowFiltered', { count: filteredTasks.length }) }}</span>
       </div>
-      <span class="batch-count">{{ t('tasks.selectedCount', { count: selectedTasks.length }) }}</span>
     </div>
 
     <!-- 新建/编辑：任务流程编辑器 -->
@@ -2258,31 +2280,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.batch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border: 1px solid #dbe7fb;
-  border-radius: 12px;
-  background: #f5f9ff;
-}
-.batch-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1d4ed8;
-}
-.batch-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.batch-actions .el-button + .el-button {
-  margin-left: 0;
-}
 /* 表格自带的底边和最后一行边线会与卡片底边形成双线，这里清除 */
 .task-list :deep(.el-table__inner-wrapper::before) {
   display: none;
@@ -2772,9 +2769,6 @@ onUnmounted(() => {
   flex-wrap: wrap;
   border-bottom: 1px solid var(--kp-border);
 }
-.filter-row .muted {
-  margin-right: 12px;
-}
 .flow-mode-bar {
   display: flex;
   align-items: center;
@@ -2913,4 +2907,10 @@ onUnmounted(() => {
   }
 }
 
+/* 批量操作较多：窄屏隐藏文字只留图标，避免底部操作行换行。 */
+@media (max-width: 1360px) {
+  .task-batch-label {
+    display: none;
+  }
+}
 </style>

@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h1>{{ t('ca.title') }}</h1>
-        <p>{{ t('ca.subtitle') }}</p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" circle :loading="loading" @click="load" />

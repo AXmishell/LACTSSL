@@ -5,11 +5,11 @@ import (
 	"strings"
 
 	"lactssl/internal/model"
-	"lactssl/internal/plugin/deploy"
-	"lactssl/internal/plugin/dns"
-	"lactssl/internal/plugin/meta"
-	"lactssl/internal/plugin/notify"
+	"lactssl/internal/plugin/host/deploy"
+	"lactssl/internal/plugin/host/dns"
+	"lactssl/internal/plugin/host/notify"
 	"lactssl/internal/plugin/proto"
+	"lactssl/internal/plugin/runtime/metadata"
 )
 
 // syncPluginMetadata 把当前发现的插件条目写入内存与数据库缓存。

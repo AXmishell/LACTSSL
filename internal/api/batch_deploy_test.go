@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"lactssl/internal/model"
-	deployplugin "lactssl/internal/plugin/deploy"
+	deployplugin "lactssl/internal/plugin/host/deploy"
 	"lactssl/internal/service"
 )
 

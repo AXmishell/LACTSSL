@@ -1,0 +1,125 @@
+# 简体中文站点配置：构建到 /zh/，默认站点为英文（mkdocs.yml）。
+# 本地预览多语言站点请使用 scripts/docs-serve.sh（或 make docs-serve），
+# 因为 `zensical serve` 一次只能构建一种配置。
+# 注意：Zensical 以本文件所在目录（docsite/）为项目根，docs_dir/site_dir 不能指向其外部。
+site_name: LACTSSL
+site_url: https://lactssl.gpcn.cc/zh/
+site_description: 面向企业团队与个人 / 小团队的自托管 SSL 证书管理平台：ACME 申请与自动续期、证书部署、监控、私有 CA 与内部 ACME 服务。
+repo_url: https://github.com/AXmishell/LACTSSL
+repo_name: AXmishell/LACTSSL
+edit_uri: edit/main/docsite/docs/zh/
+copyright: Copyright &copy; LACTSSL · MIT License
+
+docs_dir: docs/zh
+site_dir: site/zh
+
+theme:
+  name: material
+  # Zensical 的现代主题（classic 则保持 Material 原有外观）
+  variant: modern
+  language: zh
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换到深色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换到浅色模式
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+
+nav:
+  - 首页: index.md
+  - 快速上手与部署:
+      - 快速上手与上线: getting-started.md
+      - 安装与启动: install.md
+      - 部署架构: architecture.md
+  - 管理与使用:
+      - 管理工作台: administration.md
+      - 产品能力: features.md
+      - 插件治理: plugins.md
+  - 集成与安全:
+      - API 集成: api.md
+      - 安全基线: security.md
+  - 运维保障:
+      - 运维手册: operations.md
+      - 升级与变更: upgrade.md
+      - 监控与排障: troubleshooting.md
+  - 参考:
+      - 配置参考: configuration.md
+      - DNS 插件: dns-plugins.md
+      - 部署插件: deploy-plugins.md
+      - 通知插件: notify-plugins.md
+  - 扩展开发:
+      - 源码与构建: development.md
+      - 插件开发: plugin-development.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # 使用 pymdownx 的 slugify 以保留中文标题锚点（与 GitHub 的锚点一致）。
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  # 语言切换器：英文为默认站点，其余语言构建到各自的语言前缀。
+  alternate:
+    - name: English
+      link: /
+      lang: en
+    - name: 简体中文
+      link: /zh/
+      lang: zh
+    - name: 繁體中文
+      link: /zh-hant/
+      lang: zh-Hant
+    - name: 日本語
+      link: /ja/
+      lang: ja
+    - name: Русский
+      link: /ru/
+      lang: ru
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/AXmishell/LACTSSL
+      name: GitHub 仓库

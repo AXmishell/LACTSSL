@@ -47,7 +47,7 @@ web/.cache
 internal/webui/dist
 
 # 文档、工具与本地开发环境：镜像构建不需要
-docs
+docsite
 docs-internal
 .cache
 .docs-serve
@@ -57,9 +57,6 @@ __pycache__
 .pytest_cache
 .mypy_cache
 .ruff_cache
-requirements-docs.txt
-mkdocs.yml
-mkdocs.zh.yml
 docker-compose*.yml
 README.md
 

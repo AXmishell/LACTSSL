@@ -10,10 +10,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"lactssl/internal/model"
-	"lactssl/internal/plugin/deploy"
-	"lactssl/internal/plugin/dns"
-	"lactssl/internal/plugin/install"
-	"lactssl/internal/plugin/notify"
+	"lactssl/internal/plugin/host/deploy"
+	"lactssl/internal/plugin/host/dns"
+	"lactssl/internal/plugin/host/notify"
+	pluginmanager "lactssl/internal/plugin/manager"
+	"lactssl/internal/plugin/runtime/install"
 	"lactssl/internal/service"
 )
 
@@ -21,22 +22,13 @@ import (
 // 使用“停用集合”而不是启用集合，保证升级同名 helper 不会丢失启用状态；
 // 仓库安装与手动上传的新文件由调用方在写入目录后显式停用，实现“下载后默认不启用”。
 const (
-	dnsDisabledHelpersSetting    = "plugins.dns.disabled_helpers"
-	deployDisabledHelpersSetting = "plugins.deploy.disabled_helpers"
-	notifyDisabledHelpersSetting = "plugins.notify.disabled_helpers"
+	dnsDisabledHelpersSetting    = pluginmanager.SettingDNSDisabledHelpers
+	deployDisabledHelpersSetting = pluginmanager.SettingDeployDisabledHelpers
+	notifyDisabledHelpersSetting = pluginmanager.SettingNotifyDisabledHelpers
 )
 
 func disabledHelpersSetting(kind string) string {
-	switch kind {
-	case pluginKindDNS:
-		return dnsDisabledHelpersSetting
-	case pluginKindDeploy:
-		return deployDisabledHelpersSetting
-	case pluginKindNotify:
-		return notifyDisabledHelpersSetting
-	default:
-		return ""
-	}
+	return pluginmanager.DisabledHelpersSetting(kind)
 }
 
 func normalizePluginFile(name string) string {
@@ -63,17 +55,6 @@ func (s *Server) helperDisabledSet(kind string) map[string]bool {
 			out[name] = true
 		}
 	}
-	return out
-}
-
-// disabledHelpers 返回停用的 helper 文件名，供 Discover 跳过探测。
-func (s *Server) disabledHelpers(kind string) []string {
-	set := s.helperDisabledSet(kind)
-	out := make([]string, 0, len(set))
-	for name := range set {
-		out = append(out, name)
-	}
-	sort.Strings(out)
 	return out
 }
 

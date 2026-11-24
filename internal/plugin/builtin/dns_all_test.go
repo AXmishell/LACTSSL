@@ -1,7 +1,7 @@
 package builtin
 
 import (
-	dnsplugin "lactssl/internal/plugin/dns"
+	dnsplugin "lactssl/internal/plugin/host/dns"
 	"testing"
 )
 

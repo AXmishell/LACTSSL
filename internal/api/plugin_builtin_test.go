@@ -3,9 +3,9 @@ package api
 import (
 	"testing"
 
-	deployplugin "lactssl/internal/plugin/deploy"
-	dnsplugin "lactssl/internal/plugin/dns"
-	notifyplugin "lactssl/internal/plugin/notify"
+	deployplugin "lactssl/internal/plugin/host/deploy"
+	dnsplugin "lactssl/internal/plugin/host/dns"
+	notifyplugin "lactssl/internal/plugin/host/notify"
 )
 
 func TestBuiltinPluginsDiscoverAndToggle(t *testing.T) {

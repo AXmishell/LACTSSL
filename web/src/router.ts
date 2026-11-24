@@ -62,14 +62,14 @@ const router = createRouter({
   }
 })
 
-// 首次进入由 index.html 的首屏启动层负责，后续切换页面使用全局加载层。
+// 首次进入由 index.html 的首屏启动层负责，后续切换页面使用顶部进度条。
 let initialNavigation = true
 
 router.beforeEach(async (to, from) => {
   const isInitial = initialNavigation
   initialNavigation = false
   // 公开页（登录、安装、重置）与公开页之间的切换已有按钮级反馈，
-  // 不再叠加整页加载层，避免登录成功后出现多余的等待遮罩。
+  // 不再叠加顶部进度条，避免登录成功后出现多余的等待动画。
   if (!isInitial && !from.meta.public && !to.meta.public) beginRouteLoading()
 
   document.title = to.meta.titleKey ? `${t(to.meta.titleKey)} · LACTSSL` : 'LACTSSL'
@@ -99,7 +99,7 @@ router.beforeEach(async (to, from) => {
   return true
 })
 
-// 导航成功、被取消或失败都会触发 afterEach，确保加载层不会残留。
+// 导航成功、被取消或失败都会触发 afterEach，确保进度条不会残留。
 router.afterEach(() => {
   endRouteLoading()
 })
