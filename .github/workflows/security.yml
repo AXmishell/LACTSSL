@@ -47,6 +47,7 @@ jobs:
           "$GOVULNCHECK" -version
 
       - name: Scan (SARIF)
+        # 只扫描一次：同一份 SARIF 既用于上传 Code scanning，也用于下面的门禁。
         shell: bash
         run: |
           "$GOVULNCHECK" -format sarif ./... > govulncheck.sarif
@@ -60,10 +61,34 @@ jobs:
           sarif_file: govulncheck.sarif
           category: govulncheck
 
-      - name: Fail on findings
-        # sarif 格式始终返回 0，这里用 text 模式做门禁（有漏洞时退出码 3）
+      - name: Fail on reachable findings
+        # 不再重复跑一次 text 扫描：govulncheck 在 symbol 级别下，SARIF 中
+        # level=error 的 result 就是被调用路径触达的漏洞，与 text 模式退出码 3
+        # 的判定一致（见 x/vuln internal/scan/text.go）。
         shell: bash
-        run: '"$GOVULNCHECK" ./...'
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          try:
+              doc = json.loads(pathlib.Path("govulncheck.sarif").read_text(encoding="utf-8"))
+          except Exception as exc:  # 扫描失败时不能悄悄放行
+              sys.exit(f"✗ 无法解析 govulncheck SARIF 输出：{exc}")
+
+          results = [r for run in doc.get("runs", []) for r in run.get("results", [])]
+          actionable = [r for r in results if r.get("level") == "error"]
+          for r in actionable:
+              location = (r.get("locations") or [{}])[0].get("physicalLocation", {})
+              uri = location.get("artifactLocation", {}).get("uri", "?")
+              line = location.get("region", {}).get("startLine", 0)
+              message = r.get("message", {}).get("text", "")
+              print(f"{r.get('ruleId', '?')}: {uri}:{line} — {message}")
+          if actionable:
+              sys.exit(f"✗ 发现 {len(actionable)} 个可被调用路径触达的漏洞")
+          print(f"✓ 未发现可达漏洞（SARIF 结果 {len(results)} 条）")
+          PY
 
   gosec:
     name: gosec (static analysis)
