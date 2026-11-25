@@ -338,12 +338,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          data_dir="$(mktemp -d)"
-          config_dir="$(mktemp -d)"
+          # 临时目录放在 RUNNER_TEMP 下：容器入口脚本会把 bind mount 的属主改成
+          # 10001，若落在带 sticky 位的 /tmp，宿主机 runner 用户无法删除。
+          tmp_root="${RUNNER_TEMP:-/tmp}"
+          data_dir="$(mktemp -d "$tmp_root/lactssl-smoke-data.XXXXXX")"
+          config_dir="$(mktemp -d "$tmp_root/lactssl-smoke-config.XXXXXX")"
           cleanup() {
             docker logs lactssl-ci 2>&1 || true
             docker rm -f lactssl-ci >/dev/null 2>&1 || true
-            rm -rf "$data_dir" "$config_dir"
+            # 目录已被 chown 给 10001，宿主机无法遍历删除；改用镜像内 root
+            # 清空内容，再删空目录。清理失败不应改变冒烟测试结论。
+            docker run --rm --user 0 --entrypoint /bin/sh \
+              -v "$data_dir:/cleanup-data" -v "$config_dir:/cleanup-config" \
+              lactssl:ci -c \
+              'rm -rf /cleanup-data/* /cleanup-data/.[!.]* /cleanup-config/* /cleanup-config/.[!.]*' \
+              >/dev/null 2>&1 || true
+            rm -rf "$data_dir" "$config_dir" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
 
