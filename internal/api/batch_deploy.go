@@ -12,6 +12,7 @@ import (
 	"lactssl/internal/model"
 	deployplugin "lactssl/internal/plugin/host/deploy"
 	"lactssl/internal/service"
+	"lactssl/internal/util"
 )
 
 const maxBatchDeployCertificates = 100
@@ -183,7 +184,7 @@ func (s *Server) planBatchDeployEntries(
 		base.config = deployCfg
 		return []batchDeployEntry{base}, nil
 	}
-	selected := splitDeployValues(deployCfg[fieldKey])
+	selected := util.SplitList(deployCfg[fieldKey])
 	var values []string
 	if target.Force {
 		values = service.ForceDeployValues(deployCfg, fieldKey, domains)
@@ -300,20 +301,6 @@ func (s *Server) resolveBatchDeployTarget(target deployTargetBody, taskConfigs m
 	return account, def, deployCfg, nil
 }
 
-func splitDeployValues(value string) []string {
-	parts := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == ';' || r == '\n' || r == ' ' || r == '\t'
-	})
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
-}
-
 func cloneDeployConfig(cfg map[string]string) map[string]string {
 	out := make(map[string]string, len(cfg)+1)
 	for key, value := range cfg {
@@ -324,25 +311,7 @@ func cloneDeployConfig(cfg map[string]string) map[string]string {
 
 // normalizeBatchDeployIDs 去重并校验批量部署的证书 ID。
 func normalizeBatchDeployIDs(ids []int64) ([]int64, error) {
-	if len(ids) == 0 {
-		return nil, i18n.E("api.error.batch_deploy_ids_required")
-	}
-	out := make([]int64, 0, len(ids))
-	seen := make(map[int64]bool, len(ids))
-	for _, id := range ids {
-		if id <= 0 || seen[id] {
-			continue
-		}
-		seen[id] = true
-		out = append(out, id)
-	}
-	if len(out) == 0 {
-		return nil, i18n.E("api.error.batch_deploy_ids_required")
-	}
-	if len(out) > maxBatchDeployCertificates {
-		return nil, i18n.E("api.error.batch_deploy_too_large", "max", maxBatchDeployCertificates)
-	}
-	return out, nil
+	return normalizeBatchIDs(ids, maxBatchDeployCertificates, "api.error.batch_deploy_ids_required", "api.error.batch_deploy_too_large")
 }
 
 func certificateDomains(cert *model.Certificate) []string {

@@ -2,9 +2,6 @@ package service
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1" // #nosec G505 -- SHA1 仅用于 RFC 5280 SubjectKeyId，不用于签名
@@ -285,25 +282,7 @@ func SignCSR(ca *model.PrivateCA, csr *x509.CertificateRequest, identifiers []Ce
 }
 
 func validateCSRPublicKey(pub crypto.PublicKey) error {
-	switch key := pub.(type) {
-	case *rsa.PublicKey:
-		if key.N == nil || key.N.BitLen() < 2048 {
-			return i18n.E("service.acme_server.csr_key_weak")
-		}
-	case *ecdsa.PublicKey:
-		switch key.Curve {
-		case elliptic.P256(), elliptic.P384(), elliptic.P521():
-		default:
-			return i18n.E("service.acme_server.csr_key_unsupported")
-		}
-	case ed25519.PublicKey:
-		if len(key) != ed25519.PublicKeySize {
-			return i18n.E("service.acme_server.csr_key_unsupported")
-		}
-	default:
-		return i18n.E("service.acme_server.csr_key_unsupported")
-	}
-	return nil
+	return validatePublicKeyStrength(pub, "service.acme_server.csr_key_weak", "service.acme_server.csr_key_unsupported")
 }
 
 func normalizeCertificateIdentifiers(values []CertificateIdentifier) ([]CertificateIdentifier, []string, []net.IP, error) {
@@ -320,7 +299,7 @@ func normalizeCertificateIdentifiers(values []CertificateIdentifier) ([]Certific
 		switch kind {
 		case "dns":
 			value = strings.ToLower(strings.TrimSuffix(value, "."))
-			if net.ParseIP(value) != nil || !validDNSName(value) {
+			if net.ParseIP(value) != nil || !ValidDNSName(value) {
 				return nil, nil, nil, i18n.E("service.acme_server.identifier_invalid", "identifier", item.Value)
 			}
 			key := "dns:" + value

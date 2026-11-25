@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"lactssl/internal/model"
+	"lactssl/internal/util"
 )
 
 func TestDeployLocal(t *testing.T) {
@@ -203,7 +204,7 @@ func TestNormalizeEABKey(t *testing.T) {
 }
 
 func TestSplitConfigList(t *testing.T) {
-	got := splitConfigList("a.com, b.com;\nc.com")
+	got := util.SplitList("a.com, b.com;\nc.com")
 	if len(got) != 3 || got[0] != "a.com" || got[2] != "c.com" {
 		t.Fatalf("列表解析不正确: %v", got)
 	}

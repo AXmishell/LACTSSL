@@ -7,6 +7,7 @@ import (
 	"lactssl/internal/i18n"
 	"lactssl/internal/model"
 	"lactssl/internal/plugin/host/deploy"
+	"lactssl/internal/util"
 )
 
 // DeployObject 是一个可部署对象，例如面板上的网站。
@@ -131,7 +132,7 @@ func DeployObjectValues(objects []DeployObject) []string {
 // ForceDeployValues 返回强制部署时写入的值。
 // 用户显式填写时保留原值；留空时使用证书域名尝试下发。
 func ForceDeployValues(cfg map[string]string, key string, domains []string) []string {
-	values := splitConfigList(cfg[key])
+	values := util.SplitList(cfg[key])
 	if len(values) > 0 {
 		return values
 	}

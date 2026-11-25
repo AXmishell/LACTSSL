@@ -30,6 +30,7 @@ import (
 
 	"lactssl/internal/outbound"
 	"lactssl/internal/store"
+	"lactssl/internal/util"
 )
 
 const (
@@ -437,7 +438,7 @@ func (u *ProgramUpdater) Apply(ctx context.Context, version string) (*ProgramRun
 	if release.Asset.Size > 0 && size != release.Asset.Size {
 		return fail(fmt.Errorf("发布包大小不符：期望 %d，实际 %d", release.Asset.Size, size))
 	}
-	digest, err := fileSHA256(archivePath)
+	digest, err := util.FileSHA256(archivePath)
 	if err != nil {
 		return fail(err)
 	}
@@ -1106,19 +1107,6 @@ func pruneProgramBackups(dir string, keep int) {
 	for index := 0; index < len(names)-keep; index++ {
 		_ = os.Remove(filepath.Join(dir, names[index]))
 	}
-}
-
-func fileSHA256(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func checksumForAsset(raw []byte, name string) (string, bool) {

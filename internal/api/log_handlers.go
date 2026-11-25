@@ -1,13 +1,11 @@
 package api
 
 import (
-	"bufio"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -54,70 +52,16 @@ func (s *Server) listLogs(c *gin.Context) {
 // exportLogs 导出当前筛选条件下的全部日志。
 // 先写临时文件再发送，确保查询中途失败时不会产生半截 CSV。
 func (s *Server) exportLogs(c *gin.Context) {
-	user := getUser(c)
-	if user == nil {
-		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
-		return
-	}
-	if allowed, wait := s.allow(ratelimit.LogExport, "logs:export:"+strconv.FormatInt(user.ID, 10)); !allowed {
-		rateLimited(c, wait)
-		return
-	}
-	filter, err := parseLogFilter(c)
-	if err != nil {
-		failErr(c, http.StatusBadRequest, err)
-		return
-	}
-	format := strings.ToLower(strings.TrimSpace(c.DefaultQuery("format", "csv")))
-	if format != "csv" && format != "json" {
-		failKey(c, http.StatusBadRequest, "api.error.logs_export_format_invalid")
-		return
-	}
-	location, okLocation := logExportLocation(c.Query("tz"))
-	if !okLocation {
-		failKey(c, http.StatusBadRequest, "api.error.logs_timezone_invalid")
-		return
-	}
-	maxID, err := s.Store.MaxLogID()
-	if err != nil {
-		failErr(c, http.StatusInternalServerError, err)
-		return
-	}
-
-	tmp, err := os.CreateTemp("", "lactssl-logs-*."+format)
-	if err != nil {
-		failErr(c, http.StatusInternalServerError, err)
-		return
-	}
-	path := tmp.Name()
-	writer := bufio.NewWriter(tmp)
-	count, err := s.writeLogExport(writer, format, filter, maxID, location, locale(c))
-	if err == nil {
-		err = writer.Flush()
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		_ = os.Remove(path)
-		if errors.Is(err, errLogExportTooLarge) {
-			failKey(c, http.StatusBadRequest, "api.error.logs_export_too_large")
-			return
-		}
-		failErr(c, http.StatusInternalServerError, err)
-		return
-	}
-	defer os.Remove(path)
-
-	s.Store.AddLogKey("settings", 0, "info", "log.settings.logs_exported", map[string]any{"count": count})
-	filename := "lactssl-logs-" + time.Now().In(location).Format("20060102-150405") + "." + format
-	contentType := "text/csv; charset=utf-8"
-	if format == "json" {
-		contentType = "application/json; charset=utf-8"
-	}
-	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", "no-store")
-	c.FileAttachment(path, filename)
+	exportLogFile(s, c, logExportSpec[store.LogFilter]{
+		tempPrefix:     "lactssl-logs",
+		filenamePrefix: "lactssl-logs",
+		rateRule:       ratelimit.LogExport,
+		rateKey:        "logs:export:",
+		auditKey:       "log.settings.logs_exported",
+		parseFilter:    parseLogFilter,
+		maxID:          s.Store.MaxLogID,
+		write:          s.writeLogExport,
+	})
 }
 
 // parseLogFilter 解析并校验列表与导出共用的筛选参数。
@@ -176,30 +120,48 @@ func validLogLevel(level string) bool {
 	return false
 }
 
-// clearLogs 清空操作日志。该操作本身会写入一条审计日志，便于事后追溯。
-func (s *Server) clearLogs(c *gin.Context) {
+// clearLogSpec 描述操作日志与系统日志清空的差异点。
+type clearLogSpec struct {
+	rateRule string
+	rateKey  string
+	auditKey string
+	clear    func(reason string, operatorID int64, operatorEmail string) (int64, *store.LogArchiveResult, error)
+}
+
+// clearLogWithArchive 执行清空、归档结果回传与审计日志写入的公共流程。
+// 必须先清空再写审计日志，保证清空动作本身不会被一起删除。
+func clearLogWithArchive(s *Server, c *gin.Context, spec clearLogSpec) {
 	user := getUser(c)
 	if user == nil {
 		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
 		return
 	}
-	if allowed, wait := s.allow(ratelimit.LogClear, "logs:clear:"+strconv.FormatInt(user.ID, 10)); !allowed {
+	if allowed, wait := s.allow(spec.rateRule, spec.rateKey+strconv.FormatInt(user.ID, 10)); !allowed {
 		rateLimited(c, wait)
 		return
 	}
-	count, archived, err := s.Store.ClearOperationLogsWithArchive("manual_clear", user.ID, user.Email)
+	count, archived, err := spec.clear("manual_clear", user.ID, user.Email)
 	if err != nil {
 		failErr(c, http.StatusInternalServerError, err)
 		return
 	}
-	// 先清空再写审计日志，保证清空动作本身不会被一起删除。
 	params := map[string]any{"count": count}
 	if archived != nil {
 		params["archive_id"] = archived.ID
 		params["archive_file"] = archived.File
 	}
-	s.Store.AddLogKey("settings", 0, "warning", "log.settings.logs_cleared", params)
+	s.Store.AddLogKey("settings", 0, "warning", spec.auditKey, params)
 	ok(c, gin.H{"deleted": count, "archived": archived})
+}
+
+// clearLogs 清空操作日志。该操作本身会写入一条审计日志，便于事后追溯。
+func (s *Server) clearLogs(c *gin.Context) {
+	clearLogWithArchive(s, c, clearLogSpec{
+		rateRule: ratelimit.LogClear,
+		rateKey:  "logs:clear:",
+		auditKey: "log.settings.logs_cleared",
+		clear:    s.Store.ClearOperationLogsWithArchive,
+	})
 }
 
 // parseLogTime 支持 RFC3339 与日期（按 UTC 零点解释）。
@@ -279,12 +241,10 @@ type logExportEntry struct {
 }
 
 func (s *Server) writeLogJSON(w io.Writer, filter store.LogFilter, maxID int64, location *time.Location, lang i18n.Locale) (int, error) {
-	if _, err := w.Write([]byte("[")); err != nil {
-		return 0, err
-	}
-	first := true
-	count, err := s.eachLog(filter, maxID, func(row model.LogEntry) error {
-		raw, err := json.Marshal(logExportEntry{
+	return writeJSONArray(w, func(fn func(model.LogEntry) error) (int, error) {
+		return s.eachLog(filter, maxID, fn)
+	}, func(row model.LogEntry) ([]byte, error) {
+		return json.Marshal(logExportEntry{
 			ID:        row.ID,
 			Source:    row.Source,
 			RefID:     row.RefID,
@@ -292,53 +252,14 @@ func (s *Server) writeLogJSON(w io.Writer, filter store.LogFilter, maxID int64, 
 			Message:   i18n.Render(lang, row.Message),
 			CreatedAt: row.CreatedAt.In(location).Format(time.RFC3339),
 		})
-		if err != nil {
-			return err
-		}
-		if !first {
-			if _, err := w.Write([]byte(",")); err != nil {
-				return err
-			}
-		}
-		first = false
-		_, err = w.Write(raw)
-		return err
 	})
-	if err != nil {
-		return count, err
-	}
-	if _, err := w.Write([]byte("]")); err != nil {
-		return count, err
-	}
-	return count, nil
 }
 
 // eachLog 按 ID 游标分批读取日志，每批结束后释放数据库连接。
 func (s *Server) eachLog(filter store.LogFilter, maxID int64, fn func(model.LogEntry) error) (int, error) {
-	cursor := int64(0)
-	count := 0
-	for {
-		rows, err := s.Store.ExportLogs(filter, maxID, cursor, logExportPageSize)
-		if err != nil {
-			return count, err
-		}
-		if len(rows) == 0 {
-			return count, nil
-		}
-		for _, row := range rows {
-			if count >= logExportMaxRows {
-				return count, errLogExportTooLarge
-			}
-			if err := fn(row); err != nil {
-				return count, err
-			}
-			count++
-		}
-		cursor = rows[len(rows)-1].ID
-		if len(rows) < logExportPageSize {
-			return count, nil
-		}
-	}
+	return eachLogPage(func(cursor int64) ([]model.LogEntry, error) {
+		return s.Store.ExportLogs(filter, maxID, cursor, logExportPageSize)
+	}, func(row model.LogEntry) int64 { return row.ID }, fn)
 }
 
 // csvSafe 防止 CSV 公式注入。日志内容可能包含用户填写的任务名、账户名等。

@@ -12,56 +12,17 @@ const dnsZoneBindingColumns = `id,dns_account_id,zone,match_mode,priority,source
 // ListDNSZoneBindings 返回全部绑定，按 zone 长度与优先级排序。
 // 服务端解析时再按最长后缀匹配，这里只保证结果稳定。
 func (s *Store) ListDNSZoneBindings() ([]model.DNSZoneBinding, error) {
-	rows, err := s.DB.Query(`SELECT ` + dnsZoneBindingColumns + ` FROM dns_zone_bindings ORDER BY zone ASC, priority DESC, id ASC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	list := make([]model.DNSZoneBinding, 0)
-	for rows.Next() {
-		item, err := scanDNSZoneBinding(rows)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, *item)
-	}
-	return list, rows.Err()
+	return queryRows(s.DB, `SELECT `+dnsZoneBindingColumns+` FROM dns_zone_bindings ORDER BY zone ASC, priority DESC, id ASC`, scanDNSZoneBinding)
 }
 
 // ListEnabledDNSZoneBindings 返回参与自动解析的绑定。
 func (s *Store) ListEnabledDNSZoneBindings() ([]model.DNSZoneBinding, error) {
-	rows, err := s.DB.Query(`SELECT ` + dnsZoneBindingColumns + ` FROM dns_zone_bindings WHERE enabled=1 ORDER BY zone ASC, priority DESC, id ASC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	list := make([]model.DNSZoneBinding, 0)
-	for rows.Next() {
-		item, err := scanDNSZoneBinding(rows)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, *item)
-	}
-	return list, rows.Err()
+	return queryRows(s.DB, `SELECT `+dnsZoneBindingColumns+` FROM dns_zone_bindings WHERE enabled=1 ORDER BY zone ASC, priority DESC, id ASC`, scanDNSZoneBinding)
 }
 
 // ListDNSZoneBindingsByAccount 返回指定账户的全部绑定。
 func (s *Store) ListDNSZoneBindingsByAccount(accountID int64) ([]model.DNSZoneBinding, error) {
-	rows, err := s.DB.Query(`SELECT `+dnsZoneBindingColumns+` FROM dns_zone_bindings WHERE dns_account_id=? ORDER BY zone ASC, priority DESC, id ASC`, accountID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	list := make([]model.DNSZoneBinding, 0)
-	for rows.Next() {
-		item, err := scanDNSZoneBinding(rows)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, *item)
-	}
-	return list, rows.Err()
+	return queryRows(s.DB, `SELECT `+dnsZoneBindingColumns+` FROM dns_zone_bindings WHERE dns_account_id=? ORDER BY zone ASC, priority DESC, id ASC`, scanDNSZoneBinding, accountID)
 }
 
 func scanDNSZoneBinding(row interface{ Scan(...any) error }) (*model.DNSZoneBinding, error) {

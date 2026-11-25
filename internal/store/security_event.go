@@ -78,23 +78,9 @@ func (s *Store) ListPendingSecurityEvents(now time.Time, limit int) ([]model.Sec
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.DB.Query(`SELECT `+securityEventColumns+` FROM security_events
+	return queryRows(s.DB, `SELECT `+securityEventColumns+` FROM security_events
 		WHERE notify=1 AND delivered_at IS NULL AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?
-		ORDER BY id LIMIT ?`, now, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	events := make([]model.SecurityEvent, 0)
-	for rows.Next() {
-		event, err := s.scanSecurityEvent(rows)
-		if err != nil {
-			return nil, err
-		}
-		events = append(events, *event)
-	}
-	return events, rows.Err()
+		ORDER BY id LIMIT ?`, s.scanSecurityEvent, now, limit)
 }
 
 // HasPendingSecurityEvents 判断队列中是否还有未完成的事件。
@@ -136,22 +122,8 @@ func (s *Store) ListSecurityEvents(userID int64, limit int) ([]model.SecurityEve
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.DB.Query(`SELECT `+securityEventColumns+` FROM security_events
-		WHERE user_id=? ORDER BY id DESC LIMIT ?`, userID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	events := make([]model.SecurityEvent, 0)
-	for rows.Next() {
-		event, err := s.scanSecurityEvent(rows)
-		if err != nil {
-			return nil, err
-		}
-		events = append(events, *event)
-	}
-	return events, rows.Err()
+	return queryRows(s.DB, `SELECT `+securityEventColumns+` FROM security_events
+		WHERE user_id=? ORDER BY id DESC LIMIT ?`, s.scanSecurityEvent, userID, limit)
 }
 
 // CountSecurityEventsSince 统计时间窗口内进入投递队列的事件数量，用于每小时上限。

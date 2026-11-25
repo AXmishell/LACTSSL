@@ -2,27 +2,15 @@
 package discovery
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"io"
-	"os"
 	"strings"
 
 	pluginexec "lactssl/internal/plugin/runtime/exec"
+	"lactssl/internal/util"
 )
 
 // FileSHA256 计算插件 helper 的 SHA-256。
 func FileSHA256(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return util.FileSHA256(path)
 }
 
 // StderrSuffix 把 helper stderr 截断为统一的错误后缀。

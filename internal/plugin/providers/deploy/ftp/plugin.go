@@ -33,10 +33,10 @@ func (plugin) Verify(_ context.Context, req deploy.NativeRequest) ([]protocol.Ve
 	host := strings.TrimSpace(cfg["host"])
 	user := strings.TrimSpace(cfg["user"])
 	if host == "" || user == "" {
-		return ftpVerifyFailed(loc, i18n.E("service.deploy.ftp_host_user_required")), nil
+		return util.VerifyFailed(loc, i18n.E("service.deploy.ftp_host_user_required")), nil
 	}
 	if cfg["password"] == "" {
-		return ftpVerifyFailed(loc, i18n.E("service.deploy.ftp_password_required")), nil
+		return util.VerifyFailed(loc, i18n.E("service.deploy.ftp_password_required")), nil
 	}
 	tlsMode := strings.ToLower(strings.TrimSpace(cfg["tls"]))
 	if tlsMode == "" {
@@ -59,15 +59,15 @@ func (plugin) Verify(_ context.Context, req deploy.NativeRequest) ([]protocol.Ve
 			options = append(options, ftp.DialWithExplicitTLS(tlsConfig))
 		}
 	default:
-		return ftpVerifyFailed(loc, i18n.E("service.deploy.ftp_tls_invalid", "mode", tlsMode)), nil
+		return util.VerifyFailed(loc, i18n.E("service.deploy.ftp_tls_invalid", "mode", tlsMode)), nil
 	}
 	client, err := ftp.Dial(net.JoinHostPort(host, port), options...)
 	if err != nil {
-		return ftpVerifyFailed(loc, i18n.E("service.deploy.ftp_connect_failed", "error", err.Error())), nil
+		return util.VerifyFailed(loc, i18n.E("service.deploy.ftp_connect_failed", "error", err.Error())), nil
 	}
 	defer func() { _ = client.Quit() }()
 	if err := client.Login(user, cfg["password"]); err != nil {
-		return ftpVerifyFailed(loc, i18n.E("service.deploy.ftp_login_failed", "error", err.Error())), nil
+		return util.VerifyFailed(loc, i18n.E("service.deploy.ftp_login_failed", "error", err.Error())), nil
 	}
 	checks := []protocol.VerifyCheck{
 		{Key: "connect", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.connect_ok", nil)},
@@ -82,13 +82,6 @@ func (plugin) Verify(_ context.Context, req deploy.NativeRequest) ([]protocol.Ve
 		return checks, nil
 	}
 	return append(checks, protocol.VerifyCheck{Key: "scope", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.target_ok", nil)}), nil
-}
-
-func ftpVerifyFailed(loc i18n.Locale, err error) []protocol.VerifyCheck {
-	if err == nil {
-		return nil
-	}
-	return []protocol.VerifyCheck{{Key: "verify", Status: protocol.VerifyStatusFailed, Message: i18n.T(loc, "service.verify.deploy_failed", map[string]any{"error": err.Error()})}}
 }
 
 func init() {

@@ -71,27 +71,12 @@ func (s *Server) listSystemLogs(c *gin.Context) {
 
 // clearSystemLogs 清空系统日志。该操作写入操作日志，便于事后追溯。
 func (s *Server) clearSystemLogs(c *gin.Context) {
-	user := getUser(c)
-	if user == nil {
-		failKey(c, http.StatusUnauthorized, "api.error.unauthorized")
-		return
-	}
-	if allowed, wait := s.allow(ratelimit.SystemLogClear, "system-logs:clear:"+strconv.FormatInt(user.ID, 10)); !allowed {
-		rateLimited(c, wait)
-		return
-	}
-	count, archived, err := s.Store.ClearSystemLogsWithArchive("manual_clear", user.ID, user.Email)
-	if err != nil {
-		failErr(c, http.StatusInternalServerError, err)
-		return
-	}
-	params := map[string]any{"count": count}
-	if archived != nil {
-		params["archive_id"] = archived.ID
-		params["archive_file"] = archived.File
-	}
-	s.Store.AddLogKey("settings", 0, "warning", "log.settings.system_logs_cleared", params)
-	ok(c, gin.H{"deleted": count, "archived": archived})
+	clearLogWithArchive(s, c, clearLogSpec{
+		rateRule: ratelimit.SystemLogClear,
+		rateKey:  "system-logs:clear:",
+		auditKey: "log.settings.system_logs_cleared",
+		clear:    s.Store.ClearSystemLogsWithArchive,
+	})
 }
 
 // parseSystemLogFilter 解析「系统日志」页面的筛选参数。

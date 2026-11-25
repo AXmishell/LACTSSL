@@ -21,22 +21,8 @@ func (s *Store) CreatePasskey(item *model.Passkey) error {
 
 // ListPasskeys 返回账户下全部通行密钥。
 func (s *Store) ListPasskeys(userID int64) ([]model.Passkey, error) {
-	rows, err := s.DB.Query(`SELECT id,user_id,name,credential_id,credential,created_at,last_used_at
-		FROM passkeys WHERE user_id=? ORDER BY id`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	items := make([]model.Passkey, 0)
-	for rows.Next() {
-		item, err := scanPasskey(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, *item)
-	}
-	return items, rows.Err()
+	return queryRows(s.DB, `SELECT id,user_id,name,credential_id,credential,created_at,last_used_at
+		FROM passkeys WHERE user_id=? ORDER BY id`, scanPasskey, userID)
 }
 
 // GetPasskeyByCredentialID 按 WebAuthn 凭据 ID 查询通行密钥。
@@ -83,7 +69,7 @@ func (s *Store) DeletePasskeys(userID int64) error {
 	return err
 }
 
-type passkeyScanner interface {
+type passkeyScanner = interface {
 	Scan(dest ...any) error
 }
 

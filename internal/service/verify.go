@@ -274,7 +274,7 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 		defer unlock()
 	}
 
-	token, keyAuth, err := randomVerifyToken()
+	token, keyAuth, err := util.VerificationToken()
 	if err != nil {
 		res.add("write", VerifyStatusError, i18n.T(loc, "service.verify.token_failed", map[string]any{"error": err.Error()}))
 		return *res
@@ -293,15 +293,6 @@ func (m *Manager) VerifyDNSAccount(ctx context.Context, loc i18n.Locale, lockKey
 	}
 	res.add("cleanup", VerifyStatusOK, "")
 	return *res
-}
-
-func randomVerifyToken() (string, string, error) {
-	var buf [24]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return "", "", err
-	}
-	value := hex.EncodeToString(buf[:])
-	return value, "lactssl-verify-" + value, nil
 }
 
 // appendVerifyChecks 把 helper 返回的检查项写入结果。

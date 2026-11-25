@@ -219,20 +219,7 @@ func (s *Store) UpdateACMEEndpoint(e *model.ACMEEndpoint) error {
 
 // ListACMEEndpoints 返回全部 ACME 端点。
 func (s *Store) ListACMEEndpoints() ([]model.ACMEEndpoint, error) {
-	rows, err := s.DB.Query(`SELECT id,public_id,name,slug,ca_id,enabled,eab_required,allowed_domains,allow_wildcard,allow_ip,allowed_ip_cidrs,http01_enabled,dns01_enabled,tls_alpn_01_enabled,allow_private_http01,allow_private_tls_alpn_01,http01_allowed_cidrs,tls_alpn_01_allowed_cidrs,validity_days,max_orders_per_hour,created_at,updated_at FROM acme_endpoints ORDER BY id DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	list := make([]model.ACMEEndpoint, 0)
-	for rows.Next() {
-		e, err := scanACMEEndpoint(rows)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, *e)
-	}
-	return list, rows.Err()
+	return queryRows(s.DB, `SELECT id,public_id,name,slug,ca_id,enabled,eab_required,allowed_domains,allow_wildcard,allow_ip,allowed_ip_cidrs,http01_enabled,dns01_enabled,tls_alpn_01_enabled,allow_private_http01,allow_private_tls_alpn_01,http01_allowed_cidrs,tls_alpn_01_allowed_cidrs,validity_days,max_orders_per_hour,created_at,updated_at FROM acme_endpoints ORDER BY id DESC`, scanACMEEndpoint)
 }
 
 // GetACMEEndpoint 按 ID 查询 ACME 端点。
@@ -571,20 +558,7 @@ func (s *Store) GetACMEAuthorizationByID(id int64) (*model.ACMEAuthorization, er
 
 // ListACMEAuthorizations 返回订单下的授权。
 func (s *Store) ListACMEAuthorizations(orderID int64) ([]model.ACMEAuthorization, error) {
-	rows, err := s.DB.Query(`SELECT id,public_id,order_id,identifier,identifier_type,wildcard,status,expires_at,created_at,updated_at FROM acme_authorizations WHERE order_id=? ORDER BY id`, orderID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	list := make([]model.ACMEAuthorization, 0)
-	for rows.Next() {
-		a, err := scanACMEAuthorization(rows)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, *a)
-	}
-	return list, rows.Err()
+	return queryRows(s.DB, `SELECT id,public_id,order_id,identifier,identifier_type,wildcard,status,expires_at,created_at,updated_at FROM acme_authorizations WHERE order_id=? ORDER BY id`, scanACMEAuthorization, orderID)
 }
 
 func scanACMEChallenge(row interface{ Scan(...any) error }) (*model.ACMEChallenge, error) {
@@ -610,20 +584,7 @@ func (s *Store) GetACMEChallengeByPublicID(publicID string) (*model.ACMEChalleng
 
 // ListACMEChallenges 返回授权下的挑战。
 func (s *Store) ListACMEChallenges(authzID int64) ([]model.ACMEChallenge, error) {
-	rows, err := s.DB.Query(`SELECT id,public_id,authz_id,type,token,status,validated_at,error,attempts,next_check_at,created_at,updated_at FROM acme_challenges WHERE authz_id=? ORDER BY id`, authzID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	list := make([]model.ACMEChallenge, 0)
-	for rows.Next() {
-		c, err := scanACMEChallenge(rows)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, *c)
-	}
-	return list, rows.Err()
+	return queryRows(s.DB, `SELECT id,public_id,authz_id,type,token,status,validated_at,error,attempts,next_check_at,created_at,updated_at FROM acme_challenges WHERE authz_id=? ORDER BY id`, scanACMEChallenge, authzID)
 }
 
 // UpdateACMEChallengeStatus 更新挑战状态与错误信息。

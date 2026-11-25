@@ -728,29 +728,13 @@ func ipAllowedByIdentifier(ip net.IP, cidrs []string) bool {
 }
 
 // ValidDNSName 校验 ACME 订单与域名白名单中使用的 DNS 名称。
+// 规则与私有 CA、CSR 共用 service.ValidDNSName，避免两套校验逐渐分叉。
 func ValidDNSName(value string) bool {
-	return validDNSIdentifier(value)
+	return service.ValidDNSName(value)
 }
 
 func validDNSIdentifier(value string) bool {
-	if value == "" || len(value) > 253 {
-		return false
-	}
-	name := strings.TrimPrefix(value, "*.")
-	if name == "" {
-		return false
-	}
-	for _, part := range strings.Split(name, ".") {
-		if part == "" || len(part) > 63 || strings.HasPrefix(part, "-") || strings.HasSuffix(part, "-") {
-			return false
-		}
-		for _, r := range part {
-			if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' {
-				return false
-			}
-		}
-	}
-	return true
+	return ValidDNSName(value)
 }
 
 func sharesIdentifier(identifiers []orderIdentifier, certificateDomains []string) bool {

@@ -6,8 +6,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -19,6 +17,7 @@ import (
 	"github.com/AXmishell/LACTSSL-Plugins/sdk/helper"
 	dns "lactssl/internal/plugin/host/dns"
 	dnsstate "lactssl/internal/plugin/host/dns/state"
+	"lactssl/internal/util"
 	"lactssl/providers/catalog"
 	_ "lactssl/providers/dns/lego5/groups/all"
 	"lactssl/providers/dns/lego5/meta"
@@ -214,7 +213,7 @@ func handleVerify(provider dns.NativeChallengeProvider, req protocol.DNSRequest)
 // HTTP 连接都可以复用；清理失败仍作为独立检查返回，不能伪装成验证通过。
 func verifyWrite(provider dns.NativeChallengeProvider, domain string, loc i18n.Locale) protocol.VerifyResponse {
 	response := protocol.VerifyResponse{OK: true, Checks: make([]protocol.VerifyCheck, 0, 2)}
-	token, keyAuth, err := randomVerifyToken()
+	token, keyAuth, err := util.VerificationToken()
 	if err != nil {
 		response.OK = false
 		response.Checks = append(response.Checks, protocol.VerifyCheck{
@@ -242,15 +241,6 @@ func verifyWrite(provider dns.NativeChallengeProvider, domain string, loc i18n.L
 	}
 	response.Checks = append(response.Checks, protocol.VerifyCheck{Key: "cleanup", Status: protocol.VerifyStatusOK})
 	return response
-}
-
-func randomVerifyToken() (string, string, error) {
-	var buf [24]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return "", "", err
-	}
-	value := hex.EncodeToString(buf[:])
-	return value, "lactssl-verify-" + value, nil
 }
 
 func writeVerifyResponse(response protocol.VerifyResponse) {

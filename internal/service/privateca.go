@@ -554,7 +554,7 @@ func parseDNSNames(values []string) ([]string, error) {
 	out := make([]string, 0, len(values))
 	for _, value := range trimList(values) {
 		name := strings.ToLower(strings.TrimSuffix(value, "."))
-		if !validDNSName(name) {
+		if !ValidDNSName(name) {
 			return nil, i18n.E("service.private_ca.dns_invalid", "domain", value)
 		}
 		out = append(out, name)
@@ -562,8 +562,9 @@ func parseDNSNames(values []string) ([]string, error) {
 	return out, nil
 }
 
-// validDNSName 允许私有 PKI 中常见的单标签域名与通配符域名。
-func validDNSName(value string) bool {
+// ValidDNSName 校验 DNS 名称，允许私有 PKI 中常见的单标签域名与通配符域名。
+// ACME 订单、CSR 与私有 CA 共用同一套字符和长度规则。
+func ValidDNSName(value string) bool {
 	if value == "" || len(value) > 253 {
 		return false
 	}
@@ -776,27 +777,33 @@ func publicKey(privateKey crypto.PrivateKey) crypto.PublicKey {
 	}
 }
 
-// validateCAKeyStrength 拒绝弱密钥的导入 CA，避免 ACME 使用低于现代安全强度的签发密钥。
-func validateCAKeyStrength(public crypto.PublicKey) error {
+// validatePublicKeyStrength 校验 RSA/ECDSA/Ed25519 公钥是否达到现代安全强度。
+// weakKey 用于长度不足，unsupportedKey 用于算法或曲线不受支持。
+func validatePublicKeyStrength(public crypto.PublicKey, weakKey, unsupportedKey string) error {
 	switch key := public.(type) {
 	case *rsa.PublicKey:
 		if key.N == nil || key.N.BitLen() < 2048 {
-			return i18n.E("service.private_ca.ca_key_weak")
+			return i18n.E(weakKey)
 		}
 	case *ecdsa.PublicKey:
 		switch key.Curve {
 		case elliptic.P256(), elliptic.P384(), elliptic.P521():
 		default:
-			return i18n.E("service.private_ca.ca_key_weak")
+			return i18n.E(unsupportedKey)
 		}
 	case ed25519.PublicKey:
 		if len(key) != ed25519.PublicKeySize {
-			return i18n.E("service.private_ca.ca_key_weak")
+			return i18n.E(unsupportedKey)
 		}
 	default:
-		return i18n.E("service.private_ca.ca_key_weak")
+		return i18n.E(unsupportedKey)
 	}
 	return nil
+}
+
+// validateCAKeyStrength 拒绝弱密钥的导入 CA，避免 ACME 使用低于现代安全强度的签发密钥。
+func validateCAKeyStrength(public crypto.PublicKey) error {
+	return validatePublicKeyStrength(public, "service.private_ca.ca_key_weak", "service.private_ca.ca_key_weak")
 }
 
 func publicKeysEqual(first, second crypto.PublicKey) bool {

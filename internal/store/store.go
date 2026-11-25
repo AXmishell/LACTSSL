@@ -77,6 +77,24 @@ func New(conn *db.Handle, cipher *util.Cipher) *Store {
 
 func nowUTC() time.Time { return time.Now().UTC() }
 
+// queryRows 执行列表查询并按行扫描，统一关闭结果集与迭代错误处理。
+func queryRows[T any](conn *db.Handle, query string, scan func(interface{ Scan(...any) error }) (*T, error), args ...any) ([]T, error) {
+	rows, err := conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]T, 0)
+	for rows.Next() {
+		item, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *item)
+	}
+	return out, rows.Err()
+}
+
 func boolInt(b bool) int {
 	if b {
 		return 1
@@ -279,9 +297,11 @@ func (s *Store) SetTOTP(id int64, secret string, enabled bool) error {
 	return err
 }
 
-// MigrateTOTPSecrets 把旧版本明文保存的 TOTP 密钥加密。
-func (s *Store) MigrateTOTPSecrets() error {
-	rows, err := s.DB.Query(`SELECT id,totp_secret FROM users WHERE totp_secret<>''`)
+// migrateEncryptedColumn 把指定表中尚未加密的明文列批量加密。
+// table/column 只接受本包内的常量，避免拼接外部输入。
+func (s *Store) migrateEncryptedColumn(table, column string) error {
+	query := fmt.Sprintf(`SELECT id,%s FROM %s WHERE %s<>''`, column, table, column)
+	rows, err := s.DB.Query(query)
 	if err != nil {
 		return err
 	}
@@ -310,11 +330,17 @@ func (s *Store) MigrateTOTPSecrets() error {
 		if err != nil {
 			return err
 		}
-		if _, err := s.DB.Exec(`UPDATE users SET totp_secret=? WHERE id=?`, encrypted, value.id); err != nil {
+		update := fmt.Sprintf(`UPDATE %s SET %s=? WHERE id=?`, table, column)
+		if _, err := s.DB.Exec(update, encrypted, value.id); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// MigrateTOTPSecrets 把旧版本明文保存的 TOTP 密钥加密。
+func (s *Store) MigrateTOTPSecrets() error {
+	return s.migrateEncryptedColumn("users", "totp_secret")
 }
 
 // BumpTokenVersion 使现有登录令牌全部失效。
@@ -1109,40 +1135,7 @@ func (s *Store) CreateCertificateForACMEOrder(orderID int64, c *model.Certificat
 
 // MigrateCertificateKeys 把旧版本明文保存的证书私钥加密。
 func (s *Store) MigrateCertificateKeys() error {
-	rows, err := s.DB.Query(`SELECT id,key_pem FROM certificates WHERE key_pem<>''`)
-	if err != nil {
-		return err
-	}
-	type item struct {
-		id  int64
-		key string
-	}
-	var pending []item
-	for rows.Next() {
-		var value item
-		if err := rows.Scan(&value.id, &value.key); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if !util.IsEncrypted(value.key) {
-			pending = append(pending, value)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return err
-	}
-	_ = rows.Close()
-	for _, value := range pending {
-		encrypted, err := s.Cipher.Encrypt(value.key)
-		if err != nil {
-			return err
-		}
-		if _, err := s.DB.Exec(`UPDATE certificates SET key_pem=? WHERE id=?`, encrypted, value.id); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.migrateEncryptedColumn("certificates", "key_pem")
 }
 
 // GetCertificate 查询证书。
@@ -1650,14 +1643,14 @@ func (s *Store) AddLogEvent(entry model.LogEntry) error {
 	}
 	_, err := s.DB.Exec(
 		`INSERT INTO logs(category,source,ref_type,ref_id,level,message,fields,request_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-		truncateLogText(category, 16),
-		truncateLogText(source, 64),
-		truncateLogText(refType, 32),
+		util.TruncateRunes(category, 16),
+		util.TruncateRunes(source, 64),
+		util.TruncateRunes(refType, 32),
 		entry.RefID,
-		truncateLogText(level, 16),
+		util.TruncateRunes(level, 16),
 		entry.Message,
 		entry.Fields,
-		truncateLogText(entry.RequestID, 64),
+		util.TruncateRunes(entry.RequestID, 64),
 		createdAt.UTC(),
 	)
 	return err
@@ -2107,13 +2100,13 @@ func (s *Store) AddSystemLogs(entries []model.SystemLogEntry) error {
 		}
 		if _, err := stmt.Exec(
 			model.LogCategoryRuntime,
-			truncateLogText(component, 64),
-			truncateLogText(strings.TrimSpace(entry.RefType), 32),
+			util.TruncateRunes(component, 64),
+			util.TruncateRunes(strings.TrimSpace(entry.RefType), 32),
 			entry.RefID,
-			truncateLogText(level, 16),
-			truncateLogText(entry.Message, 2000),
-			truncateLogText(entry.Fields, 64000),
-			truncateLogText(strings.TrimSpace(entry.RequestID), 64),
+			util.TruncateRunes(level, 16),
+			util.TruncateRunes(entry.Message, 2000),
+			util.TruncateRunes(entry.Fields, 64000),
+			util.TruncateRunes(strings.TrimSpace(entry.RequestID), 64),
 			createdAt.UTC(),
 		); err != nil {
 			return err
@@ -2230,18 +2223,6 @@ func escapeLike(value string) string {
 	value = strings.ReplaceAll(value, `%`, `!%`)
 	value = strings.ReplaceAll(value, `_`, `!_`)
 	return value
-}
-
-// truncateLogText 按 rune 截断，避免把多字节字符切坏。
-func truncateLogText(value string, limit int) string {
-	if limit <= 0 || len(value) <= limit {
-		return value
-	}
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
-	}
-	return string(runes[:limit])
 }
 
 // ---------------------------- 仪表盘 ----------------------------

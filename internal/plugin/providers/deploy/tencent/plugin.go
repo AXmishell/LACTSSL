@@ -193,24 +193,17 @@ func verifyTencent(ctx context.Context, req deploy.NativeRequest) ([]protocol.Ve
 	loc := i18n.Normalize(req.Locale)
 	client, region, err := newTencentClient(cfg)
 	if err != nil {
-		return tencentVerifyFailed(loc, err), nil
+		return util.VerifyFailed(loc, err), nil
 	}
 	var result struct {
 		TotalCount int `json:"TotalCount"`
 	}
 	if _, err := client.Do(ctx, sslService, region, "DescribeCertificates", sslVersion, map[string]any{"Limit": 1}, &result); err != nil {
-		return tencentVerifyFailed(loc, err), nil
+		return util.VerifyFailed(loc, err), nil
 	}
 	return []protocol.VerifyCheck{
 		{Key: "connect", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.connect_ok", nil)},
 		{Key: "auth", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.auth_ok", nil)},
 		{Key: "scope", Status: protocol.VerifyStatusSkipped, Message: i18n.T(loc, "service.verify.scope_skipped", nil)},
 	}, nil
-}
-
-func tencentVerifyFailed(loc i18n.Locale, err error) []protocol.VerifyCheck {
-	if err == nil {
-		return nil
-	}
-	return []protocol.VerifyCheck{{Key: "verify", Status: protocol.VerifyStatusFailed, Message: i18n.T(loc, "service.verify.deploy_failed", map[string]any{"error": err.Error()})}}
 }

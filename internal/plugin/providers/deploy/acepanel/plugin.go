@@ -452,13 +452,13 @@ func verifyAcepanel(_ context.Context, req deploy.NativeRequest) ([]protocol.Ver
 	loc := i18n.Normalize(req.Locale)
 	c, err := newClient(cfg)
 	if err != nil {
-		return verifyFailed(loc, err), nil
+		return util.VerifyFailed(loc, err), nil
 	}
 	target := strings.TrimSpace(cfg["target"])
 	checks := make([]protocol.VerifyCheck, 0, 3)
 	if target == "panel" {
 		if _, err := c.request(http.MethodGet, "/api/setting", nil); err != nil {
-			return verifyFailed(loc, err), nil
+			return util.VerifyFailed(loc, err), nil
 		}
 		checks = append(checks,
 			protocol.VerifyCheck{Key: "connect", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.connect_ok", nil)},
@@ -469,7 +469,7 @@ func verifyAcepanel(_ context.Context, req deploy.NativeRequest) ([]protocol.Ver
 	}
 	websites, err := c.getWebsites()
 	if err != nil {
-		return verifyFailed(loc, err), nil
+		return util.VerifyFailed(loc, err), nil
 	}
 	checks = append(checks,
 		protocol.VerifyCheck{Key: "connect", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.connect_ok", nil)},
@@ -499,14 +499,4 @@ func verifyAcepanel(_ context.Context, req deploy.NativeRequest) ([]protocol.Ver
 	}
 	checks = append(checks, protocol.VerifyCheck{Key: "scope", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.target_ok", nil)})
 	return checks, nil
-}
-
-func verifyFailed(loc i18n.Locale, err error) []protocol.VerifyCheck {
-	if err == nil {
-		return nil
-	}
-	return []protocol.VerifyCheck{{
-		Key: "verify", Status: protocol.VerifyStatusFailed,
-		Message: i18n.T(loc, "service.verify.deploy_failed", map[string]any{"error": err.Error()}),
-	}}
 }

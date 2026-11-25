@@ -676,20 +676,6 @@ func deploySSH(ctx context.Context, m *Manager, cert *model.Certificate, cfg map
 	return nil
 }
 
-func splitConfigList(value string) []string {
-	parts := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == ';' || r == '\n' || r == ' ' || r == '\t'
-	})
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 func truncate(s string, n int) string {
 	r := []rune(strings.TrimSpace(s))
 	if len(r) <= n {

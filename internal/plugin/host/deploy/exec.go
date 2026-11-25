@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	hostcommon "lactssl/internal/plugin/host/common"
 	pluginproto "lactssl/internal/plugin/proto"
 	"lactssl/internal/plugin/runtime/discovery"
 	"lactssl/internal/plugin/runtime/exec"
@@ -84,13 +83,6 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 			enabledSet[id] = true
 		}
 	}
-	// 文件级停用：连 manifest 都不探测，避免执行管理员已隔离的 helper。
-	disabledSet := make(map[string]bool, len(cfg.DisabledHelpers))
-	for _, name := range cfg.DisabledHelpers {
-		if name = strings.TrimSpace(name); name != "" {
-			disabledSet[strings.ToLower(name)] = true
-		}
-	}
 	externalState.Lock()
 	externalState.deployers = make(map[string]ExternalDeployer)
 	externalState.helpers = 0
@@ -100,87 +92,25 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 		replaceExternal(nil)
 		return result
 	}
-	entries, err := os.ReadDir(cfg.Dir)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			result.Errors = append(result.Errors, fmt.Sprintf("读取部署插件目录失败: %v", err))
-		}
-		replaceExternal(nil)
-		return result
-	}
 
-	// 先完整探测，再替换注册表，避免扫描中途失败留下半套插件。
-	type candidate struct {
-		path     string
-		manifest Manifest
-		digest   string
-	}
-	var candidates []candidate
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
-		if disabledSet[strings.ToLower(name)] {
-			result.DisabledFiles = append(result.DisabledFiles, name)
-			continue
-		}
-		path := filepath.Join(cfg.Dir, name)
-		// Lstat 拒绝符号链接；组或其他用户可写的文件一律不加载。
-		info, err := os.Lstat(path)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		if !info.Mode().IsRegular() {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: 不是普通文件", name))
-			continue
-		}
-		if info.Mode()&0o111 == 0 {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: 不是可执行文件", name))
-			continue
-		}
-		// 部署 helper 会拿到证书私钥，比 DNS helper 更严格：组或其他用户可写都拒绝。
-		if info.Mode()&0o022 != 0 {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: 插件文件允许组或其他用户写入，已拒绝加载", name))
-			continue
-		}
-		if expected := strings.TrimSpace(cfg.ExpectedDigests[name]); expected != "" {
-			digest, err := discovery.FileSHA256(path)
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", name, err))
-				continue
-			}
-			if !strings.EqualFold(expected, digest) {
-				result.Errors = append(result.Errors, fmt.Sprintf("%s: 文件摘要与安装记录不一致，已拒绝加载", name))
-				continue
-			}
-		}
-		manifest, err := inspectHelper(path, cfg)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", name, err))
-			continue
-		}
-		digest, err := discovery.FileSHA256(path)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", name, err))
-			continue
-		}
-		if manifest.SHA256 != "" && !strings.EqualFold(manifest.SHA256, digest) {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: sha256 校验失败", name))
-			continue
-		}
-		if err := validateManifest(manifest); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", name, err))
-			continue
-		}
-		candidates = append(candidates, candidate{path: path, manifest: manifest, digest: digest})
-	}
+	candidates, errs, disabledFiles := hostcommon.Scan(hostcommon.ScanOptions[Manifest]{
+		Dir:             cfg.Dir,
+		DirLabel:        "部署插件目录",
+		DisabledHelpers: cfg.DisabledHelpers,
+		ExpectedDigests: cfg.ExpectedDigests,
+		DeclaredSHA256:  func(manifest Manifest) string { return manifest.SHA256 },
+		Validate:        validateManifest,
+	}, func(path string) (Manifest, error) {
+		return inspectHelper(path, cfg)
+	})
+	result.Errors = append(result.Errors, errs...)
+	result.DisabledFiles = append(result.DisabledFiles, disabledFiles...)
 
 	var plugins []Deployer
 	helpers := make(map[string]bool)
 	for _, item := range candidates {
 		accepted := 0
-		for _, deployer := range item.manifest.Deployers {
+		for _, deployer := range item.Manifest.Deployers {
 			if cfg.isReserved(deployer) {
 				result.Skipped = append(result.Skipped, deployer.ID)
 				continue
@@ -188,10 +118,10 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 			enabled := enabledSet[normalize(deployer.ID)]
 			if enabled {
 				plugins = append(plugins, &externalDeployer{
-					helper:   item.path,
-					digest:   item.digest,
+					helper:   item.Path,
+					digest:   item.Digest,
 					deployer: deployer,
-					version:  item.manifest.Version,
+					version:  item.Manifest.Version,
 					settings: execSettings{
 						memoryLimitMB: cfg.MemoryLimitMB,
 						timeout:       cfg.Timeout,
@@ -214,8 +144,8 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 				Fields:          deployer.Fields,
 				DeployFields:    deployer.DeployFields,
 				Capabilities:    deployer.Capabilities,
-				Helper:          item.path,
-				Version:         item.manifest.Version,
+				Helper:          item.Path,
+				Version:         item.Manifest.Version,
 				Enabled:         enabled,
 				FileEnabled:     true,
 				Source:          string(SourceExec),
@@ -225,12 +155,12 @@ func Discover(cfg DiscoverConfig) DiscoverResult {
 		}
 		// 只统计真正提供了部署目标的 helper；被内置实现完全覆盖的不计。
 		if accepted > 0 {
-			helpers[item.path] = true
+			helpers[item.Path] = true
 		}
 	}
 
-	_, errs := replaceExternal(plugins)
-	for _, err := range errs {
+	_, replaceErrs := replaceExternal(plugins)
+	for _, err := range replaceErrs {
 		result.Errors = append(result.Errors, err.Error())
 	}
 	result.Helpers = len(helpers)
@@ -353,21 +283,11 @@ func inspectHelper(path string, cfg DiscoverConfig) (Manifest, error) {
 // 返回值中的 digest 是文件的实际 sha256，便于调用方记录与展示。
 func InspectHelper(path string, cfg DiscoverConfig) (Manifest, string, error) {
 	cfg = cfg.normalized()
-	manifest, err := inspectHelper(path, cfg)
-	if err != nil {
-		return Manifest{}, "", err
-	}
-	digest, err := discovery.FileSHA256(path)
-	if err != nil {
-		return Manifest{}, "", err
-	}
-	if manifest.SHA256 != "" && !strings.EqualFold(manifest.SHA256, digest) {
-		return Manifest{}, "", fmt.Errorf("manifest 声明的 sha256 与文件不一致")
-	}
-	if err := validateManifest(manifest); err != nil {
-		return Manifest{}, "", err
-	}
-	return manifest, digest, nil
+	return hostcommon.Inspect(path, func(path string) (Manifest, error) {
+		return inspectHelper(path, cfg)
+	}, func(manifest Manifest) string {
+		return manifest.SHA256
+	}, validateManifest)
 }
 
 func validateManifest(manifest Manifest) error {

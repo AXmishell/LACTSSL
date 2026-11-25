@@ -78,7 +78,6 @@ func sameDomainSet(left, right []string) bool {
 	return true
 }
 
-
 func (s *Server) listTasks(c *gin.Context) {
 	list, err := s.Store.ListTasks()
 	if err != nil {
@@ -333,10 +332,11 @@ type taskBatchBody struct {
 	Enabled bool    `json:"enabled"`
 }
 
-// normalizeBatchTaskIDs 去重并校验批量任务 ID。
-func normalizeBatchTaskIDs(ids []int64) ([]int64, error) {
+// normalizeBatchIDs 过滤非法 ID、去重并限制批量操作规模。
+// requiredKey 在过滤后为空时返回，tooLargeKey 在超过 max 时返回。
+func normalizeBatchIDs(ids []int64, max int, requiredKey, tooLargeKey string) ([]int64, error) {
 	if len(ids) == 0 {
-		return nil, i18n.E("api.error.task_ids_required")
+		return nil, i18n.E(requiredKey)
 	}
 	out := make([]int64, 0, len(ids))
 	seen := make(map[int64]bool, len(ids))
@@ -348,12 +348,65 @@ func normalizeBatchTaskIDs(ids []int64) ([]int64, error) {
 		out = append(out, id)
 	}
 	if len(out) == 0 {
-		return nil, i18n.E("api.error.task_ids_required")
+		return nil, i18n.E(requiredKey)
 	}
-	if len(out) > maxBatchTasks {
-		return nil, i18n.E("api.error.task_batch_too_large", "max", maxBatchTasks)
+	if len(out) > max {
+		return nil, i18n.E(tooLargeKey, "max", max)
 	}
 	return out, nil
+}
+
+// normalizeBatchTaskIDs 去重并校验批量任务 ID。
+func normalizeBatchTaskIDs(ids []int64) ([]int64, error) {
+	return normalizeBatchIDs(ids, maxBatchTasks, "api.error.task_ids_required", "api.error.task_batch_too_large")
+}
+
+// requireBatchTaskAPIKeyPermissions 在批量操作前一次性检查 API 密钥权限，
+// 避免循环执行到一半才发现缺少 deploy:execute、deploy:command 或 CA 权限。
+// requireRunScope 仅在会把任务交给调度器执行时置为 true。
+func (s *Server) requireBatchTaskAPIKeyPermissions(c *gin.Context, ids []int64, requireRunScope bool) bool {
+	if apiKeyFromContext(c) == nil {
+		return true
+	}
+	if requireRunScope && !s.requireAPIKeyScope(c, apiScopeTasksRun) {
+		return false
+	}
+	needsExecute, needsCommand, needsPrivateCA, needsCARead := false, false, false, false
+	for _, id := range ids {
+		task, err := s.Store.GetTask(id)
+		if err != nil {
+			continue
+		}
+		if !s.requireAPIKeyTaskDNSAccess(c, s.taskDNSAccountIDs(task)) {
+			return false
+		}
+		pipeline := task.EffectivePipeline()
+		if requiresDeployExecutionFor(task.FlowMode, pipeline, task.TargetFlow) {
+			needsExecute = true
+		}
+		if s.taskUsesDeployCommand(task.FlowMode, pipeline, task.TargetFlow) {
+			needsCommand = true
+		}
+		if s.taskUsesPrivateCA(pipeline, task.CAPoolID) {
+			needsPrivateCA = true
+		}
+		if s.taskUsesCustomCA(pipeline, task.CA, task.CAPoolID) {
+			needsCARead = true
+		}
+	}
+	if needsPrivateCA && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
+		return false
+	}
+	if needsCARead && !s.requireAPIKeyCARead(c) {
+		return false
+	}
+	if needsExecute && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
+		return false
+	}
+	if needsCommand && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
+		return false
+	}
+	return true
 }
 
 // batchRunTasks 批量执行任务，跳过正在执行或已不存在的任务。
@@ -370,42 +423,8 @@ func (s *Server) batchRunTasks(c *gin.Context) {
 	}
 	// API 密钥批量运行前先检查是否包含部署节点或命令，避免在循环中启动
 	// 部分任务后才发现缺少 deploy:execute / deploy:command 权限。
-	if apiKeyFromContext(c) != nil {
-		needsExecute, needsCommand, needsPrivateCA, needsCARead := false, false, false, false
-		for _, id := range ids {
-			task, err := s.Store.GetTask(id)
-			if err != nil {
-				continue
-			}
-			if !s.requireAPIKeyTaskDNSAccess(c, s.taskDNSAccountIDs(task)) {
-				return
-			}
-			pipeline := task.EffectivePipeline()
-			if requiresDeployExecutionFor(task.FlowMode, pipeline, task.TargetFlow) {
-				needsExecute = true
-			}
-			if s.taskUsesDeployCommand(task.FlowMode, pipeline, task.TargetFlow) {
-				needsCommand = true
-			}
-			if s.taskUsesPrivateCA(pipeline, task.CAPoolID) {
-				needsPrivateCA = true
-			}
-			if s.taskUsesCustomCA(pipeline, task.CA, task.CAPoolID) {
-				needsCARead = true
-			}
-		}
-		if needsPrivateCA && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
-			return
-		}
-		if needsCARead && !s.requireAPIKeyCARead(c) {
-			return
-		}
-		if needsExecute && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
-			return
-		}
-		if needsCommand && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
-			return
-		}
+	if !s.requireBatchTaskAPIKeyPermissions(c, ids, false) {
+		return
 	}
 	started := 0
 	skippedIDs := make([]int64, 0)
@@ -451,45 +470,8 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 	defer s.taskMu.Unlock()
 	// API 密钥重新启用含部署节点的任务会交给调度器执行，因此同样需要
 	// deploy:execute / deploy:command；停用任务不会触发部署，不额外限制。
-	if body.Enabled && apiKeyFromContext(c) != nil {
-		if !s.requireAPIKeyScope(c, apiScopeTasksRun) {
-			return
-		}
-		needsExecute, needsCommand, needsPrivateCA, needsCARead := false, false, false, false
-		for _, id := range ids {
-			task, err := s.Store.GetTask(id)
-			if err != nil {
-				continue
-			}
-			if !s.requireAPIKeyTaskDNSAccess(c, s.taskDNSAccountIDs(task)) {
-				return
-			}
-			pipeline := task.EffectivePipeline()
-			if requiresDeployExecutionFor(task.FlowMode, pipeline, task.TargetFlow) {
-				needsExecute = true
-			}
-			if s.taskUsesDeployCommand(task.FlowMode, pipeline, task.TargetFlow) {
-				needsCommand = true
-			}
-			if s.taskUsesPrivateCA(pipeline, task.CAPoolID) {
-				needsPrivateCA = true
-			}
-			if s.taskUsesCustomCA(pipeline, task.CA, task.CAPoolID) {
-				needsCARead = true
-			}
-		}
-		if needsPrivateCA && !s.requireAPIKeyScope(c, apiScopePrivateCAWrite) {
-			return
-		}
-		if needsCARead && !s.requireAPIKeyCARead(c) {
-			return
-		}
-		if needsExecute && !s.requireAPIKeyScope(c, apiScopeDeployExecute) {
-			return
-		}
-		if needsCommand && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
-			return
-		}
+	if body.Enabled && !s.requireBatchTaskAPIKeyPermissions(c, ids, true) {
+		return
 	}
 	validIDs := make([]int64, 0, len(ids))
 	skippedIDs := make([]int64, 0)

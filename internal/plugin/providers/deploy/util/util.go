@@ -4,6 +4,7 @@ package util
 import (
 	"strings"
 
+	"github.com/AXmishell/LACTSSL-Plugins/i18n"
 	"github.com/AXmishell/LACTSSL-Plugins/protocol"
 	deploy "lactssl/providers/api/deploy"
 )
@@ -61,4 +62,16 @@ func Certificate(value protocol.Certificate) *deploy.NativeCertificate {
 		out.Domain = out.Domains[0]
 	}
 	return out
+}
+
+// VerifyFailed 把验证错误转换为统一的失败检查项，err 为 nil 时返回 nil。
+func VerifyFailed(loc i18n.Locale, err error) []protocol.VerifyCheck {
+	if err == nil {
+		return nil
+	}
+	return []protocol.VerifyCheck{{
+		Key:     "verify",
+		Status:  protocol.VerifyStatusFailed,
+		Message: i18n.T(loc, "service.verify.deploy_failed", map[string]any{"error": err.Error()}),
+	}}
 }

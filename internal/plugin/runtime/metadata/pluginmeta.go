@@ -142,50 +142,45 @@ func Delete(kind, id string) {
 	delete(state.byKey, cacheKey(kind, id))
 }
 
+// decode 读取并反序列化指定 kind 的缓存条目，类型参数决定目标结构。
+// 条目缺少 ID 时用缓存键补全，兼容旧版只保存 manifest 的持久化数据。
+func decode[T any](kind, id string, fillID func(*T, string)) (T, bool) {
+	var zero T
+	entry, ok := lookup(kind, id)
+	if !ok || len(entry.Raw) == 0 {
+		return zero, false
+	}
+	var value T
+	if err := json.Unmarshal(entry.Raw, &value); err != nil {
+		return zero, false
+	}
+	fillID(&value, entry.ID)
+	return value, true
+}
+
 // Provider 返回 DNS 服务商缓存。
 func Provider(id string) (pluginproto.DNSProvider, bool) {
-	entry, ok := lookup("dns", id)
-	if !ok || len(entry.Raw) == 0 {
-		return pluginproto.DNSProvider{}, false
-	}
-	var value pluginproto.DNSProvider
-	if err := json.Unmarshal(entry.Raw, &value); err != nil {
-		return pluginproto.DNSProvider{}, false
-	}
-	if value.ID == "" {
-		value.ID = entry.ID
-	}
-	return value, true
+	return decode("dns", id, func(value *pluginproto.DNSProvider, fallback string) {
+		if value.ID == "" {
+			value.ID = fallback
+		}
+	})
 }
 
 // Deployer 返回部署目标缓存。
 func Deployer(id string) (pluginproto.Deployer, bool) {
-	entry, ok := lookup("deploy", id)
-	if !ok || len(entry.Raw) == 0 {
-		return pluginproto.Deployer{}, false
-	}
-	var value pluginproto.Deployer
-	if err := json.Unmarshal(entry.Raw, &value); err != nil {
-		return pluginproto.Deployer{}, false
-	}
-	if value.ID == "" {
-		value.ID = entry.ID
-	}
-	return value, true
+	return decode("deploy", id, func(value *pluginproto.Deployer, fallback string) {
+		if value.ID == "" {
+			value.ID = fallback
+		}
+	})
 }
 
 // Channel 返回通知渠道缓存。
 func Channel(id string) (pluginproto.NotifyChannel, bool) {
-	entry, ok := lookup("notify", id)
-	if !ok || len(entry.Raw) == 0 {
-		return pluginproto.NotifyChannel{}, false
-	}
-	var value pluginproto.NotifyChannel
-	if err := json.Unmarshal(entry.Raw, &value); err != nil {
-		return pluginproto.NotifyChannel{}, false
-	}
-	if value.ID == "" {
-		value.ID = entry.ID
-	}
-	return value, true
+	return decode("notify", id, func(value *pluginproto.NotifyChannel, fallback string) {
+		if value.ID == "" {
+			value.ID = fallback
+		}
+	})
 }

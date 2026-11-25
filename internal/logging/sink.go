@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"lactssl/internal/model"
+	"lactssl/internal/util"
 )
 
 const (
@@ -250,7 +251,7 @@ func sanitizeFields(fields map[string]any) map[string]any {
 		if count >= dbMaxFields {
 			break
 		}
-		out[truncateRunes(key, 64)] = sanitizeValue(key, value)
+		out[util.TruncateRunes(key, 64)] = sanitizeValue(key, value)
 		count++
 	}
 	return out
@@ -263,22 +264,11 @@ func sanitizeValue(key string, value any) any {
 		if key == "stack" {
 			limit = 8000
 		}
-		return truncateRunes(text, limit)
+		return util.TruncateRunes(text, limit)
 	}
 	switch value.(type) {
 	case nil, bool, int, int64, uint64, float64, json.Number:
 		return value
 	}
-	return truncateRunes(fmt.Sprint(value), 2000)
-}
-
-func truncateRunes(value string, limit int) string {
-	if limit <= 0 || len(value) <= limit {
-		return value
-	}
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
-	}
-	return string(runes[:limit])
+	return util.TruncateRunes(fmt.Sprint(value), 2000)
 }

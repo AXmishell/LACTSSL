@@ -1046,7 +1046,7 @@ func verifyBaotaPanelChecks(ctx context.Context, req deploy.NativeRequest, force
 	}
 	options, err := baotaListOptions(ctx, cfg, listTarget, "")
 	if err != nil {
-		return failedVerifyCheck(loc, err), nil
+		return util.VerifyFailed(loc, err), nil
 	}
 	checks := []protocol.VerifyCheck{
 		{Key: "connect", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.connect_ok", nil)},
@@ -1085,13 +1085,13 @@ func verifyOnePanelChecks(ctx context.Context, req deploy.NativeRequest) ([]prot
 	base := panelURL(cfg["panel_url"])
 	apiKey := strings.TrimSpace(cfg["api_key"])
 	if base == "" {
-		return failedVerifyCheck(loc, i18n.E("service.deploy.panel_url_required")), nil
+		return util.VerifyFailed(loc, i18n.E("service.deploy.panel_url_required")), nil
 	}
 	if err := outbound.ValidateServiceURL(base); err != nil {
-		return failedVerifyCheck(loc, err), nil
+		return util.VerifyFailed(loc, err), nil
 	}
 	if apiKey == "" {
-		return failedVerifyCheck(loc, i18n.E("service.deploy.onepanel_key_required")), nil
+		return util.VerifyFailed(loc, i18n.E("service.deploy.onepanel_key_required")), nil
 	}
 	client := deployHTTPClient(skipVerify(cfg))
 	version := onePanelVersion(cfg["api_version"])
@@ -1103,7 +1103,7 @@ func verifyOnePanelChecks(ctx context.Context, req deploy.NativeRequest) ([]prot
 		"orderBy":  "created_at",
 	}
 	if _, err := onePanelRequest(client, base, version, apiKey, http.MethodPost, "/websites/search", payload); err != nil {
-		return failedVerifyCheck(loc, err), nil
+		return util.VerifyFailed(loc, err), nil
 	}
 	checks := []protocol.VerifyCheck{
 		{Key: "connect", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.connect_ok", nil)},
@@ -1126,11 +1126,11 @@ func verifySafelineChecks(_ context.Context, req deploy.NativeRequest) ([]protoc
 	loc := i18n.Normalize(req.Locale)
 	base, token, client, err := safelineClient(cfg)
 	if err != nil {
-		return failedVerifyCheck(loc, err), nil
+		return util.VerifyFailed(loc, err), nil
 	}
 	data, err := safelineRequest(client, base, token, http.MethodGet, "/api/open/cert", nil)
 	if err != nil {
-		return failedVerifyCheck(loc, err), nil
+		return util.VerifyFailed(loc, err), nil
 	}
 	var result struct {
 		Nodes []safelineCert `json:"nodes"`
@@ -1170,14 +1170,4 @@ func verifySafelineChecks(_ context.Context, req deploy.NativeRequest) ([]protoc
 		return checks, nil
 	}
 	return append(checks, protocol.VerifyCheck{Key: "scope", Status: protocol.VerifyStatusOK, Message: i18n.T(loc, "service.verify.target_ok", nil)}), nil
-}
-
-func failedVerifyCheck(loc i18n.Locale, err error) []protocol.VerifyCheck {
-	if err == nil {
-		return nil
-	}
-	return []protocol.VerifyCheck{{
-		Key: "verify", Status: protocol.VerifyStatusFailed,
-		Message: i18n.T(loc, "service.verify.deploy_failed", map[string]any{"error": err.Error()}),
-	}}
 }

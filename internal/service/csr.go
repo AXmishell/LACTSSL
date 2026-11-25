@@ -117,7 +117,7 @@ func parseCSRInfo(value string, opts csrParseOptions) (*CSRInfo, error) {
 		if name != strings.ToLower(name) || strings.HasSuffix(name, ".") {
 			return nil, i18n.E("service.csr.dns_not_canonical", "domain", raw)
 		}
-		if !validDNSName(name) {
+		if !ValidDNSName(name) {
 			return nil, i18n.E("service.csr.dns_invalid", "domain", raw)
 		}
 		if !opts.allowInternal && isInternalDNSName(name) {
@@ -135,7 +135,7 @@ func parseCSRInfo(value string, opts csrParseOptions) (*CSRInfo, error) {
 		if len(cn) > 64 {
 			return nil, i18n.E("service.csr.cn_invalid", "domain", cn)
 		}
-		if cn != strings.ToLower(cn) || strings.HasSuffix(cn, ".") || !validDNSName(cn) {
+		if cn != strings.ToLower(cn) || strings.HasSuffix(cn, ".") || !ValidDNSName(cn) {
 			return nil, i18n.E("service.csr.cn_invalid", "domain", cn)
 		}
 		if !opts.allowInternal && isInternalDNSName(cn) {

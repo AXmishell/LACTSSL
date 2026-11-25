@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -80,6 +81,15 @@ func RandomHex(n int) (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
+// VerificationToken 生成 ACME 验证用的 token 与对应 TXT 记录名。
+func VerificationToken() (string, string, error) {
+	value, err := RandomHex(24)
+	if err != nil {
+		return "", "", err
+	}
+	return value, "lactssl-verify-" + value, nil
+}
+
 // IsEncrypted 判断字符串是否为本包生成的密文。
 func IsEncrypted(value string) bool {
 	return strings.HasPrefix(value, encPrefix)
@@ -89,6 +99,47 @@ func IsEncrypted(value string) bool {
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// FileSHA256 计算文件的 SHA-256 摘要。
+func FileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// SplitList 按逗号、分号、空白或换行拆分多值配置，并丢弃空项。
+func SplitList(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == ' ' || r == '\t'
+	})
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// TruncateRunes 按 rune 截断字符串，避免切坏多字节字符。
+func TruncateRunes(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
 }
 
 // NormalizeDomains 清洗域名列表，去重并去除协议、路径和空白。

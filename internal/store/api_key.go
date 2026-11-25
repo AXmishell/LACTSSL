@@ -14,20 +14,7 @@ const apiKeyColumns = `id,user_id,name,prefix,token_hash,scopes,allowed_ips,allo
 
 // ListAPIKeys 返回账户下的全部 API 密钥，不包含明文令牌。
 func (s *Store) ListAPIKeys(userID int64) ([]model.APIKey, error) {
-	rows, err := s.DB.Query(`SELECT `+apiKeyColumns+` FROM api_keys WHERE user_id=? ORDER BY id DESC`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	list := make([]model.APIKey, 0)
-	for rows.Next() {
-		key, err := scanAPIKey(rows)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, *key)
-	}
-	return list, rows.Err()
+	return queryRows(s.DB, `SELECT `+apiKeyColumns+` FROM api_keys WHERE user_id=? ORDER BY id DESC`, scanAPIKey, userID)
 }
 
 // GetAPIKey 按 ID 查询某个 API 密钥。

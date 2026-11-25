@@ -4,8 +4,6 @@ package builtin
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"os"
 	"strings"
 	"sync"
@@ -18,6 +16,7 @@ import (
 	"lactssl/internal/i18n"
 	dnsplugin "lactssl/internal/plugin/host/dns"
 	pluginproto "lactssl/internal/plugin/proto"
+	"lactssl/internal/util"
 	plugcatalog "lactssl/providers/catalog"
 	plugmeta "lactssl/providers/dns/lego5/meta"
 )
@@ -144,7 +143,7 @@ func (p *builtinDNSPlugin) newProvider(cfg map[string]string) (dnsplugin.NativeC
 
 func (p *builtinDNSPlugin) verifyWrite(ctx context.Context, cfg map[string]string, domain string, loc i18n.Locale) (pluginproto.VerifyResponse, error) {
 	response := pluginproto.VerifyResponse{OK: true, Checks: make([]pluginproto.VerifyCheck, 0, 2)}
-	token, keyAuth, err := randomVerifyToken()
+	token, keyAuth, err := util.VerificationToken()
 	if err != nil {
 		return pluginproto.VerifyResponse{OK: false, Checks: []pluginproto.VerifyCheck{{
 			Key: "token", Status: pluginproto.VerifyStatusFailed,
@@ -173,15 +172,6 @@ func (p *builtinDNSPlugin) verifyWrite(ctx context.Context, cfg map[string]strin
 	}
 	response.Checks = append(response.Checks, pluginproto.VerifyCheck{Key: "cleanup", Status: pluginproto.VerifyStatusOK})
 	return response, nil
-}
-
-func randomVerifyToken() (string, string, error) {
-	var buf [24]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return "", "", err
-	}
-	value := hex.EncodeToString(buf[:])
-	return value, "lactssl-verify-" + value, nil
 }
 
 // SyncDNS 重建内置 DNS 服务商注册。
