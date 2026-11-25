@@ -7,128 +7,158 @@
           <span>LACTSSL</span>
         </div>
         <h2>{{ t('setup.title') }}</h2>
-        <div class="sub">{{ t('setup.subtitle') }}</div>
 
-        <div class="setup-steps">
-          <span class="setup-step"><b>1</b>{{ t('setup.stepAccount') }}</span>
-          <span class="setup-step"><b>2</b>{{ t('setup.stepPlugins') }}</span>
-          <span class="setup-step"><b>3</b>{{ t('setup.stepCert') }}</span>
-        </div>
-
-        <el-form :model="form" label-position="top" @submit.prevent="submit">
+        <!-- 初始化令牌是所有模式共用的门禁，提到分段控件之上。 -->
+        <el-form label-position="top" class="install-gate" @submit.prevent>
           <el-form-item :label="t('setup.setupToken')">
-            <el-input v-model="setupToken" size="large" autocomplete="off" :placeholder="t('setup.setupTokenPlaceholder')" @change="loadConfig">
+            <el-input
+              v-model="setupToken"
+              size="large"
+              autocomplete="off"
+              :placeholder="t('setup.setupTokenPlaceholder')"
+              @change="loadConfig"
+              @keyup.enter="loadConfig"
+            >
               <template #prefix><el-icon><Key /></el-icon></template>
             </el-input>
             <div class="form-help">{{ t('setup.setupTokenHint') }}</div>
           </el-form-item>
-          <el-form-item :label="t('setup.email')">
-            <el-input v-model="form.email" size="large" placeholder="name@example.com" autocomplete="username">
-              <template #prefix><el-icon><Message /></el-icon></template>
-            </el-input>
-          </el-form-item>
-          <el-form-item :label="t('setup.password')">
-            <el-input v-model="form.password" size="large" type="password" show-password :placeholder="t('setup.passwordPlaceholder')">
-              <template #prefix><el-icon><Lock /></el-icon></template>
-            </el-input>
-          </el-form-item>
-          <el-form-item :label="t('setup.confirm')">
-            <el-input
-              v-model="form.confirm"
-              size="large"
-              type="password"
-              show-password
-              :placeholder="t('setup.confirmPlaceholder')"
-              @keyup.enter="submit"
-            >
-              <template #prefix><el-icon><Lock /></el-icon></template>
-            </el-input>
-          </el-form-item>
-
-          <el-alert v-if="errorMessage" :title="errorMessage" type="error" :closable="false" show-icon style="margin-bottom: 16px" />
-
-          <el-button type="primary" size="large" style="width: 100%" :loading="loading" @click="submit">
-            {{ t('setup.create') }}
-          </el-button>
         </el-form>
 
-        <div class="auth-hint">
-          {{ t('setup.hint1') }}<br />
-          {{ t('setup.hint2') }}
+        <el-segmented
+          block
+          class="install-switch"
+          :model-value="mode"
+          :options="modeOptions"
+          @change="switchMode"
+        />
+
+        <div v-show="mode === 'account'" class="install-pane install-account">
+          <el-form :model="form" label-position="top" @submit.prevent="submit">
+            <el-form-item :label="t('setup.email')">
+              <el-input v-model="form.email" size="large" placeholder="name@example.com" autocomplete="username">
+                <template #prefix><el-icon><Message /></el-icon></template>
+              </el-input>
+            </el-form-item>
+            <el-form-item :label="t('setup.password')">
+              <el-input v-model="form.password" size="large" type="password" show-password :placeholder="t('setup.passwordPlaceholder')">
+                <template #prefix><el-icon><Lock /></el-icon></template>
+              </el-input>
+            </el-form-item>
+            <el-form-item :label="t('setup.confirm')">
+              <el-input
+                v-model="form.confirm"
+                size="large"
+                type="password"
+                show-password
+                :placeholder="t('setup.confirmPlaceholder')"
+                @keyup.enter="submit"
+              >
+                <template #prefix><el-icon><Lock /></el-icon></template>
+              </el-input>
+            </el-form-item>
+
+            <el-alert v-if="errorMessage" :title="errorMessage" type="error" :closable="false" show-icon style="margin-bottom: 16px" />
+
+            <el-button type="primary" size="large" style="width: 100%" :loading="loading" @click="submit">
+              {{ t('setup.create') }}
+            </el-button>
+          </el-form>
+
+          <div class="auth-hint">
+            {{ t('setup.hint1') }}<br />
+            {{ t('setup.hint2') }}
+          </div>
         </div>
 
-        <el-collapse v-model="advancedOpen" class="install-advanced">
-          <el-collapse-item :title="t('setup.configTitle')" name="config">
-            <div class="sub" style="margin-bottom: 12px">{{ t('setup.configHint') }}</div>
-            <el-alert v-if="configLoadError" :title="configLoadError" type="error" :closable="false" show-icon />
-            <ConfigEditor v-if="configReady && !configLoadError" :model-value="configForm" />
-            <el-alert
-              v-if="configSaved"
-              :title="t('setup.configRestartRequired')"
-              type="warning"
-              :closable="false"
-              show-icon
-              style="margin-top: 16px; margin-bottom: 12px"
-            />
-            <el-button v-if="configSaved" type="warning" plain style="width: 100%; margin-bottom: 12px" @click="restartService">
-              {{ t('setup.configRestartNow') }}
-            </el-button>
-            <el-button
-              v-if="configReady && !configLoadError"
-              type="primary"
-              plain
-              style="width: 100%"
-              :loading="configSaving"
-              @click="saveConfig"
-            >
-              {{ t('setup.configSave') }}
-            </el-button>
-          </el-collapse-item>
+        <div v-show="mode === 'advanced'" class="install-pane">
+          <el-tabs v-model="advancedTab" class="install-tabs">
+            <el-tab-pane :label="t('setup.configTitle')" name="config">
+              <div v-loading="configLoading" class="install-config">
+                <div class="sub install-pane-hint">{{ t('setup.configHint') }}</div>
+                <el-alert
+                  v-if="!setupToken.trim()"
+                  :title="t('setup.configNeedToken')"
+                  type="info"
+                  :closable="false"
+                  show-icon
+                />
+                <el-alert v-else-if="configLoadError" :title="configLoadError" type="error" :closable="false" show-icon />
+                <ConfigEditor v-if="configReady && !configLoadError" :model-value="configForm" />
+                <div v-if="configReady && !configLoadError" class="config-actions">
+                  <el-alert
+                    v-if="configSaved"
+                    :title="t('setup.configRestartRequired')"
+                    type="warning"
+                    :closable="false"
+                    show-icon
+                    style="margin-bottom: 12px"
+                  />
+                  <el-button v-if="configSaved" type="warning" plain style="width: 100%; margin-bottom: 12px" @click="restartService">
+                    {{ t('setup.configRestartNow') }}
+                  </el-button>
+                  <el-button type="primary" plain style="width: 100%" :loading="configSaving" @click="saveConfig">
+                    {{ t('setup.configSave') }}
+                  </el-button>
+                  <el-button text class="config-back" @click="switchMode('account')">
+                    {{ t('setup.backToAccount') }}
+                  </el-button>
+                </div>
+              </div>
+            </el-tab-pane>
 
-          <el-collapse-item :title="t('setup.advanced')" name="restore">
-            <div class="sub" style="margin-bottom: 12px">{{ t('setup.restoreBackupHint') }}</div>
-            <el-upload
-              ref="restoreUpload"
-              :auto-upload="false"
-              :show-file-list="false"
-              accept=".zip,.db"
-              :on-change="onRestoreFileChange"
-            >
-              <el-button :icon="Upload">{{ t('setup.chooseBackup') }}</el-button>
-            </el-upload>
-            <div v-if="restoreFileName" class="install-file">
-              <el-icon><Document /></el-icon>
-              <span>{{ restoreFileName }}</span>
-            </div>
-            <el-input
-              v-model="restorePassword"
-              type="password"
-              show-password
-              autocomplete="off"
-              :placeholder="t('setup.restorePasswordPlaceholder')"
-              style="margin-top: 12px"
-            />
-            <div class="form-help">{{ t('setup.restorePasswordHint') }}</div>
-            <el-alert v-if="restoreError" :title="restoreError" type="error" :closable="false" show-icon style="margin-top: 12px" />
-            <el-button
-              type="danger"
-              plain
-              style="width: 100%; margin-top: 12px"
-              :loading="restoring"
-              :disabled="!restoreFile"
-              @click="restoreBackup"
-            >
-              {{ t('setup.restoreBackup') }}
-            </el-button>
-          </el-collapse-item>
-        </el-collapse>
+            <el-tab-pane :label="t('setup.restoreTab')" name="restore">
+              <div class="sub install-pane-hint">{{ t('setup.restoreBackupHint') }}</div>
+              <el-alert
+                v-if="!setupToken.trim()"
+                :title="t('setup.configNeedToken')"
+                type="info"
+                :closable="false"
+                show-icon
+                class="install-pane-hint"
+              />
+              <el-upload
+                ref="restoreUpload"
+                :auto-upload="false"
+                :show-file-list="false"
+                accept=".zip,.db"
+                :on-change="onRestoreFileChange"
+              >
+                <el-button :icon="Upload">{{ t('setup.chooseBackup') }}</el-button>
+              </el-upload>
+              <div v-if="restoreFileName" class="install-file">
+                <el-icon><Document /></el-icon>
+                <span>{{ restoreFileName }}</span>
+              </div>
+              <el-input
+                v-model="restorePassword"
+                type="password"
+                show-password
+                autocomplete="off"
+                :placeholder="t('setup.restorePasswordPlaceholder')"
+                style="margin-top: 12px"
+              />
+              <el-alert v-if="restoreError" :title="restoreError" type="error" :closable="false" show-icon style="margin-top: 12px" />
+              <el-button
+                type="danger"
+                plain
+                style="width: 100%; margin-top: 12px"
+                :loading="restoring"
+                :disabled="!restoreFile"
+                @click="restoreBackup"
+              >
+                {{ t('setup.restoreBackup') }}
+              </el-button>
+            </el-tab-pane>
+          </el-tabs>
+        </div>
       </div>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -152,7 +182,13 @@ const loading = ref(false)
 const errorMessage = ref('')
 const setupToken = ref('')
 const form = ref({ email: '', password: '', confirm: '' })
-const advancedOpen = ref<string[]>([])
+type InstallMode = 'account' | 'advanced'
+const mode = ref<InstallMode>('account')
+const advancedTab = ref('config')
+const modeOptions = computed(() => [
+  { label: t('setup.modeAccount'), value: 'account' },
+  { label: t('setup.advanced'), value: 'advanced' }
+])
 const restoreUpload = ref<UploadInstance>()
 const restoreFile = ref<File | null>(null)
 const restoreFileName = ref('')
@@ -161,9 +197,15 @@ const restoring = ref(false)
 const restoreError = ref('')
 const configForm = ref<SetupConfig>(emptySetupConfig())
 const configReady = ref(false)
+const configLoading = ref(false)
 const configLoadError = ref('')
 const configSaving = ref(false)
 const configSaved = ref(false)
+// 以最近一次加载/保存后的快照判断是否有未保存修改，切换模式前据此确认。
+const configSnapshot = ref('')
+const configDirty = computed(
+  () => configReady.value && configSnapshot.value !== '' && JSON.stringify(configForm.value) !== configSnapshot.value
+)
 
 function setupHeaders(): Record<string, string> {
   return { 'X-LACTSSL-SETUP-TOKEN': setupToken.value.trim() }
@@ -242,7 +284,7 @@ watch(
   configForm,
   () => {
     // 用户继续编辑后，旧的「需要重启」提示不再准确。
-    if (configSaved.value) configSaved.value = false
+    if (configSaved.value && configDirty.value) configSaved.value = false
   },
   { deep: true }
 )
@@ -257,18 +299,70 @@ onMounted(async () => {
   } catch (_) {
     // 忽略状态探测失败，继续显示安装表单
   }
-  await loadConfig()
 })
 
+let configRequest = 0
+
 async function loadConfig(): Promise<void> {
+  const token = setupToken.value.trim()
+  if (!token) {
+    configRequest++
+    configReady.value = false
+    configLoading.value = false
+    configLoadError.value = ''
+    configSnapshot.value = ''
+    return
+  }
+  const requestId = ++configRequest
+  configLoading.value = true
+  configLoadError.value = ''
   try {
     const data = await api.get<SetupConfigResult>('/setup/config', undefined, setupHeaders())
+    if (requestId !== configRequest) return
     configForm.value = data.config
+    if (!configForm.value.reset) configForm.value.reset = []
     configReady.value = true
     configLoadError.value = ''
+    // 等 ConfigEditor 挂载并补全默认值后再记录基线，避免自动填充被误判为修改。
+    await nextTick()
+    if (requestId === configRequest) configSnapshot.value = JSON.stringify(configForm.value)
   } catch (error: any) {
+    if (requestId !== configRequest) return
+    configReady.value = false
+    configSnapshot.value = ''
     configLoadError.value = error?.message || t('setup.configLoadFailed')
+  } finally {
+    if (requestId === configRequest) configLoading.value = false
   }
+}
+
+async function switchMode(next: string | number | boolean): Promise<void> {
+  const target = next as InstallMode
+  if (target === mode.value) return
+  if (mode.value === 'advanced' && configDirty.value) {
+    try {
+      await ElMessageBox.confirm(t('setup.configDiscardConfirm'), t('setup.configDiscardTitle'), {
+        confirmButtonText: t('setup.configDiscardButton'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      })
+    } catch (_) {
+      return
+    }
+    // 用户确认放弃后，回滚到上次加载/保存的基线，避免“切走再切回”又看到旧修改。
+    if (configSnapshot.value) configForm.value = JSON.parse(configSnapshot.value)
+  }
+  mode.value = target
+  if (target === 'advanced' && setupToken.value.trim() && !configReady.value && !configLoading.value) {
+    void loadConfig()
+  }
+  scrollToTop()
+}
+
+function scrollToTop(): void {
+  if (typeof window === 'undefined') return
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
 }
 
 async function saveConfig(): Promise<void> {
@@ -369,6 +463,7 @@ async function saveConfig(): Promise<void> {
     }, setupHeaders())
     configSaved.value = !!data.restart_required
     form.reset = []
+    configSnapshot.value = JSON.stringify(configForm.value)
     ElMessage.success(data.message || t('setup.configSaved'))
   } catch (error: any) {
     ElMessage.error(error?.message || t('setup.configSaveFailed'))
@@ -478,50 +573,64 @@ async function restoreBackup(): Promise<void> {
 </script>
 
 <style scoped>
-.setup-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 18px;
+/* 卡片宽度固定，账户与高级设置通过分段控件切换，避免展开配置时整页横向重排。 */
+.auth-form {
+  width: 100%;
+  max-width: 720px;
+  min-width: 0;
 }
-.setup-step {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #4338ca;
-  font-size: 12px;
-  line-height: 1.3;
+.auth-form h2 {
+  margin-bottom: 18px;
 }
-.setup-step b {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #4f46e5;
-  color: #fff;
-  font-size: 11px;
+/* auth-panel 是 grid 子项，默认 min-width:auto 会被标签页撑出横向滚动。
+   同时改为顶部对齐，避免在“账户/配置”两种高度差异很大的面板间切换时标题上下跳动。 */
+.auth-panel {
+  min-width: 0;
+  align-items: flex-start;
+  padding-top: 64px;
+}
+.install-gate {
+  margin-bottom: 2px;
+}
+.install-switch {
+  width: 100%;
+  margin-bottom: 22px;
+  --el-segmented-bg-color: #f1f5f9;
+  --el-segmented-item-selected-bg-color: #fff;
+  --el-segmented-item-selected-color: var(--kp-text);
+  --el-segmented-item-hover-bg-color: #e2e8f0;
+}
+.install-switch :deep(.el-segmented__item) {
+  font-weight: 500;
+}
+.install-switch :deep(.el-segmented__item-selected) {
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+.install-pane {
+  min-width: 0;
+}
+/* 账户输入固定为 360px 总宽：左右内边距各 15px，文字区约 330px；
+   密码、确认密码与创建按钮跟随表单列宽，同为 360px。 */
+.install-account {
+  max-width: 360px;
+}
+.install-account :deep(.el-input__wrapper) {
+  padding-left: 15px;
+  padding-right: 15px;
+}
+.install-pane-hint {
+  margin-bottom: 12px;
+}
+.install-tabs :deep(.el-tabs__header) {
+  margin-bottom: 18px;
+}
+/* 只加粗外层「运行配置/备份恢复」，与配置内部的分区标签形成层级。 */
+.install-tabs > :deep(.el-tabs__header) .el-tabs__item {
+  font-size: 15px;
   font-weight: 600;
 }
-.install-advanced {
-  margin-top: 18px;
-  border-top: 1px dashed #e2e8f0;
-  padding-top: 8px;
-}
-.install-advanced :deep(.el-collapse) {
-  border: none;
-}
-.install-advanced :deep(.el-collapse-item__header) {
-  background: transparent;
-  font-size: 13px;
-  color: #64748b;
-}
-.install-advanced :deep(.el-collapse-item__wrap) {
-  background: transparent;
+.install-config {
+  min-height: 120px;
 }
 .install-file {
   display: flex;
@@ -535,39 +644,35 @@ async function restoreBackup(): Promise<void> {
   font-size: 13px;
   word-break: break-all;
 }
-.config-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
+/* 保存/重启操作与上面的配置项拉开层级，避免贴在最后一个输入框下面。 */
+.config-actions {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--kp-border);
 }
-.config-section {
-  font-size: 13px;
-  font-weight: 600;
-  color: #334155;
-  margin-bottom: 10px;
-}
-.config-sub {
-  font-size: 12px;
-  font-weight: 600;
-  color: #475569;
-  margin: 4px 0 10px;
-}
-.config-help-block {
-  margin: -6px 0 12px;
-}
-/* 运行配置字段较多，适当加宽登录卡片，避免两列输入框过窄。 */
-.auth-form {
-  max-width: 560px;
-}
-@media (max-width: 520px) {
-  .config-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.config-back {
+  width: 100%;
+  margin: 8px 0 0;
 }
 .form-help {
   font-size: 12px;
   color: #94a3b8;
   margin-top: 6px;
   line-height: 1.6;
+}
+@media (max-width: 860px) {
+  .auth-panel {
+    padding: 24px 20px 32px;
+  }
+  /* 移动端滚动到配置深处时仍能快速切回账户页。 */
+  .install-switch {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    margin-bottom: 14px;
+    padding: 8px 0;
+    background: #fff;
+    box-shadow: 0 6px 8px -8px rgba(15, 23, 42, 0.25);
+  }
 }
 </style>
