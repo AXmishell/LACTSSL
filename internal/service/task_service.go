@@ -20,7 +20,7 @@ type TaskInput struct {
 	DNSAccountID int64            `json:"dns_account_id"`
 	DNSRoutes    []model.DNSRoute `json:"dns_routes"`
 	// PreservedDNSRoutes 仅供更新任务时沿用已保存的多账户快照，不来自客户端 JSON。
-	PreservedDNSRoutes []model.DNSRoute `json:"-"`
+	PreservedDNSRoutes []model.DNSRoute       `json:"-"`
 	CA                 string                 `json:"ca"`
 	CAPoolID           int64                  `json:"ca_pool_id"`
 	KeyType            string                 `json:"key_type"`
