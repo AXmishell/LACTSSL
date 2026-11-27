@@ -4,8 +4,10 @@ package api
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,6 +68,8 @@ type Server struct {
 	RestartConfig func()
 	// configMu 串行化 config.yaml 的读取、快照与写入，避免并发覆盖。
 	configMu sync.Mutex
+	// assetETags 缓存未带指纹静态资源的内容摘要 ETag，避免每次请求重复计算。
+	assetETags sync.Map
 	// ConfigFile 是当前 config.yaml 路径，供初始化页面读写白名单配置项。
 	ConfigFile string
 	// DataDir 是数据目录，用于持久化插件图标等派生资源。
@@ -933,17 +938,12 @@ func (s *Server) serveAsset(c *gin.Context, name string) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	if strings.HasPrefix(clean, "assets/") {
-		c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	}
-	// 同一 URL 会按 Accept-Encoding 返回不同表示，必须声明 Vary。
-	c.Header("Vary", "Accept-Encoding")
-	c.Header("Content-Type", contentType)
 
 	// 生产构建把资源预压缩为 <name>.br 并删除原文件；开发模式仍读取原始文件。
 	if compressed, err := s.WebFS.Open(clean + ".br"); err == nil {
 		defer compressed.Close()
 		if acceptsEncoding(c.Request.Header.Get("Accept-Encoding"), "br") {
+			s.setAssetHeaders(c, clean, contentType, "br")
 			c.Header("Content-Encoding", "br")
 			// ServeContent 在存在 Content-Encoding 时不会自动设置长度（担心
 			// 外层再压缩），这里显式给出压缩表示的大小；Range 请求会由
@@ -955,7 +955,13 @@ func (s *Server) serveAsset(c *gin.Context, name string) {
 			return
 		}
 		// 客户端不接受 br（例如明文 HTTP 下的部分浏览器）时流式解压，
-		// 避免把整个资源读入内存。
+		// 避免把整个资源读入内存。该路径不经过 ServeContent，需要自行处理 304。
+		s.setAssetHeaders(c, clean, contentType, "identity")
+		if etagMatches(c.GetHeader("If-None-Match"), s.assetETag(clean, "identity")) {
+			c.Writer.Header().Del("Content-Type")
+			c.Status(http.StatusNotModified)
+			return
+		}
 		reader := brotli.NewReader(compressed)
 		c.Status(http.StatusOK)
 		if c.Request.Method == http.MethodHead {
@@ -967,11 +973,88 @@ func (s *Server) serveAsset(c *gin.Context, name string) {
 
 	raw, err := s.WebFS.Open(clean)
 	if err != nil {
+		// 资源不存在时不能沿用长期缓存头，否则 404 会被浏览器长期记住。
+		c.Header("Cache-Control", "no-store")
 		c.Status(http.StatusNotFound)
 		return
 	}
 	defer raw.Close()
+	s.setAssetHeaders(c, clean, contentType, "identity")
 	serveAssetFile(c, clean, raw)
+}
+
+// hashedAssetName 匹配 Vite 产物中带内容哈希的文件名，例如 assets/index-DiwrgTda.js。
+// 只有确认带指纹的资源才使用一年期 immutable，避免误伤固定名文件。
+var hashedAssetName = regexp.MustCompile(`^assets/.+-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$`)
+
+// assetCacheControl 返回静态资源的缓存策略。
+func assetCacheControl(name string) string {
+	if hashedAssetName.MatchString(name) {
+		return "public, max-age=31536000, immutable"
+	}
+	// 未带指纹的资源（favicon、logo 等）使用短 TTL，升级后最多一天收敛。
+	return "public, max-age=86400"
+}
+
+// assetETag 为同一 URL 的不同编码表示生成弱 ETag。
+// 哈希资源的文件名已经代表内容，无需再计算；未哈希资源（favicon、logo 等）
+// 使用内容摘要，避免同名文件在升级或同版本重建后仍命中旧缓存。
+// ServeContent 会用它处理 If-None-Match。
+func (s *Server) assetETag(name, encoding string) string {
+	if hashedAssetName.MatchString(name) {
+		return `W/"` + name + ":" + encoding + `"`
+	}
+	cacheKey := name + ":" + encoding
+	if cached, ok := s.assetETags.Load(cacheKey); ok {
+		return cached.(string)
+	}
+	// 只有压缩表示时，identity 内容由 .br 解压得到，两者使用同一份摘要。
+	file := name
+	if encoding == "br" {
+		file = name + ".br"
+	} else if _, err := s.WebFS.Open(file); err != nil {
+		file = name + ".br"
+	}
+	tag := ""
+	if f, err := s.WebFS.Open(file); err == nil {
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err == nil {
+			tag = `W/"` + hex.EncodeToString(h.Sum(nil)) + ":" + encoding + `"`
+		}
+		_ = f.Close()
+	}
+	if tag == "" {
+		tag = `W/"` + name + ":" + encoding + `"`
+	}
+	s.assetETags.Store(cacheKey, tag)
+	return tag
+}
+
+// setAssetHeaders 写入成功响应的缓存头。Vary 必须声明，因为同一 URL 会按
+// Accept-Encoding 返回不同表示；ETag 也按表示区分，避免 br 与原文互串。
+func (s *Server) setAssetHeaders(c *gin.Context, name, contentType, encoding string) {
+	c.Header("Cache-Control", assetCacheControl(name))
+	c.Header("ETag", s.assetETag(name, encoding))
+	c.Header("Vary", "Accept-Encoding")
+	c.Header("Content-Type", contentType)
+}
+
+// etagMatches 对 If-None-Match 做弱比较，仅用于不经过 ServeContent 的流式解压路径。
+func etagMatches(ifNoneMatch, etag string) bool {
+	if ifNoneMatch == "" {
+		return false
+	}
+	want := strings.TrimPrefix(strings.TrimSpace(etag), "W/")
+	for _, part := range strings.Split(ifNoneMatch, ",") {
+		part = strings.TrimSpace(part)
+		if part == "*" {
+			return true
+		}
+		if strings.TrimPrefix(part, "W/") == want {
+			return true
+		}
+	}
+	return false
 }
 
 // serveAssetFile 用 ServeContent 流式返回资源，避免每次请求整文件进堆。

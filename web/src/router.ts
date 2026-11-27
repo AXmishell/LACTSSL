@@ -99,13 +99,37 @@ router.beforeEach(async (to, from) => {
   return true
 })
 
+// 升级后二进制里的旧 chunk 已被替换，仍持有旧 index 的页面动态 import 会 404。
+// 此时刷新一次页面拿新的入口文件，避免停在无法继续导航的旧版本。
+const CHUNK_RELOAD_KEY = 'lactssl:chunk-reload'
+
 // 导航成功、被取消或失败都会触发 afterEach，确保进度条不会残留。
-router.afterEach(() => {
+router.afterEach((_to, _from, failure) => {
+  // 只有导航成功才清除升级刷新标记；失败时保留标记，避免刷新循环。
+  if (!failure) {
+    try {
+      sessionStorage.removeItem(CHUNK_RELOAD_KEY)
+    } catch (_) {
+      // 隐私模式下 sessionStorage 不可用，忽略即可。
+    }
+  }
   endRouteLoading()
 })
 
-router.onError(() => {
+router.onError((error) => {
   endRouteLoading()
+  const message = error instanceof Error ? error.message : String(error)
+  if (!/dynamically imported module|Importing a module script failed|ChunkLoadError/i.test(message)) {
+    return
+  }
+  // 每个会话只自动刷新一次；导航成功后由 afterEach 清除标记，避免刷新循环。
+  try {
+    if (sessionStorage.getItem(CHUNK_RELOAD_KEY)) return
+    sessionStorage.setItem(CHUNK_RELOAD_KEY, '1')
+  } catch (_) {
+    return
+  }
+  window.location.reload()
 })
 
 export default router
