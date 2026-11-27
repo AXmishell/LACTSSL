@@ -130,6 +130,51 @@ func TestBatchSetTasksEnabledWithoutCertificate(t *testing.T) {
 	}
 }
 
+func TestBatchSetTasksEnabledClearsRateLimitWait(t *testing.T) {
+	s, r := newTaskBatchServer(t)
+	next := time.Now().UTC().Add(6 * time.Hour)
+	task := createBatchTask(t, s.Store, func(task *model.Task) {
+		task.Enabled = true
+	})
+	if err := s.Store.UpdateTaskResult(task.ID, "rate_limited", "CA rate limit", nil, &next, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	w := postBatchJSON(t, r, "/tasks/batch/enabled", fmt.Sprintf(`{"ids":[%d],"enabled":false}`, task.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("暂停失败: %d %s", w.Code, w.Body.String())
+	}
+	paused, err := s.Store.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Status != "pending" {
+		t.Fatalf("暂停后不应继续显示限流等待，实际状态 %s", paused.Status)
+	}
+	if paused.NextRunAt != nil {
+		t.Fatalf("暂停后不应保留限流重试时间: %v", paused.NextRunAt)
+	}
+
+	// 恢复自动续期后同样要清除旧的限流等待状态，并按正常规则重新排队。
+	if err := s.Store.UpdateTaskResult(task.ID, "rate_limited", "CA rate limit", nil, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	w = postBatchJSON(t, r, "/tasks/batch/enabled", fmt.Sprintf(`{"ids":[%d],"enabled":true}`, task.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("恢复失败: %d %s", w.Code, w.Body.String())
+	}
+	resumed, err := s.Store.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Status != "pending" {
+		t.Fatalf("恢复后不应继续显示限流等待，实际状态 %s", resumed.Status)
+	}
+	if resumed.NextRunAt == nil {
+		t.Fatal("恢复后应重新安排执行时间")
+	}
+}
+
 func TestBatchResumeUsesRenewWindow(t *testing.T) {
 	s, r := newTaskBatchServer(t)
 	notAfter := time.Now().UTC().Add(90 * 24 * time.Hour)
@@ -161,6 +206,88 @@ func TestBatchResumeUsesRenewWindow(t *testing.T) {
 	want := notAfter.AddDate(0, 0, -30)
 	if diff := resumed.NextRunAt.Sub(want); diff < -time.Minute || diff > time.Minute {
 		t.Fatalf("续期时间不正确: got %v want %v", resumed.NextRunAt, want)
+	}
+}
+
+func TestUpdateTaskStopsRateLimitWaitWithoutAutoRenew(t *testing.T) {
+	s, _ := newTaskBatchServer(t)
+	account := &model.DNSAccount{Name: "dns", Provider: "cloudflare", Config: map[string]string{"api_token": "x"}}
+	if err := s.Store.CreateDNSAccount(account); err != nil {
+		t.Fatal(err)
+	}
+	next := time.Now().UTC().Add(6 * time.Hour)
+	task := createBatchTask(t, s.Store, func(task *model.Task) {
+		task.DNSAccountID = account.ID
+		task.Enabled = true
+	})
+	if err := s.Store.UpdateTaskResult(task.ID, "rate_limited", "CA rate limit", nil, &next, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.PUT("/tasks/:id", s.updateTask)
+	body := fmt.Sprintf(`{
+		"name":"batch-task",
+		"domains":["example.com"],
+		"challenge":"dns01",
+		"dns_account_id":%d,
+		"ca":"letsencrypt",
+		"key_type":"ecdsa",
+		"auto_renew":false,
+		"renew_days":30,
+		"enabled":true
+	}`, account.ID)
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/tasks/%d", task.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("更新任务失败: %d %s", w.Code, w.Body.String())
+	}
+
+	updated, err := s.Store.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "pending" {
+		t.Fatalf("停止自动续期后不应继续显示限流等待，实际状态 %s", updated.Status)
+	}
+	if updated.NextRunAt != nil {
+		t.Fatalf("停止自动续期后不应保留自动重试时间: %v", updated.NextRunAt)
+	}
+
+	// 暂停任务（enabled=false）同样会取消自动重试，应清除限流等待状态。
+	if err := s.Store.UpdateTaskResult(task.ID, "rate_limited", "CA rate limit", nil, &next, 0); err != nil {
+		t.Fatal(err)
+	}
+	body = fmt.Sprintf(`{
+		"name":"batch-task",
+		"domains":["example.com"],
+		"challenge":"dns01",
+		"dns_account_id":%d,
+		"ca":"letsencrypt",
+		"key_type":"ecdsa",
+		"auto_renew":true,
+		"renew_days":30,
+		"enabled":false
+	}`, account.ID)
+	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/tasks/%d", task.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("暂停任务失败: %d %s", w.Code, w.Body.String())
+	}
+	paused, err := s.Store.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Status != "pending" {
+		t.Fatalf("暂停后不应继续显示限流等待，实际状态 %s", paused.Status)
+	}
+	if paused.NextRunAt != nil {
+		t.Fatalf("暂停后不应保留自动重试时间: %v", paused.NextRunAt)
 	}
 }
 

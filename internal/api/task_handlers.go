@@ -213,6 +213,9 @@ func (s *Server) updateTask(c *gin.Context) {
 	if s.taskUsesDeployCommand(body.FlowMode, body.Pipeline, body.TargetFlow) && !s.requireAPIKeyScope(c, apiScopeDeployCommand) {
 		return
 	}
+	prevEnabled := task.Enabled
+	prevAutoRenew := task.AutoRenew
+	wasRateLimited := task.Status == "rate_limited"
 	task.Name = body.Name
 	task.Domains = body.Domains
 	task.Challenge = body.Challenge
@@ -249,11 +252,32 @@ func (s *Server) updateTask(c *gin.Context) {
 		task.Message = i18n.Encode("task.status.pending", nil)
 	}
 
+	// 限流等待依赖自动重试：停止自动续期后“将于某时重试”的承诺已失效，
+	// 恢复自动重试时旧的重试时间也不再可信，两种情况都回到待执行状态。
+	stopRateLimitWait := wasRateLimited && (!task.Enabled || !task.AutoRenew)
+	resumeRateLimitWait := wasRateLimited && task.Enabled && task.AutoRenew && (!prevEnabled || !prevAutoRenew)
+	resetRateLimitWait := stopRateLimitWait || resumeRateLimitWait
+	if resetRateLimitWait {
+		_ = s.Store.UpdateTaskResult(task.ID, "pending", i18n.Encode("task.status.pending", nil), task.LastRunAt, nil, task.CertID)
+		task.Status = "pending"
+		task.Message = i18n.Encode("task.status.pending", nil)
+		task.NextRunAt = nil
+	}
+
 	// 根据启用状态和现有证书重新安排下次执行时间。
-	next := s.nextRunForTask(task)
+	var next *time.Time
+	switch {
+	case stopRateLimitWait:
+		// 已停止自动续期，不再安排自动重试。
+	case wasRateLimited && !resetRateLimitWait && task.NextRunAt != nil:
+		// 仍在等待 CA 配额恢复，保留原重试时间，避免普通编辑把等待推迟到续期窗口。
+		next = task.NextRunAt
+	default:
+		next = s.nextRunForTask(task)
+	}
 	_ = s.Store.SetTaskNextRun(task.ID, next)
 
-	if task.Enabled && task.CertID == 0 {
+	if task.Enabled && task.CertID == 0 && !stopRateLimitWait && task.Status != "rate_limited" {
 		snapshot := *task
 		s.goSafe("task-updated", func() {
 			_ = s.Manager.RunTaskWithOptions(task.ID, "task.trigger.updated", service.RunOptions{Task: &snapshot})
@@ -475,6 +499,7 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 	}
 	validIDs := make([]int64, 0, len(ids))
 	skippedIDs := make([]int64, 0)
+	rateLimitedTasks := make([]*model.Task, 0)
 	nextRuns := make(map[int64]*time.Time, len(ids))
 	for _, id := range ids {
 		task, err := s.Store.GetTask(id)
@@ -483,6 +508,9 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 			continue
 		}
 		validIDs = append(validIDs, id)
+		if task.Status == "rate_limited" {
+			rateLimitedTasks = append(rateLimitedTasks, task)
+		}
 		if !body.Enabled {
 			nextRuns[id] = nil
 			continue
@@ -495,6 +523,11 @@ func (s *Server) batchSetTasksEnabled(c *gin.Context) {
 	if err != nil {
 		failErr(c, http.StatusInternalServerError, err)
 		return
+	}
+	// 暂停/恢复后自动重试条件已改变，清除旧的限流等待状态，
+	// 避免列表继续展示已经失效的重试时间。
+	for _, task := range rateLimitedTasks {
+		_ = s.Store.UpdateTaskResult(task.ID, "pending", i18n.Encode("task.status.pending", nil), task.LastRunAt, nextRuns[task.ID], task.CertID)
 	}
 	key := "api.ok.tasks_paused"
 	if body.Enabled {

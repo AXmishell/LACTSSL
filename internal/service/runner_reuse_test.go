@@ -308,3 +308,47 @@ func TestHandleRateLimited(t *testing.T) {
 		t.Fatalf("限流消息缺少现有证书到期时间: %v", params)
 	}
 }
+
+func TestHandleRateLimitedWithoutAutoRenew(t *testing.T) {
+	m := newTestManager(t)
+	domains := []string{"example.com"}
+	task := &model.Task{
+		Name:      "limited-manual",
+		Domains:   domains,
+		CA:        "letsencrypt",
+		KeyType:   "ecdsa",
+		AutoRenew: false,
+		RenewDays: 30,
+		Enabled:   true,
+	}
+	if err := m.Store.CreateTask(task); err != nil {
+		t.Fatal(err)
+	}
+	cert := reusableCertificateRecord(t, task.ID, domains, "letsencrypt", time.Now().Add(60*24*time.Hour))
+	if err := m.Store.CreateCertificate(cert); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now().UTC()
+	retryAt := time.Now().UTC().Add(34 * time.Hour)
+	if err := m.handleRateLimited(task, nil, &RateLimitError{RetryAt: retryAt, Detail: "rate limited"}, &start); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := m.Store.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Status != "failed" {
+		t.Fatalf("未启用自动续期时不应保持限流等待状态，实际 %s", loaded.Status)
+	}
+	if loaded.NextRunAt != nil {
+		t.Fatalf("未启用自动续期时不应安排重试: %v", loaded.NextRunAt)
+	}
+	key, params, ok := i18n.Decode(loaded.Message)
+	if !ok || key != "task.message.rate_limited_no_retry_existing" {
+		t.Fatalf("限流消息应说明未安排自动重试: key=%s params=%v", key, params)
+	}
+	if _, exists := params["expires"]; !exists {
+		t.Fatalf("限流消息缺少现有证书到期时间: %v", params)
+	}
+}

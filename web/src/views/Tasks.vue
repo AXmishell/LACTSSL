@@ -1333,8 +1333,11 @@ async function loadAll(): Promise<void> {
 }
 
 function hasRunningTasks(): boolean {
-  // pending 只会短暂出现在服务端重启恢复或刚创建时；已暂停的任务不应让它一直轮询。
-  return tasks.value.some((task) => task.status === 'running' || (task.status === 'pending' && task.enabled))
+  // pending 只会短暂出现在服务端重启恢复或刚创建时；已暂停或未安排下次执行
+  // （例如停止自动续期后）的任务不应让它一直轮询。
+  return tasks.value.some(
+    (task) => task.status === 'running' || (task.status === 'pending' && task.enabled && !!task.next_run_at)
+  )
 }
 
 function startTaskPolling(): void {

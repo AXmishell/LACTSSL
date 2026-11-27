@@ -648,31 +648,52 @@ func (m *Manager) handleRateLimited(task *model.Task, pipeline []model.PipelineN
 	retryAt = retryAt.Add(time.Minute)
 
 	existing := m.existingTaskCertificate(task)
+	hasExisting := existing != nil && existing.NotAfter.After(now)
 	params := map[string]any{"time": retryAt.Local().Format("2006-01-02 15:04:05")}
-	messageKey := "task.message.rate_limited"
-	if existing != nil && existing.NotAfter.After(now) {
-		messageKey = "task.message.rate_limited_existing"
+	if hasExisting {
 		params["expires"] = existing.NotAfter.Local().Format("2006-01-02 15:04:05")
+	}
+
+	// 未启用自动续期（或任务已暂停）时不会再有自动重试，
+	// 不能继续展示“将于某时重试”的限流等待状态，按本次执行失败处理。
+	autoRetry := task.AutoRenew && task.Enabled
+	status := "rate_limited"
+	messageKey := "task.message.rate_limited"
+	logKey := "log.task.rate_limited"
+	var next *time.Time
+	if autoRetry {
+		next = &retryAt
+		if hasExisting {
+			messageKey = "task.message.rate_limited_existing"
+		}
+	} else {
+		status = "failed"
+		messageKey = "task.message.rate_limited_no_retry"
+		logKey = "log.task.rate_limited_no_retry"
+		if hasExisting {
+			messageKey = "task.message.rate_limited_no_retry_existing"
+		}
 	}
 	message := i18n.Encode(messageKey, params)
 
-	var next *time.Time
-	if task.AutoRenew && task.Enabled {
-		next = &retryAt
-	}
 	certID := task.CertID
 	if existing != nil {
 		certID = existing.ID
 	}
-	if err := m.Store.UpdateTaskResult(task.ID, "rate_limited", message, start, next, certID); err != nil {
+	if err := m.Store.UpdateTaskResult(task.ID, status, message, start, next, certID); err != nil {
 		return i18n.E("task.error.update_status_failed", "error", err.Error())
 	}
-	m.Store.AddLogKey("task", task.ID, "warning", "log.task.rate_limited", map[string]any{
+	m.Store.AddLogKey("task", task.ID, "warning", logKey, map[string]any{
 		"time":  params["time"],
 		"error": rateErr.Detail,
 	})
-	logger().Warn("任务因 CA 限流推迟", "task_id", task.ID, "retry_at", retryAt, "error", SafeError(rateErr))
-	m.notifyTaskResult(task, pipeline, existing, "rate_limited", message)
+	logger().Warn("任务因 CA 限流未能完成", "task_id", task.ID, "auto_retry", autoRetry, "retry_at", retryAt, "error", SafeError(rateErr))
+	if autoRetry {
+		m.notifyTaskResult(task, pipeline, existing, "rate_limited", message)
+	} else {
+		// 失败通知不携带现有证书，避免邮件按成功模板渲染。
+		m.notifyTaskResult(task, pipeline, nil, "failed", message)
+	}
 	return nil
 }
 
