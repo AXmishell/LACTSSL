@@ -370,7 +370,6 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, CircleCheck, CircleClose, Close, CopyDocument, Delete, Document, Download, Plus, Refresh, Search, UploadFilled, Warning } from '@element-plus/icons-vue'
 import { api, copyText, downloadFile } from '../api'
-import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta, state } from '../store'
 import DeployConfigFields from '../components/DeployConfigFields.vue'
 import { certState, daysLeft, fieldVisible, formatDate, isExpired } from '../utils'
@@ -412,7 +411,7 @@ const deployAccounts = ref<DeployAccount[]>([])
 const tableRef = ref<{ clearSelection: () => void } | null>(null)
 const selectedCerts = ref<Certificate[]>([])
 const deployableSelected = computed(() => selectedCerts.value.filter((cert) => hasPrivateKey(cert)))
-const showBatchBar = useDelayedBatchBar(() => selectedCerts.value.length > 0)
+const showBatchBar = computed(() => selectedCerts.value.length > 0)
 const batchDownloading = ref(false)
 const batchDeleting = ref(false)
 

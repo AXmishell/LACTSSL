@@ -655,15 +655,15 @@ log:
 	}
 }
 
-func TestDeployPluginsDefaultDisabled(t *testing.T) {
+func TestDeployPluginsDefaultEnabled(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DeployPlugins.Enabled {
-		t.Fatal("deploy plugins should be disabled by default")
+	if !cfg.DeployPlugins.Enabled {
+		t.Fatal("deploy plugins should be enabled by default")
 	}
 	if cfg.Plugins.Dir != filepath.Join("data", "plugins", "dns") {
 		t.Fatalf("unexpected default DNS plugin dir: %s", cfg.Plugins.Dir)

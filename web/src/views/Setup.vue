@@ -275,7 +275,7 @@ function emptySetupConfig(): SetupConfig {
       timeout_seconds: 60,
       max_output_kb: 64
     },
-    deploy_plugins: { enabled: false, sandbox: 'strict', memory_limit_mb: 128, timeout_seconds: 300, max_output_kb: 64 },
+    deploy_plugins: { enabled: true, sandbox: 'strict', memory_limit_mb: 128, timeout_seconds: 300, max_output_kb: 64 },
     notify_plugins: { enabled: true, sandbox: 'strict', memory_limit_mb: 128, timeout_seconds: 30, max_output_kb: 64 }
   }
 }

@@ -308,9 +308,9 @@ func defaults() *fileConfig {
 	fc.Plugins.MemoryLimitMB = 128
 	fc.Plugins.TimeoutSeconds = 60
 	fc.Plugins.MaxOutputKB = 64
-	// 部署插件会接收证书私钥，默认关闭，由管理员显式启用；
+	// 部署插件会接收证书私钥，但默认开启；生产环境只应启用可信目标，
 	// 目录为空时使用 <data_dir>/plugins/deploy，与 DNS 插件目录分开。
-	fc.DeployPlugins.Enabled = false
+	fc.DeployPlugins.Enabled = true
 	fc.DeployPlugins.Sandbox = "strict"
 	fc.DeployPlugins.MemoryLimitMB = 128
 	fc.DeployPlugins.TimeoutSeconds = 300
@@ -1300,7 +1300,7 @@ plugins:
   max_output_kb: %d
 
 deploy_plugins:
-  # 是否加载外部证书部署插件；插件会接收证书私钥，默认关闭
+  # 是否启用内置部署目标与上传插件（默认开启）。部署插件会接触证书私钥。
   enabled: %t
   # 插件目录；留空表示 <data_dir>/plugins/deploy（与 DNS 插件目录分开）
   dir: %s

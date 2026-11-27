@@ -315,7 +315,6 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Close, Delete, Lock, Plus, Refresh, Upload } from '@element-plus/icons-vue'
 import { api, downloadFile } from '../api'
-import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta } from '../store'
 import { daysLeft, formatDate, splitLines } from '../utils'
 import type { MessageResult, PrivateCA } from '../types'
@@ -356,7 +355,7 @@ const loading = ref(false)
 const saving = ref(false)
 const tableRef = ref<{ clearSelection: () => void } | null>(null)
 const selectedCAs = ref<PrivateCA[]>([])
-const showBatchBar = useDelayedBatchBar(() => selectedCAs.value.length > 0)
+const showBatchBar = computed(() => selectedCAs.value.length > 0)
 const batchDeleting = ref(false)
 const generateVisible = ref(false)
 const importVisible = ref(false)

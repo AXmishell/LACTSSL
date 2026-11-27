@@ -540,7 +540,6 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Close, CopyDocument, Delete, InfoFilled, Plus, Refresh, Search, WarningFilled } from '@element-plus/icons-vue'
 import { api, copyText } from '../api'
-import { useDelayedBatchBar } from '../batchBar'
 import { SCOPE_ALL_GROUP, SCOPE_MODULES, moduleOfGroup } from '../scopeCatalog'
 import { formatDate, fromNow } from '../utils'
 import { detectWebRTCIPs, isWebRTCSupported, type WebRTCIPAddress } from '../webrtcIp'
@@ -577,7 +576,7 @@ const dnsAccounts = ref<DNSAccount[]>([])
 const tableRef = ref<{ clearSelection: () => void } | null>(null)
 const selectedIds = ref<number[]>([])
 const batchDeleting = ref(false)
-const showBatchBar = useDelayedBatchBar(() => selectedIds.value.length > 0)
+const showBatchBar = computed(() => selectedIds.value.length > 0)
 
 const formVisible = ref(false)
 const editing = ref<APIKey | null>(null)

@@ -318,7 +318,7 @@ func TestLoadSetupConfigUsesDefaultsAndDoesNotExposeSecrets(t *testing.T) {
 	if cfg.Server.ClientIPMode != "auto" || cfg.Server.ProxyProtocol {
 		t.Fatalf("默认客户端 IP 模式不正确: %+v", cfg.Server)
 	}
-	if !cfg.ACME.Enabled || !cfg.Plugins.Enabled || cfg.DeployPlugins.Enabled || !cfg.NotifyPlugins.Enabled {
+	if !cfg.ACME.Enabled || !cfg.Plugins.Enabled || !cfg.DeployPlugins.Enabled || !cfg.NotifyPlugins.Enabled {
 		t.Fatalf("默认开关不正确: %+v", cfg)
 	}
 	if cfg.Log.Level != "info" || cfg.Log.Format != "text" || cfg.Log.MaxSizeMB != 20 ||

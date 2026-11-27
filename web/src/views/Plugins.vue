@@ -136,12 +136,25 @@
     </div>
 
     <div class="k-card plugin-card" v-loading="loading">
-      <div class="plugin-tabs">
+      <div class="filter-row">
         <el-radio-group v-model="activeTab" size="default">
           <el-radio-button value="dns">{{ t('plugins.dnsTab', { count: providers.length }) }}</el-radio-button>
           <el-radio-button value="deploy">{{ t('plugins.deployTab', { count: deployers.length }) }}</el-radio-button>
           <el-radio-button value="notify">{{ t('plugins.notifyTab', { count: notifyChannels.length }) }}</el-radio-button>
         </el-radio-group>
+        <div v-if="activeHasItems" class="filter-actions">
+          <el-input
+            v-model="activeFilter"
+            :placeholder="activeFilterPlaceholder"
+            :prefix-icon="Search"
+            clearable
+            class="plugin-search"
+          />
+          <div class="plugin-bulk">
+            <el-button size="small" :loading="activeBulkLoading" :disabled="!activeBulkEnabled" @click="bulkActive(true)">{{ t('plugins.enableAll') }}</el-button>
+            <el-button size="small" :loading="activeBulkLoading" :disabled="!activeBulkEnabled" @click="bulkActive(false)">{{ t('plugins.disableAll') }}</el-button>
+          </div>
+        </div>
       </div>
 
       <div v-if="activeTab === 'dns'" class="plugin-pane">
@@ -152,19 +165,6 @@
             :closable="false"
             show-icon
           />
-        </div>
-        <div v-if="providers.length" class="plugin-toolbar">
-          <el-input
-            v-model="providerFilter"
-            :placeholder="t('plugins.searchProvider')"
-            :prefix-icon="Search"
-            clearable
-            class="plugin-search"
-          />
-          <div class="plugin-bulk">
-            <el-button size="small" :loading="bulkLoading" :disabled="!plugins?.enabled" @click="bulkProviders(true)">{{ t('plugins.enableAll') }}</el-button>
-            <el-button size="small" :loading="bulkLoading" :disabled="!plugins?.enabled" @click="bulkProviders(false)">{{ t('plugins.disableAll') }}</el-button>
-          </div>
         </div>
         <div class="plugin-scroll">
           <PluginGroupTable
@@ -201,19 +201,6 @@
             show-icon
           />
         </div>
-        <div v-if="deployers.length" class="plugin-toolbar">
-          <el-input
-            v-model="deployerFilter"
-            :placeholder="t('plugins.searchDeployer')"
-            :prefix-icon="Search"
-            clearable
-            class="plugin-search"
-          />
-          <div class="plugin-bulk">
-            <el-button size="small" :loading="bulkDeployLoading" :disabled="!plugins?.deploy?.enabled" @click="bulkDeployers(true)">{{ t('plugins.enableAll') }}</el-button>
-            <el-button size="small" :loading="bulkDeployLoading" :disabled="!plugins?.deploy?.enabled" @click="bulkDeployers(false)">{{ t('plugins.disableAll') }}</el-button>
-          </div>
-        </div>
         <div class="plugin-scroll">
           <PluginGroupTable
             v-if="deployers.length || deployFiles.length"
@@ -248,19 +235,6 @@
             :closable="false"
             show-icon
           />
-        </div>
-        <div v-if="notifyChannels.length" class="plugin-toolbar">
-          <el-input
-            v-model="notifyFilter"
-            :placeholder="t('plugins.searchNotifyChannel')"
-            :prefix-icon="Search"
-            clearable
-            class="plugin-search"
-          />
-          <div class="plugin-bulk">
-            <el-button size="small" :loading="bulkNotifyLoading" :disabled="!plugins?.notify?.enabled" @click="bulkNotifyChannels(true)">{{ t('plugins.enableAll') }}</el-button>
-            <el-button size="small" :loading="bulkNotifyLoading" :disabled="!plugins?.notify?.enabled" @click="bulkNotifyChannels(false)">{{ t('plugins.disableAll') }}</el-button>
-          </div>
         </div>
         <div class="plugin-scroll">
           <PluginGroupTable
@@ -568,6 +542,50 @@ const deployFiles = computed(() => plugins.value?.deploy?.files || [])
 
 const notifyChannels = computed(() => plugins.value?.notify?.channels || [])
 const notifyFiles = computed(() => plugins.value?.notify?.files || [])
+
+// 顶部分类标签与搜索、批量操作共用一行，按当前分类读写各自的状态。
+const activeHasItems = computed(() => {
+  if (activeTab.value === 'dns') return providers.value.length > 0
+  if (activeTab.value === 'deploy') return deployers.value.length > 0
+  return notifyChannels.value.length > 0
+})
+
+const activeFilter = computed({
+  get: () => activeTab.value === 'dns'
+    ? providerFilter.value
+    : activeTab.value === 'deploy'
+      ? deployerFilter.value
+      : notifyFilter.value,
+  set: (value: string) => {
+    if (activeTab.value === 'dns') providerFilter.value = value
+    else if (activeTab.value === 'deploy') deployerFilter.value = value
+    else notifyFilter.value = value
+  }
+})
+
+const activeFilterPlaceholder = computed(() => activeTab.value === 'dns'
+  ? t('plugins.searchProvider')
+  : activeTab.value === 'deploy'
+    ? t('plugins.searchDeployer')
+    : t('plugins.searchNotifyChannel'))
+
+const activeBulkLoading = computed(() => activeTab.value === 'dns'
+  ? bulkLoading.value
+  : activeTab.value === 'deploy'
+    ? bulkDeployLoading.value
+    : bulkNotifyLoading.value)
+
+const activeBulkEnabled = computed(() => activeTab.value === 'dns'
+  ? !!plugins.value?.enabled
+  : activeTab.value === 'deploy'
+    ? !!plugins.value?.deploy?.enabled
+    : !!plugins.value?.notify?.enabled)
+
+async function bulkActive(enabled: boolean): Promise<void> {
+  if (activeTab.value === 'dns') await bulkProviders(enabled)
+  else if (activeTab.value === 'deploy') await bulkDeployers(enabled)
+  else await bulkNotifyChannels(enabled)
+}
 
 interface PluginTabStatus {
   type: 'info' | 'warning' | 'error'
@@ -1422,20 +1440,27 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.plugin-tabs {
+/* 分类标签、搜索与批量操作合成卡片顶部的一行，下方表格占满剩余高度。 */
+.filter-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   flex: none;
-  min-height: 46px;
-  padding: 8px 16px;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--kp-border);
-  background: #fbfcfe;
 }
-.plugin-tabs :deep(.el-radio-group) {
+.filter-row :deep(.el-radio-group) {
   display: flex;
   flex-wrap: wrap;
   min-width: 0;
+}
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
 }
 .plugin-tags {
   display: flex;

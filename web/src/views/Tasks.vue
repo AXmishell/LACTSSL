@@ -708,7 +708,6 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Bell, Close, Delete, DocumentAdd, Plus, Promotion, Rank, Refresh, UploadFilled, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { api, copyText } from '../api'
-import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta, loadSettings } from '../store'
 import { enabledNotifyChannels } from '../notifyChannels'
 import DeployConfigFields from '../components/DeployConfigFields.vue'
@@ -773,7 +772,7 @@ const saving = ref(false)
 const tasks = ref<Task[]>([])
 const tableRef = ref<{ clearSelection: () => void } | null>(null)
 const selectedTasks = ref<Task[]>([])
-const showBatchBar = useDelayedBatchBar(() => selectedTasks.value.length > 0)
+const showBatchBar = computed(() => selectedTasks.value.length > 0)
 const batchRunning = ref(false)
 const batchToggling = ref(false)
 const dnsAccounts = ref<DNSAccount[]>([])

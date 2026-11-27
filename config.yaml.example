@@ -221,8 +221,8 @@ plugins:
   max_output_kb: 64
 
 deploy_plugins:
-  # 是否启用内置部署目标与上传插件（默认关闭）。部署插件会接触证书私钥。
-  enabled: false
+  # 是否启用内置部署目标与上传插件（默认开启）。部署插件会接触证书私钥。
+  enabled: true
   # 上传插件目录；留空表示 <data_dir>/plugins/deploy（与 DNS 插件目录分开）
   dir: ""
   # 仅上传/外部 helper 的沙箱：strict（Linux Landlock）/basic/off；内置插件不走沙箱

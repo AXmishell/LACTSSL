@@ -124,43 +124,45 @@
         </el-table-column>
       </el-table>
     </div>
-    <div v-if="showBatchBar && selectedGroups.length" class="plugin-batch-bar">
-      <div class="plugin-batch-actions">
-        <el-button
-          size="small"
-          type="primary"
-          plain
-          :loading="batchAction === 'enable'"
-          @click="emit('batch-toggle', selectedGroups, true)"
-        >{{ t('plugins.batchEnable') }}</el-button>
-        <el-button
-          size="small"
-          :loading="batchAction === 'disable'"
-          @click="emit('batch-toggle', selectedGroups, false)"
-        >{{ t('plugins.batchDisable') }}</el-button>
-        <el-button
-          size="small"
-          type="danger"
-          plain
-          :disabled="!selectedFiles.length"
-          :loading="batchAction === 'delete'"
-          @click="emit('batch-delete', selectedFiles)"
-        >{{ t('plugins.batchDelete') }}</el-button>
-        <el-button size="small" text @click="clearSelection">{{ t('plugins.clearSelection') }}</el-button>
+    <div v-if="files.length" class="sub plugin-file-hint">{{ t('plugins.fileHint') }}</div>
+    <div class="plugin-table-foot flex-between" :class="{ 'is-selecting': showBatchBar && selectedGroups.length }">
+      <div v-if="showBatchBar && selectedGroups.length" class="plugin-batch-bar">
+        <div class="plugin-batch-actions">
+          <el-button
+            size="small"
+            type="primary"
+            plain
+            :loading="batchAction === 'enable'"
+            @click="emit('batch-toggle', selectedGroups, true)"
+          >{{ t('plugins.batchEnable') }}</el-button>
+          <el-button
+            size="small"
+            :loading="batchAction === 'disable'"
+            @click="emit('batch-toggle', selectedGroups, false)"
+          >{{ t('plugins.batchDisable') }}</el-button>
+          <el-button
+            size="small"
+            type="danger"
+            plain
+            :disabled="!selectedFiles.length"
+            :loading="batchAction === 'delete'"
+            @click="emit('batch-delete', selectedFiles)"
+          >{{ t('plugins.batchDelete') }}</el-button>
+          <el-button size="small" text @click="clearSelection">{{ t('plugins.clearSelection') }}</el-button>
+        </div>
+        <span class="plugin-batch-count">{{ t('plugins.selectedCount', { count: selectedGroups.length }) }}</span>
       </div>
-      <span class="plugin-batch-count">{{ t('plugins.selectedCount', { count: selectedGroups.length }) }}</span>
-    </div>
-    <div v-if="files.length && !(showBatchBar && selectedGroups.length)" class="sub plugin-file-hint">{{ t('plugins.fileHint') }}</div>
-    <div class="plugin-table-foot flex-between">
-      <span class="muted">{{ t('plugins.totalRecords', { count: visibleGroups.length }) }}</span>
-      <el-pagination
-        v-if="visibleGroups.length > pageSize"
-        v-model:current-page="page"
-        :page-size="pageSize"
-        :total="visibleGroups.length"
-        layout="prev, pager, next"
-        background
-      />
+      <template v-else>
+        <span class="muted">{{ t('plugins.totalRecords', { count: visibleGroups.length }) }}</span>
+        <el-pagination
+          v-if="visibleGroups.length > pageSize"
+          v-model:current-page="page"
+          :page-size="pageSize"
+          :total="visibleGroups.length"
+          layout="prev, pager, next"
+          background
+        />
+      </template>
     </div>
 
     <el-drawer
@@ -305,7 +307,6 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { useDelayedBatchBar } from '../batchBar'
 import { notifyChannelLabelKey } from '../notifyChannels'
 import { formatSize, formatVersion } from '../utils'
 import type { PluginFile, PluginGroup, PluginItem } from '../types'
@@ -430,7 +431,8 @@ function clearSelection(): void {
   selectedKeys.value = []
 }
 
-const showBatchBar = useDelayedBatchBar(() => selectedKeys.value.length > 0)
+// 底部为固定高度行，勾选后无需防抖延迟，立即切换到批量操作。
+const showBatchBar = computed(() => selectedKeys.value.length > 0)
 
 // 二级条目管理：按分组 key 定位，父组件刷新数据后自动映射到最新对象。
 const manageKey = ref('')
@@ -592,7 +594,7 @@ function fileAuditText(file: PluginFile): string {
 </script>
 
 <style scoped>
-/* 一屏布局：表格填满卡片剩余高度，批量条固定在表格下方。 */
+/* 一屏布局：表格填满卡片剩余高度，底部统计/批量条共用固定行。 */
 .plugin-group-fill {
   display: flex;
   flex-direction: column;
@@ -603,7 +605,6 @@ function fileAuditText(file: PluginFile): string {
   flex: 1 1 auto;
   min-height: 0;
 }
-.plugin-group-fill > .plugin-batch-bar,
 .plugin-group-fill > .plugin-file-hint,
 .plugin-group-fill > .plugin-table-foot {
   flex: none;
@@ -651,13 +652,19 @@ function fileAuditText(file: PluginFile): string {
   font-size: 12px;
   line-height: 1.5;
 }
-/* 底部统计与分页：固定在表格下方，随卡片宽度自适应换行。 */
+/* 底部统计、分页与批量操作共用固定高度的一行：切换选中状态时不改变表格高度。 */
 .plugin-table-foot {
+  box-sizing: border-box;
   flex: none;
   flex-wrap: wrap;
   gap: 8px 12px;
-  padding: 8px 16px;
+  height: 46px;
+  padding: 0 16px;
   border-top: 1px solid var(--kp-border);
+}
+.plugin-table-foot.is-selecting {
+  background: #f5f9ff;
+  border-top-color: #dbe7fb;
 }
 .plugin-table-foot .muted {
   font-size: 12px;
@@ -686,26 +693,12 @@ function fileAuditText(file: PluginFile): string {
 }
 .plugin-batch-bar {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 0;
-  padding: 8px 16px;
-  border: 0;
-  border-top: 1px solid var(--el-color-primary-light-7);
-  background: var(--el-color-primary-light-9);
-  animation: plugin-batch-bar-in 0.18s ease-out;
-}
-@keyframes plugin-batch-bar-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+  min-width: 0;
 }
 .plugin-batch-actions {
   display: flex;
@@ -717,9 +710,18 @@ function fileAuditText(file: PluginFile): string {
   margin-left: 0;
 }
 .plugin-batch-count {
+  flex: none;
   font-size: 13px;
   font-weight: 600;
   color: var(--el-color-primary);
+  white-space: nowrap;
+}
+@media (max-width: 860px) {
+  .plugin-table-foot {
+    height: auto;
+    min-height: 46px;
+    padding: 8px 16px;
+  }
 }
 .plugin-manage-head {
   display: flex;

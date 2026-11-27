@@ -321,7 +321,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Close, Connection, CopyDocument, DataAnalysis, Delete, Key, Plus, Refresh } from '@element-plus/icons-vue'
 import { api, copyText } from '../api'
-import { useDelayedBatchBar } from '../batchBar'
 import { formatDate } from '../utils'
 import type { ACMEEABCreated, ACMEEABCredential, ACMEEndpoint, PrivateCA } from '../types'
 
@@ -354,7 +353,7 @@ const endpoints = ref<ACMEEndpoint[]>([])
 const privateCAs = ref<PrivateCA[]>([])
 const tableRef = ref<{ clearSelection: () => void } | null>(null)
 const selectedEndpoints = ref<ACMEEndpoint[]>([])
-const showBatchBar = useDelayedBatchBar(() => selectedEndpoints.value.length > 0)
+const showBatchBar = computed(() => selectedEndpoints.value.length > 0)
 const batchDeleting = ref(false)
 
 // 新端点固定使用 v2 路径；编辑时保留原端点路径，避免改变客户端已配置的地址。

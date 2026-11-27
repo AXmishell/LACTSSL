@@ -382,7 +382,6 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Delete, Document, InfoFilled, MoreFilled, Plus, Refresh, Search, UploadFilled } from '@element-plus/icons-vue'
 import { api } from '../api'
-import { useDelayedBatchBar } from '../batchBar'
 import { loadMeta } from '../store'
 import { fieldVisible, formatDate, fromNow } from '../utils'
 import { loadPluginIcons, pluginIcon } from '../pluginIcons'
@@ -429,7 +428,7 @@ const editingId = ref(0)
 const verifyVisible = ref(false)
 const verifyTarget = ref<CredentialItem | null>(null)
 const selectedIds = ref<number[]>([])
-const showBatchBar = useDelayedBatchBar(() => selectedIds.value.length > 0)
+const showBatchBar = computed(() => selectedIds.value.length > 0)
 const batchDeleting = ref(false)
 const verifying = ref(false)
 const verifyResult = ref<VerifyResult | null>(null)

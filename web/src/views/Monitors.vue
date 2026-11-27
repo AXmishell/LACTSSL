@@ -149,7 +149,6 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Delete, Plus, Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
-import { useDelayedBatchBar } from '../batchBar'
 import { daysLeft, formatDate, monitorState } from '../utils'
 import type { Monitor } from '../types'
 
@@ -168,7 +167,7 @@ const monitors = ref<Monitor[]>([])
 const dialogVisible = ref(false)
 const editingId = ref(0)
 const selectedIds = ref<number[]>([])
-const showBatchBar = useDelayedBatchBar(() => selectedIds.value.length > 0)
+const showBatchBar = computed(() => selectedIds.value.length > 0)
 const batchDeleting = ref(false)
 
 const form = ref<MonitorForm>({ name: '', target: '', interval_hours: 24, enabled: true })
