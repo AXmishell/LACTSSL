@@ -1,18 +1,16 @@
 # Monitoring and troubleshooting
 
-This page describes the most common failures, diagnostic paths, and emergency procedures during enterprise rollout and operation. When troubleshooting, preserve the current state first, then locate the issue in the order dependencies → authentication → business → data. Do not restart services or clear logs prematurely.
+This page covers common failures, diagnostic paths, and emergency procedures. Preserve the current state first, then locate the issue in the order dependencies → authentication → application → data. Do not restart services or clear logs prematurely.
 
-## 1. Initial triage
+## Initial triage
 
-### 1.1 Determine the scope of impact
+### Determine the scope of impact
 
-- Is a single certificate or task failing, or all tasks?
-- Is the admin entry unavailable, or only issuance/deployment failing?
-- Is a single deployment target affected, or all targets?
-- Did the issue appear after an upgrade or configuration change, or did it start suddenly during normal operation?
-- Are notifications, monitoring, or ACME clients affected at the same time?
+- Is one certificate/task/deployment target failing, or all of them?
+- Is the admin entry unavailable, or only issuance/deployment?
+- Did the issue follow an upgrade or configuration change, or start suddenly? Are notifications, monitoring, or ACME clients affected too?
 
-### 1.2 Collect baseline information
+### Collect baseline information
 
 ```bash
 # Version and process
@@ -29,14 +27,9 @@ sudo journalctl -u lactssl --since "30 min ago"
 ss -lntp | grep -E '8080|14000'
 ```
 
-Also record:
+Also record the time, time zone, and change-window status; the relevant task/certificate/deployment record ID; the `X-Request-ID`; and the original error with sensitive values masked.
 
-- When the issue occurred, the time zone, and whether it falls within a change window.
-- The relevant task / certificate / deployment record ID.
-- The `X-Request-ID` response header.
-- The original error message (after masking sensitive values).
-
-### 1.3 Check dependencies
+### Check dependencies
 
 | Dependency | How to check |
 | --- | --- |
@@ -47,50 +40,47 @@ Also record:
 | SMTP/IM | Connectivity, authentication, channel configuration |
 | Host | Disk, memory, file permissions, time synchronization |
 
-## 2. Access and sign-in
+## Access and sign-in
 
-### 2.1 Root path returns 404
+### Root path returns 404
 
 **Symptom**: `https://ssl.example.com/` returns 404.
 
-**Cause**: The request did not go through the secure entry. The entry is a random path, and the bare root path always returns 404.
+**Cause**: The request bypassed the random secure entry; the bare root always returns 404.
 
 **Resolution**:
 
 1. Check the startup log for the secure entry.
-2. Or query `security.entry` in the `settings` table of the database.
-3. Or set `security.entry` in `config.yaml` and restart to override it.
+2. Query `security.entry` in the database `settings` table.
+3. Set `security.entry` in `config.yaml` and restart to override it.
 
-### 2.2 Forgotten secure entry
+### Forgotten secure entry
 
-- The startup log (the full entry is printed during initialization).
-- The `security.entry` value in the database `settings` table.
-- Modify `security.entry` in `config.yaml` before startup; the value is overridden after restart.
+- The startup log prints the full entry during initialization.
+- Read `security.entry` from the database `settings` table.
+- Set `security.entry` in `config.yaml` before startup; it is overridden after restart.
 
-After changing the entry, previous links stop working immediately. Record the new entry and notify the relevant parties.
+After changing the entry, previous links stop working immediately; record and announce the new value.
 
-### 2.3 Signed out immediately after sign-in / session invalid
+### Signed out immediately after sign-in / session invalid
 
 **Possible causes**:
 
-- The service restarted and `security.session_persistence` was explicitly disabled.
-- The password was changed, which deletes all sessions.
-- The service was started with a different `jwt_secret`.
-- The reverse proxy does not pass `X-Forwarded-Proto`, causing incorrect `Secure` cookies.
-- The browser or proxy cached old cookies.
+- The service restarted with `security.session_persistence` disabled.
+- The password was changed (deletes all sessions) or the service started with a different `jwt_secret`.
+- The reverse proxy does not pass `X-Forwarded-Proto`, causing incorrect `Secure` cookies; old cookies may be cached.
 
 **Resolution**:
 
-1. Confirm whether the service was just restarted or the password was changed.
-2. Check the proxy headers and `trusted_proxies`.
-3. Clear browser cookies and enter again through the secure entry.
-4. Session persistence is enabled by default; if it was set to `security.session_persistence: false`, change it back to `true` to keep sessions across restarts.
+1. Confirm whether the service restarted or the password changed.
+2. Check proxy headers and `trusted_proxies`, then clear browser cookies and re-enter via the secure entry.
+3. Session persistence is on by default; set `security.session_persistence: true` to keep sessions across restarts.
 
-### 2.4 Cookie issues and inaccurate rate limiting
+### Cookie issues and inaccurate rate limiting
 
-**Symptom**: Sign-in loops, CSRF failures, or all requests sharing the same IP quota.
+**Symptom**: Sign-in loops, CSRF failures, or all requests sharing one IP quota.
 
-**Cause**: No trusted proxy is configured, the proxy does not pass forwarding headers, or a multi-hop chain trusts only the nearest hop.
+**Cause**: No trusted proxy, missing forwarding headers, or a multi-hop chain trusting only the nearest hop.
 
 **Resolution**:
 
@@ -110,147 +100,105 @@ proxy_set_header X-Forwarded-For $remote_addr;
 proxy_set_header X-Forwarded-Proto $scheme;
 ```
 
-If you use append mode (`$proxy_add_x_forwarded_for`), a multi-hop chain such as CDN → Nginx → LACTSSL must list every proxy that can appear in XFF under `trusted_proxies`; otherwise the client IP stops at the upstream proxy.
+In append mode (`$proxy_add_x_forwarded_for`), a chain such as CDN → Nginx → LACTSSL must list every proxy that can appear in XFF under `trusted_proxies`, or resolution stops at the upstream proxy.
 
-Check the following under **Settings → Configuration file → Auto detect**:
+Under **Settings → Configuration file → Auto detect** check `peer_ip`, `applied_trusted_proxies`, `effective_client_ip` / `client_ip_source`, `trusted_skipped`, and `header_warnings`. Access logs also include `ip_source`, `ip_skipped`, and `ip_warnings`; restart after saving.
 
-- `peer_ip`: the TCP peer;
-- `applied_trusted_proxies`: the currently applied trusted list;
-- `effective_client_ip` / `client_ip_source`: the final result and its source;
-- `trusted_skipped`: how many trusted entries were skipped from right to left;
-- `header_warnings`: invalid or oversized XFF and similar parsing issues.
+### 429 Too Many Requests
 
-Access logs also include `ip_source`, `ip_skipped`, and `ip_warnings`. Restart after saving; before restart, `configured_trusted_proxies` and `applied_trusted_proxies` may differ.
+- Back off according to `Retry-After`; check whether clients share a proxy IP, and configure trusted proxies so quotas use the real client IP.
+- Sign-in, TOTP, password reset, backup download, private key export, and ACME calls have separate limits. Do not raise limits to mask brute-force attacks or runaway scripts.
 
-### 2.5 429 Too Many Requests
+### Passkeys unavailable
 
-- Back off according to the `Retry-After` response header.
-- Check whether requests share a proxy IP; after configuring trusted proxies, quotas are counted by the real client IP.
-- Sign-in, TOTP, password reset, backup download, private key export, and ACME protocol calls each have independent rate limits.
-- Do not raise rate-limit thresholds to mask brute-force attacks or runaway scripts.
+- Access must use an HTTPS domain or localhost; IP addresses cannot be a WebAuthn origin. Check browser WebAuthn support and system biometrics/PIN.
+- A passkey cannot replace a password; with a lost device, use the password plus TOTP or another recovery path.
 
-### 2.6 Passkeys unavailable
+## Certificate issuance failures
 
-- Access must use an HTTPS domain or localhost; IP addresses cannot be used as a WebAuthn origin.
-- Check whether the browser supports WebAuthn and whether biometrics or a PIN are enabled on the system.
-- A passkey cannot replace a password; if the device is lost, use the password plus TOTP or another recovery path.
-
-## 3. Certificate issuance failures
-
-### 3.1 DNS-01 validation fails
+### DNS-01 validation fails
 
 | Possible cause | Check |
 | --- | --- |
-| Credential lacks permission | Does the API key have read/write access to the target zone? |
-| Domain/zone mismatch | Is the domain inside a zone visible to the current account? |
-| Slow TXT propagation | Wait for the TTL; check whether authoritative DNS returns the TXT record |
-| Multi-level domain/CNAME | Confirm the resolution path for `_acme-challenge` |
+| Credential or zone issue | Read/write access to the target zone; domain visible to the account |
+| Slow TXT propagation / CNAME | TTL, authoritative DNS, resolution path for `_acme-challenge` |
 | Wildcard | Wildcards must use DNS-01 |
-| Provider limits | Quotas, rate limits, API changes |
-| Proxy/gateway | Is the custom API address reachable, and is its certificate trusted? |
+| Provider or proxy limits | Quotas, rate limits, API changes, custom gateway reachability and TLS |
 
 Resolution:
 
-1. Check the task logs for the specific DNS provider error.
-2. Use `dig`/`nslookup` to inspect the TXT record for `_acme-challenge.<domain>`.
-3. Create and delete a TXT record manually in the provider console with the same credential to confirm permissions.
-4. Check whether the CA's CAA records permit that CA.
-5. Re-run the task after fixing the issue.
+1. Check the task log for the specific DNS provider error.
+2. Inspect the TXT record with `dig`/`nslookup` and confirm permissions by creating and deleting a record manually.
+3. Check the CA's CAA records, fix the issue, and rerun the task.
 
-### 3.2 CA rate limits / EAB errors
+### CA rate limits / EAB errors
 
-- Public CAs such as Let's Encrypt impose rate limits on accounts, domains, and failed validations; check the CA status page and error details.
-- ZeroSSL, Google Trust Services, LiteSSL, ZoTrus, Actalis, and SSL.com require EAB; confirm that the EAB KID/HMAC is correct and has not expired (for ZoTrus, the KID is the registered email).
-- ZoTrus derives the dns-01 record name from the server-provided `tokenPath` (usually `_<tokenPath>.<domain>`), not the standard `_acme-challenge`. A task using ZoTrus enters “Waiting for DNS validation” after it runs; add the records shown in the task logs or the “DNS validation” panel, then click “Continue validation”. ZoTrus does not support wildcards, CA pools, or Target Flow Beta yet.
-- Generic ACME upstream directories must use HTTPS; local loopback is exempt.
-- Prepare a backup CA for critical domains so that rate limits at a single CA do not cause total failure.
+- Public CAs impose limits on accounts, domains, and failed validations; check the CA status page and error details.
+- ZeroSSL, Google Trust Services, LiteSSL, ZoTrus, Actalis, and SSL.com require EAB; confirm the KID/HMAC is correct and unexpired (for ZoTrus, the KID is the registered email).
+- ZoTrus derives the record name from `tokenPath` (usually `_<tokenPath>.<domain>`, not `_acme-challenge`); add the records shown in the task log, then click "Continue validation". ZoTrus does not yet support wildcards, CA pools, or Target Flow Beta. Generic ACME upstreams must use HTTPS (loopback exempt), and critical domains need a backup CA.
 
-### 3.3 Certificate issued but not trusted by browsers
+### Certificate issued but not trusted by browsers
 
-- Certificates from public CAs should be trusted; check whether the full chain is deployed (fullchain).
-- Certificates from a private CA require the root CA to be installed in the client trust stores.
-- Check whether the wrong certificate/private key pair was deployed.
-- Check whether SNI, the domain, and the certificate SANs match.
-- Check whether the system time is accurate.
+- Check that the full chain (fullchain) is deployed and that the certificate/private key pair and SNI/SANs match.
+- Private CA certificates require the root CA in client trust stores; check system time as well.
 
-### 3.4 Private CA issuance fails
+### Private CA issuance fails
 
-- Confirm that the CA has not expired, has the certificate signing usage, and has a path length that permits subordinate CAs.
-- Confirm that the certificate validity period does not exceed the CA expiration.
-- An imported CA must have a matching certificate and private key and include the CA basic constraints.
-- Delete subordinate CAs before deleting a CA.
+- Confirm the CA is unexpired, has certificate-signing usage, and its path length permits subordinate CAs; validity must not exceed the CA expiration.
+- An imported CA needs a matching certificate and key with basic constraints. Delete subordinate CAs before deleting a CA.
 
-## 4. Deployment failures
+## Deployment failures
 
-### 4.1 SSH/SFTP
+### SSH/SFTP
 
 | Symptom | Cause | Resolution |
 | --- | --- | --- |
-| Host fingerprint mismatch | Server key changed or misconfiguration | Verify the fingerprint; clear the old fingerprint and record it again |
-| First connection rejected | No fingerprint provided and TOFU not enabled | Provide `SHA256:...` or explicitly enable first-use trust |
-| Authentication failure | Wrong username/password/private key | Check the credentials and the target SSH configuration |
-| Path not writable | The deployment user lacks write permission | Adjust directory permissions or use an account with permission |
-| Reload command fails | Command not found, insufficient permission, or wrong service name | Run the command manually on the target host to verify |
+| Host fingerprint mismatch | Server key changed or misconfiguration | Verify the fingerprint, clear the old one, and record it again |
+| First connection rejected | No fingerprint and TOFU not enabled | Provide `SHA256:...` or explicitly enable first-use trust |
+| Authentication or path failure | Wrong credentials or missing write permission | Check credentials, target SSH configuration, and directory permissions |
+| Reload command fails | Command missing, insufficient permission, or wrong service | Run it manually on the target to verify |
 
-### 4.2 Local directory
+### Local directory
 
-- The service user lacks write permission on the target directory.
-- The path does not exist; the directory must be created in advance.
-- SELinux/AppArmor restrictions.
-- The reload command failed, but the certificate files were already updated; check whether the service actually loaded the new files.
+- The service user lacks write permission, the path does not exist, or SELinux/AppArmor blocks access.
+- The reload command failed but files were updated; confirm the service actually loaded them.
 
-### 4.3 Panels/CDNs/Webhooks
+### Panels/CDNs/Webhooks
 
-- Credentials expired, insufficient permissions, or API version mismatch.
-- Deployment parameters (site, domain, certificate name) do not match the target system.
-- The target system has an IP allowlist that does not include LACTSSL egress.
-- Public webhook targets must use HTTPS; loopback and private networks may use HTTP.
-- The deployment plugin is not installed, not enabled, or failed file verification.
+- Credentials expired, permissions insufficient, or API version mismatch; deployment parameters do not match the target.
+- The target IP allowlist excludes LACTSSL egress, public webhooks use HTTP, or the deployment plugin is disabled or failed verification.
 
-### 4.4 Certificate renewed but the service still serves the old certificate
+### Certificate renewed but the service still serves the old certificate
 
-- No reload command is configured on the deployment node, or the command did not take effect.
-- The target system has caching (CDN, WAF, load balancer).
-- The certificate was deployed to the wrong path or site.
-- In a multi-instance deployment, only one instance was updated.
-- Check whether the certificate serial number/fingerprint matches the target system.
+- No reload command is configured, or it did not take effect; the target caches certificates (CDN, WAF, load balancer).
+- The certificate went to the wrong path/site, only one instance was updated, or the serial/fingerprint does not match.
 
-## 5. Notifications and monitoring
+## Notifications and monitoring
 
-### 5.1 Notifications not delivered
+### Notifications not delivered
 
-- Is the channel enabled on the Plugins page, and are notifications enabled on the notifications page?
-- Has the token/webhook expired, and is the target reachable?
-- Does SMTP use implicit TLS? Sending is rejected when the server does not support STARTTLS.
-- Is the task notification node enabled, and does the trigger condition match?
-- Check operation logs and system logs for send errors; sensitive values are masked.
-- Security alerts not delivered: check the master switch, sign-in mode, failed sign-in aggregation, event toggles, and channels under "Settings → Security alerts". Review the per-target status and errors in the "Recent security events" dialog. Beyond the hourly limit only a digest is sent; when SMTP or channels change, previous recipients receive the alert through the old SMTP configuration snapshot. Security alerts are independent of certificate notifications.
+- Is the channel enabled on the Plugins page and notifications enabled on the notifications page? Is the task notification node enabled with a matching trigger?
+- Has the token/webhook expired? For SMTP, implicit TLS is used and sending is rejected without STARTTLS support. Check operation and system logs for send errors; sensitive values are masked.
+- Security alerts: check the master switch, sign-in mode, failed sign-in aggregation, event toggles, and channels under "Settings → Security alerts". Beyond the hourly limit only a digest is sent, and recipient changes use the old SMTP snapshot. Security alerts are independent of certificate notifications.
 
-### 5.2 False positives in site monitoring
+### False positives in site monitoring
 
-- Monitoring validates the hostname and the system trust chain; self-signed certificates, incomplete chains, and hostname mismatches are flagged as abnormal.
-- Check the target port, SNI, system CA trust store, and time.
-- Different nodes behind a load balancer may return different certificates; make sure the monitoring target is stable.
-- Check whether the monitoring frequency and timeout are reasonable; avoid frequent alerts for unstable targets.
+- Monitoring validates the hostname and system trust chain; self-signed or incomplete chains and hostname mismatches are abnormal.
+- Check the port, SNI, CA store, time, load-balancer node stability, frequency, and timeout.
 
-### 5.3 No expiry reminders received
+### No expiry reminders received
 
-- Is automatic renewal enabled for the task, and is `RenewDays` reasonable?
-- Is the scheduler running (check scheduling records in the logs)?
-- Is the notification channel available?
-- Has the certificate been cleaned up, or have the task references been cleared?
+- Confirm automatic renewal and a reasonable `RenewDays`, and that the scheduler is running.
+- Check channel availability, and whether the certificate was cleaned up or task references cleared.
 
-## 6. Plugin issues
+## Plugin issues
 
 | Symptom | Cause | Resolution |
 | --- | --- | --- |
-| Plugin market list is empty | Index not refreshed / repository unreachable | Check the repository URL, network, and TLS |
-| Installation fails | Signature, SHA-256, platform, or `min_host` mismatch | Review the error details; verify the public key and version |
-| Provider does not appear after installation | File/item not enabled | Enable the helper file and the specific item |
-| Plugin rejected at load time | Group/other writable, symbolic link, or digest changed | Fix permissions or reinstall |
-| Legacy plugin migration fails | Legacy helper in use / file conflict | Follow the migration prompts; failures roll back |
-| Deployment plugin unavailable | `deploy_plugins.enabled: false` | Enable it explicitly and restart |
-| Notification channel missing | Helper not installed/enabled | Install and enable the notification plugin |
+| Provider not listed | DNS category or entry disabled | Enable it on the **Plugins** page |
+| Helper rejected at load time | Group/other writable, symbolic link, or digest changed | Fix permissions or re-upload |
+| Deployment target unavailable | `deploy_plugins.enabled: false` (explicitly disabled) | Set it to true and restart |
+| Notification channel missing | Channel not enabled | Enable it on the **Plugins** page |
 
 Plugin directories:
 
@@ -260,104 +208,79 @@ data/plugins/deploy
 data/plugins/notify
 ```
 
-Permission requirements: directories `0700`, helpers `0755`, owned by the service runtime user.
+Permissions: directories `0700`, helpers `0755`, owned by the service runtime user.
 
-### 6.1 Plugins still report TLS verification failure after importing a trust chain
+### Plugins still report TLS verification failure after importing a trust chain
 
-Use the specific message to identify the cause:
+- **Certificate expired / not yet valid**: renew or update the target certificate; importing a CA does not extend validity.
+- **Certificate does not match the target address**: use a domain in the SAN; for IP access the certificate needs that IP SAN.
+- **Certificate is not trusted**: import the issuing CA (root or intermediate), not the leaf. One PEM file may contain multiple CAs; no restart is needed.
+- Otherwise inspect the chain with `openssl s_client -connect host:port -servername host -showcerts`.
 
-- **Certificate expired or not yet valid**: renew or update the target certificate; importing a CA does not extend its validity.
-- **Certificate does not match the target address**: use a domain listed in the certificate SAN. If you access the target by IP, the certificate must contain that IP SAN.
-- **Certificate is not trusted**: make sure you imported the CA that issued the certificate (root or intermediate), not the site leaf certificate. One PEM file may contain multiple CA certificates. No restart is required after import.
-- Otherwise, inspect the actual chain returned by the target with `openssl s_client -connect host:port -servername host -showcerts`.
+Plugin subprocesses read `<data_dir>/trusted-ca-bundle.pem` via `SSL_CERT_FILE`; the bundle merges system roots, imported CAs, and private CAs. Import only internal CAs you control.
 
-Plugin subprocesses read `<data_dir>/trusted-ca-bundle.pem` through `SSL_CERT_FILE`. The bundle merges system roots, imported CAs, and private CAs; import only internal CAs that you actually control.
+## Backup and restore
 
-## 7. Backup and restore
+### Backup download fails
 
-### 7.1 Backup download fails
+- Re-enter the current password and, with TOTP enabled, a one-time code; the backup password must be at least 12 characters.
+- Check reverse proxy body limits, disk space, and the operation/system logs.
 
-- The current password must be entered again; when TOTP is enabled, a one-time code is also required.
-- The backup password must be at least 12 characters.
-- Reverse proxy request/response body limits.
-- Insufficient disk space.
-- Check operation logs and system logs.
+### Credentials cannot be decrypted after restore
 
-### 7.2 Credentials cannot be decrypted after restore
+- The backup `config.yaml` does not match the database (`salt` differs), or only the database was restored.
+- Restore from the complete ZIP backup; do not replace the database alone.
 
-- The `config.yaml` in the backup does not match the database; the `salt` differs.
-- Only the database was restored, and the configuration was lost.
-- Resolution: restore from the complete ZIP backup; do not replace the database on its own.
+### Cannot sign in after restore
 
-### 7.3 Cannot sign in after restore
+- Use the administrator account from the backup. Session persistence is on by default; with `security.session_persistence: false`, a restart clears sessions.
+- The secure entry may have changed (check the startup log), a different `jwt_secret` invalidates old tokens, or `data/restore-pending/` has not been applied.
 
-- Use the administrator account from the backup.
-- Session persistence is enabled by default, so a restart does not require signing in again. With `security.session_persistence: false`, a restart clears sessions.
-- The secure entry may have changed; check the startup log.
-- A different `jwt_secret` invalidates old tokens.
-- The restore package is in `data/restore-pending/`; check whether it has been applied.
+### Service not started automatically after restore
 
-### 7.4 Service not started automatically after restore
-
-- Docker: confirm `restart: unless-stopped`.
-- systemd: confirm that the service is started.
-- Running the binary directly: restart it manually.
+- Docker: confirm `restart: unless-stopped`. systemd: confirm the service is started. Direct binary: restart it manually.
 - Check the startup log for configuration validation errors.
 
-## 8. Database, disk, and memory
+## Database, disk, and memory
 
-### 8.1 Database growth
+### Database growth
 
-- Certificates, task logs, operation logs, system logs, and ACME orders all grow over time.
-- Use one-click certificate cleanup, ACME diagnostic cleanup, and system log clearing.
-- During off-peak hours, run "Optimize database and configuration only" under `/upgrade`, and enable VACUUM if necessary.
-- Check the WAL size; the optimization tool runs `wal_checkpoint(TRUNCATE)`.
+- Certificates, task/operation/system logs, and ACME orders grow over time; use certificate cleanup, ACME diagnostic cleanup, and log clearing.
+- Off-peak, run "Optimize database and configuration only" under `/upgrade` with VACUUM as needed, and check the WAL size (`wal_checkpoint(TRUNCATE)`).
 
-### 8.2 Insufficient disk space
+### Insufficient disk space
 
-- Check `data/`, logs, `upgrade-backups/`, and backup files.
-- Remove old upgrade snapshots and old binary backups according to the retention policy.
-- Confirm that backups are not written back to the same data directory.
-- VACUUM requires temporary space and fails when disk space is insufficient.
+- Check `data/`, logs, `upgrade-backups/`, and backup files; remove old snapshots and binaries per retention policy.
+- Keep backups off the data directory. VACUUM needs temporary space and fails when disk is full.
 
-### 8.3 High memory / OOM killed
+### High memory / OOM killed
 
-- The main process has an idle baseline of a few tens of MB; plugins are one-shot subprocesses limited by `memory_limit_mb`.
-- Plugin installation and update extraction cause transient peaks, which are more noticeable with large DNS packages.
-- Multiple concurrent tasks start multiple helpers at the same time.
-- Check whether the container memory limit is too low; leave headroom for peaks.
-- Reduce concurrency or lower the helper memory limit, but make sure plugins still work correctly.
+- The main process idles at a few tens of MB; plugins are one-shot subprocesses limited by `memory_limit_mb`.
+- Extraction peaks and concurrent tasks start multiple helpers; check the container limit and leave headroom. Reduce concurrency or the helper limit, but keep plugins working.
 
-### 8.4 Database lock / write failure
+### Database lock / write failure
 
-- Confirm that only one instance mounts the data directory.
-- Do not place SQLite on shared storage with multiple writers.
-- Check for a full disk, permissions, or a read-only filesystem.
-- Avoid large numbers of concurrent tasks during backup/restore.
+- Confirm only one instance mounts the data directory; do not put SQLite on multi-writer shared storage.
+- Check for a full disk, permissions, or a read-only filesystem, and avoid many concurrent tasks during backup/restore.
 
-## 9. Upgrade and migration
+## Upgrade and migration
 
-### 9.1 Migration fails at startup
+### Migration fails at startup
 
-- Check the logs for the failing step.
-- Check disk, permissions, and database integrity.
-- After fixing the issue, restart directly to retry; migration steps are idempotent and do not advance the failed version number.
-- Do not manually delete `upgrade.schema_version`.
+- Check the failing step in the logs, then disk, permissions, and database integrity.
+- Restart directly to retry; steps are idempotent and do not advance the failed version. Do not delete `upgrade.schema_version`.
 
-### 9.2 Pages unavailable after upgrade
+### Pages unavailable after upgrade
 
-- Check reverse proxy and static asset caching.
-- Force a refresh or purge the CDN cache.
-- Check whether the binary/image version matches.
-- Review the startup log and the browser console.
+- Check the reverse proxy and static asset caching; force a refresh or purge the CDN cache.
+- Confirm the binary/image version matches, and review the startup log and browser console.
 
-### 9.3 Self-upgrade rejected
+### Self-upgrade rejected
 
-- A read-only filesystem, a `dev` build, a platform without a release package, or a missing checksum/signature causes rejection.
-- Upgrading inside a container does not change the image; upgrade by using image tags.
-- Check GitHub API rate limits and the outbound proxy.
+- Read-only filesystems, `dev` builds, platforms without a release package, and missing checksums/signatures are rejected.
+- Upgrading in a container does not change the image; use image tags. Check GitHub API rate limits and the outbound proxy.
 
-## 10. ACME server troubleshooting
+## ACME server troubleshooting
 
 | Client error | Possible cause | Resolution |
 | --- | --- | --- |
@@ -373,68 +296,46 @@ Plugin subprocesses read `<data_dir>/trusted-ca-bundle.pem` through `SSL_CERT_FI
 
 Diagnostics:
 
-- "ACME Diagnostics" shows accounts, orders, authorizations, challenges, and certificates.
-- Check `acme.base_url`, the endpoint allowlist, EAB, and challenge types.
-- Public deployments must not derive URLs from the request Host.
-- CRL/OCSP endpoints are organized by CA; confirm that clients can reach them.
+- "ACME Diagnostics" shows accounts, orders, authorizations, challenges, and certificates; check `acme.base_url`, the endpoint allowlist, EAB, and challenge types.
+- Public deployments must not derive URLs from the request Host; CRL/OCSP endpoints are organized by CA, so confirm clients can reach them.
 
-## 11. Incident response
+## Incident response
 
-### 11.1 Suspected API key leak
+### Suspected API key leak
 
-1. Disable or delete the key on the "API Keys" page.
-2. Create a new key and update the calling systems.
-3. Check operation logs for abnormal calls, deployments, and private key downloads.
-4. If deployment targets are involved, rotate the corresponding credentials.
-5. Record the incident and conduct a postmortem.
+1. Disable or delete the key on the "API Keys" page, create a new key, and update calling systems.
+2. Check operation logs for abnormal calls, deployments, and private key downloads; rotate target credentials if involved.
+3. Record the incident and conduct a postmortem.
 
-### 11.2 Suspected administrator account compromise
+### Suspected administrator account compromise
 
 1. Change the password immediately; this deletes all sessions, API keys, and passkeys.
-2. Check whether the recovery email has been changed.
-3. Check operation logs, system logs, and reverse proxy logs.
-4. Rotate DNS/deployment/notification credentials.
-5. If `salt` exposure is suspected, follow the key leak process; rebuild the instance and re-enter credentials if necessary.
-6. Assess whether affected certificates need to be reissued.
+2. Check whether the recovery email changed, review operation, system, and reverse proxy logs, and rotate DNS/deployment/notification credentials.
+3. Assess certificate reissuance; if `salt` exposure is suspected, follow the key leak process and rebuild/re-enter credentials if necessary.
 
-### 11.3 Certificate deployed or overwritten incorrectly
+### Certificate deployed or overwritten incorrectly
 
-1. Pause the relevant tasks to prevent further overwrites.
-2. Restore the previous version from the target system backup or certificate history.
-3. Check the task deployment node parameters and the reload command.
-4. Redeploy the correct certificate and verify the serial number/fingerprint.
-5. Record the root cause and add pre-deployment validation.
+1. Pause the relevant tasks, then restore the previous version from the target backup or certificate history.
+2. Check deployment node parameters and the reload command, redeploy, and verify the serial/fingerprint.
+3. Record the root cause and add pre-deployment validation.
 
-### 11.4 ACME endpoint abuse
+### ACME endpoint abuse
 
-1. Disable the endpoint or turn off `acme.enabled`.
-2. Review accounts, orders, and source IPs.
-3. Enable EAB, mTLS, or network ACLs.
-4. Clean up unexpected accounts and orders.
-5. Assess whether unintended certificates were issued.
+1. Disable the endpoint or turn off `acme.enabled`, and review accounts, orders, and source IPs.
+2. Enable EAB, mTLS, or network ACLs, and clean up unexpected accounts and orders.
+3. Assess whether unintended certificates were issued.
 
-## 12. Escalation information
+## Escalation information
 
-When asking the vendor or community for help, provide:
+When asking the upstream service or community for help, provide:
 
 - LACTSSL version, build time, architecture, and deployment method.
-- Operating system, container/orchestration version, and reverse proxy type.
-- Reproduction steps, expected result, and actual result.
-- Relevant log excerpts (masked): time, `X-Request-ID`, and error codes.
-- Task / certificate / deployment record IDs.
-- Whether an upgrade, configuration change, plugin change, or credential rotation occurred recently.
-- Steps already attempted and their results.
+- OS, container/orchestration version, and reverse proxy type.
+- Reproduction steps, expected and actual results.
+- Relevant masked log excerpts with time, `X-Request-ID`, and error codes; task/certificate/deployment IDs, recent changes, and steps already tried.
 
 Do not provide:
 
 - Administrator passwords, TOTP seeds, or API keys in plaintext.
 - Certificate private keys, CA private keys, or backup passwords.
 - Unmasked DNS/deployment/notification credentials.
-
-## Related documentation
-
-- [Operations](operations.md)
-- [Security baseline](security.md)
-- [Upgrade and change management](upgrade.md)
-- [Plugin governance](plugins.md)
-- [API integration](api.md)

@@ -4,7 +4,7 @@
 # Внимание: Zensical считает каталог этого файла (docsite/) корнем проекта, поэтому docs_dir/site_dir не могут быть вне его.
 site_name: LACTSSL
 site_url: https://lactssl.gpcn.cc/ru/
-site_description: "Самостоятельно размещаемая платформа управления SSL-сертификатами для команд и частных пользователей: выпуск и автопродление ACME, развёртывание сертификатов, мониторинг, частный CA и внутренний ACME-сервис."
+site_description: "Self-hosted управление SSL-сертификатами: ACME, автопродление, развёртывание, мониторинг, частный CA и внутренний ACME."
 repo_url: https://github.com/AXmishell/LACTSSL
 repo_name: AXmishell/LACTSSL
 edit_uri: edit/main/docsite/docs/ru/
@@ -37,6 +37,7 @@ theme:
         icon: material/brightness-4
         name: Переключить на светлую тему
   features:
+    - navigation.tabs
     - navigation.sections
     - navigation.top
     - navigation.footer
@@ -47,16 +48,15 @@ theme:
 
 nav:
   - Главная: index.md
-  - Начало работы и развёртывание:
-      - Начало работы и внедрение: getting-started.md
-      - Установка и запуск: install.md
+  - Начало работы:
+      - Быстрый старт: getting-started.md
+      - Установка: install.md
       - Архитектура: architecture.md
-  - Администрирование:
-      - Рабочее пространство: administration.md
+  - Руководства:
       - Возможности: features.md
+      - Рабочая консоль: administration.md
       - Управление плагинами: plugins.md
-  - Интеграция и безопасность:
-      - Интеграция по API: api.md
+      - API: api.md
       - Базовая безопасность: security.md
   - Эксплуатация:
       - Руководство по эксплуатации: operations.md
@@ -64,10 +64,10 @@ nav:
       - Мониторинг и устранение неполадок: troubleshooting.md
   - Справочник:
       - Конфигурация: configuration.md
-      - Плагины DNS: dns-plugins.md
+      - DNS-плагины: dns-plugins.md
       - Плагины развёртывания: deploy-plugins.md
       - Плагины уведомлений: notify-plugins.md
-  - Разработка расширений:
+  - Разработка:
       - Исходный код и сборка: development.md
       - Разработка плагинов: plugin-development.md
 

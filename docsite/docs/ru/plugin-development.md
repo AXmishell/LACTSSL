@@ -1,12 +1,8 @@
 # Разработка расширений: протокол плагинов и руководство по участию
 
-Эта статья предназначена для разработчиков плагинов, интеграторов и команд корпоративных платформ и описывает протокол плагинов LACTSSL, структуру репозитория, процесс разработки, сборку, упаковку, индексацию, подпись и публикацию. **Специалистам по эксплуатации обычно достаточно прочитать [Управление плагинами](plugins.md) и соответствующие страницы плагинов DNS/развёртывания/уведомлений.**
+Статья для разработчиков плагинов, интеграторов и платформенных разработчиков: протокол, структура репозитория, разработка, сборка, упаковка и публикация; использование и управление описаны в [Управлении плагинами](plugins.md) и страниц DNS/развёртывания/уведомлений. Официальные реализации DNS/развёртывания/уведомлений находятся в `internal/plugin/` и компилируются в основную программу; `plugins/` — SDK для внешних плагинов; загруженные плагины работают как подпроцессы протокола v1. Основная программа не использует индекс или внешний репозиторий плагинов. Генераторы и инструменты находятся в `internal/plugin/`; внешним плагинам нужны только `plugins/protocol` и `plugins/sdk`.
 
-Официальные реализации DNS/развёртывания/уведомлений находятся в `internal/plugin/` и компилируются в основную программу. `plugins/` — SDK для разработки внешних плагинов (протокол, helper-фреймворк и общие утилиты). Загруженные плагины по-прежнему используют подпроцессы протокола v1. Основная программа не использует индекс плагинов или внешний репозиторий плагинов.
-
-Описанные ниже генераторы, упаковка бандлов и инструменты индекса находятся в `internal/plugin/`; команды выполняются из этого каталога. Внешним плагинам нужны только `plugins/protocol` и `plugins/sdk`.
-
-## 1. Архитектура и концептуальная модель
+## Архитектура и концептуальная модель
 
 Плагин — не динамическая библиотека, а **одноразовый дочерний процесс**:
 
@@ -19,29 +15,19 @@
        └─ код выхода 0 — успех; ненулевой — ошибка, ошибка записывается в stderr
 ```
 
-Четыре типа helper:
-
 | Helper | Тип | Подкоманды |
 |---|---|---|
-| `tools/helpers/dns-helper` | DNS (v4 / native) | `manifest` / `present` / `cleanup` / `verify` |
-| `tools/helpers/dns-helper-v5` | DNS (lego v5) | `manifest` / `present` / `cleanup` / `verify` |
+| `tools/helpers/dns-helper`, `dns-helper-v5` | DNS (v4/native, lego v5) | `manifest` / `present` / `cleanup` / `verify` |
 | `tools/helpers/deploy-helper` | Развёртывание сертификатов | `manifest` / `deploy` / `options` / `plan` / `verify` |
 | `tools/helpers/notify-helper` | Уведомления | `manifest` / `send` |
 
-Репозиторий плагинов использует **модульный монолит**:
+Кодовая база плагинов использует **модульный монолит**: каталог на provider, раздельные метаданные, тексты и значки, агрегаты генерируются `make manifest`; параллельная разработка снижает конфликты в одном файле.
 
-- один каталог на каждого provider;
-- метаданные, тексты и значки разделены по provider;
-- агрегированные файлы генерируются `make manifest`, ручное изменение запрещено;
-- несколько участников могут разрабатывать параллельно, что уменьшает конфликты в одном файле.
+## Протокол v1
 
-## 2. Протокол v1
+Протокол остаётся `v1`; до `v2` он повышается только при несовместимых изменениях, новые возможности добавляются необязательными полями и флагами, а старый хост игнорирует нераспознанные поля.
 
-Протокол остаётся `v1`; до `v2` он повышается только при несовместимых изменениях. Новые возможности расширяются необязательными полями и функциональными флагами; старый хост игнорирует нераспознанные поля.
-
-### 2.1 Подкоманды и вывод
-
-DNS:
+### Подкоманды и вывод
 
 ```text
 dns-plugin manifest
@@ -49,8 +35,6 @@ dns-plugin present   # stdin JSON
 dns-plugin cleanup   # stdin JSON
 dns-plugin verify    # stdin JSON
 ```
-
-Развёртывание:
 
 ```text
 deploy-plugin manifest
@@ -60,22 +44,16 @@ deploy-plugin plan
 deploy-plugin verify
 ```
 
-Уведомления:
-
 ```text
 notify-plugin manifest
 notify-plugin send
 ```
 
-Соглашения:
+- Код выхода `0` — успех, ненулевой — ошибка; stderr попадает в журнал основной программы.
+- stdout DNS `present`/`cleanup` пуст; при успешном `deploy` stdout пуст, `verify`/`options`/`plan` выводят JSON; `send` выводит `{"ok":true,"message":""}`, при ошибке — `{"ok":false,...}` и ненулевой код.
+- Запросы и ответы — UTF-8 JSON без экранирования не-ASCII символов.
 
-- Код выхода `0` — успех, отличный от `0` — ошибка; stderr попадает в журнал основной программы.
-- stdout DNS `present` / `cleanup` должен быть пустым.
-- При успешном `deploy` stdout пуст; `verify` / `options` / `plan` выводят JSON.
-- При успешном `send` выводится одна строка `{"ok":true,"message":""}`; при ошибке также выводится `{"ok":false,...}` и процесс завершается с ненулевым кодом.
-- Запросы и ответы используют UTF-8 JSON, не-ASCII символы не экранируются.
-
-### 2.2 Переменные окружения
+### Переменные окружения
 
 | Переменная | Описание |
 |---|---|
@@ -84,24 +62,19 @@ notify-plugin send
 | `LACTSSL_DNS_PLUGIN_FEATURES` | Список возможностей DNS через запятую |
 | `LACTSSL_DEPLOY_PLUGIN_FEATURES` | Список возможностей развёртывания через запятую |
 
-Текущие возможности:
-
 | Возможность | Значение |
 |---|---|
 | `merged-deployers-v1` | Цели развёртывания выводят только объединённые канонические ID |
-| `dynamic-options-v1` | Поддержка подкоманды `options` и `options_source` / `multiple` |
-| `verify-v1` | Поддержка проверки только для чтения `verify` |
-| `plan-v1` | Поддержка предварительного сопоставления `plan` |
+| `dynamic-options-v1` | Поддержка `options` и `options_source` / `multiple` |
+| `verify-v1` | Проверка только для чтения `verify` |
+| `plan-v1` | Предварительное сопоставление `plan` |
 
-### 2.3 Соглашения безопасности
+### Соглашения безопасности
 
-- Закрытые ключи и token передаются только через stdin, не записываются в argv или переменные окружения;
-- основная программа передаёт только минимальный набор переменных окружения;
-- helper должен быть исполняемым, и запись в него не должна быть разрешена группе или другим пользователям; символические ссылки отклоняются;
-- основная программа опрашивает `VmRSS` и при превышении `memory_limit_mb` завершает всю группу процессов;
-- `manifest.sha256` может быть пустым; целостность при установке из репозитория обеспечивается SHA-256 ресурса индекса и записью установки.
+- Закрытые ключи и token передаются только через stdin, не через argv или переменные окружения; основная программа передаёт минимальный набор переменных.
+- helper должен быть исполняемым, запись в него не разрешена группе и другим пользователям, символические ссылки отклоняются; основная программа опрашивает `VmRSS` и при превышении `memory_limit_mb` завершает всю группу процессов; `manifest.sha256` может быть пустым, целостность при установке обеспечивают SHA-256 ресурса индекса и запись установки.
 
-## 3. Структура репозитория
+## Структура репозитория
 
 ```text
 plugins/                     внешний SDK плагинов (отдельный module)
@@ -139,8 +112,6 @@ internal/plugin/
   plugins.json               генерируется: манифест бандла
 ```
 
-Генерируемые файлы:
-
 ```text
 providers/catalog/data.json
 plugins/i18n/locales/*.json
@@ -156,23 +127,21 @@ plugins.json
 make manifest
 ```
 
-Эта команда последовательно выполняет `catalog`, `i18n`, `deployimports`, `gen-v5`, затем генерирует `plugins.json` и группы. CI проверяет, не пропущены ли генерируемые файлы; в PR того же репозитория bot `Update generated files` автоматически записывает их обратно.
+Команда последовательно выполняет `catalog`, `i18n`, `deployimports`, `gen-v5`, затем генерирует `plugins.json` и группы. CI проверяет пропуски, а bot `Update generated files` записывает их обратно в PR того же репозитория.
 
-## 4. Разработка DNS provider
+## Разработка DNS provider
 
-Официальные DNS provider используют lego v5. Файлы-обёртки генерируются:
+Официальные DNS provider используют lego v5; файлы-обёртки генерируются и не редактируются вручную:
 
 ```text
 internal/plugin/providers/dns/lego5/providers/<id>/plugin.go
 ```
 
-Не редактируйте сгенерированные файлы вручную. Чтобы добавить или обновить provider:
+Чтобы добавить provider:
 
-1. Убедитесь, что `github.com/go-acme/lego/v5` содержит нужный provider.
-2. Добавьте поля и соответствие переменных окружения в `catalog/dns/<id>.json`.
+1. Убедитесь, что `github.com/go-acme/lego/v5` содержит его, и добавьте поля с переменными окружения в `catalog/dns/<id>.json`.
 3. Добавьте `zh-CN.json` и `en-US.json` в `plugins/i18n/providers/dns/<id>/`.
-4. Запустите `make gen-v5`, чтобы сгенерировать обёртки, группы и метаданные.
-5. Запустите `make metadata-check`, `make manifest` и `make test-providers`.
+4. Запустите `make gen-v5`, затем `make metadata-check`, `make manifest` и `make test-providers`.
 
 Пример `catalog/dns/<id>.json`:
 
@@ -200,9 +169,9 @@ plugins/i18n/providers/dns/<id>/zh-CN.json
 plugins/i18n/providers/dns/<id>/en-US.json
 ```
 
-Общие переводы полей находятся в `plugins/i18n/core/<locale>.json`. При отсутствии перевода используется язык по умолчанию, затем `label` / `value`.
+Общие переводы полей — в `plugins/i18n/core/<locale>.json`; при отсутствии перевода используется язык по умолчанию, затем `label` / `value`.
 
-## 5. Разработка цели развёртывания
+## Разработка цели развёртывания
 
 Расположение: `providers/deploy/<id>/plugin.go`
 
@@ -216,32 +185,20 @@ func (plugin) Deploy(ctx context.Context, req deploy.NativeRequest) error { ... 
 func init() { deploy.RegisterNative(plugin{}) }
 ```
 
-Необязательные возможности:
-
 | Интерфейс | Назначение | Объявление |
 |---|---|---|
 | `deploy.NativeVerifier` | Проверка учётных данных/цели только для чтения | `deploy.MarkNativeVerifiable("example")` |
-| `deploy.NativeOptionLister` | Динамические параметры раскрывающегося списка | поле catalog `options_source` |
+| `deploy.NativeOptionLister` | Динамические параметры списка | поле catalog `options_source` |
 | `deploy.NativePlanner` | Чтение сайтов/объектов перед пакетным развёртыванием | `deploy.MarkNativePlannable("example")` |
 
-Шаги разработки:
+1. Создайте `providers/deploy/<id>/plugin.go` и `catalog/deploy/<id>.json` с `fields` и `deploy_fields`;
+2. создайте `i18n/providers/deploy/<id>/zh-CN.json` и `en-US.json`, выполните `make manifest` для `tools/helpers/deploy-helper/imports_gen.go`;
+3. добавьте модульные тесты `httptest`.
 
-1. Создайте `providers/deploy/<id>/plugin.go`;
-2. создайте `catalog/deploy/<id>.json` с `fields` и `deploy_fields`;
-3. создайте `i18n/providers/deploy/<id>/zh-CN.json` и `en-US.json`;
-4. выполните `make manifest`, чтобы сгенерировать `tools/helpers/deploy-helper/imports_gen.go`;
-5. добавьте модульные тесты `httptest`.
+- Для URL, управляемых пользователем, используйте `outbound.ValidateURL` / `outbound.ValidateWebhookURL`, а для запросов — `outbound.NewClient`, не `http.DefaultClient`.
+- `Verify` / `Plan` / `ListOptions` не должны записывать сертификаты, создавать постоянные объекты или выполнять reload; сообщения об ошибках не содержат token/secret. Исторические ID сопоставляются с каноническими целями через `deprecated_deploy_types` и `deploy_migrations` в `catalog/migrations.json`.
 
-Соглашения безопасности:
-
-- Для URL, управляемых пользователем, необходимо использовать `outbound.ValidateURL` / `outbound.ValidateWebhookURL`;
-- исходящие запросы используют `outbound.NewClient`, не используйте напрямую `http.DefaultClient`;
-- `Verify` / `Plan` / `ListOptions` не должны записывать сертификаты, создавать постоянные объекты или выполнять reload;
-- сообщения об ошибках не содержат token/secret.
-
-Исторические ID сопоставляются с каноническими целями через `deprecated_deploy_types` и `deploy_migrations` в `catalog/migrations.json`.
-
-## 6. Разработка канала уведомлений
+## Разработка канала уведомлений
 
 Расположение: `providers/notify/channels/channel_<id>.go`
 
@@ -258,19 +215,16 @@ func init() {
 func sendExample(cfg map[string]any, msg notify.NativeMessage) error { ... }
 ```
 
-Конструкторы полей:
-
 | Функция | Назначение |
 |---|---|
-| `text` | Текст |
+| `text` / `number` | Текст / число |
 | `password` | Пароль/ключ |
-| `number` | Число |
 | `selectField` + `opt` | Раскрывающийся список |
 | `textarea` | Многострочный текст |
 
-Каждый канал — отдельный файл, автоматически регистрируется через `init`, изменять общий список не нужно. Логика отправки предпочтительно использует `notifyJSON` / `notifyForm` / `notifyHTTP` и `outbound`.
+Каждый канал — отдельный файл, автоматически регистрируется через `init`, общий список менять не нужно. Отправка использует `notifyJSON` / `notifyForm` / `notifyHTTP` и `outbound`.
 
-## 7. Сборка
+## Сборка
 
 ```bash
 # все объединённые пакеты
@@ -282,8 +236,6 @@ make bundle-native
 make bundle-lego-v5
 ```
 
-Параметры сборки:
-
 ```bash
 CGO_ENABLED=0 go build -trimpath \
   -tags "bundle_dns_all_native,nethttpomithttp2,http2legacy" \
@@ -291,29 +243,20 @@ CGO_ENABLED=0 go build -trimpath \
   -o lactssl-dns-all-native ./tools/helpers/dns-helper
 ```
 
-- `-trimpath` удаляет локальные пути;
-- `-s -w` удаляет символы и DWARF;
-- `bundle_dns_all_lego` / `bundle_dns_all_native` выбирают группу DNS;
-- `nethttpomithttp2,http2legacy` обходят проблемы совместимости Go 1.27 `net/http` с новой версией `x/net/http2`;
-- lego v5 дополнительно использует `urfave_cli_no_template,ozzo_validation_no_template,grpcnotrace,validator_novalidatefn` для удаления кода шаблонов.
+- `-trimpath` удаляет локальные пути, `-s -w` — символы и DWARF; `bundle_dns_all_lego` / `bundle_dns_all_native` выбирают группу DNS, `nethttpomithttp2,http2legacy` обходят проблемы Go 1.27 `net/http` с `x/net/http2`.
+- lego v5 использует `urfave_cli_no_template,ozzo_validation_no_template,grpcnotrace,validator_novalidatefn` для удаления кода шаблонов.
 
-## 8. Упаковка и индексация
-
-Сборка одного пакета:
+## Упаковка и индексация
 
 ```bash
 make plugin KIND=dns ID=all-native GOOS=linux GOARCH=amd64
 ```
-
-Артефакты:
 
 ```text
 dist/
 ├── lactssl-dns-all-native_<version>_linux_amd64.tar.gz
 └── lactssl-dns-all-native_<version>_linux_amd64.meta.json
 ```
-
-Содержимое пакета:
 
 ```text
 plugin.json
@@ -322,38 +265,19 @@ LICENSE
 icons/<provider>.<svg|png|webp>
 ```
 
-`plugin.json` содержит версию, протокол, bundle, providers, variant, conflicts, sdk и ссылки на значки. Индекс:
+`plugin.json` содержит версию, протокол, bundle, providers, variant, conflicts, sdk и ссылки на значки. Основная программа больше не использует подписанный индекс плагинов.
 
-```bash
-make index BASE_URL=https://github.com/AXmishell/LACTSSL-Plugins/releases/download
-```
+### Подпись
 
-Поля индекса:
+Релизы защищены `checksums.txt` и подписью Ed25519; для загруженных helper проверяются `sha256` из manifest и запись установки. Индекс плагинов генерировать и публиковать не нужно.
 
-- `schema` / `channel` / `protocol` / `generated_at`;
-- `plugins[]`: kind, id, version, bundle, providers, variant_of, conflicts_with, sdk, assets;
-- `assets[GOOS/GOARCH]`: url, sha256, size, uncompressed_size;
-- корневые `icons[]`: встроенные значки base64 для отображения до установки.
+## Политика версий
 
-### 8.1 Подпись
+- `all-lego` / `all-lego-v5` следуют версии lego в `go.mod`; патч `all-native`, `deploy/all`, `notify/all` растёт по отпечатку содержимого. Изменения `protocol/`, `sdk/`, `i18n/`, `outbound/`, `catalog/` и `go.mod` повышают версии всех связанных пакетов, изменения кода provider влияют только на его пакеты. Публикация выполняется по tag; без tag используется внутренняя версия.
 
-```bash
-go run scripts/pluginctl/main.go sign -key key.b64 -in index.json -out index.json.sig
-```
+## Процесс совместной работы
 
-`key.b64` — закрытый ключ Ed25519 в кодировке base64 (32-байтовое семя или 64-байтовый закрытый ключ). В производственном выпуске следует обязательно настроить `PLUGIN_INDEX_SIGNING_KEY`; при его отсутствии не следует публиковать неподписанный индекс.
-
-## 9. Политика версий
-
-- Версии `all-lego` / `all-lego-v5` следуют версии lego в `go.mod`;
-- номер патча `all-native`, `deploy/all`, `notify/all` автоматически увеличивается на основе отпечатка содержимого;
-- изменения общих входных данных (`protocol/`, `sdk/`, `i18n/`, `outbound/`, `catalog/`, `go.mod`) вызывают повышение версии всех связанных пакетов, чтобы избежать «одна версия — разное содержимое»;
-- изменения исходного кода самого provider влияют только на пакеты соответствующего типа;
-- публикация выполняется по tag; при ручной публикации без tag используется внутренняя версия, необходимо учитывать её соотношение с уже опубликованными версиями tag.
-
-## 10. Процесс совместной работы
-
-### 10.1 Ветки и PR
+### Ветки и PR
 
 ```text
 main
@@ -365,46 +289,26 @@ PR → lint / generated / test / bundle / native → CODEOWNER review
   → после слияния bot обновляет генерируемые файлы
 ```
 
-Требования:
+- Прямой push в `main` запрещён; обязательны PR и `CI gate` с Merge Queue. Один PR — один provider / цель / канал; генерируемые файлы записывает bot, вручную конфликты не разрешаются.
 
-- запрещено напрямую push в `main`;
-- обязателен PR и прохождение `CI gate`;
-- используйте Merge Queue;
-- один PR на один provider / одну цель / один канал;
-- генерируемые файлы записывает bot, участники не должны вручную разрешать конфликты в генерируемых файлах.
+### CODEOWNERS
 
-### 10.2 CODEOWNERS
+`.github/CODEOWNERS` определяет владельцев по умолчанию; после расширения команды замените их на GitHub Team по областям (DNS native/lego, deploy, notify, infra). `protocol` / `sdk` / `catalog schema` / CI требуют проверки основных сопровождающих.
 
-`.github/CODEOWNERS` репозитория плагинов определяет владельцев по умолчанию. После расширения команды замените их на GitHub Team по областям:
-
-- DNS native, lego, deploy, notify, infra;
-- protocol / sdk / catalog schema / CI требуют проверки основными сопровождающими.
-
-### 10.3 Многоуровневый CI
+### Многоуровневый CI
 
 | Уровень | Триггер | Содержание |
 |---|---|---|
-| lint | каждый PR / merge queue | gofmt, go.mod/go.sum |
-| generated | каждый PR / merge queue | `make manifest` + проверка генерируемых файлов |
+| lint / generated | каждый PR / merge queue | gofmt, go.mod/go.sum, `make manifest` и проверка генерируемых файлов |
 | test | изменения Go | `go vet ./...`, `go test ./...` |
-| bundle | изменения DNS/deploy/notify | сборка 5 helper, количество/согласованность manifest, smoke-тест упаковки |
-| native | изменения DNS/SDK | `check_native.sh` |
-| nightly | ежедневно | `go test -race`, полная сборка, govulncheck |
+| bundle | изменения DNS/deploy/notify | сборка 5 helper, согласованность manifest, smoke-тест упаковки |
+| native / nightly | изменения DNS/SDK; ежедневно | `check_native.sh`; `go test -race`, полная сборка, govulncheck |
 
-Для защиты ветки достаточно требовать одну проверку **CI gate**; если условное задание пропущено, gate всё равно проходит.
+### Merge Queue
 
-### 10.4 Merge Queue
+- Защитить `main`, Require status checks `CI gate`, Require linear history; включить Merge Queue (параллельность 5, тайм-аут 5 минут), запретить прямой push и включить «Require branches to be up to date before merging».
 
-Настройки репозитория:
-
-- защитить `main`;
-- Require status checks: `CI gate`;
-- Require linear history;
-- включить Merge Queue (максимальная параллельность 5, тайм-аут ожидания 5 минут);
-- запретить прямой push;
-- включить «Require branches to be up to date before merging».
-
-## 11. Локальная отладка
+## Локальная отладка
 
 ```bash
 # генерация
@@ -425,8 +329,6 @@ LACTSSL_DEPLOY_PLUGIN_FEATURES=merged-deployers-v1,verify-v1,plan-v1,dynamic-opt
 go run ./tools/helpers/notify-helper manifest | jq '.channels | length'
 ```
 
-Пример запроса:
-
 ```bash
 echo '{
   "action": "present",
@@ -438,16 +340,11 @@ echo '{
 }' | go run -tags bundle_dns_all_native ./tools/helpers/dns-helper present
 ```
 
-## 12. Требования к тестированию
+## Требования к тестированию
 
-- Модульные тесты используют `httptest` и не обращаются к реальной сети;
-- покрытие DNS: записываемое значение, очистка удаляет только текущее значение, идемпотентность при отсутствии записи, отсутствие подходящей зоны;
-- покрытие развёртывания: успех, сбой аутентификации, отсутствие записи в Verify/Plan;
-- покрытие уведомлений: отсутствие конфигурации, тело запроса, ошибочный код состояния;
-- количество и поля manifest проверяются в CI;
-- для native-пакета дополнительно запускается `./scripts/check_native.sh`.
+- Модульные тесты используют `httptest` и не обращаются к реальной сети: DNS — записываемое значение, очистка только текущего, идемпотентность и отсутствие зоны; развёртывание — успех, сбой аутентификации, отсутствие записи в Verify/Plan; уведомления — конфигурация, тело и код ответа. Количество и поля manifest проверяются в CI; для native-пакета запускается `./scripts/check_native.sh`.
 
-## 13. Проверки перед коммитом
+## Проверки перед коммитом
 
 ```text
 [ ] изменены только свой каталог provider + соответствующие catalog/i18n
@@ -460,11 +357,3 @@ echo '{
 [ ] check_native (native)
 [ ] сгенерированные файлы закоммичены или ожидают записи bot
 ```
-
-## 14. Связанная документация
-
-- [Управление плагинами](plugins.md)
-- [Плагины DNS](dns-plugins.md)
-- [Плагины развёртывания](deploy-plugins.md)
-- [Плагины уведомлений](notify-plugins.md)
-- [Руководство по участию в репозитории плагинов](https://github.com/AXmishell/LACTSSL-Plugins/blob/main/CONTRIBUTING.md)

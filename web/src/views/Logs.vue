@@ -233,24 +233,28 @@
         <span class="muted">
           {{ tab === 'archive' ? t('logs.archiveTotal', { total: archiveTotal }) : t('logs.total', { total }) }}
         </span>
-        <el-pagination
-          v-if="tab === 'archive'"
-          v-model:current-page="archivePage"
-          :page-size="archiveSize"
-          :total="archiveTotal"
-          layout="prev, pager, next"
-          background
-          @current-change="load()"
-        />
-        <el-pagination
-          v-else
-          v-model:current-page="page"
-          :page-size="size"
-          :total="total"
-          layout="prev, pager, next"
-          background
-          @current-change="load()"
-        />
+        <div class="logs-foot-actions">
+          <el-pagination
+            v-if="tab === 'archive'"
+            v-model:current-page="archivePage"
+            :page-size="archiveSize"
+            :total="archiveTotal"
+            layout="prev, pager, next"
+            background
+            @current-change="load()"
+          />
+          <el-pagination
+            v-else
+            v-model:current-page="page"
+            :page-size="size"
+            :total="total"
+            layout="prev, pager, next"
+            background
+            @current-change="load()"
+          />
+          <PageSizeSelect v-if="tab === 'archive'" v-model="archiveSize" :max="200" @change="onArchiveSizeChange" />
+          <PageSizeSelect v-else v-model="size" :max="200" @change="onSizeChange" />
+        </div>
       </div>
     </div>
   </div>
@@ -263,6 +267,8 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Delete, Download, Refresh, Search } from '@element-plus/icons-vue'
 import { api, downloadFile } from '../api'
+import PageSizeSelect from '../components/PageSizeSelect.vue'
+import { usePageSize } from '../pageSize'
 import { formatDate } from '../utils'
 import type { LogArchiveEntry, LogArchivePage, LogPage, SystemLogPage } from '../types'
 
@@ -285,7 +291,7 @@ const exporting = ref(false)
 const items = ref<LogRow[]>([])
 const total = ref(0)
 const page = ref(1)
-const size = 30
+const size = usePageSize('logs', 50)
 
 // 操作日志筛选
 const source = ref('')
@@ -311,7 +317,7 @@ const notifyRange = ref<[Date, Date] | null>(null)
 const archiveItems = ref<LogArchiveEntry[]>([])
 const archiveTotal = ref(0)
 const archivePage = ref(1)
-const archiveSize = 20
+const archiveSize = usePageSize('logs.archive', 25)
 const archiveCategory = ref('')
 const archiveReason = ref('')
 const archiveQuery = ref('')
@@ -481,14 +487,14 @@ async function load(silent = false): Promise<void> {
   if (!silent) loading.value = true
   try {
     if (tab.value === 'operation' || tab.value === 'notify') {
-      const data = await api.get<LogPage>('/logs', { page: page.value, size, ...filterParams() })
+      const data = await api.get<LogPage>('/logs', { page: page.value, size: size.value, ...filterParams() })
       if (seq !== loadSeq) return
       items.value = data.items || []
       total.value = data.total || 0
     } else if (tab.value === 'system') {
       const data = await api.get<SystemLogPage>('/system-logs', {
         page: page.value,
-        size,
+        size: size.value,
         ...filterParams()
       })
       if (seq !== loadSeq) return
@@ -499,7 +505,7 @@ async function load(silent = false): Promise<void> {
     } else {
       const data = await api.get<LogArchivePage>('/log-archives', {
         page: archivePage.value,
-        size: archiveSize,
+        size: archiveSize.value,
         ...filterParams()
       })
       if (seq !== loadSeq) return
@@ -521,6 +527,17 @@ function reload(): void {
   } else {
     page.value = 1
   }
+  load()
+}
+
+// 切换每页条数后回到第一页，避免停留在超出新页数的位置。
+function onSizeChange(): void {
+  page.value = 1
+  load()
+}
+
+function onArchiveSizeChange(): void {
+  archivePage.value = 1
   load()
 }
 
@@ -740,6 +757,13 @@ onUnmounted(() => {
   margin-bottom: 14px;
 }
 
+.logs-foot-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .log-message {
   line-height: 1.7;
   word-break: break-word;
@@ -803,6 +827,8 @@ onUnmounted(() => {
 
 /* 卡片内边距已取消，表格贴边显示，底部统计与分页单独补回留白 */
 .logs-foot {
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding: 12px 16px 16px;
 }
 

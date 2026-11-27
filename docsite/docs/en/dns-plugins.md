@@ -1,136 +1,91 @@
 # DNS plugins
 
-DNS plugins provide domain provider API access for DNS-01 validation by public CAs. When evaluating options, the priority is not how many providers are supported, but whether the solution can deliver **least-privilege credentials, rotation, auditability, and offline deployment**.
+DNS plugins provide domain provider API access for DNS-01 validation. The priority is **least-privilege credentials, rotation, auditability, and offline operation**.
 
-## 1. Prerequisites
+## Prerequisites
 
-- Credentials for the relevant provider have been created under **DNS accounts**.
-- The DNS plugin and the specific provider have been installed and enabled on the **Plugins** page.
-- The zone containing the domain is visible to the credential and permits creating and deleting TXT records.
-- Outbound access to the provider API is available. If a proxy is used, confirm the Go HTTP client proxy configuration.
-- One certificate may span multiple DNS accounts. Declare each account's zones under **DNS accounts → Zone bindings** and select **Auto by domain binding** in the request task. The server routes TXT creation and cleanup per domain by longest suffix. Selecting a single explicit account still means that account covers every domain.
+- Credentials are created under **DNS accounts**, and the zone is visible to them with permission to create and delete TXT records.
+- Outbound access to the provider API is available; if a proxy is used, confirm the Go HTTP client proxy settings.
+- One certificate may span multiple accounts: declare zones under **DNS accounts → Zone bindings** and select **Auto by domain binding**. Routing is by longest suffix; a single explicit account covers every domain.
 
-If no DNS plugin is installed, the DNS provider list is empty. Existing DNS accounts are preserved, but issuance fails with an explicit error when the provider is unavailable.
+DNS providers are disabled by default; issuing with a disabled provider fails with an explicit error, while existing accounts are preserved.
 
-## 2. Choosing a plugin package
+## Choosing a plugin package
 
-Official DNS implementations are built into the host and cover about 235 provider entries (including legacy IDs). No providers are enabled by default; enable them on the Plugins page:
+Official DNS implementations are built in, with a default full build covering about 235 entries (228 lego v5 providers + 7 compatibility IDs); no plugin package is needed. All providers are disabled by default—enable them on the **Plugins** page.
 
-| Package | Coverage | Extracted size | Recommended for |
-| --- | --- | ---: | --- |
-| DNS full (refactored) | 194 providers | about 18 MiB | Most enterprises; 21 native implementations, the rest use lego v4 |
-| DNS full (lego) | 194 providers | about 58 MiB | Full lego v4 capabilities (for example rfc2136 GSS-TSIG) |
-| DNS full (lego v5) | 235 entries (228 v5 providers + 7 compatibility placeholders) | about 37 MiB | Following lego v5 and new providers |
+For a smaller binary or memory footprint, use a reduced build: `make backend-dns-common` links only the common whitelist, `make backend-dns-minimal` keeps only Cloudflare, and `make backend-no-dns` omits built-in DNS entirely. Reduced builds still accept uploaded helpers.
 
-The three packages are mutually exclusive and cannot be installed together.
+## Installing and enabling
 
-- Read-only verification (`verify-v1`) is provided by native implementations in the "DNS full (refactored)" package. Other packages fall back to the TXT write test in `auto` mode.
-- Each package shares one Go runtime, avoiding the disk and process overhead of packaging providers individually.
-- Main release packages bundle no providers; install them on demand.
-- Provider icons are delivered with the plugin package and repository index, then cached under `<data_dir>/plugin-icons/` after installation.
+1. Open the **Plugins** page and confirm the DNS category is enabled.
+2. Enable the providers you need in the DNS provider list; enabling more than 10 entries at once requires confirmation.
+3. Create credentials under **DNS accounts** and select the provider.
 
-## 3. Installing and enabling
+Enablement is stored in the settings table; disabling the category unregisters entries at runtime but keeps existing selections.
 
-1. Open the **Plugins** page, confirm the plugin repository URL, and click **Refresh index**.
-2. Open the **Plugin market**, filter by DNS, and install the required package.
-3. Enable the plugin file first, then enable specific providers in the DNS provider list. Newly downloaded files and entries are disabled by default.
-4. Create credentials under **DNS accounts** and select the provider.
+## Credential governance
 
-A merged package is not enabled in full by the row-level switch; enabling more than 10 entries at once requires confirmation. When a file is disabled at the file level, its entries are not registered at runtime, but existing selections are retained.
+### Least privilege
 
-Install, update, and uninstall require only a login session or `plugins:write`. Plugin packages verify the index signature (when a public key is configured), the asset SHA-256, and the provider IDs in `plugin.json` and the manifest. Any mismatch rejects the installation and rolls it back.
+- Use a dedicated sub-account or API key, not a personal or global administrator key.
+- Grant DNS read/write only to the target zone; no billing, domain registration, or zone deletion.
+- Use separate credentials for testing and production.
 
-## 4. Credential governance
+### Rotation
 
-### 4.1 Least privilege
+- Record owner, creation date, scope, and rotation interval.
+- Update the credential in LACTSSL first, then revoke the old one at the provider.
+- Run a test task to confirm TXT creation and cleanup, and rotate immediately after departures or exposure.
 
-- Use a dedicated sub-account or API key; do not use a personal account or a global administrator key.
-- Grant DNS read and write access only to the target zone. Do not grant account-level billing, domain registration, or zone deletion permissions.
-- Where the provider supports per-domain or per-project authorization, limit access to the domains that are actually issued.
-- Use separate credentials and DNS sub-accounts for testing and production.
+### Storage
 
-### 4.2 Rotation
+- Credentials are encrypted with AES-256-GCM before storage and masked in API responses.
+- Leave a secret field empty when editing to keep the existing value.
+- Do not put credentials in task names, notes, tickets, or logs; backups contain encrypted credentials.
 
-- Record the credential owner, creation date, permission scope, and rotation interval.
-- When rotating, update the credential in LACTSSL first, then revoke the old credential at the provider.
-- After rotation, run a test task to confirm that TXT creation and cleanup work correctly.
-- Rotate immediately after staff departures, key exposure, or provider security incidents.
-
-### 4.3 Storage
-
-- Credentials are encrypted with AES-256-GCM before being written to the database and are masked in API responses.
-- When editing an account, leave a secret field empty to keep the existing value.
-- Do not write credentials into task names, notes, tickets, or logs.
-- Backup archives contain encrypted credentials; handle them as confidential files.
-
-## 5. Common providers
+## Common providers
 
 | Provider | Main credentials | Notes |
 | --- | --- | --- |
-| Alibaba Cloud DNS (`alidns`) | AccessKey ID / Secret | Optional Region |
-| Alibaba Cloud ESA (`aliesa`) | AccessKey ID / Secret | Optional Region |
+| Alibaba Cloud DNS (`alidns`) / ESA (`aliesa`) | AccessKey ID / Secret | Optional Region |
 | Cloudflare | API Token, or Email + Global API Key | Optional API upstream URL |
-| DNSPod | API Token | |
-| Tencent Cloud (`tencentcloud`) | SecretId / SecretKey | Optional Region |
-| Huawei Cloud (`huaweicloud`) | AccessKey ID / SecretAccessKey / Region | |
-| Volcengine (`volcengine`) | AccessKey / SecretKey | Optional Region, API host, and scheme |
-| Baidu AI Cloud (`baiducloud`) | AccessKey ID / SecretAccessKey | |
-| JD Cloud (`jdcloud`) | AccessKey ID / AccessKey Secret | Optional Region |
-| AWS Route 53 | AccessKey / SecretAccessKey | Optional Region, Hosted Zone, private zone |
-| Google Cloud DNS | Service account JSON | Optional project ID |
-| Azure DNS | Tenant ID / Client ID / Client Secret / Subscription ID / resource group | |
-| DigitalOcean / Vultr / Linode / Hetzner | API token / API key | |
-| Gandi / GoDaddy / Namecheap / NameSilo / Porkbun | Provider-specific API credentials | |
-| PowerDNS (`pdns`) | API URL / API key | Optional server name and API version |
-| RFC 2136 dynamic update | DNS server | Optional TSIG key / secret / algorithm and zone list |
+| DNSPod / Tencent Cloud (`tencentcloud`) | API Token; SecretId / SecretKey | Optional Region |
+| Huawei Cloud (`huaweicloud`) / Baidu AI Cloud / JD Cloud | AccessKey ID / SecretAccessKey / Region | |
+| Volcengine (`volcengine`) | AccessKey / SecretKey | Optional Region, API host, scheme |
+| AWS Route 53 / Google Cloud DNS / Azure DNS | Access keys, service account JSON, or tenant credentials | Optional Region, zone, project |
+| DigitalOcean / Vultr / Linode / Hetzner / Gandi / GoDaddy / Namecheap / NameSilo / Porkbun | API token / key or provider-specific credentials | |
+| PowerDNS (`pdns`) / RFC 2136 | API URL / API key; DNS server + TSIG | Optional version, server name, zone list |
 
-- After installing the official DNS plugin, all lego providers are supported (about 190).
-- The `manual` provider requires adding TXT records by hand and is not part of the automated flow.
-- Cloudflare, DNSimple, PowerDNS, Volcengine, and others support a custom API upstream URL for proxies, self-hosted services, or compatible gateways.
-- The provider selector on the **DNS accounts** page is the authoritative full list.
+- Built-in providers cover all lego v5 entries (about 228).
+- The `manual` provider requires adding TXT records by hand and is outside the automated flow; Cloudflare, DNSimple, PowerDNS, and Volcengine also accept a custom API upstream URL.
+- The selector on **DNS accounts** is the authoritative list.
 
-## 6. Offline and manual installation
+## Offline and manual installation
 
-- Upload a single helper executable on the **Plugins** page, up to 256 MB.
-- After upload, the `manifest` is probed from a temporary file, and the protocol, provider IDs, and SHA-256 are validated before the file is written to the plugin directory and rescanned.
-- Overwriting a file with the same name is rejected by default. When upgrading, select **Allow overwriting a plugin with the same filename**; the old file is backed up first.
-- Built-in implementations ship with the host; no offline index is required. Upload a trusted helper for third-party providers:
+Built-in providers ship with the host, so offline environments need no extra installation. Third-party providers can be uploaded as a single helper on the **Plugins** page (up to 256 MB): protocol, ID, and SHA-256 are validated, overwriting a same-name file is rejected by default, and the old file is backed up during upgrades. A manually uploaded multi-provider bundle is marked `manual` and does not participate in automatic updates.
 
-```yaml
-plugins:
-  repo:
-    url: "file:///srv/lactssl-plugins/index.json"
-```
+## Validation and troubleshooting
 
-A manually uploaded multi-provider bundle still loads, but is marked `manual` and does not participate in official repository updates.
+### Validation
 
-## 7. Validation and troubleshooting
+1. Create and save a DNS account, then create a test task with a test domain.
+2. Run it and observe TXT creation, CA validation, and cleanup.
+3. Review the task and operation logs; delete or keep the test certificate.
 
-### 7.1 Validation
-
-1. Create a DNS account and save it successfully.
-2. Create a test task and select the account and a test domain.
-3. Run the task and observe TXT creation, CA validation, and TXT cleanup.
-4. Review the task log and operation log.
-5. Delete the test certificate or retain it as needed.
-
-### 7.2 Common issues
+### Common issues
 
 | Symptom | Cause | Resolution |
 | --- | --- | --- |
-| Provider dropdown is empty | Plugin not installed or not enabled | Install a DNS package and enable the provider |
-| Credential save fails | Required field missing or invalid format | Correct it according to the form and log messages |
-| TXT creation fails | Permissions, zone, or quota | Check API permissions, domain, and quota |
-| TXT cleanup fails | Permissions, or the record was already deleted | Remove the residual TXT record manually |
-| Validation times out | Slow DNS propagation, or authoritative DNS not updated | Check TTL, authoritative resolution, and CAA |
-| Custom API URL fails | URL unreachable or certificate untrusted | Check network, TLS, and the upstream URL |
-| Plugin fails to load | Permissions, digest, or protocol | Check directory permissions and the installation record |
+| Provider dropdown is empty | DNS category or provider disabled | Enable the category and provider on the **Plugins** page |
+| Credential save fails | Missing or invalid field | Correct it per the form and log messages |
+| TXT creation / cleanup fails | Permissions, zone, quota, or already-deleted record | Check permissions and remove residual records manually |
+| Validation times out | Slow propagation or stale authoritative DNS | Check TTL, authoritative resolution, and CAA |
+| Custom API URL or helper fails | Unreachable URL, untrusted certificate, or bad digest | Check network, TLS, permissions, and the installation record |
 
-## 8. Helper protocol v1 (integration development)
+## Helper protocol v1 (integration development)
 
-This section is intended for plugin developers; operations staff generally do not need it.
-
-A helper is an executable that supports four subcommands:
+For plugin developers; operations staff generally do not need it. A helper is an executable with four subcommands:
 
 ```bash
 dns-helper manifest   # print the JSON manifest
@@ -188,28 +143,16 @@ Example `manifest` output:
 
 Conventions:
 
-- Exit code `0` means success; a non-zero exit means failure. stderr is written to the task log (sensitive values are redacted).
-- stdout must remain empty; output from `present/cleanup` is treated as an error.
-- `verify` must be read-only: it may list zones or read records, but must never create, update, or delete records.
-- Only providers that declare `verify-v1` receive `verify` calls. Others fall back to a `present/cleanup` write test in `mode=auto`; explicit `mode=read` reports unsupported.
-- `checks[].status` values: `ok`, `failed`, `skipped`, `unsupported`, `error`.
-- The helper receives its memory budget from `LACTSSL_PLUGIN_MEMORY_LIMIT` (bytes).
-- The main program periodically checks the helper's `VmRSS` and terminates the process, logging an error, when it exceeds `plugins.memory_limit_mb`.
-- The main program passes only a minimal set of environment variables (PATH, HOME, proxy, TLS certificates, and similar); server secrets are not exposed.
-- Helper files must not be writable by other users. When `manifest.sha256` is non-empty, the file digest is verified.
-- `version` is the version of the helper or provider implementation, not the LACTSSL build version.
+- Exit code `0` means success; non-zero means failure. stderr goes to the task log with sensitive values redacted.
+- stdout must stay empty; output from `present` / `cleanup` is treated as an error.
+- `verify` is read-only: it may list zones or read records, never create, update, or delete.
+- Only providers declaring `verify-v1` receive `verify`; others fall back to a `present`/`cleanup` write test in `mode=auto`, and explicit `mode=read` reports unsupported. `checks[].status` is one of `ok`, `failed`, `skipped`, `unsupported`, `error`.
+- `LACTSSL_PLUGIN_MEMORY_LIMIT` sets the byte budget; the host checks `VmRSS` and kills the process above `plugins.memory_limit_mb`.
+- The host passes only a minimal environment (PATH, HOME, proxy, TLS certificates); server secrets are not exposed.
+- Helper files must not be writable by others; a non-empty `manifest.sha256` is verified. `version` refers to the helper, not the LACTSSL build.
 
-## 9. Security recommendations
+## Security recommendations
 
 - Only the service user may write to the plugin directory; prefer `0700`.
-- Install only helpers from trusted sources, and provide `sha256` in the manifest.
-- Set appropriate `memory_limit_mb` and `timeout_seconds` to prevent a malfunctioning plugin from degrading the host.
-- Plugins run under the service account; do not grant the `lactssl` user additional privileges.
-- In production, use an internal mirror, pin versions, and disable automatic updates.
-
-## Related documentation
-
-- [Plugin governance](plugins.md)
-- [Features](features.md)
-- [Deployment plugins](deploy-plugins.md)
-- [Notification plugins](notify-plugins.md)
+- Install helpers only from trusted sources and provide `sha256` in the manifest.
+- Set `memory_limit_mb` and `timeout_seconds`; plugins run as the service account, so do not grant the `lactssl` user extra privileges.

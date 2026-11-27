@@ -1,59 +1,41 @@
 # Operations Manual
 
-This document is intended for the on-call and operations teams responsible for the day-to-day operation of LACTSSL. It covers backup and restore, monitoring and alerting, capacity maintenance, change and upgrade management, and incident response. The objective is to make the service transferable, auditable, and recoverable after failure.
+This manual is for developers deploying and maintaining LACTSSL. It covers backup and restore, monitoring, capacity, change and upgrade management, and incident response, so the service stays transferable, auditable, and recoverable.
 
-## 1. Service Objectives and Responsibilities
+## Service Objectives
 
-LACTSSL does not include an SLA. Each enterprise should define the following internally:
+Define the following before deployment:
 
 | Item | Recommended definition |
 | --- | --- |
-| Service tier | Certificate issuance and deployment as a critical supporting system, or classified by business impact |
 | Availability hours | Aligned with the dependent DNS, CA, reverse proxy, and deployment targets |
-| RPO | At least one backup per day; hourly for critical environments |
-| RTO | Based on the results of a "provision host + restore + startup verification" exercise |
-| Change window | Avoid periods of concentrated certificate expiry and business peak load |
-| Alert response | Respond to task failures and certificate anomalies within 15–30 minutes (per enterprise policy) |
+| RPO / RTO | At least one backup per day (hourly for critical environments); RTO based on a "provision host + restore + startup verification" exercise |
+| Change window | Avoid periods of concentrated certificate expiry and release peaks |
+| Alert response | Respond to task failures and certificate anomalies within 15–30 minutes (per deployment policy) |
 
-Do not treat LACTSSL process liveness as business availability. True business availability also depends on the DNS API, CA, deployment targets, and notification path.
+Process liveness is not service availability; true availability also depends on the DNS API, CA, deployment targets, and notification path.
 
-## 2. Backup and Restore
+## Backup and Restore
 
-### 2.1 Backup Scope
+### Backup Scope
 
-Back up both of the following:
+Back up `config.yaml` (or the `-config` path) and the entire `data/` directory together. `data/` contains at least `lactssl.db`, possibly `lactssl.db-wal` and `lactssl.db-shm`, plus plugins, logs, log archives, and upgrade backups.
 
-1. `config.yaml` (or the path specified by `-config`)
-2. The entire `data/` directory
+The ZIP produced by **Download backup** **does not include** `data/archives/logs/`; copy archives separately. Backing up only the database loses the `salt`, leaving encrypted credentials undecryptable, while backing up only the configuration loses application data.
 
-`data/` contains at least `lactssl.db`; at runtime it may also contain `lactssl.db-wal` and `lactssl.db-shm`. The database, plugins, logs, log archives, and upgrade backups all reside under `data/`.
+The `security_events` table stores security events, recipients, and source IP/UA and is included in database backups; events are retained 90 days by default (adjustable in Settings → Security alerts). The old SMTP snapshot used by notification-target changes is encrypted and cleared after delivery. Protect backups as both personal information and credentials.
 
-Note: the ZIP produced by **Download backup** in the UI **does not include** `data/archives/logs/`. Log archives are as sensitive as the database and must be copied or downloaded to offline media separately; a command-line backup of the whole `data/` directory includes them.
-
-Backing up only the database loses the `salt`, leaving encrypted credentials undecryptable; backing up only the configuration loses business data. The two must be kept together.
-
-The `security_events` table stores security alert events, recipients, and source information (IP/UA) and is included in database backups and restores. Events are retained for 90 days by default and can be adjusted under "Settings → Security alerts". The old SMTP configuration snapshot (including the password) used by notification-target change events is encrypted with the database key and cleared as soon as delivery succeeds or finally fails. Protect backup files as both personal information and credentials.
-
-### 2.2 Encrypted Backup in the UI (Recommended)
+### Encrypted Backup in the UI (Recommended)
 
 **System Settings → Backup and Restore** provides online operations:
 
-- **Download backup**: generates a ZIP containing a SQLite snapshot, the current `config.yaml`, and version information in `manifest.json`.
-- Re-enter the current account password before download; a one-time code is also required when TOTP is enabled.
-- The backup encryption password is independent of the account password and must be at least 12 characters.
-- Backup contents are encrypted with PBKDF2-HMAC-SHA256 (600,000 iterations) + AES-256-GCM; the same password is required to restore.
-- If the password is lost, the backup cannot be recovered.
+- **Download backup** creates a ZIP with a SQLite snapshot, the current `config.yaml`, and `manifest.json`. Re-enter the account password, plus a one-time code when TOTP is enabled.
+- The backup password is independent, at least 12 characters, and used with PBKDF2-HMAC-SHA256 (600,000 iterations) + AES-256-GCM. If lost, the backup cannot be recovered.
+- Store files off `data/`, keep the password in a password manager, record time/size/checksum/location, and retain backups for at least 7–30 days.
 
-Recommendations:
+### Command-Line Backup
 
-- Store backup files on separate media or object storage, not under `data/`.
-- Store the backup password in the enterprise password manager, separately from the backup files.
-- Record the backup time, size, checksum, and storage location.
-- Retain backups for at least 7–30 days; extend retention for critical environments as required by compliance.
-
-### 2.3 Command-Line Backup
-
-When a file-level backup is required, stop the service before copying to ensure SQLite is in a consistent state:
+For a file-level backup, stop the service first to keep SQLite consistent:
 
 ```bash
 # Docker
@@ -66,164 +48,122 @@ tar czf lactssl-backup-$(date +%F).tar.gz config.yaml data
 chmod 600 lactssl-backup-*.tar.gz
 ```
 
-If downtime is not possible, prefer the encrypted UI backup; copying a running SQLite database directly may produce an inconsistent snapshot.
+If downtime is not possible, use the encrypted UI backup; copying a running SQLite database directly may produce an inconsistent snapshot.
 
-### 2.4 Restore
+### Restore
 
 #### Restore in the UI
 
-1. Upload a ZIP backup or a standalone `.db` file.
-2. Enter the current password to confirm; encrypted backups also require the backup decryption password.
-3. The service writes the restored content to `data/restore-pending/` and restarts automatically.
-4. Docker deployments are brought back by `restart: unless-stopped`; when running the binary directly, restart the process yourself.
-5. Sign in with the administrator account from the backup.
+1. Upload a ZIP backup or a standalone `.db` file and enter the current password; encrypted backups also need the decryption password.
+2. The service writes to `data/restore-pending/` and restarts automatically. Docker deployments return via `restart: unless-stopped`; restart a directly run binary yourself.
+3. Sign in with the administrator account from the backup.
 
 #### Manual Restore
 
-1. Stop the service.
-2. Put `config.yaml` and `data/` from the backup back in their original locations.
-3. Verify permissions: configuration file `0600`, data directory `0700`, owned by the service user.
-4. Start the service.
-5. Check the secure entry, administrator login, certificates, tasks, and plugins.
+1. Stop the service and put `config.yaml` and `data/` from the backup back in place.
+2. Set configuration `0600` and data directory `0700`, owned by the service user, then start and check the secure entry, login, certificates, tasks, and plugins.
 
 #### Restore Considerations
 
-- After restoring, sign in with the administrator account from the backup.
-- Session persistence is enabled by default, so restarts keep sessions. With `security.session_persistence: false`, every start clears sessions and rotates the JWT signing subkey.
-- If the `config.yaml` in the backup uses a different `jwt_secret`, old tokens fail validation.
-- If a different `salt` is used, encrypted credentials in the database can only be decrypted with the matching configuration; therefore, always restore from a complete ZIP backup.
-- If the secure entry in the backup differs from the current one, check the startup log for the new entry.
-- If only the database is restored and the `salt` in `config.yaml` is lost, encrypted DNS, deployment, and notification credentials cannot be decrypted and must be re-entered.
+- Sign in with the backup's administrator account. Session persistence is on by default; with `security.session_persistence: false`, every start clears sessions and rotates the JWT signing subkey.
+- A different `jwt_secret` invalidates old tokens; a different `salt` makes encrypted credentials undecryptable. Always restore from a complete ZIP backup, and check the startup log if the secure entry changed.
+- Restoring only the database without the matching `salt` requires re-entering all DNS, deployment, and notification credentials.
 
-### 2.5 Restore Drill
+### Restore Drill
 
-Perform at least once per quarter:
+Perform at least quarterly:
 
 - [ ] Restore the most recent backup in an isolated environment.
-- [ ] Verify administrator login, TOTP/passkeys, and the recovery email.
-- [ ] Verify the certificate list, tasks, deployment credentials, and notification channels.
-- [ ] Run a test task and deploy to a non-production target.
-- [ ] Record the actual RTO, issues, and improvement items.
-- [ ] Confirm that the backup password is still held by an authorized person.
+- [ ] Verify administrator login, TOTP/passkeys, recovery email, certificates, tasks, credentials, and channels.
+- [ ] Run a test task, deploy to a non-production target, record the actual RTO, and confirm the backup password is still held by an authorized person.
 
-## 3. Monitoring and Alerting
+## Monitoring and Alerting
 
-### 3.1 Monitoring Signals
+### Monitoring Signals
 
 | Signal | Collection method | Recommended threshold/action |
 | --- | --- | --- |
 | Process liveness | TCP port probe | Every 30–60 seconds; alert after 3 consecutive failures |
 | Authentication health | `GET /api/status` + `system:read` API key | Every 1–5 minutes; alert on non-200 or high latency |
-| Task failures | Operation logs or notifications | Alert on failure; distinguish DNS/CA/deployment/notification |
+| Task / deployment failures | Operation logs, notifications, deployment records | Alert immediately; distinguish DNS/CA/deployment/notification |
 | Certificate nearing expiry | Dashboard, site monitoring | Tiered reminders at 30/14/7 days |
-| Deployment failures | Deployment records/notifications | Alert immediately; check the target system and reload command |
-| Disk | Host/platform monitoring | Warn above 80% usage; alert above 90% |
-| Backup | Backup jobs/file checks | Alert on failure or when the interval is exceeded |
-| HTTP 5xx | Reverse proxy logs | Set thresholds against the baseline |
-| Login anomalies | Operation logs/system logs | Alert on repeated failures or unusual source IPs |
+| Disk / backup | Host monitoring, backup jobs/file checks | Warn above 80%, alert above 90%; alert on backup failure or missed interval |
+| HTTP 5xx / login anomalies | Reverse proxy and operation/system logs | Thresholds against baseline; alert on repeated failures or unusual source IPs |
 
-### 3.2 Alert Routing
+### Alert Routing
 
-- Task failures, certificate anomalies, and deployment failures go to the operations on-call channel.
-- Security events (unusual logins, secure entry probing, plugin verification failures) go to the security channel.
-- Backup failures and insufficient disk space go to the platform channel.
-- Do not send test notifications to the production on-call group; use a separate channel.
+- Task, certificate, and deployment failures go to the operations alert channel.
+- Security events (unusual logins, secure entry probing, plugin verification failures) go to security; backup failures and low disk go to platform.
+- Do not send test notifications to the production alert group. Configure at least two independent channels (for example, email + IM) to avoid a single point of failure.
 
-Notification channel availability depends on external services. Configure at least two independent channels (for example, email + enterprise IM) to avoid a single point of failure.
+### Monitoring Practices to Avoid
 
-### 3.3 Monitoring Practices to Avoid
+- Do not use bare `/` or `/login` for anonymous health checks: requests that bypass the secure entry return 404, which is expected.
+- Do not store administrator passwords or long-lived full-privilege API keys in monitoring systems, and do not put private keys or backup passwords in alert content.
 
-- Do not use bare `/` or `/login` for anonymous health checks: requests that have not passed the secure entry return 404, which is expected.
-- Do not store administrator passwords or long-lived full-privilege API keys in monitoring systems.
-- Do not include certificate private keys or backup passwords in alert content.
+## Routine Maintenance
 
-## 4. Routine Maintenance
+### Daily
 
-### 4.1 Daily
+- Review task/deployment failures and site monitoring; confirm no new high-risk expiry items and that backups ran.
 
-- Review task failures, deployment failures, and site monitoring anomalies.
-- Confirm that the certificate expiry dashboard has no new high-risk items.
-- Check that backups are generated as scheduled.
+### Weekly
 
-### 4.2 Weekly
+- Check automatic renewal scheduling; review system-log errors, rate limiting, unusual logins, and API key/credential changes.
 
-- Check that automatic renewal tasks are scheduled correctly.
-- Review errors, rate limiting, and unusual logins in the system logs.
-- Verify newly added or disabled API keys and credentials.
+### Monthly
 
-### 4.3 Monthly
+- Check disk, database size, WAL, log retention, plugin versions, and advisories; spot-check logs, change records, and channels.
 
-- Check disk, database size, WAL, and log retention.
-- Check plugin versions and security advisories.
-- Spot-check operation logs and change records.
-- Verify notification channels.
+### Quarterly
 
-### 4.4 Quarterly
+- Complete the backup and restore drill, and review administrator accounts, recovery email, TOTP/passkeys, API key permissions, and rollback plans.
 
-- Complete the backup and restore drill.
-- Review administrator accounts, recovery email, and TOTP/passkeys.
-- Review API key permissions and expiry.
-- Assess upgrade windows and rollback plans.
+## Capacity and Cleanup
 
-## 5. Capacity and Cleanup
-
-### 5.1 Capacity to Monitor
+### Capacity to Monitor
 
 | Item | Growth source | Handling |
 | --- | --- | --- |
-| SQLite | Certificates, task logs, operation logs, system logs, ACME orders | Purge historical data, optimize the database, archive logs |
-| Log archives | NDJSON.gz files and manifests under `data/archives/logs/` | Copy to external storage regularly; delete from Logs → Archive when appropriate |
-| WAL | Long uptime, frequent writes | `wal_checkpoint(TRUNCATE)` performed by the upgrade/optimization tool |
-| Plugins | Old files accumulate from installs/updates | Uninstall unused plugins and remove old helpers |
-| Upgrade backups | Migration snapshots, old binaries | Purge per retention policy |
+| SQLite | Certificates, task/operation/system logs, ACME orders | Purge historical data, optimize the database, archive logs |
+| Log archives | NDJSON.gz files and manifests under `data/archives/logs/` | Copy to external storage; delete from Logs → Archive when appropriate |
+| WAL | Long uptime, frequent writes | `wal_checkpoint(TRUNCATE)` by the upgrade/optimization tool |
+| Plugins / upgrade backups | Old helper files, migration snapshots, old binaries | Uninstall unused plugins and purge per retention policy |
 | Backup storage | Daily/weekly backups | Set retention and offsite copies |
 
-### 5.2 Cleanup Entry Points
+### Cleanup Entry Points
 
-- **Certificate Management → One-click cleanup**: filter by status, expiry/revocation age, issuance time, domain, issuer, and source; optionally retain the latest certificate for each task. Certificate references in affected tasks are cleared after cleanup.
-- **ACME Diagnostics → Cleanup**: remove invalid orders and accounts by endpoint, status, and unused age; deleting an account deletes historical orders but does not affect issued certificates.
-- **Logs → Operation/System → Clear**: when archiving is enabled, logs are written to `data/archives/logs/` before being deleted; an archive failure blocks deletion. The clear action is recorded in the operation log.
-- **Logs → Archive**: browse, download, or delete archive files. Archives are kept forever by default; when `archive.retention_days` or `archive.max_total_mb` is configured, maintenance cleanup applies the policy.
-- **Upgrade/optimization**: run database optimization during off-peak hours; `VACUUM` briefly monopolizes the database and rewrites the file, so reserve disk space.
+- **Certificate Management → One-click cleanup** filters by status, expiry/revocation age, issuance time, domain, issuer, and source, optionally keeping the latest certificate per task; task references are cleared after cleanup.
+- **ACME Diagnostics → Cleanup** removes invalid orders and accounts; deleting an account removes historical orders but not issued certificates.
+- **Logs → Operation/System → Clear** archives to `data/archives/logs/` first when enabled; an archive failure blocks deletion. **Logs → Archive** browses, downloads, or deletes archives under the configured retention.
 
-### 5.3 Database Maintenance
+### Database Maintenance
 
-- The service runs maintenance cleanup every 6 hours; confirm in the logs page that the scheduler is running.
-- On first start, a new version automatically runs historical migrations and creates a pre-migration snapshot in `data/upgrade-backups/`.
-- To reclaim disk space, visit `/upgrade` during off-peak hours and run "Optimize database & config only" with VACUUM enabled.
-- Ensure a usable backup and sufficient disk space before running; a `VACUUM` failure is returned as a warning and does not prevent the service from continuing to run.
+- Maintenance cleanup runs every 6 hours; confirm the scheduler in the logs page. A new version runs migrations on first start and creates a snapshot in `data/upgrade-backups/`.
+- To reclaim space, visit `/upgrade` off-peak and run "Optimize database & config only" with VACUUM; ensure a backup and free disk space first. A `VACUUM` failure is a warning and does not stop the service.
 
-## 6. Versions and Releases
+## Versions and Releases
 
-### 6.1 Version Identification
+### Version Identification
 
-- The git tag is the sole source of the version number; the repository does not maintain a `VERSION` file.
-- Local builds derive the version from `git describe --tags --always --dirty` and strip the `v` prefix.
-- Build scripts inject the version with `-ldflags -X 'lactssl/internal/api.Version=...'`.
-- View the build version, build time, and architecture under **Settings → About**.
-- `go run` and development builds display `dev`.
+- The git tag is the sole version source; local builds use `git describe --tags --always --dirty` and strip the `v`, injected with `-ldflags -X 'lactssl/internal/api.Version=...'`. **Settings → About** shows build version, time, and architecture; `go run` and development builds show `dev`.
 
-### 6.2 Release Channels
+### Release Channels
 
-- Stable release tags include `latest`, `<version>`, `<major>.<minor>`, and `<major>`.
-- Pre-releases push only the full version tag and do not overwrite `latest`.
+- Stable tags include `latest`, `<version>`, `<major>.<minor>`, and `<major>`; pre-releases push only the full version and do not overwrite `latest`.
 - Pin production to an explicit version; do not run an untraceable `latest` tag long term.
 
-### 6.3 Release Artifacts
+### Release Artifacts
 
-Releases build Linux/macOS/Windows binaries, `checksums.txt`, and `linux/amd64` and `linux/arm64` images. Archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`.
+Releases build Linux/macOS/Windows binaries, `checksums.txt`, and `linux/amd64` and `linux/arm64` images; archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`. See [Development: source and build](development.md).
 
-For release process, signing, and local build details, see [Development: source and build](development.md).
-
-## 7. Upgrade and Change
+## Upgrade and Change
 
 Before upgrading:
 
-1. Read the release notes and migration notes for the target version.
-2. Back up `config.yaml` and `data/`.
-3. Validate critical paths (issuance, deployment, notifications, API) in staging.
-4. Confirm the rollback version and rollback steps.
-5. Choose an off-peak window and notify stakeholders.
+1. Read the release and migration notes, and back up `config.yaml` and `data/`.
+2. Validate issuance, deployment, notifications, and API in staging.
+3. Confirm the rollback version and steps, choose an off-peak window, and notify stakeholders.
 
 Docker:
 
@@ -241,51 +181,38 @@ sudo chown lactssl:lactssl /opt/lactssl/lactssl
 sudo systemctl start lactssl
 ```
 
-After upgrading:
+After upgrading, look for "data format upgrade completed", confirm step status on `/upgrade`, verify certificates, tasks, deployments, notifications, and the API, and observe at least one scheduling cycle (30 seconds) and one task run.
 
-- Look for "data format upgrade completed" in the logs.
-- Sign in to `/upgrade` and confirm step status.
-- Verify certificates, tasks, deployments, notifications, and the API.
-- Observe at least one scheduling cycle (at least 30 seconds) and one task run.
+For complete migration, rollback, and upgrade instructions, see [Upgrade and change management](upgrade.md).
 
-For complete migration, rollback, and program upgrade instructions, see [Upgrade and change management](upgrade.md).
+## Incident Response
 
-## 8. Incident Response
-
-### 8.1 Severity Levels
+### Severity Levels
 
 | Level | Example | Target |
 | --- | --- | --- |
 | P1 | Administrative entry point unavailable; large numbers of certificates cannot be renewed; private key compromise | Respond immediately and activate the incident process |
 | P2 | A single task fails; a deployment target is abnormal; a notification channel is unavailable | Respond within 30 minutes |
-| P3 | A single false monitoring alert; log anomalies; non-critical plugin issues | Handle during business hours |
+| P3 | A single false monitoring alert; log anomalies; non-critical plugin issues | Handle during working hours |
 
-### 8.2 General Steps
+### General Steps
 
-1. **Confirm the scope of impact**: which certificates, tasks, deployment targets, and business systems are affected.
+1. **Confirm the scope**: which certificates, tasks, deployment targets, and target systems are affected.
 2. **Preserve evidence**: do not clear logs; record the time, request ID, and error messages.
-3. **Check dependencies**: DNS API, CA, network, reverse proxy, target systems, SMTP/IM.
-4. **Isolate changes**: pause affected tasks to avoid repeated failures or overwriting certificates.
-5. **Restore service**: fix the dependency or roll back the change; restore from backup if necessary.
-6. **Verify**: rerun tasks and check certificates, deployments, and notifications.
-7. **Review**: record the root cause, timeline, improvement items, and owners.
+3. **Check dependencies and isolate changes**: DNS API, CA, network, reverse proxy, target systems, SMTP/IM; pause affected tasks to avoid repeated failures or overwriting certificates.
+4. **Restore, verify, and review**: fix the dependency or roll back, restore from backup if necessary, rerun tasks, check certificates, deployments, and notifications, and record the root cause, timeline, improvements, and owners.
 
 For specific symptoms and commands, see [Monitoring and troubleshooting](troubleshooting.md).
 
-## 9. Handover Checklist
+## Handover Checklist
 
 - [ ] Service topology, hosts, ports, reverse proxy, and network policies.
-- [ ] Custody of administrator accounts, TOTP/passkeys, and the recovery email.
-- [ ] API key inventory: purpose, permissions, expiry, and owner.
+- [ ] Custody of administrator accounts, TOTP/passkeys, recovery email, and the API key inventory.
 - [ ] DNS/deployment/notification credential inventory and rotation schedule.
-- [ ] Backup location, backup password, and records of recent restore drills.
-- [ ] Monitoring items, alert routing, and on-call schedule.
-- [ ] Current version, upgrade window, and rollback plan.
-- [ ] Open tasks, known issues, and vendor contacts.
+- [ ] Backup location, password, and recent restore-drill records; monitoring, alert routing, alert schedule, current version, upgrade window, rollback plan, open tasks, known issues, and upstream service contacts.
 
 ## Related Documentation
 
 - [Deployment architecture](architecture.md)
 - [Security baseline](security.md)
 - [Upgrade and change management](upgrade.md)
-- [Monitoring and troubleshooting](troubleshooting.md)

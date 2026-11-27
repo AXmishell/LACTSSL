@@ -1,13 +1,11 @@
 # Security baseline
+This document is for developers deploying and integrating LACTSSL: the security model, implemented controls, and a pre-launch checklist.
 
-This document is intended for security leads, auditors, and platform teams. It describes LACTSSL's security model, implemented controls, controls that enterprises must add, and a pre-launch hardening checklist. It is not a compliance certification conclusion and does not replace the enterprise's own risk assessment.
-
-## 1. Security model and trust boundaries
-
-LACTSSL is designed as a self-hosted single instance, with the following trust boundaries:
+## Security model and trust boundaries
+LACTSSL is a self-hosted single instance with these trust boundaries:
 
 ```text
-[Untrusted] Internet / enterprise network users
+[Untrusted] Internet / external network users
     │ HTTPS (terminated at the reverse proxy)
 [Boundary] Reverse proxy / WAF / network ACLs
     │ HTTP (loopback or internal network)
@@ -22,162 +20,109 @@ LACTSSL is designed as a self-hosted single instance, with the following trust b
 Key conclusions:
 
 - **An administrator session is equivalent to full control**, including executing local deployment commands, exporting private keys, and restoring backups.
-- **API keys are machine identities** intended to reduce privileges in automation scenarios, not multi-user RBAC.
-- **Plugins are trusted code**; deployment plugins in particular have access to certificate private keys, so supply chain security must be enforced by the enterprise.
-- **The database and `config.yaml` are equally sensitive**; losing `salt` makes encrypted credentials unusable, and leaking it may allow credentials to be decrypted.
+- **API keys are machine identities** that reduce privileges in automation, not multi-user RBAC.
+- **Plugins are trusted code**; deployment helpers can read certificate private keys, so the deployer must enforce supply chain security.
+- **The database and `config.yaml` are equally sensitive**; losing `salt` makes encrypted credentials unusable, and leaking it may allow decryption.
 
-## 2. Identity and access control
+## Identity and access control
 
-### 2.1 Administrator account
+### Administrator account
+- Single administrator account; no multi-user or RBAC support.
+- Passwords are bcrypt hashes of at least 8 characters; for production, use random passwords of 16 characters or more. TOTP and passkeys (WebAuthn/Passkey) are supported.
+- Enabling TOTP and registering a passkey require on-the-spot re-authentication (current password; TOTP also when enabled), preventing a stolen session from binding an attacker-controlled authenticator. Changing SMTP/notification targets and sending test messages need only a logged-in session or the corresponding API scope.
+- Re-authentication allows sensitive actions for 5 minutes in the same browser session; password, email, TOTP, and passkey changes still require a fresh check. Passkeys require an HTTPS domain or localhost, and passkey sign-in does not ask for TOTP again.
+- Changing the password increments the token version and deletes all sessions, API keys, and passkeys; an email reset also disables TOTP and deletes passkeys and API keys, so the recovery mailbox must itself be secured.
+- Alerts cover password, email, TOTP, passkey, API key, and notification target changes; email changes notify both old and new addresses. New-device sign-ins are reminded at most once per 30-day window, and failed sign-ins aggregate at 5 per 10 minutes, at most hourly. Email is the default; plugin channels receive the sign-in IP, device, and account email, and alerts do not replace MFA or mailbox forwarding checks.
+- A policy change notifies the previous recipients and channels using the old SMTP snapshot; an hourly limit (10 by default) applies only to high-frequency sign-in/failure alerts, while critical credential changes and new-device sign-ins bypass it. The settings page shows per-target delivery status.
 
-- Single administrator account; no multi-user, roles, organizational structure, or approval workflow.
-- Passwords are stored as bcrypt hashes and must be at least 8 characters; for production, use random passwords of 16 characters or more.
-- Supports TOTP two-factor authentication and passkeys (WebAuthn/Passkey).
-- Enabling TOTP and registering a passkey require on-the-spot re-authentication (current password; TOTP is also required when enabled), preventing a stolen session from binding the account to an attacker-controlled authenticator. Changing SMTP/notification targets and sending test mail or notifications only require a logged-in session or the corresponding API scope; they no longer ask for a separate password/TOTP check.
-- After a successful re-authentication, the same browser session can perform sensitive actions for 5 minutes without re-entering credentials; password, email, TOTP, and passkey changes still require a fresh check.
-- Passkeys must be used through an HTTPS domain or localhost; a bare IP address cannot be used as a WebAuthn origin.
-- Sign-in with a passkey does not ask for TOTP again; the passkey itself performs device fingerprint, face, or system PIN verification.
-- Changing the password increments the token version and deletes all server-side sessions, API keys, and passkeys, immediately invalidating all sign-ins.
-- Resetting the password by email also disables TOTP and deletes passkeys and API keys; the recovery email itself must be secured.
-- Security alerts are sent for password, email, TOTP, passkey, API key, and notification target changes; email changes notify both the old and new addresses. New-device sign-ins are reminded at most once within the configured window (30 days by default); failed sign-ins are aggregated at 5 failures within 10 minutes, at most once per hour.
-- Alerts use email by default. Plugin channels must be explicitly selected, and selecting them sends the sign-in IP, device, and account email to the corresponding third party. Alerts do not replace MFA, strong passwords, or forwarding-rule checks on the mailbox itself.
-- Changing the security alert policy notifies the previous recipients and channels using the old SMTP configuration snapshot, so the old recipients still receive the alert even if the new SMTP settings are wrong or point to an attacker.
-- Security alerts have an hourly limit (10 by default) for high-frequency sign-in/failure alerts only; critical credential changes and new-device sign-ins bypass it, preventing an attacker from drowning critical alerts in noise. The settings page shows per-target delivery status for recent events.
+### API keys
+- Keys are 86-character Base64URL random strings (64 bytes of entropy) with no prefix; the server stores only a SHA-256 digest. Permissions use `resource:action`, and `*` represents all system API capabilities.
+- Sensitive permissions include `certificates:key`, `private_cas:key`, `deploy:execute`, `plugins:write`, `settings:write`, and `api_keys:write`; backup download/restore, entry changes, and database switching are browser-session only.
+- A key cannot grant permissions it lacks, nor modify, rotate, or delete keys with higher privileges than its own. Account security operations (password changes, passkeys, sessions) are browser-session only.
+- Issue a separate key per automation system, set an expiration, grant least privilege, and rotate regularly.
 
-### 2.2 API keys
+## Network and TLS
 
-- Keys are 86-character Base64URL random strings (64 bytes of entropy) with no fixed prefix; the server stores only a SHA-256 digest.
-- Permissions are divided by "resource:action"; `*` represents all system API capabilities.
-- Sensitive permissions are listed separately: `certificates:key`, `private_cas:key`, `deploy:execute`, `plugins:write`, `settings:write`, `api_keys:write`, and others. Backup download/restore, entry changes, and database switching are browser-session only.
-- When managing other keys through an API key, a key cannot grant permissions it does not have, nor modify, rotate, or delete keys with higher privileges than its own.
-- Account security operations (password changes, passkeys, session management) are allowed only from browser sign-in sessions and cannot be called with API keys.
-- Create a separate key for each automation system, set an expiration, grant least privilege, and rotate regularly.
-
-### 2.3 Enterprise responsibilities
-
-- Multi-user RBAC, SSO (OIDC/SAML/LDAP), SCIM, and approval workflows.
-- Bastion hosts, PAM, or zero-trust access proxies.
-- Two-person review of the administrator account and periodic access reviews.
-- Centralized custody of API keys (Vault/KMS) and source IP restrictions.
-
-## 3. Network and TLS
-
-### 3.1 Inbound
-
-- The administration console must be accessed through an HTTPS reverse proxy; the main program listens on HTTP only.
-- Backend ports must listen only on loopback or the internal network and must not be exposed directly to the internet.
+### Inbound
+- The console must be accessed through an HTTPS reverse proxy; the main program listens on HTTP only, and backend ports must stay on loopback or the internal network.
 - Configure source IP allowlists, VPN, zero-trust policies, or a WAF at the proxy layer.
-- The proxy must overwrite or correctly append `X-Forwarded-For` and pass `X-Forwarded-Proto`; LACTSSL trusts only the exact IPs or smallest CIDRs in `server.trusted_proxies`. In an append chain, every proxy in the chain must be trusted.
-- When no trusted proxy is configured, all requests are treated as coming from the proxy IP, which breaks rate limiting and `Secure` cookie detection.
-- Configure HSTS, TLS 1.2+, disabled weak ciphers, and request body size limits at the proxy layer (backup restore and plugin uploads require larger limits).
+- The proxy must overwrite or correctly append `X-Forwarded-For` and pass `X-Forwarded-Proto`; LACTSSL trusts only the exact IPs or smallest CIDRs in `server.trusted_proxies`, including every proxy in an append chain. Without a trusted proxy, all requests appear to come from the proxy IP, breaking rate limiting and `Secure` cookie detection.
+- Configure HSTS, TLS 1.2+, disabled weak ciphers, and request body size limits at the proxy (backup restore and helper uploads require larger limits).
 
-### 3.2 Outbound
-
+### Outbound
 The server initiates outbound requests to:
 
-- DNS provider APIs (to create and clean up TXT records).
-- Public ACME CAs and generic upstreams.
+- DNS provider APIs, public ACME CAs, and generic upstreams.
 - Notification channels such as SMTP, Gotify, Telegram, DingTalk, WeCom, and webhooks.
-- Deployment targets such as SSH/SFTP, FTP/FTPS, cloud CDNs, BaoTa, 1Panel, and SafeLine WAF.
-- Site certificate monitoring targets.
+- Deployment targets such as SSH/SFTP, FTP/FTPS, cloud CDNs, BaoTa, 1Panel, and SafeLine WAF; site certificate monitoring targets.
 
-Recommendations:
-
-- In production, apply egress allowlists by domain or CIDR and permit only the destinations actually required.
-- When an enterprise proxy is required, configure it through system environment variables (Go HTTP client behavior) rather than in-application configuration.
-- Review the source of custom targets such as deployment webhooks and notification webhooks to avoid sending private keys or tokens to untrusted addresses.
+- In production, apply egress allowlists by domain or CIDR. When a proxy is required, configure it through system environment variables (Go HTTP client behavior) rather than in-application configuration.
+- Review custom targets such as deployment and notification webhooks to avoid sending private keys or tokens to untrusted addresses.
 - For internal HTTPS targets, import the internal CA public key under "Settings → TLS trust chain" instead of disabling TLS verification; imported and private CAs are merged into `SSL_CERT_FILE` for plugins and deployment commands.
 
-### 3.3 SSRF protection
+### SSRF protection
+- Literal and resolved addresses are rejected for cloud metadata, link-local, reserved, documentation, and NAT64 ranges (such as `169.254.169.254`, `100.100.100.200`, `fd00:ec2::254`, `0.0.0.0/8`, and `240.0.0.0/4`); loopback and private addresses remain allowed for Gotify, self-hosted panels, and internal webhooks, and should be restricted at the network layer if unneeded.
+- Deployment webhooks carry private keys, so public destinations must use `https://`; loopback, private, `.local`, and `.internal` destinations may use HTTP.
+- During dial, DNS results are re-validated and the verified IP is connected directly, preventing DNS rebinding; URL paths and query parameters are redacted before failures are logged, keeping Telegram, Gotify, and ServerChan secrets out of logs and backups.
 
-- Literal and resolved destination addresses are rejected for cloud metadata, link-local, reserved, documentation, and NAT64 ranges (such as `169.254.169.254`, `100.100.100.200`, `fd00:ec2::254`, `0.0.0.0/8`, and `240.0.0.0/4`).
-- Loopback and private addresses remain allowed for scenarios such as Gotify, self-hosted panels, and internal webhooks; restrict them further at the network layer if not needed.
-- Deployment webhooks carry certificate private keys, so public destinations must use `https://`; loopback, private, `.local`, and `.internal` destinations may use HTTP.
-- During the dial stage, DNS results are re-validated and the verified IP is connected to directly, preventing DNS rebinding bypasses.
-- Before third-party request failures are written to logs, URL paths and query parameters are redacted to keep Telegram bot tokens, Gotify tokens, ServerChan SendKeys, and similar secrets out of logs and backups.
+## Secure entry, sessions, and CSRF
 
-## 4. Secure entry, sessions, and CSRF
-
-### 4.1 Secure entry
-
-Administration pages are not exposed at the root path; access requires entering through a randomly generated entry first:
+### Secure entry
+Administration pages are not exposed at the root; access requires a randomly generated entry:
 
 ```text
 https://your-domain/<entry>/
 ```
 
-- The entry is generated by default as 20 random upper- and lowercase letters and digits and stored in the database.
-- Pages accessed without the entry return `404`, including common probe paths such as bare `/`.
-- APIs are mounted under bare `/api` and protected by a login session or API key; the legacy `/<entry>/api` is retained as a compatibility alias.
-- Visiting the correct entry sets a signed `HttpOnly` gate cookie valid for 24 hours; the server also validates the expiration.
-- Entry probing is rate-limited to prevent brute-force enumeration.
-- The entry can be changed under "Settings → Secure entry" and takes effect immediately; a manual entry must be 8–32 characters.
-- On first initialization, the full entry URL is printed to the startup log; it is no longer printed after initialization is complete.
-- If the entry is forgotten, change `security.entry` in `config.yaml` and restart to override it, or look up `security.entry` in the database `settings` table.
-- Before the system is initialized, the startup log also outputs a one-time setup token; creating the administrator, changing initial configuration, restarting the setup process, and restoring from backup all require this token (`X-LACTSSL-SETUP-TOKEN`).
-- The token is invalidated immediately after successful initialization and regenerated when the service restarts.
+- The entry is 20 random letters and digits by default and stored in the database; pages accessed without it return `404`, including bare `/`.
+- APIs are mounted under bare `/api` and protected by a login session or API key; the legacy `/<entry>/api` remains as a compatibility alias.
+- The correct entry sets a signed `HttpOnly` gate cookie valid for 24 hours, and probing is rate-limited against brute force.
+- Change the entry under "Settings → Secure entry" (8–32 characters, effective immediately). Its full URL is printed once at first initialization; if forgotten, change `security.entry` in `config.yaml` and restart, or look it up in the `settings` table.
+- Before initialization, the startup log prints a one-time setup token required for creating the administrator, initial configuration, restarting setup, and restoring from backup (`X-LACTSSL-SETUP-TOKEN`); it is invalidated after success and regenerated on restart.
 
 > The entry is an additional layer of protection; it does not replace HTTPS, strong passwords, or network access controls.
 
-### 4.2 Sessions
+### Sessions
+- Sessions use `HttpOnly` cookies unreadable by scripts, with `SameSite=Lax` for console deep links; state-changing requests are protected by double-submit CSRF and Origin checks.
+- Session tokens are compact JWTs with a 24-byte (192-bit) random session ID and 32-character CSRF tokens; a long-lived (1 year) `HttpOnly` device cookie (`lactssl_device`, 32 hex characters) is issued on first entry or sign-in.
+- On HTTPS, session, CSRF, and entry cookies use the `__Host-` prefix so sibling subdomains cannot overwrite them. Session persistence is enabled by default and keeps sessions across restarts with `jwt_secret`.
+- With `security.session_persistence: false`, every start clears server-side sessions and mixes a startup random value into the JWT signing subkey. Changing the password increments the token version and deletes all sessions, API keys, and passkeys.
 
-- Login sessions are stored in `HttpOnly` cookies that frontend scripts cannot read; cookies use `SameSite=Lax`, allowing console deep links from email or external sites; state-changing requests are still protected by double-submit CSRF and Origin checks.
-- Session tokens use compact JWTs with a 24-byte (192-bit) random session ID; CSRF tokens are 32 characters.
-- The first visit to the secure entry or a sign-in issues a long-lived (1 year) `HttpOnly` device identifier cookie (`lactssl_device`, 32 hex characters).
-- On HTTPS deployments, session, CSRF, and entry cookies automatically use the `__Host-` prefix, preventing sibling subdomains under a shared parent domain from overwriting them.
-- Session persistence is enabled by default: a restart keeps server-side sessions and uses the fixed `jwt_secret`, so existing sign-ins continue to work.
-- With `security.session_persistence: false`, strict mode is restored: every start clears server-side sessions and mixes a startup random value into the JWT signing subkey, invalidating all previous sign-ins.
-- Changing the password increments the token version and deletes all sessions, API keys, and passkeys.
+### CSRF and cross-site protection
+- State-changing requests (POST/PUT/DELETE) must carry `X-LACTSSL-CSRF` matching the `lactssl_csrf` cookie; legacy sessions receive it on first request, and header-only fallback is not accepted.
+- Unauthenticated endpoints such as sign-in, initialization, forgot password, and password reset also validate `Origin`/`Sec-Fetch-Site`.
+- `Authorization: Bearer` API calls are exempt from CSRF validation. Page responses use a per-request CSP nonce, and `script-src` no longer allows arbitrary inline scripts; inline styles remain allowed for the component library.
 
-### 4.3 CSRF and cross-site protection
-
-- All requests that change server state (POST/PUT/DELETE, etc.) must carry an `X-LACTSSL-CSRF` request header that matches the `lactssl_csrf` cookie.
-- Legacy sessions receive this cookie automatically on their first request; header-only fallback validation is not accepted.
-- Unauthenticated endpoints such as sign-in, initialization, forgot password, and password reset additionally validate `Origin`/`Sec-Fetch-Site`.
-- API calls that explicitly use `Authorization: Bearer <token>` are exempt from CSRF validation, which simplifies scripts and external integrations.
-- Page responses use a random CSP nonce per request, and `script-src` no longer allows arbitrary inline scripts; inline styles remain allowed to meet component library requirements.
-
-## 5. Password reset and public URL
-
-Links in password reset emails must be generated from a fixed address:
+## Password reset and public URL
+Links in reset emails must use a fixed address:
 
 ```yaml
 security:
   public_url: "https://ssl.example.com"
 ```
 
-- When `public_url` is not configured, links are derived from the current Host only for requests from the local loopback address with a Host of `localhost`/a loopback IP; "forgot password" requests from other sources are rejected.
-- The client-forgeable `X-Forwarded-Host` is not trusted.
-- In reverse proxy deployments, `public_url` must be configured to prevent attackers from forging the Host and pointing reset links (including the token and secure entry) at their own domain.
+- Without `public_url`, links derive from the current Host only for loopback requests with a Host of `localhost` or a loopback IP; other "forgot password" requests are rejected, and the client-forgeable `X-Forwarded-Host` is never trusted.
+- In reverse proxy deployments, configure `public_url` so attackers cannot forge the Host and point reset links (including the token and secure entry) at their own domain.
 
-## 6. Credential and data protection
+## Credential and data protection
 
-### 6.1 Encryption
-
-- Sensitive fields such as DNS credentials, deployment credentials, SMTP passwords, notification tokens, TOTP secrets, private CA private keys, and certificate private keys are encrypted with AES-256-GCM before being written to the database.
-- Legacy plaintext data is migrated automatically at startup.
-- The encryption key comes from `security.salt` in `config.yaml`.
-- JWTs are signed with `security.jwt_secret`; the effective key is an independent subkey derived from `jwt_secret` and a startup random value via HKDF, separate from the database AES-GCM key.
-- When `security.jwt_secret` and `security.salt` are configured manually, they must be at least 32 characters; shorter values cause startup to be refused.
+### Encryption
+- DNS, deployment, SMTP, notification, TOTP secret, private CA, and certificate private key fields are encrypted with AES-256-GCM before being written to the database; legacy plaintext data migrates automatically at startup. The encryption key comes from `security.salt`.
+- JWTs are signed with an independent subkey derived from `security.jwt_secret` and a startup random value via HKDF, separate from the database key; manually configured `jwt_secret` and `salt` must be at least 32 characters or startup is refused.
 - APIs mask secret fields when returning configuration; leaving them empty while editing keeps the existing value.
 
-### 6.2 Files and backups
+### Files and backups
+- Keep `config.yaml` at `0600` and `data/` at `0700`, owned by the service user. The database, WAL, plugins, logs, and upgrade backups live under `data/`.
+- Backup download requires an encryption password of at least 12 characters; packages use PBKDF2-HMAC-SHA256 (600,000 iterations) + AES-256-GCM and contain the database, configuration, and version.
+- Treat backup packages as confidential and never distribute unencrypted database or configuration copies. Restore packages are fully validated (key lengths, secure entry, listen address, TLS/mTLS combinations) and invalid configurations are rejected.
+- After successful initial setup, unapplied restore packages are cleared so content staged before initialization cannot overwrite the new account on restart.
 
-- Keep `config.yaml` at `0600` and `data/` at `0700`, owned by the service user.
-- The database, WAL, plugins, logs, and upgrade backups are all located under `data/`.
-- Downloading a backup requires an encryption password of at least 12 characters; backup packages are encrypted with PBKDF2-HMAC-SHA256 (600,000 iterations) + AES-256-GCM.
-- Backup packages contain the database, configuration, and version information and must be handled as confidential files; do not distribute unencrypted database or configuration copies.
-- Restore packages are fully validated before use (key lengths, secure entry, listen address, TLS/mTLS combinations, and so on); invalid configurations are rejected.
-- After successful initial setup, restore packages that have not been applied are cleared to prevent content staged before initialization from overwriting the new account on a later restart.
+### Credential rotation
+- Use dedicated DNS/deployment/notification accounts and rotate them regularly; issue API keys per system with expiration and rotate immediately on suspected compromise.
+- SSH requires a host fingerprint by default; TOFU applies only when "auto-trust host key on first connection" is explicitly enabled, and later mismatches reject the connection.
+- FTP uses explicit TLS by default; plaintext FTP applies only when `none` is explicitly selected.
 
-### 6.3 Credential rotation
-
-- Use dedicated accounts for DNS/deployment/notification credentials and rotate them regularly.
-- SSH requires a host fingerprint by default; TOFU is used only when "auto-trust host key on first connection" is explicitly enabled, and later fingerprint mismatches cause the connection to be rejected.
-- FTP deployment uses explicit TLS by default; plaintext FTP is used only when `none` is explicitly selected.
-- Set expiration times for API keys, issue them per system, and rotate immediately on suspected compromise.
-
-## 7. Audit and logging
+## Audit and logging
 
 | Log | Content | Retention/export |
 | --- | --- | --- |
@@ -185,131 +130,74 @@ security:
 | System logs | Startup, HTTP, scheduling, plugins, ACME | 7 days/20,000 rows by default; adjustable and clearable; archived before deletion |
 | Log archives | Raw NDJSON and manifests for operation/system logs | `data/archives/logs/`; kept forever by default; download or delete from Logs → Archive |
 | Process logs | stdout or `log.file` | Rotated by size/days; can output JSON |
-| Reverse proxy logs | Access, source IP, status code | Managed by the enterprise log platform |
+| Reverse proxy logs | Access, source IP, status code | Managed by an external log system |
 
-Recommendations:
+- Export operation logs, system logs, and archives to a SIEM regularly to avoid audit gaps after administrator clears, archive deletion, or corruption; the two database log categories share the `logs` table but stay isolated by `category`.
+- Every response carries `X-Request-ID` for correlating access logs, panics, and errors. Access logs omit query parameters, bodies, and authentication headers, and the secure entry is replaced with `:entry`.
+- Logs may contain client IPs, domains, and operator identities; archive directories use `0700` and files `0600`. Archives are not tamper-proof; if tamper-resistant audit is required, sync them to external WORM storage or a SIEM, and link critical operations to change records.
 
-- Export operation logs, system logs, and archives to a SIEM or log platform regularly to avoid audit gaps caused by administrators clearing logs, deleting archives, or data corruption.
-- Operation logs and system logs share the `logs` table but are isolated by `category`; clearing system logs never deletes operation logs.
-- Every response carries an `X-Request-ID` that can be used to correlate access logs, panics, and errors.
-- Access logs do not record query parameters, request bodies, or authentication headers; the secure entry is consistently replaced with `:entry` in paths.
-- Logs and archives may contain client IPs, domains, error details, and operator identities; manage them as operational data and avoid sharing them publicly. Archive directories use `0700` and files use `0600`.
-- Archives are not tamper-proof: an administrator with data-directory access can delete or modify them. High-compliance environments still need external WORM storage or a SIEM.
-- Link critical operations (private key export, backup restore, CA generation, plugin installation, secure entry changes) to change requests.
-
-## 8. Plugin and supply chain security
-
-- Official plugins are compiled into the host and covered by the release signature/image digest. Uploaded plugins run in a Linux Landlock/rlimit sandbox by default, and their digests are rechecked for manifest probes and every call. If the host still runs as root without `LACTSSL_RUN_UID`/`LACTSSL_RUN_GID`, uploaded plugins are refused.
-- Official builds embed `upgrade.program.public_key` and enforce release signature verification by default; self-built binaries without it reject online upgrades, and only controlled environments may enable `upgrade.program.allow_unsigned`.
-- Assets must provide a 64-character hexadecimal SHA-256 digest, which is verified after download.
-- Installation validates `plugin.json`, the ID and version in the manifest, and other attributes; any failure triggers a rollback.
-- File digests from installation records are rechecked during discovery, registration, and before every DNS/deployment/notification call; replaced files are refused for loading or execution.
-- When no signing public key is configured, a risk warning is displayed and unattended automatic updates are skipped.
-- Cached indexes (including 304 reuse) are re-verified against the current public key on every load; when the key changes or the cache has no signature, the ETag is discarded and a full fetch is forced. Configuring a key alone never marks a cache as verified.
-- The plugin directory permission is `0700` and helpers are `0755`; group or other write access is not allowed, and symlinks are rejected.
-- Deployment plugins receive certificate private keys and are disabled by default; only install them from trusted sources.
-- The main program limits helper timeouts, resident memory, and output size, and redacts credentials and private keys from error messages.
+## Plugin and supply chain security
+- Official implementations are compiled into the host and covered by the release signature/image digest. Uploaded helpers run in a Linux Landlock/rlimit sandbox by default, and their digests are rechecked for manifest probes and every call; if the host still runs as root without `LACTSSL_RUN_UID`/`LACTSSL_RUN_GID`, uploads are refused.
+- Official builds embed `upgrade.program.public_key` and enforce release signature verification; self-built binaries without it reject online upgrades, and only controlled environments may enable `upgrade.program.allow_unsigned`.
+- Assets must provide a 64-character hexadecimal SHA-256 digest verified after download. Installation validates `plugin.json`, the manifest ID and version, and other attributes, with rollback on failure.
+- Installation-record digests are rechecked during discovery, registration, and before every DNS/deployment/notification call; replaced files are refused. If no signing public key is configured, a risk warning is shown and unattended automatic updates are skipped.
+- The plugin directory is `0700` and helpers are `0755`; group/other write and symlinks are rejected. Deployment helpers receive private keys and are enabled by default; keep only trusted targets enabled. The host limits helper timeouts, memory, and output size while redacting credentials from errors.
 
 Production recommendations:
 
-- Use an enterprise internal mirror (HTTPS or `file://`), pin versions, and disable automatic updates.
-- Maintain a plugin admission list that records the source, version, digest, approver, and rollback version.
-- Validate plugin upgrades in staging before production.
+- Record each helper's source, version, digest, reviewer, and rollback version; validate upgrades in staging.
+- Keep only verified helpers in production; third-party code runs with the privileges of the service account.
 
-## 9. ACME server security
+## ACME server security
+- The ACME server is enabled by default but issues nothing externally until an endpoint is created and enabled. It has a dedicated protocol entry that does not use the admin secure entry, session cookies, or CSRF; set `acme.enabled: false` when unused.
+- For public deployments, use a dedicated port and restrict access at the firewall or proxy. Every endpoint must have a domain allowlist; enabling one with an empty allowlist is rejected.
+- EAB is recommended on. With EAB disabled, anyone who can reach the port can create an account, so combine it with a domain allowlist, mTLS, or network ACLs. mTLS is a transport gate and does not replace ACME JWS account authentication.
+- Configure a fixed `acme.base_url` (or `security.public_url`) to prevent Host header injection from pointing resource URLs at the wrong location; custom upstream directory URLs must use HTTPS except on loopback.
+- HTTP-01 validation rejects loopback, private, link-local, and CGNAT/reserved ranges by default (such as `100.64.0.0/10` and `192.0.0.0/24`); internal scenarios must explicitly allow them per endpoint.
+- ACME resources use random public IDs, not database auto-increment IDs. Single-instance deployments use in-memory nonces; after a restart, clients receive `badNonce` and retry automatically.
+- CRL/OCSP live under `/pki/{ca}/...`, are organized per CA, and usually must remain publicly reachable even when enrollment is disabled. They are IP rate-limited, cache by revocation set, and increment the CRL Number only when content changes; revocation state is stored in the `revocations` table and survives certificate cleanup.
+- Before issuing a leaf, the CA's `ExtKeyUsage` (must include `serverAuth` or `any`) and NameConstraints are enforced for both task issuance and ACME finalize. Browsers handle private CA revocation inconsistently, and existing certificates must be reissued to include CRL/OCSP URLs.
 
-- The built-in ACME server is enabled by default but does not issue certificates externally until an endpoint is created and enabled.
-- Once enabled, it provides a dedicated protocol entry that does not use the administration secure entry, session cookies, or CSRF validation; set `acme.enabled` to `false` when not needed.
-- For public deployments, use a dedicated port and restrict access at the firewall or reverse proxy layer.
-- Every ACME endpoint must have a domain allowlist; enabling an endpoint with an empty allowlist is rejected.
-- EAB can be enabled or disabled and is recommended on by default. With EAB disabled, anyone who can reach the port can create an account, so it must be combined with a domain allowlist, mTLS, or network ACLs.
-- mTLS is a transport-layer gate and does not replace ACME JWS account authentication.
-- `acme.base_url` should be configured as a fixed public address to prevent Host header injection from pointing resource URLs at the wrong location.
-- HTTP-01 validation rejects loopback, private, link-local, and CGNAT/reserved ranges by default (such as `100.64.0.0/10` and `192.0.0.0/24`); internal scenarios must explicitly allow them through endpoint-level CIDR allowlists.
-- ACME protocol resources use random public IDs rather than database auto-increment IDs.
-- Custom ACME upstream directory URLs must use HTTPS; only local loopback addresses may use HTTP.
-- Single-instance deployments use in-memory nonces; after a service restart, clients receive `badNonce` and retry automatically.
-- CRL and OCSP endpoints are located under `/pki/{ca}/...` and usually must be publicly reachable; they are organized per CA and should remain available even when the ACME enrollment endpoint is disabled.
-- When ACME is enabled, configure a fixed `acme.base_url` (or `security.public_url`); otherwise resource URLs are derived from the request Host, and public deployments should not rely on that fallback.
-- CRL/OCSP endpoints are rate-limited by IP; CRLs cache results for the same revocation set and increment the CRL Number only when revocation content changes.
-- ACME server rate limiting reads trusted proxies from `server.trusted_proxies` and counts by real client IP.
-- CRL/OCSP only affects clients that actively check revocation status; browsers behave inconsistently for private CAs. Existing certificates must be reissued to include CRL/OCSP URLs.
-- Revocation state is stored in a separate `revocations` table; deleting or cleaning up certificate rows does not erase revocations, and CRL/OCSP are generated from that table.
-- Before issuing a leaf certificate, the CA's `ExtKeyUsage` (must include `serverAuth` or `any`) and NameConstraints (permitted/excluded DNS and IP) are enforced; task issuance and ACME finalize share the same validation.
+## Deployment and container hardening
+- Run as a dedicated user with `config.yaml` at `0600` and the data directory at `0700`. The Docker entrypoint corrects volume permissions, then runs as the non-root `lactssl` user.
+- Compose drops all capabilities and adds back only what is needed (such as `CHOWN`/`SETUID`), with a read-only root filesystem, `/tmp` tmpfs, `pids_limit`, and `init`.
+- Never commit `data/` or `config.yaml` to version control or place them in public directories. The service limits regular API bodies to 2 MiB (except backup restore and helper uploads) and sets read/write timeouts; configure body size and timeouts at the proxy too.
+- Pin production image/binary versions, scan images for vulnerabilities, and monitor advisories. For ports 80/443, forward through a reverse proxy rather than granting capabilities to the binary.
 
-## 10. Deployment and container hardening
-
-- Run the service as a dedicated user; keep `config.yaml` at `0600` and the data directory at `0700`.
-- The Docker image corrects volume permissions through an entrypoint script and then runs the main program as the non-root `lactssl` user.
-- Compose drops all capabilities by default and adds back only those needed, such as `CHOWN`/`SETUID`, and enables a read-only root filesystem, a `/tmp` tmpfs, `pids_limit`, and `init`.
-- Do not commit `data/` or `config.yaml` to version control or place them in public directories.
-- By default, the service limits regular API request bodies to 2 MiB (except backup restore and plugin uploads) and sets read/write timeouts; configure request body size and timeouts at the reverse proxy layer as well.
-- Pin production image/binary versions, scan images for vulnerabilities regularly, and monitor release security advisories.
-- When using privileged ports such as 80/443, prefer forwarding through a reverse proxy rather than granting additional capabilities to the binary.
-
-## 11. Control mapping
-
-The following table helps security and audit teams align on "what the product provides and what the enterprise must add." It is not a certification conclusion; specific controls must be tailored to the enterprise's system and assessment scope.
-
-| Control area | Provided by LACTSSL | Enterprise responsibilities |
-| --- | --- | --- |
-| Asset inventory | Certificates, tasks, CAs, credentials, deployment records | CMDB linkage, business ownership, accountable owners |
-| Access control | Single administrator, TOTP/passkeys, API key scopes | SSO, RBAC, bastion hosts, approval workflows |
-| Cryptography | AES-256-GCM field encryption, TLS provided by the proxy, private CA | HSM/KMS, key custody, cryptographic module compliance |
-| Log auditing | Operation logs, system logs, local archives, request IDs, export | SIEM, long-term retention, tamper protection, alert rules |
-| Supply chain | Plugin signatures, SHA-256, installation record verification | Internal mirrors, admission review, vulnerability scanning |
-| Backup and recovery | Encrypted ZIP backups, restore validation, migration snapshots | Offline copies, offsite storage, restore drills |
-| Change management | Operation logs, upgrade backups, rollback documentation | Change requests, two-person review, maintenance windows |
-| Vulnerability management | CI, release verification, dependency updates | Image scanning, penetration testing, patch SLAs |
-| Network security | Secure entry, rate limiting, SSRF protection, trusted proxies | Firewalls, WAF, zero trust, egress allowlists |
-| Data retention | Log retention configuration, certificate/log cleanup, local archives | Compliance retention periods, external archival, tamper resistance, and destruction procedures |
-
-## 12. Known limitations
-
+## Known limitations
 - No multi-user or RBAC support; the administrator session is a single point.
 - No SSO, LDAP, OIDC, SAML, or SCIM support.
 - No HSM/KMS support; private keys are stored encrypted in the local database.
 - No active-active clustering; SQLite uses a single writer, and multiple instances cannot share a data directory.
-- No tamper-proof audit; administrators can clear logs or delete local archives, so high-compliance environments must archive externally with WORM/retention locks.
+- No tamper-proof audit; administrators can clear logs or delete local archives. If tamper-resistant audit is required, archive externally with WORM/retention locks.
 - No Prometheus metrics endpoint; monitoring relies on logs, the authenticated API, and external probes.
 - No automatic rollback on deployment targets; the target system must retain previous versions or use atomic releases.
-- No MLPS/ISO certification is included; compliance conclusions must be issued by the enterprise's assessment body.
 
-## 13. Pre-launch security checklist
+## Pre-launch security checklist
 
 ### Identity
-
 - [ ] The administrator uses a strong password and has TOTP or a passkey enabled.
-- [ ] The recovery email is controlled and protected with MFA.
-- [ ] Unknown sessions have been cleared.
+- [ ] The recovery email is controlled and protected with MFA, and unknown sessions have been cleared.
 - [ ] API keys are issued per system, follow least privilege, and have expiration times.
 
 ### Network
-
 - [ ] The administration entry uses HTTPS only, and backend ports are not exposed directly to the internet.
-- [ ] `trusted_proxies` and `public_url` are configured.
-- [ ] The proxy passes `X-Forwarded-For`/`X-Forwarded-Proto`.
+- [ ] `trusted_proxies` and `public_url` are configured, and the proxy passes `X-Forwarded-For`/`X-Forwarded-Proto`.
 - [ ] Source restrictions, a WAF, or zero-trust policies are configured.
-- [ ] Outbound traffic is allowlisted by destination and goes through the enterprise proxy when required.
+- [ ] Outbound traffic is allowlisted by destination and goes through a proxy when required.
 
 ### Data
-
 - [ ] `config.yaml` is `0600`, `data/` is `0700`, and ownership is correct.
-- [ ] Encrypted backups have been created and stored offsite.
-- [ ] The backup password is stored separately from the backup files.
-- [ ] A restore drill has been completed.
-- [ ] Log retention and export meet audit requirements.
+- [ ] Encrypted backups have been created and stored offsite, with the password kept separately.
+- [ ] A restore drill has been completed, and log retention and export meet operational audit needs.
 
 ### Plugins and ACME
-
-- [ ] Only trusted repositories/internal mirrors are used, and a signing public key is configured.
-- [ ] Automatic updates are disabled in production.
-- [ ] Deployment plugins are enabled only as needed, and their sources have been reviewed.
+- [ ] Only reviewed third-party helpers are uploaded, with a signing public key configured.
+- [ ] Deployment helpers are enabled only as needed, and their sources have been reviewed.
 - [ ] ACME endpoints have domain allowlists, and EAB is enabled in production.
 - [ ] ACME entry points are source-restricted, with mTLS enabled when necessary.
 
-## 14. Security incident response
-
+## Security incident response
 1. **Determine the scope**: account, API key, DNS/deployment credentials, plugin, or host.
 2. **Isolate**: revoke sessions/API keys, disable plugins, disable ACME endpoints, and disconnect at the network layer if necessary.
 3. **Preserve evidence**: export operation logs, system logs, and reverse proxy logs, and record `X-Request-ID`; do not clear logs first.
@@ -317,11 +205,4 @@ The following table helps security and audit teams align on "what the product pr
 5. **Recover**: restore from a trusted backup, verify configuration and data consistency, and reissue any potentially affected certificates.
 6. **Review**: update runbooks, permission inventories, and monitoring rules.
 
-For specific troubleshooting steps, see [Monitoring and troubleshooting](troubleshooting.md); for backup and restore, see [Operations](operations.md).
-
-## Related documentation
-
-- [Administration](administration.md): accounts, keys, auditing, and responsibilities.
-- [Architecture](architecture.md): network, ports, and availability.
-- [Operations](operations.md): backup, restore, upgrades, and drills.
-- [Plugin governance](plugins.md): supply chain and internal mirrors.
+For troubleshooting, see [Monitoring and troubleshooting](troubleshooting.md); for backup and restore, see [Operations](operations.md).

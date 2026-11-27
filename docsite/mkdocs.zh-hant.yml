@@ -4,7 +4,7 @@
 # 注意：Zensical 以本檔案所在目錄（docsite/）為專案根，docs_dir/site_dir 不可指向其外部。
 site_name: LACTSSL
 site_url: https://lactssl.gpcn.cc/zh-hant/
-site_description: 面向企業團隊與個人 / 小團隊的自架 SSL 證書管理平台：ACME 申請與自動續期、證書部署、監控、私有 CA 與內部 ACME 服務。
+site_description: "自託管 SSL 證書管理：ACME 申請與自動續期、證書部署、到期監控、私有 CA 與內部 ACME 服務。"
 repo_url: https://github.com/AXmishell/LACTSSL
 repo_name: AXmishell/LACTSSL
 edit_uri: edit/main/docsite/docs/zh-hant/
@@ -37,6 +37,7 @@ theme:
         icon: material/brightness-4
         name: 切換到淺色模式
   features:
+    - navigation.tabs
     - navigation.sections
     - navigation.top
     - navigation.footer
@@ -47,18 +48,17 @@ theme:
 
 nav:
   - 首頁: index.md
-  - 快速上手與部署:
-      - 快速上手與上線: getting-started.md
+  - 開始使用:
+      - 快速開始: getting-started.md
       - 安裝與啟動: install.md
       - 部署架構: architecture.md
-  - 管理與使用:
-      - 管理工作台: administration.md
+  - 使用指南:
       - 產品能力: features.md
+      - 管理工作台: administration.md
       - 外掛治理: plugins.md
-  - 整合與安全:
       - API 整合: api.md
       - 安全基線: security.md
-  - 維運保障:
+  - 維運:
       - 維運手冊: operations.md
       - 升級與變更: upgrade.md
       - 監控與排障: troubleshooting.md
@@ -67,7 +67,7 @@ nav:
       - DNS 外掛: dns-plugins.md
       - 部署外掛: deploy-plugins.md
       - 通知外掛: notify-plugins.md
-  - 擴充開發:
+  - 開發:
       - 原始碼與建置: development.md
       - 外掛開發: plugin-development.md
 

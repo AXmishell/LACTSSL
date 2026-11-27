@@ -5,7 +5,7 @@
 # 注意：Zensical 以本文件所在目录（docsite/）为项目根，docs_dir/site_dir 不能指向其外部。
 site_name: LACTSSL
 site_url: https://lactssl.gpcn.cc/
-site_description: "Self-hosted SSL certificate management for enterprise teams and individuals / small teams: ACME issuance and auto-renewal, deployment, endpoint monitoring, private CA, and internal ACME."
+site_description: "Self-hosted SSL certificate management: ACME issuance and auto-renewal, deployment, expiry monitoring, private CA, and internal ACME."
 repo_url: https://github.com/AXmishell/LACTSSL
 repo_name: AXmishell/LACTSSL
 edit_uri: edit/main/docsite/docs/en/
@@ -38,6 +38,7 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
   features:
+    - navigation.tabs
     - navigation.sections
     - navigation.top
     - navigation.footer
@@ -48,27 +49,26 @@ theme:
 
 nav:
   - Home: index.md
-  - Get started and deploy:
-      - Getting started and rollout: getting-started.md
+  - Get started:
+      - Quick start: getting-started.md
       - Installation: install.md
       - Architecture: architecture.md
-  - Administration:
-      - Administration workspace: administration.md
+  - Guides:
       - Capabilities: features.md
+      - Administration: administration.md
       - Plugin governance: plugins.md
-  - Integration and security:
       - API integration: api.md
       - Security baseline: security.md
   - Operations:
       - Operations handbook: operations.md
       - Upgrade and change: upgrade.md
-      - Monitoring and troubleshooting: troubleshooting.md
+      - Troubleshooting: troubleshooting.md
   - Reference:
       - Configuration: configuration.md
       - DNS plugins: dns-plugins.md
       - Deployment plugins: deploy-plugins.md
       - Notification plugins: notify-plugins.md
-  - Extension development:
+  - Development:
       - Source and build: development.md
       - Plugin development: plugin-development.md
 

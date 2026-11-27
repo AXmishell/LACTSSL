@@ -1,131 +1,95 @@
 # Deployment plugins
 
-Deployment plugins deliver certificates to targets such as FTP, webhooks, cloud CDNs, control panels, and WAFs. They are a **high-risk component with access to certificate private keys**, so enterprises should include them in admission and change management.
+Deployment plugins deliver certificates to FTP, webhooks, cloud CDNs, panels, and WAFs. They are a **high-risk component with access to certificate private keys**, so include them in review and change management.
 
-## 1. Built-in and plugin targets
+## Built-in and plugin targets
 
-| Type | Target | Built-in | Description |
+| Type | Target | Default | Description |
 | --- | --- | --- | --- |
-| Built-in | Local directory | Yes | Writes to a local path, with an optional reload command |
-| Built-in | SSH / SFTP | Yes | Password or private key authentication, host fingerprint verification |
-| Plugin | FTP / FTPS | No | Plain FTP, explicit TLS, implicit TLS |
-| Plugin | Webhook | No | Custom authentication headers, optional TLS verification bypass (not recommended) |
-| Plugin | Alibaba Cloud CDN | No | Updates domain certificates |
-| Plugin | Qiniu Cloud | No | CDN accelerated domain or Kodo custom origin domain |
-| Plugin | BaoTa panel / BaoTa WAF | No | Website, panel, or WAF |
-| Plugin | 1Panel | No | Website or panel |
-| Plugin | SafeLine WAF | No | Matched by certificate ID or domain |
-| Plugin | Tencent Cloud / Volcengine / AcePanel, and similar | No | Subject to the entries in the plugin market |
+| Built-in | Local directory | Enabled | Writes to a local path, with an optional reload command |
+| Built-in | SSH / SFTP | Enabled | Password or private key authentication, host fingerprint verification |
+| Built-in | FTP / FTPS | Enabled | Plain FTP, explicit TLS, implicit TLS |
+| Built-in | Webhook | Enabled | Custom authentication headers, optional TLS verification bypass (not recommended) |
+| Built-in | Alibaba Cloud CDN / Qiniu Cloud | Enabled | CDN domain or Kodo custom origin domain |
+| Built-in | BaoTa panel/WAF, 1Panel, SafeLine WAF, Tencent Cloud, Volcengine, AcePanel | Enabled | Website, panel, WAF, or certificate ID/domain match |
 
-> **Deployment plugins receive certificate private keys.** Install only helpers from trusted sources, and ensure that only the service user can write to the plugin directory. Deployment plugins are disabled by default and must be enabled explicitly.
+> **Deployment targets receive certificate private keys.** Install only trusted third-party helpers, and ensure that only the service user can write to the plugin directory. The category and official targets are enabled by default; disable any you do not need.
 
-## 2. Credentials and deployment parameters
+## Credentials and deployment parameters
 
-**Target credentials** store only authentication and connection information, such as host, port, username, password, panel URL, and API key. Parameters such as certificate paths, reload commands, deployment domains, and sites are entered on the **Deploy certificate** node of the task workflow.
+**Target credentials** store only authentication and connection information such as host, port, username, password, panel URL, and API key. Certificate paths, reload commands, domains, and sites are entered on the **Deploy certificate** node of the task workflow. This lets one credential serve multiple tasks, keeps rotation independent of orchestration, and records deployment parameters with the task version for auditing and rollback.
 
-This design provides the following benefits:
-
-- The same credential can be reused by multiple tasks.
-- Credential rotation does not affect task orchestration.
-- Deployment parameters are recorded with the task version, which supports auditing and rollback.
-
-## 3. Configuration
+## Configuration
 
 ```yaml
 deploy_plugins:
-  enabled: false          # plugins can access private keys; disabled by default
+  enabled: true           # official targets are on by default; plugins can access private keys
   dir: ""                 # empty means <data_dir>/plugins/deploy
   memory_limit_mb: 128    # resident memory limit per helper
   timeout_seconds: 300    # timeout for a single deploy; raise it for large uploads
   max_output_kb: 64       # helper output limit
 ```
 
-The three plugin types use separate subdirectories under `<data_dir>/plugins`:
-
-- DNS: `<data_dir>/plugins/dns`
-- Deployment: `<data_dir>/plugins/deploy`
-- Notification: `<data_dir>/plugins/notify`
-
-Restart the service after changing the configuration. The directory is scanned automatically at startup. After installing a new helper, click **Rescan plugins** on the **Plugins** page, or call:
+The three plugin types use separate subdirectories under `<data_dir>/plugins`: `dns`, `deploy`, and `notify`. Restart after changing the configuration. The directory is scanned at startup; after installing a new helper, click **Rescan plugins** or call:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/plugins/rescan
 ```
 
-## 4. Installing and enabling
+## Installing and enabling
 
-1. Set `deploy_plugins.enabled: true` in the configuration and restart the service.
-2. Open the **Plugins** page, confirm the plugin repository URL, and click **Refresh index**.
-3. Install the required deployment targets from the **Plugin market**.
-4. Enable the plugin file first, then enable specific targets in the deployment target list. Newly downloaded files and entries are disabled by default.
+1. Confirm `deploy_plugins.enabled: true` in the configuration (the default) and restart after changes.
+2. Open the deployment tab on the **Plugins** page and disable the targets you do not need.
 
-If no plugin is installed or enabled, only local files and SSH appear under target credentials and task workflow deployment types. Existing credentials are preserved and remain usable after plugins are installed.
+When the category is disabled, only local files and SSH are shown; existing credentials are preserved. Enablement is stored in the settings table and persists across restarts and rescans. Merged targets show a single vendor entry under **Target credentials**, with the product chosen on the task deploy node.
 
-Enablement state is stored in the settings table under `plugins.deploy.enabled_deployers` and records only enabled target IDs; it persists across restarts and rescans. Merged targets show a single vendor entry under **Target credentials**; the specific product is selected through **Deployment target** on the task deploy node.
+## Target practices
 
-## 5. Target practices
-
-### 5.1 Local directory
+### Local directory
 
 - The service user must have write permission on the target directory.
-- Prefer atomic writes: write a temporary file first, then `rename` it into place so that readers never see a partial file.
-- Reload command examples: `nginx -s reload`, `systemctl reload nginx`, `systemctl reload postfix`.
-- A failed reload command does not roll back the certificate file; retain the previous version on the target side.
+- Prefer atomic writes (temporary file, then `rename`), and note that a failed reload does not roll back the file; retain the previous version. Reload examples: `nginx -s reload`, `systemctl reload nginx`, `systemctl reload postfix`.
 
-### 5.2 SSH / SFTP
+### SSH / SFTP
 
-- By default, the target host fingerprint (`SHA256:...`) is required. TOFU is used only when **Automatically trust the host key on first connection** is explicitly enabled; subsequent fingerprint mismatches reject the connection.
-- After the server's key is replaced, clear the old fingerprint and record it again.
-- Use a dedicated deployment user with write access only to the target path and the minimum required reload permissions (sudoers scoped to specific commands).
-- Prefer private key authentication over passwords. Store the private key in a controlled location, protect it with a passphrase, and rotate it regularly.
+- The target host fingerprint (`SHA256:...`) is required by default. TOFU applies only when first-use trust is explicitly enabled; later mismatches reject the connection. After the server key is replaced, clear the old fingerprint and record it again.
+- Use a dedicated deployment user with write access only to the target path and the minimum reload permissions.
+- Prefer private key authentication; protect the key with a passphrase and rotate it regularly.
 
-### 5.3 FTP / FTPS
+### FTP / FTPS
 
-- Explicit TLS is the default; plain FTP is used only when `none` is explicitly selected.
-- Certificate private keys and login passwords traverse the network; prefer SFTP or FTPS in production.
+- Explicit TLS is the default; plain FTP applies only when `none` is explicitly selected. Private keys and passwords traverse the network, so prefer SFTP or FTPS in production.
 - Restrict target IPs, ports, and directory permissions; do not use shared accounts.
 
-### 5.4 Webhook
+### Webhook
 
 - Public targets are forced to HTTPS; loopback, private network, `.local`, and `.internal` addresses may use HTTP.
-- Webhooks carry the certificate and private key, so the receiver must be trusted. Use a dedicated token and source IP restrictions.
-- Do not enable **Skip TLS verification** unless necessary; if required, limit it to internal self-signed targets. For certificates issued by an internal CA, import the CA public key under "Settings → TLS trust chain" so deployment plugins can trust the target with normal verification.
-- Receivers should implement idempotency and signature verification to prevent replay.
+- Webhooks carry the certificate and private key; use a dedicated token, source IP restrictions, and receiver-side idempotency and signature verification. Avoid **Skip TLS verification**; for internal CAs, import the CA under "Settings → TLS trust chain" instead.
 
-### 5.5 Cloud CDN / panel / WAF
+### Cloud CDN / panel / WAF
 
 - Use dedicated sub-accounts with only certificate management permissions.
-- Deployment parameters (domain, site, certificate name) must match the target system; BaoTa panel website and Docker website names can be loaded from the panel API and selected from a list.
-- If the plugin does not implement dynamic options or the panel is unreachable, you can still type names manually.
-- If the target system enforces an IP allowlist, allow LACTSSL egress addresses.
-- CDNs and WAFs may cache certificates; after deployment, verify the certificate that is actually in effect.
+- Deployment parameters must match the target; BaoTa website names can be loaded from the panel API or typed manually. Allow LACTSSL egress addresses when the target has an IP allowlist.
+- CDNs and WAFs may cache certificates; verify the certificate actually in effect.
 
-## 6. Deployment records and verification
+## Deployment records and verification
 
-- Each deployment generates a deployment record; results are available in certificate details and logs.
-- Manual deployments reuse the deployment node parameters of the certificate's task where possible, and can also accept parameters entered separately for the target.
-- Local and SSH deployments run the reload command; API keys must explicitly hold `deploy:execute`.
-- A failed deployment does not automatically roll back the previous certificate on the target system; retain the previous version on the target side or use atomic release.
+Each deployment generates a record visible in certificate details and logs. Manual deployments reuse task parameters where possible and can accept separate parameters. Local and SSH deployments run the reload command; API keys need `deploy:execute`. A failed deployment does not roll back the target automatically; retain the previous version or use atomic release.
 
 Verification checklist:
 
-- [ ] Target path or site is correct.
-- [ ] Certificate chain is complete (fullchain).
-- [ ] Private key matches the certificate.
-- [ ] The service was reloaded and actually loaded the new certificate.
-- [ ] All instances and nodes are updated.
-- [ ] CDN/WAF caches are refreshed.
-- [ ] The browser or client shows the new certificate serial number or fingerprint.
+- [ ] Target path or site is correct; the chain is complete (fullchain); the key matches.
+- [ ] The service reloaded on all instances; CDN/WAF caches are refreshed and clients show the new serial.
 
-## 7. Offline and manual installation
+## Offline and manual installation
 
-- Upload a single helper on the **Plugins** page, up to 256 MB; it is available only after `deploy_plugins.enabled` is enabled.
-- After upload, the `manifest`, deployment target IDs, and SHA-256 are validated before the file is written to the deployment plugin directory and rescanned immediately.
-- Overwriting a file with the same name is rejected by default. When upgrading, select **Allow overwriting a plugin with the same filename**; the old file is backed up first.
-- Plugins whose IDs duplicate a built-in deployment target are discovered, but the rescan result marks them as **ignored**.
+- Upload a single helper on the **Plugins** page, up to 256 MB; it requires `deploy_plugins.enabled: true` (the default).
+- After upload, the `manifest`, deployment target IDs, and SHA-256 are validated before the file is written and rescanned immediately.
+- Overwriting a same-name file is rejected by default; select **Allow overwriting a plugin with the same filename** when upgrading, and the old file is backed up first.
+- Helpers whose IDs duplicate a built-in target are discovered but marked **ignored** in the rescan result.
 
-## 8. Helper protocol v1 (integration development)
+## Helper protocol v1 (integration development)
 
 A helper is an executable that supports the following subcommands:
 
@@ -149,39 +113,14 @@ Example `manifest` output:
     {
       "id": "example-panel",
       "name": "Example Panel",
-      "name_i18n": {"zh-CN": "示例面板", "en-US": "Example Panel"},
-      "capabilities": ["verify-v1"],
       "description": "Push certificates to an Example panel",
-      "description_i18n": {
-        "zh-CN": "把证书推送到 Example 面板",
-        "en-US": "Push certificates to an Example panel"
-      },
       "aliases": ["example"],
       "fields": [
-        {
-          "key": "panel_url",
-          "label": "Panel URL",
-          "label_i18n": {"zh-CN": "面板地址", "en-US": "Panel URL"},
-          "type": "text",
-          "required": true
-        },
-        {
-          "key": "api_token",
-          "label": "API Token",
-          "label_i18n": {"zh-CN": "API Token", "en-US": "API Token"},
-          "type": "password",
-          "secret": true,
-          "required": true
-        }
+        {"key": "panel_url", "label": "Panel URL", "type": "text", "required": true},
+        {"key": "api_token", "label": "API Token", "type": "password", "secret": true, "required": true}
       ],
       "deploy_fields": [
-        {
-          "key": "sites",
-          "label": "Sites",
-          "label_i18n": {"zh-CN": "站点", "en-US": "Sites"},
-          "type": "text",
-          "required": true
-        }
+        {"key": "sites", "label": "Sites", "type": "text", "required": true}
       ]
     }
   ]
@@ -190,12 +129,9 @@ Example `manifest` output:
 
 Field reference:
 
-- `fields` are the authentication and connection information in target credentials; fields marked `secret: true` or with `type: "password"` are masked in API responses and stored encrypted with the credential.
-- `deploy_fields` are parameters on the **Deploy certificate** node of the task workflow.
-- `key` must be unique across both field lists. Supported field types are `text`, `password`, `textarea`, `number`, `select`, and `switch`.
-- A deployment target `id` may contain only lowercase letters, digits, underscores, or hyphens. Plugins that duplicate a built-in target are ignored.
-- `name` / `description` / `label` / `placeholder` / `help` are default-language strings; optional `*_i18n` maps override them per locale.
-- Locale keys use BCP 47 form, such as `zh-CN` and `en-US`; each string map supports up to 32 locales.
+- `fields` are authentication and connection information; `secret: true` or `type: "password"` values are masked and stored encrypted.
+- `deploy_fields` are parameters on the **Deploy certificate** node. `key` must be unique across both lists; types are `text`, `password`, `textarea`, `number`, `select`, and `switch`.
+- Target `id` allows lowercase letters, digits, underscores, and hyphens; IDs duplicating a built-in target are ignored. `name` / `description` / `label` and similar are default-language strings; optional `*_i18n` maps (BCP 47, up to 32 locales) override them.
 
 `deploy` stdin:
 
@@ -222,41 +158,28 @@ Field reference:
 
 Conventions:
 
-- Exit code `0` means success; a non-zero exit means failure. stderr is written to the deployment record (sensitive values are redacted).
-- stdout may be empty or contain one JSON line: `{"ok": true, "message": "..."}`; `ok` set to `false` is treated as a failure.
-- Malformed JSON is treated as an error; write debug logs to stderr.
-- The helper receives its memory budget from `LACTSSL_PLUGIN_MEMORY_LIMIT` (bytes).
-- The main program periodically checks the helper's `VmRSS` and terminates the entire process group, logging an error, when it exceeds `memory_limit_mb`.
-- The main program passes only a minimal set of environment variables; server secrets are not exposed.
-- Plugin files must be executable and must not be writable by group or other users. A non-empty `manifest.sha256` is verified.
-- The main program records the file digest at scan time and re-verifies it before every deployment; replacing a helper requires a rescan.
+- Exit code `0` means success; non-zero means failure. stderr goes to the deployment record with sensitive values redacted.
+- stdout may be empty or one JSON line `{"ok": true, "message": "..."}`; `ok: false` is a failure. Malformed JSON is an error; write debug logs to stderr.
+- `LACTSSL_PLUGIN_MEMORY_LIMIT` sets the byte budget; the host checks `VmRSS` and kills the process group above `memory_limit_mb`.
+- The host passes only a minimal environment; server secrets are not exposed.
+- Plugin files must be executable and not writable by group or others; a non-empty `manifest.sha256` is verified.
+- The digest is recorded at scan time and re-verified before every deployment; replacing a helper requires a rescan.
 
-## 9. Security recommendations
+## Security recommendations
 
 - Enable only trusted helpers; a deployment plugin can read certificate private keys and is equivalent to trusted code.
 - Set the plugin directory to `0700` and helpers to `0755`, owned by the service user.
-- In production, provide `sha256` in the manifest and update the digest after upgrades.
-- Set appropriate `memory_limit_mb` and `timeout_seconds` to prevent a malfunctioning plugin from degrading the host.
-- Do not grant the `lactssl` user additional privileges, and do not place the plugin directory on a shared writable path.
-- Use least-privilege accounts for deployment targets and scope reload commands to specific services.
+- Provide `sha256` in the manifest, update the digest after upgrades, and keep the plugin directory off shared writable paths.
+- Set `memory_limit_mb` and `timeout_seconds`; do not grant extra privileges, and use least-privilege target accounts with scoped reload commands.
 
-## 10. Troubleshooting
+## Troubleshooting
 
 | Symptom | Cause | Resolution |
 | --- | --- | --- |
-| Only local/SSH deployment types are available | Plugin not enabled or not installed | Enable `deploy_plugins.enabled`, then install and enable the target |
+| Only local/SSH types are available | Plugin category or target not enabled | Enable `deploy_plugins.enabled`, then the target |
 | Plugin fails to load | Permissions, digest, protocol, or symbolic link | Correct permissions or reinstall |
 | SSH fingerprint mismatch | Server key replaced or misconfiguration | Verify the fingerprint, clear the old record, and retry |
-| Deployment succeeds but the service still serves the old certificate | Reload missing, caching, or multiple instances | Configure the reload command, refresh caches, and check all nodes |
-| Webhook rejected | Public HTTP, or untrusted certificate | Use HTTPS or an internal address, and check TLS |
-| CDN/panel failure | Credential permissions, parameters, or API version | Check permissions and parameters on the target side |
-| Deployment times out | Slow target or large files | Increase `timeout_seconds` and check the network |
+| Deployment succeeds but old certificate is served | Reload missing, caching, or multiple instances | Configure reload, refresh caches, and check all nodes |
+| Webhook rejected / deployment times out | Public HTTP, untrusted certificate, slow target, or large files | Use HTTPS, check TLS, increase `timeout_seconds` |
 
 For more troubleshooting, see [Monitoring and troubleshooting](troubleshooting.md).
-
-## Related documentation
-
-- [Plugin governance](plugins.md)
-- [Features](features.md)
-- [DNS plugins](dns-plugins.md)
-- [Notification plugins](notify-plugins.md)

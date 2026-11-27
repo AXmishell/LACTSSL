@@ -1,21 +1,19 @@
 # Notification plugins
 
-Notification plugins push certificate issuance, deployment, monitoring, and system events to enterprise IM, email, or webhooks. For B2B use, the focus is **alert routing, channel availability, key rotation, and noise control**.
+Notification plugins push issuance, deployment, monitoring, and system events to IM, email, or webhooks. Focus on **alert routing, channel availability, key rotation, and noise control**.
 
-## 1. Built-in and plugin channels
+## Built-in and plugin channels
 
-| Type | Channel | Built-in | Description |
+| Type | Channel | Default | Description |
 | --- | --- | --- | --- |
-| Built-in | Email (SMTP) | Yes | Supports SSL; implicit TLS by default |
-| Plugin | Gotify, ServerChan, ntfy | No | Self-hosted or third-party push |
-| Plugin | Telegram, Bark, PushDeer | No | Mobile push |
-| Plugin | DingTalk, WeCom bot/app/intelligent bot, Feishu | No | Enterprise IM |
-| Plugin | GoCQHTTP, iGot, PushPlus, WePlus, WxPusher, WxPusher SPT, OpenILink, WPush, Synology Chat, PushMe, ChronoCat | No | Other channels |
-| Plugin | Generic custom webhook | No | Integrate with an internal alerting platform |
+| Built-in | Email (SMTP) | Enabled | Supports SSL; implicit TLS by default |
+| Built-in | DingTalk, WeCom bot/app/intelligent bot, Feishu; Telegram, Bark, PushDeer | Disabled | IM and mobile push |
+| Built-in | Gotify, ServerChan, ntfy, PushPlus, WxPusher, Synology Chat, and similar | Disabled | Self-hosted or third-party push |
+| Built-in | Generic custom webhook | Disabled | Integrate with an internal alerting platform |
 
-If no helper is installed or enabled, only email appears on the notifications page. Existing channel configurations are preserved and remain usable after the helper is installed.
+Official channels are built in and enabled per item; email is always available. Existing channel configurations are preserved when a channel is disabled.
 
-## 2. Configuration
+## Configuration
 
 ```yaml
 notify_plugins:
@@ -26,80 +24,57 @@ notify_plugins:
   max_output_kb: 64       # helper output limit
 ```
 
-The three plugin types use separate subdirectories under `<data_dir>/plugins`:
-
-- DNS: `<data_dir>/plugins/dns`
-- Deployment: `<data_dir>/plugins/deploy`
-- Notification: `<data_dir>/plugins/notify`
-
-Restart the service after changing the configuration. The directory is scanned automatically at startup. After installing a new helper, click **Rescan plugins** on the **Plugins** page, or call:
+The three plugin types use separate subdirectories under `<data_dir>/plugins`: `dns`, `deploy`, and `notify`. Restart after changing the configuration; the directory is scanned at startup. After installing a helper, click **Rescan plugins** or call:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/plugins/rescan
 ```
 
-## 3. Installing and enabling
+## Installing and enabling
 
-1. Open the **Plugins** page, confirm the plugin repository URL, and click **Refresh index**.
-2. Install the required notification channels from the **Plugin market**.
-3. Enable the plugin file first, then enable channels in the channel list; newly downloaded files and entries are disabled by default.
-4. Configure channel credentials and send a test message on the **Notifications** page.
+1. Open the notification tab on the **Plugins** page and enable the channels you need.
+2. Configure channel credentials and send a test message on the **Notifications** page.
 
-Enablement state is stored in the settings table under `plugins.notify.enabled_channels` and persists across restarts and rescans. Only enabled channels appear on the **Notifications** page and in task notification nodes.
+Only enabled channels appear on the **Notifications** page and in task notification nodes; email is always available and cannot be disabled.
 
-Email is not a plugin; it is always available and cannot be disabled.
+## Alerting design
 
-## 4. Enterprise alerting design
-
-### 4.1 Routing
+### Routing
 
 | Event | Recommended destination | Description |
 | --- | --- | --- |
-| Certificate issuance failure | Operations on-call | Requires immediate action; may affect renewal |
+| Certificate issuance failure | Operations alert channel | Requires immediate action; may affect renewal |
 | Deployment failure | Operations + target system owner | Check the target system and reload command |
-| Certificate nearing expiry | Operations + business owner | Tiered at 30/14/7 days |
-| Endpoint monitoring alert | Operations | Distinguish network, chain, and hostname issues |
-| Backup failure | Platform team | Keep separate from certificate alerts |
-| Security event | Security team | Anomalous sign-ins, plugin verification failures, and similar events |
-| Test message | Dedicated test channel | Do not send to the production on-call group |
+| Certificate nearing expiry / backup failure | Operations + target system owner / platform team | Tiered at 30/14/7 days; keep backup alerts separate |
+| Security event | Security team | Anomalous sign-ins, plugin verification failures |
+| Test message | Dedicated test channel | Do not send to the production alert group |
 
-### 4.2 Noise reduction
+### Noise reduction
 
 - Use different channels and groups for different environments.
-- Set task notification nodes to **always / success only / failure only** so that success messages do not drown out failures.
-- Configure aggregation or silence windows for similar events (implemented by the external IM or alerting platform).
-- Tier monitoring items by business importance to avoid frequent alerts for unstable targets.
-- Periodically remove inactive channels and duplicate configurations.
+- Set task notification nodes to **always / success only / failure only**, tier monitoring by importance, add aggregation or silence windows in the external IM or alerting platform, and remove inactive channels periodically.
 
-### 4.3 Availability
+### Availability
 
-- Configure at least two independent channels (for example, email plus enterprise IM) to avoid a single point of failure.
-- Send test messages periodically to confirm that tokens and webhooks have not expired.
-- Monitor channel provider rate limits and content review policies.
-- Notification failures are written to the log; include notification failures themselves in monitoring.
+- Configure at least two independent channels (for example, email plus IM).
+- Send test messages to confirm tokens and webhooks have not expired, monitor provider rate limits and review policies, and watch notification failures in the log.
 
-## 5. Channel credential governance
+## Channel credential governance
 
-- Use dedicated bots or applications, not personal account tokens.
-- Grant only the permissions required to send messages; do not grant organization management, contact directory read, or similar permissions.
-- Use different bots for different environments and teams.
-- Record the token owner, creation date, and rotation interval.
-- Credentials are encrypted before being written to the database and masked in API responses.
-- Do not write tokens or webhook URLs into task names, notes, or logs.
-- On exposure, revoke the credential at the channel immediately and update the LACTSSL configuration.
+- Use dedicated bots or applications, not personal account tokens, and grant only the permission to send messages.
+- Record the token owner, creation date, and rotation interval; use different bots for different environments and teams.
+- Credentials are encrypted before storage and masked in API responses; never put tokens or webhook URLs in task names, notes, or logs. On exposure, revoke the credential at the channel immediately.
 
-## 6. Email (SMTP)
+## Email (SMTP)
 
-- Implicit TLS is used by default (`smtp.ssl=true`).
-- When implicit TLS is disabled, the service refuses to send if the SMTP server does not support STARTTLS, preventing sensitive messages such as password reset tokens from being transmitted in plaintext.
-- Use an enterprise email gateway, a dedicated sender account, and SPF/DKIM/DMARC.
-- Keep the recovery email account and the notification sender account separate to avoid mutual impact.
-- Use different recipients for test email and production notifications.
+- Implicit TLS is used by default (`smtp.ssl=true`). When disabled, the service refuses to send if the server lacks STARTTLS, preventing plaintext transmission of password reset tokens.
+- Use an SMTP service, a dedicated sender account, and SPF/DKIM/DMARC.
+- Keep the recovery email account separate from the notification sender; use different recipients for test and production.
 
-## 7. Helper protocol v1 (integration development)
+## Helper protocol v1 (integration development)
 
-A helper is an executable that supports two subcommands:
+A helper is an executable with two subcommands:
 
 ```bash
 notify-helper manifest   # print the JSON manifest
@@ -128,12 +103,7 @@ Example `manifest` output:
 }
 ```
 
-Field reference:
-
-- Fields marked `secret: true` or with `type: "password"` are masked in API responses and stored encrypted with the channel configuration.
-- Supported field types are `text`, `password`, `textarea`, `number`, `select`, and `switch`.
-- A channel `id` may contain only lowercase letters, digits, underscores, or hyphens; plugins that duplicate the built-in email (`mail`) channel are ignored.
-- `label_key` is optional; the official frontend prefers the i18n key for localization, and third-party plugins can provide `label` directly.
+- `secret: true` or `type: "password"` fields are masked and stored encrypted. Supported types are `text`, `password`, `textarea`, `number`, `select`, and `switch`. A channel `id` allows lowercase letters, digits, underscores, and hyphens; plugins duplicating the built-in `mail` channel are ignored. `label_key` is optional; third-party plugins can provide `label`.
 
 `send` stdin:
 
@@ -150,40 +120,23 @@ Field reference:
 
 Conventions:
 
-- Exit code `0` means success; a non-zero exit means failure. stderr is written to the notification log (sensitive values are redacted).
-- stdout may be empty or contain one JSON line: `{"ok": true, "message": "..."}`; `ok` set to `false` is treated as a failure.
-- Malformed JSON is treated as an error; write debug logs to stderr.
-- The helper receives its memory budget from `LACTSSL_PLUGIN_MEMORY_LIMIT` (bytes).
-- The main program periodically checks the helper's `VmRSS` and terminates the entire process group, logging an error, when it exceeds `memory_limit_mb`.
-- The main program passes only a minimal set of environment variables; server secrets are not exposed.
-- Plugin files must be executable and must not be writable by group or other users. A non-empty `manifest.sha256` is verified.
-- The main program records the file digest at scan time and re-verifies it before every send; replacing a helper requires a rescan.
+- Exit code `0` means success; non-zero means failure. stderr goes to the notification log with sensitive values redacted.
+- stdout may be empty or one JSON line `{"ok": true, "message": "..."}`; `ok: false` is a failure. Malformed JSON is an error; write debug logs to stderr.
+- `LACTSSL_PLUGIN_MEMORY_LIMIT` sets the byte budget; the host checks `VmRSS` and kills the process group above `memory_limit_mb`. Only a minimal environment is passed.
+- Plugin files must be executable and not writable by group or others; a non-empty `manifest.sha256` is verified. The digest is recorded at scan time and re-verified before every send; replacing a helper requires a rescan.
 
-## 8. Security recommendations
+## Security recommendations
 
 - Enable only trusted helpers; a notification plugin can read channel secrets and is equivalent to trusted code.
 - Set the plugin directory to `0700` and helpers to `0755`, owned by the service user.
-- In production, provide `sha256` in the manifest and update the digest after upgrades.
-- Set appropriate `memory_limit_mb` and `timeout_seconds` to prevent a malfunctioning plugin from slowing notification delivery.
-- Notification content may include domains, error details, and internal addresses; avoid sending it to public channels.
-- Use HTTPS and signature verification for webhook targets to prevent forgery and replay.
+- Provide `sha256` in the manifest, update the digest after upgrades, and set `memory_limit_mb` and `timeout_seconds`; avoid sending domains or internal addresses to public channels.
 
-## 9. Troubleshooting
+## Troubleshooting
 
 | Symptom | Cause | Resolution |
 | --- | --- | --- |
-| Only email appears on the notifications page | Notification plugin not installed or not enabled | Install and enable a notification plugin |
-| Channel missing from task nodes | Channel not enabled | Enable it on the **Plugins** page and the **Notifications** page |
-| Test message fails | Token, URL, or network | Check channel configuration and outbound policy |
-| Email sending fails | SMTP TLS, authentication, or sender | Check implicit TLS, STARTTLS, and SPF/DKIM |
-| Notification delay | Channel rate limiting or network | Check channel status and logs |
-| Notification content contains sensitive information | Insufficient template or log redaction | Adjust the content and avoid sending credentials or private keys |
+| Only email appears, or a channel is missing from task nodes | Channel not enabled | Enable it on the **Plugins** page |
+| Test message or email fails | Token, URL, network, or SMTP TLS/authentication | Check channel configuration, outbound policy, implicit TLS, STARTTLS, and SPF/DKIM |
+| Notification delay or sensitive content | Rate limiting, network, or weak redaction | Check channel status and logs; avoid sending credentials |
 
 For more troubleshooting, see [Monitoring and troubleshooting](troubleshooting.md).
-
-## Related documentation
-
-- [Plugin governance](plugins.md)
-- [Features](features.md)
-- [DNS plugins](dns-plugins.md)
-- [Deployment plugins](deploy-plugins.md)

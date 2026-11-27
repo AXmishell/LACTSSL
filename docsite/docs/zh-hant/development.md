@@ -2,7 +2,7 @@
 
 本文面向需要二次開發、私有化構建或參與貢獻的研發/整合團隊。**運維和終端使用者不需要閱讀本文**；生產部署請看[安裝與啟動](install.md)，外掛使用請看[外掛治理](plugins.md)。
 
-## 1. 倉庫結構
+## 倉庫結構
 
 ```text
 cmd/server/          程式入口、啟動與門禁入口初始化
@@ -29,17 +29,17 @@ docs/ja/             日語文件
 docs/ru/             俄語文件
 ```
 
-官方 DNS/部署/通知實現位於本倉庫 `internal/plugin/`，隨主模組編譯與測試；`internal/plugin/providers` 是獨立 Go module（`lactssl/providers`），只依賴外掛 SDK 與上游 provider SDK，宿主透過本地 `replace` 引用；`plugins/` 是外部外掛開發 SDK（協議、helper 框架與通用工具）。上傳外掛仍透過協議 v1 子程序執行。主程式不依賴外部外掛倉庫或簽名索引。
+官方 DNS/部署/通知實現位於 `internal/plugin/`，隨主模組編譯與測試；`internal/plugin/providers` 是獨立 Go module（`lactssl/providers`），只依賴外掛 SDK 與上游 provider SDK，宿主透過本地 `replace` 引用。`plugins/` 是外部外掛開發 SDK，上傳外掛仍透過協議 v1 子程序執行；主程式不依賴外部外掛倉庫或簽名索引。
 
-## 2. 本地開發
+## 本地開發
 
-### 2.1 環境
+### 環境
 
 - Go 1.27+
 - Node.js 22.12+ 與 npm（Vite 8 要求）
 - 可選：Docker / Docker Compose v2
 
-### 2.2 常用命令
+### 常用命令
 
 ```bash
 make dev          # 後臺啟動 Vite + Go 開發模式
@@ -62,14 +62,9 @@ make docs-build   # 構建中英文文件（strict）
 make docs-serve   # 本地預覽雙語文件
 ```
 
-### 2.3 開發模式埠
+### 開發模式埠
 
-`make dev` 啟動：
-
-- Vite：`:5173`，帶 HMR，前端原始碼。
-- Go：預設 `:8080`，讀取 `config.yaml` 的 `server.addr` / `server.port`。
-
-訪問 `http://<host>:5173/<entry>/`。Vite 會把 `/api` 和舊版 `/<entry>/api` 代理到 Go；Go 的 `8080` **不會**反向代理 `5173`，生產執行時沒有 Vite。
+`make dev` 啟動 Vite（`:5173`，帶 HMR）與 Go（預設 `:8080`，讀取 `config.yaml` 的 `server.addr` / `server.port`）。訪問 `http://<host>:5173/<entry>/`；Vite 會把 `/api` 和舊版 `/<entry>/api` 代理到 Go，Go 的 `8080` **不會**反向代理 `5173`，生產執行時沒有 Vite。
 
 開發模式腳本：
 
@@ -98,12 +93,10 @@ data/run/web.pid    data/run/web.log
 
 後端埠與門禁入口統一從 `config.yaml` 讀取；配置檔案不存在時由 `config.yaml.example` 生成。
 
-## 3. 構建與版本注入
+## 構建與版本注入
 
 - 前端構建產物先輸出到 `web/dist`，再複製到 `internal/webui/dist` 並以 `embed` 標籤嵌入二進位制。
-- 版本號以 git tag 為唯一來源，透過 `scripts/version.sh` 呼叫 `git describe --tags --always --dirty` 推導（去掉 `v` 字首），並用 `-ldflags -X 'lactssl/internal/api.Version=...'` 注入。
-- 構建時間與架構同理；未注入時版本顯示為 `dev`。
-- 倉庫不維護 `VERSION` 檔案。
+- 版本號以 git tag 為唯一來源，透過 `scripts/version.sh` 呼叫 `git describe --tags --always --dirty` 推導（去掉 `v` 字首），並用 `-ldflags -X 'lactssl/internal/api.Version=...'` 注入；構建時間與架構同理，未注入時版本顯示為 `dev`。倉庫不維護 `VERSION` 檔案。
 - 需要固定版本時可顯式覆蓋：
 
 ```bash
@@ -112,7 +105,7 @@ VERSION=1.2.3 make docker-context
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 ```
 
-## 4. 測試與 CI
+## 測試與 CI
 
 ```bash
 make test
@@ -131,16 +124,12 @@ make ci
 
 CI 還會執行 `gofmt` 檢查、`go vet`、帶 `-race` 的測試與覆蓋率統計，以及前端型別檢查和構建。
 
-## 5. 國際化
+## 國際化
 
-- 後端語言資源位於 `internal/i18n/locales/`。
-- 前端語言資源位於 `web/src/i18n/locales/`。
-- 新增文案時需同時補充 `zh-CN`、`en-US` 與 `zh-TW`，然後執行 `make i18n-check`。
-- 當前已內建繁體中文 `zh-TW`、俄語 `ru-RU` 與日語 `ja-JP`：`zh-TW` 預設參與校驗，缺少文案時直接回退 `zh-CN`；俄語、日語預設不參與校驗，缺少文案時按 `語言 → en-US → zh-CN` 回退，同步翻譯後可用 `make i18n-check-all`（或 `I18N_CHECK_ALL=1`）做全量校驗。
-- 檢查腳本是 TypeScript（`scripts/check-i18n.ts`），由 Node 原生型別擦除直接執行，需要 Node 22.18+。
-- 腳本自身的型別檢查已併入 `make typecheck`（配置見 `scripts/tsconfig.json`）。
+- 後端語言資源位於 `internal/i18n/locales/`，前端位於 `web/src/i18n/locales/`；新增文案需同時補充 `zh-CN`、`en-US` 與 `zh-TW`，然後執行 `make i18n-check`。
+- 已內建繁體中文 `zh-TW`、俄語 `ru-RU` 與日語 `ja-JP`：`zh-TW` 預設參與校驗，缺少文案時回退 `zh-CN`；俄語、日語預設不參與校驗，缺少文案時按 `語言 → en-US → zh-CN` 回退，同步翻譯後可用 `make i18n-check-all`（或 `I18N_CHECK_ALL=1`）全量校驗。檢查腳本是 TypeScript（`scripts/check-i18n.ts`），由 Node 原生型別擦除直接執行，需要 Node 22.18+，型別檢查已併入 `make typecheck`。
 
-## 6. 文件構建
+## 文件構建
 
 文件使用 Zensical/MkDocs：
 
@@ -149,17 +138,9 @@ make docs-build   # 構建全部語言，strict 模式
 make docs-serve   # 後台常駐預覽（預設埠 8000；-l 指定語言；scripts/docs-serve.sh stop 停止）
 ```
 
-設定、來源檔案與建置產物都在 `docsite/`：Zensical 以設定檔所在目錄為專案根，`docs_dir` 與 `site_dir` 必須位於其中。
+設定、來源檔案與建置產物都在 `docsite/`：Zensical 以設定檔所在目錄為專案根，`docs_dir` 與 `site_dir` 必須位於其中。英文設定為 `docsite/mkdocs.yml`，輸出 `docsite/site`；簡體中文 `docsite/mkdocs.zh.yml` → `site/zh`，繁體中文 `docsite/mkdocs.zh-hant.yml` → `site/zh-hant`，日語 `docsite/mkdocs.ja.yml` → `site/ja`，俄語 `docsite/mkdocs.ru.yml` → `site/ru`。`docs-internal/` 是內部設計記錄，不進入站點；新增頁面需在 `docsite/docs/<語言>/` 下同步映象並更新各語言配置的 nav。
 
-- 英文設定：`docsite/mkdocs.yml`，輸出 `docsite/site`（預設站點）。
-- 簡體中文：`docsite/mkdocs.zh.yml` → `docsite/site/zh`。
-- 繁體中文：`docsite/mkdocs.zh-hant.yml` → `docsite/site/zh-hant`。
-- 日語：`docsite/mkdocs.ja.yml` → `docsite/site/ja`。
-- 俄語：`docsite/mkdocs.ru.yml` → `docsite/site/ru`。
-- `docs-internal/` 是內部設計記錄，不進入站點。
-- 新增頁面需要在 `docsite/docs/<語言>/` 下同步映象，並更新各語言配置的 nav。
-
-## 7. 釋出流程
+## 釋出流程
 
 釋出以 tag 為唯一來源。GitHub Release 會觸發 `Release` workflow，自動構建並上傳各平臺產物：
 
@@ -167,20 +148,7 @@ make docs-serve   # 後台常駐預覽（預設埠 8000；-l 指定語言；scri
 gh release create v1.0.1 --generate-notes
 ```
 
-產物包括：
-
-- `lactssl_<version>_linux_amd64.tar.xz`
-- `lactssl_<version>_linux_amd64.tar.gz`
-- `lactssl_<version>_linux_arm64.tar.xz`
-- `lactssl_<version>_linux_arm64.tar.gz`
-- `lactssl_<version>_darwin_amd64.tar.xz`
-- `lactssl_<version>_darwin_amd64.tar.gz`
-- `lactssl_<version>_darwin_arm64.tar.xz`
-- `lactssl_<version>_darwin_arm64.tar.gz`
-- `lactssl_<version>_windows_amd64.zip`
-- `checksums.txt`（SHA-256）
-
-歸檔內包含二進位制、`README.md`、`LICENSE` 和 `config.yaml.example`。版本號直接取自 tag（去掉 `v` 字首），不依賴本地 git 推導。非 Windows 平臺同時發布 `.tar.xz` 與 `.tar.gz`：前者下載體積更小，後者用於相容舊版本自動升級客戶端。
+產物包括 Linux/macOS 的 amd64、arm64 二進位制（各提供 `.tar.xz` 與 `.tar.gz`）、Windows amd64 的 `.zip`，以及 `checksums.txt`（SHA-256）。歸檔含二進位制、`README.md`、`LICENSE` 和 `config.yaml.example`；版本號取自 tag（去掉 `v` 字首）。非 Windows 同時發布兩種壓縮格式：`.tar.xz` 體積更小，`.tar.gz` 相容舊版自動升級客戶端。
 
 同時構建 `linux/amd64`、`linux/arm64` 映象並推送到 GHCR：
 
@@ -195,12 +163,9 @@ ghcr.io/axmishell/lactssl:latest
 
 注意事項：
 
-- workflow 只在 Release 正式釋出時觸發；`gh release create --draft` 在點選發布後才會開始構建。
-- 首次使用前，`.github/workflows/release.yml` 必須已包含在 tag 指向的提交中。
-- 用 `gh release create <tag> <files>...` 預上傳的同名檔案會被 workflow 以 `--clobber` 覆蓋；建議不要在建立時傳檔案。
-- Release 釋出後資產需要幾分鐘構建完成；如需“資產就緒後再公開”，應先推送 tag，由 CI 構建完成後再建立 Release（需要另配 tag push 流程）。
-- 重新構建指定 tag：`gh workflow run release.yml -f tag=v1.0.1`。
-- 釋出簽名：配置 `ED25519_PRIVATE_KEY_B64` 後為 `checksums.txt` 生成分離簽名。
+- workflow 只在 Release 正式釋出時觸發；`gh release create --draft` 在點選發布後才會開始構建。首次使用前，`.github/workflows/release.yml` 必須已包含在 tag 指向的提交中。
+- 用 `gh release create <tag> <files>...` 預上傳的同名檔案會被 workflow 以 `--clobber` 覆蓋，建議不要在建立時傳檔案；Release 釋出後資產需要幾分鐘構建完成。
+- 重新構建指定 tag：`gh workflow run release.yml -f tag=v1.0.1`；配置 `ED25519_PRIVATE_KEY_B64` 後為 `checksums.txt` 生成分離簽名。
 
 本地釋出腳本：
 
@@ -215,30 +180,17 @@ make release TAG=v1.0.1
 
 `--multiarch` 需要 Docker Buildx。鏡像只複製主機交叉編譯的二進位，建置期間不執行目標架構命令，因此不需要 QEMU。
 
-## 8. 外掛聯調
+## 外掛聯調
 
-官方外掛實現位於 `internal/plugin/`；`plugins/` 僅包含外部外掛 SDK，並透過主倉庫 `go.mod` 的本地 `replace` 引用。修改官方實現後直接在主倉庫構建即可：
+官方外掛實現位於 `internal/plugin/`；`plugins/` 僅包含外部外掛 SDK，並透過主倉庫 `go.mod` 的本地 `replace` 引用。修改官方實現後直接在主倉庫構建即可；上傳外掛仍是單個 helper 可執行檔，協議、欄位和簽名見[外掛開發](plugin-development.md)。
 
 ```bash
-go work init . ../LACTSSL-Plugins
+make backend
+make plugins-test
 ```
 
-修改外掛實現後，在外掛倉庫執行 `make gen` 與 `make plugin KIND=dns GOOS=linux GOARCH=amd64` 構建合併包；聯調結束後刪除 `go.work`（該檔案已被 gitignore）。
+## 貢獻注意事項
 
-外掛協議、欄位和簽名見[外掛開發](plugin-development.md)。
-
-## 9. 貢獻注意事項
-
-- 不要提交 `config.yaml`、`data/`、備份、日誌或任何真實憑據。
-- 修改安全相關邏輯時同步更新[安全基線](security.md)和測試。
-- 修改 API/配置/外掛行為時同步更新中英文文件。
-- 新增介面必須補充 API 金鑰權限策略和測試。
-- 涉及資料遷移時提供冪等步驟、備份和回滾說明。
+- 不要提交 `config.yaml`、`data/`、備份、日誌或任何真實憑據；修改安全相關邏輯時同步更新[安全基線](security.md)和測試。
+- 修改 API/配置/外掛行為時同步更新中英文文件；新增介面必須補充 API 金鑰權限策略和測試；涉及資料遷移時提供冪等步驟、備份和回滾說明。
 - 提交前執行 `make ci` 和 `make docs-build`。
-
-## 相關文件
-
-- [外掛開發](plugin-development.md)
-- [配置參考](configuration.md)
-- [升級與變更](upgrade.md)
-- [安全基線](security.md)

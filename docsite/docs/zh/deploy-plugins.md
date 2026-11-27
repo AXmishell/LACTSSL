@@ -1,107 +1,89 @@
 # 部署插件
 
-部署插件把证书交付到 FTP、Webhook、云 CDN、面板和 WAF 等目标。它是**接触证书私钥的高风险组件**，企业应把部署插件纳入准入和变更管理。
+部署插件把证书交付到 FTP、Webhook、云 CDN、面板和 WAF 等目标。它是**接触证书私钥的高风险组件**，应纳入审查和变更管理。
 
-## 1. 内置目标与插件目标
+## 内置目标与插件目标
 
 | 类型 | 目标 | 是否内置 | 说明 |
 | --- | --- | --- | --- |
 | 内置 | 本地目录 | 是 | 写本机路径，可选重载命令 |
 | 内置 | SSH / SFTP | 是 | 密码或私钥认证，主机指纹校验 |
-| 插件 | FTP / FTPS | 否 | 普通 FTP、显式 TLS、隐式 TLS |
-| 插件 | Webhook | 否 | 自定义认证头，可跳过 TLS 校验（不建议） |
-| 插件 | 阿里云 CDN | 否 | 更新域名证书 |
-| 插件 | 七牛云 | 否 | CDN 加速域名或 Kodo 自定义源站域名 |
-| 插件 | 宝塔面板 / 宝塔 WAF | 否 | 网站、面板或 WAF |
-| 插件 | 1Panel | 否 | 网站或面板 |
-| 插件 | 雷池 WAF | 否 | 按证书 ID 或域名匹配 |
-| 插件 | 腾讯云 / 火山引擎 / AcePanel 等 | 否 | 以内置条目为准 |
+| 官方 | FTP / FTPS | 是 | 普通 FTP、显式 TLS、隐式 TLS |
+| 官方 | Webhook | 是 | 自定义认证头，可跳过 TLS 校验（不建议） |
+| 官方 | 阿里云 CDN | 是 | 更新域名证书 |
+| 官方 | 七牛云 | 是 | CDN 加速域名或 Kodo 自定义源站域名 |
+| 官方 | 宝塔面板 / 宝塔 WAF / 1Panel | 是 | 网站、面板或 WAF |
+| 官方 | 雷池 WAF | 是 | 按证书 ID 或域名匹配 |
+| 官方 | 腾讯云 / 火山引擎 / AcePanel 等 | 是 | 以内置条目为准 |
 
-> **部署插件会接收证书私钥。** 只安装可信来源的 helper，并确保插件目录仅服务运行用户可写。部署插件默认关闭，需要显式启用。
+> **部署插件会接收证书私钥。** 只安装可信来源的 helper，并确保插件目录仅服务运行用户可写。部署类别与官方目标默认开启，请停用不需要的目标。
 
-## 2. 凭据与部署参数
+## 凭据与部署参数
 
-「目标凭据」只保存认证与连接信息，例如主机、端口、用户名、密码、面板地址和 API Token。证书路径、重载命令、部署域名、站点等参数在任务流程「部署证书」节点中填写。
+「目标凭据」只保存认证与连接信息，例如主机、端口、用户名、密码、面板地址和 API Token；证书路径、重载命令、部署域名、站点等参数在任务流程「部署证书」节点中填写。这样同一凭据可被多个任务复用，轮换不影响编排，参数随任务版本留痕，便于审计和回滚。
 
-这样设计的好处：
-
-- 同一凭据可被多个任务复用。
-- 凭据轮换不影响任务编排。
-- 部署参数随任务版本留痕，便于审计和回滚。
-
-## 3. 配置
+## 配置
 
 ```yaml
 deploy_plugins:
-  enabled: false          # 插件会接触私钥，默认关闭
+  enabled: true           # 官方目标默认开启；插件会接触私钥
   dir: ""                 # 留空表示 <data_dir>/plugins/deploy
   memory_limit_mb: 128    # 单个 helper 常驻内存上限
   timeout_seconds: 300    # 单次 deploy 超时，上传大文件时可调大
   max_output_kb: 64       # helper 输出上限
 ```
 
-三类插件分别使用 `<data_dir>/plugins` 下的独立子目录：
-
-- DNS：`<data_dir>/plugins/dns`
-- 部署：`<data_dir>/plugins/deploy`
-- 通知：`<data_dir>/plugins/notify`
-
-修改配置后重启服务生效。启动时自动扫描；安装新 helper 后可在「插件」页点击「重扫插件」，或调用：
+三类插件分别位于 `<data_dir>/plugins/dns`、`<data_dir>/plugins/deploy` 和 `<data_dir>/plugins/notify`。修改配置后重启生效；启动时自动扫描，安装新 helper 后可在「插件」页点击「重扫插件」，或调用：
 
 ```bash
 curl -X POST -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/plugins/rescan
 ```
 
-## 4. 安装与启用
+## 安装与启用
 
-1. 在配置中设置 `deploy_plugins.enabled: true` 并重启。
-2. 打开「插件」页，确认仓库地址并点击「刷新索引」。
-3. 打开「插件」页的部署标签，启用类别和需要的部署目标。
-4. 先启用插件文件，再在部署目标列表中启用具体目标；新下载的文件与条目默认停用。
+1. 确认配置中 `deploy_plugins.enabled: true`（默认已开启）；修改后重启。
+2. 打开「插件」页的部署标签，按需停用不需要的部署目标。
 
-未安装或未启用插件时，目标凭据与任务流程的部署类型中只会出现本地文件与 SSH；历史凭据不会丢失，安装插件后可继续使用。
+类别关闭时只显示本地文件与 SSH；历史凭据不会丢失。启用状态保存在 settings 表的 `plugins.deploy.enabled_deployers`，只记录已启用的目标 ID，重启和重扫后保持。合并目标在「目标凭据」中只显示一个厂商入口，具体产品在任务部署节点中通过「部署对象」选择。
 
-启用状态保存在 settings 表的 `plugins.deploy.enabled_deployers`，只记录已启用的目标 ID，重启和重扫后保持。合并目标在「目标凭据」中只显示一个厂商入口，具体产品在任务部署节点中通过「部署对象」选择。
+## 目标实践
 
-## 5. 目标实践
-
-### 5.1 本地目录
+### 本地目录
 
 - 运行用户必须对目标目录有写权限。
-- 建议使用原子写入：先写临时文件，再 `rename` 覆盖，避免读到半个文件。
+- 建议原子写入：先写临时文件，再 `rename` 覆盖，避免读到半个文件。
 - 重载命令示例：`nginx -s reload`、`systemctl reload nginx`、`systemctl reload postfix`。
 - 重载命令失败不会回滚证书文件；需要在目标侧保留上一版。
 
-### 5.2 SSH / SFTP
+### SSH / SFTP
 
 - 默认要求填写目标主机指纹（`SHA256:...`）。只有显式开启“首次连接自动信任主机密钥”时才采用 TOFU；后续指纹不一致会拒绝连接。
 - 服务器更换密钥后需要清空旧指纹重新记录。
 - 建议使用专用部署用户，只授予目标路径写权限和必要重载权限（sudoers 精确到命令）。
 - 私钥认证优先于密码；私钥放在受控位置，设置口令并定期轮换。
 
-### 5.3 FTP / FTPS
+### FTP / FTPS
 
 - 默认显式 TLS；只有明确选择 `none` 才使用明文 FTP。
 - 证书私钥和登录密码会经过网络；生产优先 SFTP 或 FTPS。
 - 限制目标 IP、端口和目录权限；不要使用共享账号。
 
-### 5.4 Webhook
+### Webhook
 
 - 公网目标强制 HTTPS；回环、私网、`.local`、`.internal` 允许 HTTP。
 - Webhook 会携带证书与私钥，接收方必须可信；建议使用独立 Token 和来源 IP 限制。
-- 不建议开启“跳过 TLS 校验”；如必须，限定到内网自签目标。内网 CA 签发的证书应通过「系统设置 → TLS 信任链」导入 CA 公钥，让部署插件在正常校验下信任目标。
+- 不建议开启“跳过 TLS 校验”；如必须，限定到内网自签目标。内网 CA 签发的证书应通过「系统设置 → TLS 信任链」导入 CA 公钥。
 - 接收方应做幂等和签名校验，避免重放。
 
-### 5.5 云 CDN / 面板 / WAF
+### 云 CDN / 面板 / WAF
 
 - 凭据使用专用子账号，只授予证书管理相关权限。
 - 部署参数（域名、站点、证书名称）必须与目标系统一致；宝塔面板的网站与 Docker 网站名称可通过面板 API 读取后下拉选择。
 - 插件未实现动态选项或面板不可达时，仍可手工输入名称。
-- 目标系统开启 IP 白名单时，放行 LACTSSL 出口。
-- CDN/WAF 可能有证书缓存；部署后验证实际生效证书。
+- 目标系统开启 IP 白名单时，放行 LACTSSL 出口；CDN/WAF 可能有证书缓存，部署后验证实际生效证书。
 
-## 6. 部署记录与验证
+## 部署记录与验证
 
 - 每次部署生成部署记录，可在证书详情和日志中查看结果。
 - 手动部署优先复用证书所属任务的部署节点参数，也可以按目标单独填写本次参数。
@@ -111,21 +93,19 @@ curl -X POST -H "Authorization: Bearer $LACTSSL_TOKEN" \
 验证清单：
 
 - [ ] 目标路径/站点正确。
-- [ ] 证书链完整（fullchain）。
-- [ ] 私钥与证书匹配。
+- [ ] 证书链完整（fullchain），私钥与证书匹配。
 - [ ] 服务已重载并实际加载新证书。
-- [ ] 多实例/多节点全部更新。
-- [ ] CDN/WAF 缓存已刷新。
+- [ ] 多实例/多节点全部更新，CDN/WAF 缓存已刷新。
 - [ ] 浏览器/客户端显示新证书序列号或指纹。
 
-## 7. 离线与手动安装
+## 离线与手动安装
 
-- 在「插件」页上传单个 helper，最大 256 MB；只有启用 `deploy_plugins.enabled` 后才可使用。
+- 在「插件」页上传单个 helper，最大 256 MB；需要保持 `deploy_plugins.enabled: true`（默认开启）才可使用。
 - 上传后先校验 `manifest`、部署目标 ID 与 SHA-256，通过后才写入部署插件目录并立即重扫。
 - 默认拒绝覆盖同名文件；升级时勾选“允许覆盖同名插件”，旧文件会先备份。
 - 与内置部署目标 ID 重复的插件会被发现，但重扫结果标记为“已忽略”。
 
-## 8. Helper 协议 v1（集成开发）
+## Helper 协议 v1（集成开发）
 
 helper 是一个可执行文件，支持以下子命令：
 
@@ -136,66 +116,13 @@ deploy-helper options    # 读取动态下拉选项（可选）
 deploy-helper verify     # 只读验证认证与目标作用域（可选）
 ```
 
-`manifest` 输出示例：
+`manifest` 要点：
 
-```json
-{
-  "protocol": "v1",
-  "capabilities": ["verify-v1"],
-  "name": "example deploy helper",
-  "version": "1.0.0",
-  "sha256": "可选的 helper 文件校验和",
-  "deployers": [
-    {
-      "id": "example-panel",
-      "name": "Example Panel",
-      "name_i18n": {"zh-CN": "示例面板", "en-US": "Example Panel"},
-      "capabilities": ["verify-v1"],
-      "description": "把证书推送到 Example 面板",
-      "description_i18n": {
-        "zh-CN": "把证书推送到 Example 面板",
-        "en-US": "Push certificates to an Example panel"
-      },
-      "aliases": ["example"],
-      "fields": [
-        {
-          "key": "panel_url",
-          "label": "面板地址",
-          "label_i18n": {"zh-CN": "面板地址", "en-US": "Panel URL"},
-          "type": "text",
-          "required": true
-        },
-        {
-          "key": "api_token",
-          "label": "API Token",
-          "label_i18n": {"zh-CN": "API Token", "en-US": "API Token"},
-          "type": "password",
-          "secret": true,
-          "required": true
-        }
-      ],
-      "deploy_fields": [
-        {
-          "key": "sites",
-          "label": "站点",
-          "label_i18n": {"zh-CN": "站点", "en-US": "Sites"},
-          "type": "text",
-          "required": true
-        }
-      ]
-    }
-  ]
-}
-```
-
-字段说明：
-
-- `fields` 是目标凭据中的认证与连接信息；`secret: true` 或 `type: "password"` 会在接口返回时脱敏，并随凭据一起加密存储。
-- `deploy_fields` 是任务流程「部署证书」节点中的参数。
-- 两类字段的 `key` 不能重复；字段类型支持 `text`、`password`、`textarea`、`number`、`select`、`switch`。
+- 顶层包含 `protocol: "v1"`、`name`、`version`、可选 `sha256` 和 `deployers[]`。
+- 每个部署目标含 `id`、`name`、`capabilities`、`fields` 与 `deploy_fields`；`name`/`description`/`label` 可用 `*_i18n` 按 BCP 47 语言覆盖，单个文案表最多 32 种语言。
+- `fields` 是凭据字段，`secret: true` 或 `type: "password"` 会脱敏并随凭据加密；`deploy_fields` 是任务部署节点参数。
+- 两类字段的 `key` 不能重复，类型支持 `text`、`password`、`textarea`、`number`、`select`、`switch`。
 - 部署目标 `id` 只能包含小写字母、数字、下划线或连字符；与内置目标重复的插件会被忽略。
-- `name` / `description` / `label` / `placeholder` / `help` 是默认语言文案；可选 `*_i18n` 表按语言覆盖。
-- 语言键使用 BCP 47 形式，例如 `zh-CN`、`en-US`；单个文案表最多 32 种语言。
 
 `deploy` 的 stdin：
 
@@ -220,56 +147,32 @@ deploy-helper verify     # 只读验证认证与目标作用域（可选）
 }
 ```
 
-`verify` 的 stdin / stdout：
-
-```json
-{"action": "verify", "provider": "example-panel", "auth": {"panel_url": "...", "api_token": "..."}, "config": {"sites": "example.com"}, "mode": "read", "locale": "zh-CN"}
-```
-
-```json
-{"ok": false, "checks": [{"key": "auth", "status": "failed", "message": "invalid token"}]}
-```
-
 约定：
 
-- 退出码 `0` 表示成功，非 `0` 表示失败；stderr 会进入部署记录（敏感值会被脱敏）。
-- stdout 可以为空，或输出一行 JSON：`{"ok": true, "message": "..."}`；`ok` 为 `false` 时按失败处理。
-- `verify` 必须是只读操作：不得写入证书、创建持久对象或执行 `reload_command`；只有 `mode=write` 的显式写入测试才允许创建并清理唯一临时对象。
-- 只有声明 `verify-v1` 能力的部署目标才会收到 `verify` 调用；未声明的目标由主程序显示“插件版本不支持验证”。
-- `checks` 用于区分连接、认证、作用域与权限问题；`status` 取值：`ok`、`failed`、`skipped`、`unsupported`、`error`。
-- 非法 JSON 会视为错误；调试日志请写入 stderr。
-- helper 从 `LACTSSL_PLUGIN_MEMORY_LIMIT`（字节）获得内存预算。
-- 主程序周期性检查 helper 的 `VmRSS`，超过 `memory_limit_mb` 时结束整个进程组并记录错误。
+- 退出码 `0` 表示成功，非 `0` 表示失败；stderr 会进入部署记录（敏感值会被脱敏）。stdout 可以为空或输出一行 JSON `{"ok": true, "message": "..."}`，`ok` 为 `false` 时按失败处理。
+- `verify` 必须只读：不得写入证书、创建持久对象或执行 `reload_command`；只有 `mode=write` 的显式写入测试才允许创建并清理唯一临时对象。
+- 只有声明 `verify-v1` 能力的目标才会收到 `verify` 调用；未声明的目标显示“插件版本不支持验证”。`checks[].status` 取值：`ok`、`failed`、`skipped`、`unsupported`、`error`。
+- helper 从 `LACTSSL_PLUGIN_MEMORY_LIMIT`（字节）获得内存预算；主程序周期性检查 `VmRSS`，超过 `memory_limit_mb` 时结束整个进程组。
 - 主程序只传递最小环境变量集合（包含 `PATH`、代理、`JAVA_HOME`、`NODE_PATH`、`GOPATH`、`AWS_PROFILE` 等常见非密钥变量），不会泄漏服务端密钥。
-- 插件文件必须可执行、不能允许组或其他用户写入；`manifest.sha256` 非空时会校验。
-- 主程序记录扫描时的文件摘要，并在每次部署前重新校验；替换 helper 后需要重扫。
+- 插件文件必须可执行、不能允许组或其他用户写入；`manifest.sha256` 非空时会校验，每次部署前重新校验摘要，替换 helper 后需要重扫。
 
-## 9. 安全建议
+## 安全建议
 
 - 只启用可信 helper；部署插件可以读取证书私钥，等同于受信代码。
-- 插件目录 `0700`，helper `0755`，属主为服务运行用户。
-- 生产在 manifest 中填写 `sha256`，并在升级后更新摘要。
-- 设置合理的 `memory_limit_mb` 与 `timeout_seconds`，避免异常插件拖垮主机。
-- 不给 `lactssl` 用户额外权限，不让插件目录位于共享可写路径。
+- 插件目录 `0700`，helper `0755`，属主为服务运行用户，不要放在共享可写路径。
+- 生产在 manifest 中填写 `sha256` 并在升级后更新；设置合理的 `memory_limit_mb` 与 `timeout_seconds`。
 - 部署目标使用最小权限账号，重载命令精确到具体服务。
 
-## 10. 排障
+## 排障
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| 部署类型只有本地/SSH | 插件未启用/未安装 | 启用 `deploy_plugins.enabled`，安装并启用目标 |
+| 部署类型只有本地/SSH | 类别或目标未启用 | 启用 `deploy_plugins.enabled`，在插件页启用目标 |
 | 插件加载失败 | 权限/摘要/协议/符号链接 | 修正权限或重新安装 |
 | SSH 指纹不匹配 | 服务器换密钥/配置错误 | 核对指纹，清空旧记录重试 |
-| 部署成功但业务仍旧证书 | 未重载/缓存/多实例 | 配置重载命令，刷新缓存，检查所有节点 |
+| 部署成功但目标仍使用旧证书 | 未重载/缓存/多实例 | 配置重载命令，刷新缓存，检查所有节点 |
 | Webhook 被拒绝 | 公网 HTTP/证书不受信 | 使用 HTTPS 或内网地址，检查 TLS |
 | CDN/面板失败 | 凭据权限/参数/API 版本 | 检查目标侧权限和参数 |
 | 部署超时 | 目标慢/大文件 | 调大 `timeout_seconds`，检查网络 |
 
 更多排障见[监控与排障](troubleshooting.md)。
-
-## 相关文档
-
-- [插件治理](plugins.md)
-- [产品能力](features.md)
-- [DNS 插件](dns-plugins.md)
-- [通知插件](notify-plugins.md)

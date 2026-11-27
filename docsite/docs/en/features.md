@@ -1,6 +1,5 @@
 # Features
-
-This document describes LACTSSL capabilities by business domain, including key parameters and limitations, to support solution design and acceptance. Detailed procedures are covered in [Getting started and rollout](getting-started.md), [Administration](administration.md), and [API integration](api.md).
+This document describes LACTSSL capabilities, key parameters, and limitations to support development and integration. Detailed procedures are in [Quick start](getting-started.md), [Administration](administration.md), and [API integration](api.md).
 
 ## Capability map
 
@@ -8,23 +7,21 @@ This document describes LACTSSL capabilities by business domain, including key p
 | --- | --- | --- |
 | Certificate assets | Public CA requests, automatic renewal, certificate details, and cleanup | Platform/Operations |
 | Task orchestration | Standard: request → deploy (one or more) → notify; Target Flow Beta: read sites → group certificates → request → deploy | Platform/Operations |
-| Certificate delivery | Local directory, SSH/SFTP, FTP, webhooks, cloud CDN, control panels | Platform/Operations, business systems |
+| Certificate delivery | Local directory, SSH/SFTP, FTP, webhooks, cloud CDN, control panels | Platform/Operations, target systems |
 | Internal PKI | Private CA generation/import, hierarchy, CRL/OCSP URLs | Security, infrastructure |
 | ACME server | Standards-compliant ACME v2 endpoints for internal clients | Internal platforms, devices, test environments |
-| Monitoring and alerting | External site certificate monitoring, task/deployment notifications | Operations, on-call |
+| Monitoring and alerting | External site certificate monitoring, task/deployment notifications | Operations, monitoring |
 | Audit and recovery | Operation logs, system logs, encrypted backups | Security, audit, operations |
 | Integration | API keys, REST API, automation | Integration development |
 
-## 1. Certificate issuance and renewal
+## Certificate issuance and renewal
 
-### 1.1 Validation methods
-
+### Validation methods
 - Public CA requests use **DNS-01** validation only and support single-domain, multi-domain, and wildcard certificates.
-- DNS-01 requires provider API credentials configured under "DNS Accounts"; tasks create and clean up TXT records automatically at runtime.
-- Private CA issuance does not use ACME validation; the system signs certificates directly.
-- The built-in ACME server supports HTTP-01, DNS-01, and TLS-ALPN-01 for internal clients.
+- DNS-01 requires provider API credentials under "DNS Accounts"; tasks create and clean up TXT records automatically.
+- Private CA issuance signs directly without ACME validation; the built-in ACME server supports HTTP-01, DNS-01, and TLS-ALPN-01 for internal clients.
 
-### 1.2 Built-in certificate authorities
+### Built-in certificate authorities
 
 | CA | Notes |
 | --- | --- |
@@ -36,86 +33,45 @@ This document describes LACTSSL capabilities by business domain, including key p
 | Actalis | Requires EAB |
 | SSL.com | Requires EAB; ECDSA/RSA endpoint selected by key type |
 
-"Public CA" also lets you add multiple **generic ACME upstreams**:
+"Public CA" also lets you add **generic ACME upstreams**: configure the ACME directory URL, ACME v1/v2 protocol, and optional EAB. They appear in the task and default CA lists; custom directory URLs must use HTTPS (only local loopback may use HTTP). ACME v1 supports DNS-01 only and no EAB.
 
-- Configure the ACME directory URL, ACME v1/v2 protocol version, and optional EAB.
-- Generic upstreams appear in the task and default CA selection lists.
-- Custom directory URLs must use HTTPS; only local loopback may use HTTP.
-- ACME v1 supports DNS-01 only and does not support EAB.
-
-### 1.3 Keys and renewal
-
+### Keys and renewal
 - Private key types: `ecdsa` (default), `ecdsa384`, `rsa2048`, `rsa4096`.
-- Automatic renewal triggers 30 days before expiry by default and can be adjusted per task.
-- The apply node can enable "Do not store certificate private key on the server": the key stays in memory only during issuance and deployment, is never written to the database, and cannot be downloaded. Auto-renewal reissues and redeploys; standard flows require at least one enabled deploy node.
-- The background scheduler checks for due tasks every 30 seconds.
-- If a task fails, review the task log for the cause; credential, domain, and CA issues produce explicit errors.
-- The certificate management page supports search, status filtering, source filtering (task issuance, ACME server, CSR request), details, and security analysis.
-- Downloading certificate chains and viewing or downloading private keys require a login session; for API calls, downloading the chain requires `certificates:read`, while viewing or downloading the private key additionally requires `certificates:key`.
-- Bulk cleanup can filter by status (expired, revoked, or all), age, issuance time, domain, issuer, source, and "keep the latest certificate for each task"; after cleanup, certificate references in affected tasks are cleared.
+- Automatic renewal triggers 30 days before expiry by default and can be adjusted per task; the scheduler checks due tasks every 30 seconds.
+- The apply node can enable "Do not store certificate private key on the server": the key stays in memory during issuance and deployment, is never written to the database, and cannot be downloaded. Auto-renewal reissues and redeploys; standard flows require at least one enabled deploy node.
+- If a task fails, review the task log; credential, domain, and CA issues produce explicit errors.
+- The certificate page supports search, status/source filtering (task issuance, ACME server, CSR request), details, and security analysis.
+- Downloading chains and viewing or downloading private keys require a login session; for API calls, the chain requires `certificates:read` and the private key additionally requires `certificates:key`.
+- Bulk cleanup filters by status, age, issuance time, domain, issuer, source, and "keep the latest certificate for each task"; affected task certificate references are cleared.
 
-### 1.4 Default configuration
+### Default configuration
+"Public CA" supports configuring the ACME account email, default CA, default private key type, default renewal days, and EAB credentials for each CA.
 
-"Public CA" supports configuring:
+### Target Flow Beta
+Target Flow Beta is for certificates that follow panel websites. It reads real websites and bound domains from deployment targets through the plugin `plan` capability, groups them by certificate policy, issues certificates, and deploys them back.
 
-- ACME account email.
-- Default CA.
-- Default private key type.
-- Default renewal days.
-- EAB credentials for each CA.
+- The task page and create/edit dialog separate flows with "All / Standard / Target Flow Beta" tabs.
+- Multiple target sources are supported; the website list comes from the target, not manual site names.
+- Allocation strategies: smart recommendation, one certificate per site, merge by base domain, merge all selected sites, one certificate per target source, and custom groups, with site selection, include/exclude rules, and extra domains per group.
+- Renewals re-read target sites: "All sites" includes newly added sites, while "Selected sites only" keeps the saved stable site keys. A Beta task may own multiple certificates linked through `task_certificate_links`; the task list shows site/group summaries.
+- Bulk cleanup with "keep the latest certificate for each task" skips Beta task certificates to avoid deleting other groups.
 
-### 1.5 Target Flow Beta
-
-Target Flow Beta is for scenarios where certificates follow panel websites. It reads real websites and bound domains from deployment targets through the plugin `plan` capability, groups them by certificate policy, issues certificates, and deploys them back to the matching websites.
-
-- The task page separates flows with "All / Standard / Target Flow Beta" tabs; the create/edit dialog uses the same segmented switch.
-- Multiple target sources are supported; the website list comes from the target instead of manual site names.
-- Certificate allocation strategies: smart recommendation, one certificate per site, merge by base domain, merge all selected sites into one certificate, one certificate per target source, and custom groups.
-- Supports site selection, include/exclude domain rules, and extra domains per certificate group.
-- Renewals re-read target sites: "All sites" includes newly added sites, while "Selected sites only" keeps the saved stable site keys.
-- A Beta task may own multiple certificates. All of them are linked through `task_certificate_links`; the task list shows site/group summaries.
-- Bulk cleanup with "keep the latest certificate for each task" skips Beta task certificates to avoid deleting other certificate groups.
-
-### 1.6 Client CSR requests
-
-- The API accepts a client CSR and acts as an intermediary to complete DNS-01 validation and issuance with a public CA.
-- The server never generates or stores the private key; the certificate binds the public key from the client CSR, and the client keeps the private key.
-- Requests run asynchronously and support status polling, cancellation, retry, and per-request certificate chain download.
+### Client CSR requests
+- The API accepts a client CSR and completes DNS-01 validation and public CA issuance; the server never generates or stores the private key.
+- Requests run asynchronously with status polling, cancellation, retry, and per-request chain download.
 - Only ACME v2 public CAs and DNS-01 are supported; wildcard certificates require DNS-01.
 - A dedicated `certificates:request` API key scope is required, and `csr.allowed_domains` can restrict requestable domains.
 
-## 2. DNS providers
+## DNS providers
+Official DNS implementations are built in, covering about 235 entries (lego v5 plus compatible IDs), and all providers are disabled by default; enable them on the **Plugins** page.
 
-DNS providers are supplied by DNS plugins. The main program does not include any provider; the provider list appears only after a plugin is installed and enabled.
-
-Common providers and credentials:
-
-| Provider | Main credentials |
-| --- | --- |
-| Alibaba Cloud DNS (alidns) | AccessKey ID / Secret, optional Region |
-| Alibaba Cloud ESA (aliesa) | AccessKey ID / Secret, optional Region |
-| Cloudflare | API Token, or Email + Global API Key, optional API upstream URL |
-| DNSPod | API Token |
-| Tencent Cloud (tencentcloud) | SecretId / SecretKey, optional Region |
-| Huawei Cloud (huaweicloud) | AccessKey ID / SecretAccessKey / Region |
-| Volcengine (volcengine) | AccessKey / SecretKey, optional Region, API host, and scheme |
-| AWS Route 53 | AccessKey / SecretAccessKey, optional Region, Hosted Zone, private zone |
-| Google Cloud DNS | Service account JSON, optional project ID |
-| Azure DNS | Tenant ID / Client ID / Client Secret / Subscription ID / resource group |
-| West.cn (westcn) | Username / Password |
-| PowerDNS (pdns) | API URL / API Key, optional server name and API version |
-| RFC 2136 dynamic update | DNS server, optional TSIG key / secret / algorithm and zone list |
-
-- After the official DNS plugins are installed, all lego providers are supported (about 190).
-- The `manual` provider requires adding TXT records by hand and is not part of automated workflows.
 - Credentials are encrypted before being written to the database; leaving a secret field empty while editing keeps the existing value.
-- Cloudflare, DNSimple, PowerDNS, Volcengine, and others support custom API upstream URLs for proxies, self-hosted services, or compatible gateways.
-- The provider drop-down on the "DNS Accounts" page is the authoritative full list.
+- The `manual` provider requires adding TXT records by hand and is not part of automated workflows.
+- Some providers such as Cloudflare, DNSimple, PowerDNS, and Volcengine support custom API upstream URLs for proxies, self-hosted services, or compatible gateways.
 
-For plugin installation, offline mirrors, and supply chain governance, see [Plugin governance](plugins.md) and [DNS plugins](dns-plugins.md).
+The provider drop-down on "DNS Accounts" is the authoritative list; see [DNS plugins](dns-plugins.md) for credentials, the full provider list, and troubleshooting.
 
-## 3. Task orchestration
-
+## Task orchestration
 Tasks consist of nodes; the default flow is "Request → Deploy (one or more) → Notify".
 
 | Node | Key parameters |
@@ -124,223 +80,151 @@ Tasks consist of nodes; the default flow is "Request → Deploy (one or more) �
 | Deploy | Target credentials, certificate/private key paths, site/domain/certificate name, reload command |
 | Notify | Channels, trigger timing (always / success only / failure only) |
 
-Key points:
+- Nodes can be enabled/disabled and reordered; multiple deploy nodes deliver the same certificate to multiple targets.
+- "Auto by domain binding" lets one certificate cover domains from multiple DNS accounts, each writing and cleaning TXT records through its own account; selecting an explicit account means it covers every domain.
+- Old tasks without an explicit workflow derive an equivalent one from existing domains and target credentials; upgrades migrate deployment paths, sites, and domains to task deploy nodes before removing them from credentials.
+- The task list supports select-all and multi-select for batch execution, pausing, or starting automatic renewal. Batch execution skips running tasks, and batch start/stop changes only scheduling state.
+- Before execution, a still-valid certificate outside its renewal window is reused and only deployment runs; use "Force re-issue" or API `?force=1` for a new certificate. When the CA rate-limits issuance, the task enters "Rate limited" and retries at the CA-provided recovery time instead of every 6 hours.
 
-- Nodes can be enabled/disabled and reordered; a task can contain multiple deploy nodes to deliver the same certificate to multiple targets.
-- The request node supports "auto by domain binding": one certificate may cover domains from multiple DNS accounts, and each domain writes and cleans TXT records through its own account. Selecting an explicit account still means that account covers every domain.
-- When an old task has no explicit workflow, the system derives an equivalent workflow from its existing domains, target credentials, and other fields.
-- During upgrades, deployment paths, sites, and domains from old credentials are migrated to task deploy nodes before the deployment parameters are removed from credentials.
-- The task list supports header select-all and multi-select for batch execution, pausing, or starting automatic renewal.
-- Batch execution skips tasks that are already running; batch start/stop only changes scheduling state and does not interrupt an issuance already in progress.
-- Before execution, a certificate that is still valid and outside its renewal window is reused for the same domain set, and only deployment runs. Use "Force re-issue" or API `?force=1` to request a new certificate. When the upstream CA rate-limits issuance, the task enters "Rate limited" and retries at the CA-provided recovery time instead of retrying every 6 hours as a normal failure.
+## Certificate deployment
+"Target credentials" store only authentication and connection information; certificate paths, reload commands, domains, and sites are configured on task deploy nodes, so one credential can be reused by multiple tasks.
 
-## 4. Certificate deployment
-
-"Target credentials" store only authentication and connection information; certificate paths, reload commands, deployment domains, sites, and similar parameters are configured on task deploy nodes. As a result, one credential can be reused by multiple tasks.
-
-### 4.1 Built-in targets
+### Built-in targets
 
 | Target | Credentials | Deployment parameters |
 | --- | --- | --- |
 | Local directory | None | Certificate/private key paths, optional reload command |
 | SSH / SFTP | Host, port, username, password or private key, host fingerprint | Remote certificate/private key paths, optional remote reload command |
 
-SSH requires a target host fingerprint (`SHA256:...`) by default. TOFU is used only when "auto-trust host key on first connection" is explicitly enabled; subsequent fingerprint mismatches cause the connection to be rejected.
+SSH requires a target host fingerprint (`SHA256:...`) by default. TOFU is used only when "auto-trust host key on first connection" is explicitly enabled; later mismatches reject the connection.
 
-### 4.2 Plugin targets
+### Plugin targets
+FTP/FTPS (plain, explicit TLS, and implicit TLS), Webhook (callback URL, custom authentication headers, optional TLS verification skip), Alibaba Cloud CDN, Qiniu Cloud, BaoTa panel, 1Panel, SafeLine WAF, and others are built in; select the product and parameters under "Deployment target".
 
-The following targets are provided by deployment plugins and become available after installation and activation:
+- Third-party helpers can still be uploaded for additional targets; they receive certificates and private keys and are equivalent to trusted code.
+- Local directories and SSH are always available, and existing credentials are preserved when targets are disabled.
 
-- FTP / FTPS: supports plain FTP, explicit TLS, and implicit TLS.
-- Webhook: callback URL, custom authentication headers, and whether to skip TLS verification.
-- Alibaba Cloud CDN, Qiniu Cloud, BaoTa panel, 1Panel, SafeLine WAF, and others.
-- Select the specific product and parameters under "Deployment target" on the task deploy node.
+### Internal CA trust chain
+Under "Settings → TLS trust chain" you can import internal CA public keys (PEM, optionally a root CA plus subordinates). Afterwards:
 
-Deployment plugins receive certificates and private keys and are equivalent to trusted code; they are disabled by default. When no plugin is installed, only local files and SSH are shown; existing credentials are preserved.
-
-### 4.3 Internal CA trust chain
-
-Under "Settings → TLS trust chain" you can import internal CA public keys (PEM, optionally including both a root CA and subordinate CAs). After importing:
-
-- Deployment plugin targets validate internal HTTPS services against the system roots plus imported CAs, without disabling TLS verification.
-- Certificate monitors trust certificates issued by these CAs; certificates from this application's private CAs are added automatically.
-- Deployments, reload commands, and plugin subprocesses read the merged trust bundle through `SSL_CERT_FILE`, with `CURL_CA_BUNDLE` and `REQUESTS_CA_BUNDLE` also supported.
+- Deployment targets validate internal HTTPS services against system roots plus imported CAs, without disabling TLS verification; certificate monitors trust these CAs, and certificates from this application's private CAs are added automatically.
+- Deployments, reload commands, and plugin subprocesses read the merged bundle through `SSL_CERT_FILE`, with `CURL_CA_BUNDLE` and `REQUESTS_CA_BUNDLE` also supported.
 - The bundle is stored as `trusted-ca-bundle.pem` in the data directory and can be downloaded from the settings page.
 
-Only import internal CAs you actually control; a wrong CA weakens TLS validation. Removing a CA makes targets that rely on its certificates untrusted again. Importing a CA only fixes trust; an expired or not-yet-valid certificate, or one that does not match the target domain/IP, still needs a certificate or address change.
+Only import internal CAs you control; a wrong CA weakens TLS validation, and removing a CA makes dependent targets untrusted again. Importing a CA fixes trust only: an expired, not-yet-valid, or mismatched certificate still needs a certificate or address change.
 
-### 4.4 Deployment records
+### Deployment records
+- Each deployment generates a record, viewable in certificate details and logs.
+- Manual deployments prefer the certificate task's deploy node parameters but can also take parameters for that target only.
+- Local/SSH deployments execute reload commands; API keys need `deploy:execute` to trigger them.
+- A failed deployment does not roll back the previous certificate on the target; retain the previous version or use an atomic release mechanism.
 
-- Each deployment generates a deployment record, viewable in certificate details and logs.
-- Manual deployments prefer the deploy node parameters of the certificate's task; parameters can also be entered for that target only.
-- Local/SSH deployments execute reload commands; API keys must explicitly have `deploy:execute` to trigger them.
-- A failed deployment does not automatically roll back the previous certificate on the target system; retain the previous version on the target side or use an atomic release mechanism.
-
-## 5. Site certificate monitoring
-
-After an external site is added, the service periodically reads its certificate over a TLS connection:
+## Site certificate monitoring
+After an external site is added, the service periodically reads its certificate over TLS:
 
 - Targets support `example.com`, `example.com:8443`, or a full URL; the default port is `443`.
 - Checks run every 24 hours by default and can be adjusted per monitor.
-- The service validates the certificate hostname, issuer, expiration, and status.
-- Certificates with 30 days or less remaining are marked as expiring soon; expired certificates, connection failures, untrusted chains, incomplete chains, or hostname mismatches are marked as abnormal.
-- A notification is sent when the status changes from normal to expiring soon, expired, or abnormal.
-- Monitors validate the system trust chain to prevent a man-in-the-middle from using a self-signed certificate to mask real certificate problems; internal CAs imported by the administrator and private CAs are also trusted.
+- The service validates hostname, issuer, expiration, and status; certificates with 30 days or less remaining are marked expiring soon, while expired certificates, connection failures, untrusted or incomplete chains, and hostname mismatches are abnormal.
+- A notification is sent when status changes from normal to expiring soon, expired, or abnormal.
+- Monitors validate the system trust chain to prevent a man-in-the-middle from masking real problems; administrator-imported internal CAs and private CAs are trusted.
 
-## 6. Notifications
+## Notifications
 
-### 6.1 Built-in channels
-
+### Built-in channels
 - **Email (SMTP)**: server, port, username, password, sender, and SSL support.
-- Notification recipients default to the system account email and can be replaced with custom recipients. After saving, email is delivered only to the configured recipients; the account email is not appended automatically.
-- Implicit TLS is used by default (`smtp.ssl=true`); when implicit TLS is disabled and the server does not support STARTTLS, the service refuses to send, preventing sensitive email such as reset tokens from being transmitted in plaintext.
+- Recipients default to the system account email and can be replaced with custom recipients; after saving, email goes only to the configured recipients, without appending the account email.
+- Implicit TLS is used by default (`smtp.ssl=true`); when it is disabled and the server lacks STARTTLS, sending is refused to prevent sensitive email such as reset tokens from being sent in plaintext.
 
-### 6.2 Plugin channels
-
+### Plugin channels
 Gotify, ServerChan, ntfy, GoCQHTTP, PushDeer, Bark, Telegram, DingTalk, WeCom bot, WeCom app, WeCom intelligent bot, iGot, PushPlus, WePlus, WxPusher, WxPusher SPT, OpenILink, WPush, Synology Chat, Feishu, PushMe, ChronoCat, and custom generic webhooks.
 
-- Channels other than email are provided by notification plugins.
-- Channels can be enabled individually and send test messages.
-- A task notification node can select specific channels or use all enabled channels.
-- Trigger timing supports always, success only, and failure only.
+- Channels other than email are built in, can be enabled individually, and can send test messages.
+- A task notification node can select specific channels or use all enabled channels, with trigger timing always, success only, or failure only.
 
-### 6.3 Security alerts
+### Security alerts
+- Security alerts are independent of the certificate notification switch; disabling certificate email does not blind them. Alerts cover password/email changes, TOTP enable/disable, passkey add/delete, password resets, API key create/update/delete/rotate, and notification setting changes.
+- A **new device** sign-in is reported by default; the same browser is reminded at most once per quiet window (30 days by default), adjustable or changeable to "every sign-in".
+- Failed sign-ins are aggregated per account: 5 failures within 10 minutes trigger an alert, at most once per hour; unknown emails are aggregated by source IP.
+- Email goes only to configured recipients (up to 10). The account email is filled in by default but can be replaced; later account email changes do not silently change it, and changing the email notifies both old and new addresses to prevent account takeover.
+- Email and enabled notification channels are supported. Plugin channels receive the sign-in IP, device, and account email, so select only trusted channels. Messages never contain passwords, TOTP codes, API keys, or full passkey identifiers.
+- An hourly alert limit (default 10) applies only to high-frequency sign-in/failure alerts; further events are recorded under "Recent security events" and combined into one digest at most once per hour. Critical credential changes, new-device sign-ins, email changes, policy changes, and test alerts bypass the limit.
+- "Recent security events" shows event time, type, per-target status, and errors, and exports JSON. Policy changes notify previous recipients and channels using the old SMTP snapshot; events are retained for 90 days by default.
+- If SMTP is not configured and only email is selected, alerts cannot be delivered; the UI warns, and failed events keep the error and retry with backoff.
 
-- Security alerts are independent of the certificate notification switch; disabling certificate email does not blind security alerts.
-- Alerts are sent for password changes, email changes, TOTP enable/disable, passkey add/delete, password resets, API key create/update/delete/rotate, and notification setting changes.
-- A **new device** sign-in is reported by default; the same browser is reminded at most once within the configured quiet window (30 days by default). The window can be adjusted, or the mode changed to “every sign-in”.
-- Failed sign-ins are aggregated per account: 5 failures within 10 minutes trigger an alert, at most once per hour. Unknown emails are aggregated by source IP.
-- Email is sent only to the configured recipients (up to 10). The system account email is filled in by default and can be replaced with custom recipients; later account email changes do not silently change it. Changing the email notifies both the old and new addresses, preventing account takeover through “change email, then reset password”.
-- Email and enabled notification plugin channels are supported. Email is the default; selecting plugin channels sends the sign-in IP, device, and account email to the corresponding third party, so select only trusted channels.
-- Messages never contain passwords, TOTP codes, API keys, or full passkey identifiers. The settings page provides a test alert and shows the latest delivery status.
-- An hourly alert limit can be configured (10 by default) for high-frequency sign-in/failure alerts only. Events beyond the limit are still recorded under "Recent security events" (recorded only) but are combined into one digest, sent at most once per hour. Critical credential changes, new-device sign-ins, email changes, policy changes, and test alerts bypass the limit.
-- The "Recent security events" dialog shows event time, type, per-target recipient/channel status, and errors, and can export JSON.
-- Changing the security alert policy notifies the previous recipients and channels. It uses the old SMTP configuration snapshot so the old recipients still receive the alert even if the new SMTP settings are wrong or point to an attacker. Events are retained for 90 days by default and can be adjusted.
-- If SMTP is not configured and only email is selected, alerts cannot be delivered; the UI shows a warning, and failed events keep the error and retry with backoff.
+## Private CA
 
-## 7. Private CA
+### Generation
+- Private key types: ECDSA P-256 / P-384, RSA 2048 / 4096; set the validity period as needed.
+- Generate a root CA, or select "Intermediate/Issuing CA" to have an existing private CA sign a subordinate CA.
+- Configure Subject (ST, L, OU, Email, custom serial number), Extensions (path length, Key Usage, Extended Key Usage, SAN DNS/IP, Name Constraints), and Infrastructure (parent CA, CRL distribution point, OCSP responder URL, CA issuer URL, certificate policy OID, CPS URL).
+- SKI, AKI, and CA basic constraints are generated automatically; with a parent CA, validity and path length converge to the parent's permitted range.
 
-Manage internal certificate authorities under "Private CA".
-
-### 7.1 Generation
-
-- Private key types: ECDSA P-256 / P-384, RSA 2048 / 4096.
-- Set the validity period as needed.
-- You can generate a root CA, or select "Intermediate/Issuing CA" to have an existing private CA sign a subordinate CA.
-- The following full X.509 fields and PKI parameters can be configured during generation:
-  - Subject: ST, L, OU, Email, custom serial number.
-  - Extensions: path length, Key Usage, Extended Key Usage, SAN (DNS/IP), Name Constraints (allowed/excluded DNS domains and IP ranges).
-  - Infrastructure: parent CA, CRL distribution point, OCSP responder URL, CA issuer URL, certificate policy OID, and CPS URL.
-- SKI, AKI, and CA basic constraints are generated automatically.
-- When a parent CA is selected, validity and path length automatically converge to the range permitted by the parent CA.
-
-### 7.2 Import
-
+### Import
 - Paste a PEM-format CA certificate and private key.
-- Validate CA basic constraints, certificate signing usage, and whether the certificate matches the private key.
-- When importing an intermediate CA, you can select a parent CA; the system validates the signature and establishes the hierarchy.
+- The system validates CA basic constraints, certificate signing usage, and key matching; for an intermediate CA, select a parent CA and the system validates the signature and establishes the hierarchy.
 
-### 7.3 Download and deletion
-
-- Download the CA certificate, private key, or full certificate chain (intermediate CA + parent CA chain).
+### Download and deletion
+- Download the CA certificate, private key, or full chain (intermediate CA + parent chain).
 - List APIs do not return certificate or private key contents; downloading a private key requires `private_cas:key`.
-- Deletion removes the CA record and private key stored on the server; if subordinate CAs exist, delete them first.
+- Deletion removes the CA record and server-stored private key; delete subordinate CAs first.
 
-### 7.4 Limitations
+### Limitations
+- Private CA private keys are encrypted in the database but are not HSM/KMS-managed.
+- Root and intermediate/issuing CAs can both issue in "Certificate Request"; the full chain is stored and deployed with the certificate.
+- Certificates default to 365-day validity and never exceed the CA's expiration.
+- CRL/OCSP URLs are written into new certificates, but revocation lists and online status services must be provided by external PKI infrastructure; existing certificates do not gain CDP/AIA extensions automatically and must be reissued.
 
-- Private CA private keys are encrypted before being written to the database, but they are not HSM/KMS-managed.
-- Both root CAs and intermediate/issuing CAs can serve as issuers in "Certificate Request"; the full certificate chain is stored and deployed with the certificate.
-- Certificates default to a 365-day validity and never exceed the CA's expiration.
-- CRL/OCSP distribution URLs are written into new certificates, but the actual revocation lists and online status services must be provided by external PKI infrastructure.
-- Existing certificates do not automatically gain CDP/AIA extensions and must be reissued.
+## ACME server
+The built-in ACME v2 server is enabled by default and exposes private CAs to clients such as certbot, lego, and acme.sh. It does not issue certificates until an endpoint is created and enabled.
 
-## 8. ACME server
+### Endpoints
+- Each endpoint is bound to one private CA, with a random URL slug such as `/acme/internal/directory`.
+- Supports an EAB toggle, domain allowlists, and HTTP-01 / DNS-01 / TLS-ALPN-01 toggles.
+- Can listen on a dedicated port with direct TLS and optional mTLS; certificate validity, order rate limits, and an HTTP-01 internal CIDR allowlist are configurable.
 
-The built-in ACME v2 server is enabled by default and can expose private CAs to clients such as certbot, lego, and acme.sh. It does not issue certificates until an endpoint is created and enabled.
-
-### 8.1 Endpoints
-
-- Each endpoint is bound to one private CA.
-- A random URL slug is used, for example `/acme/internal/directory`.
-- Supports an EAB toggle, domain allowlists, and HTTP-01 / DNS-01 / TLS-ALPN-01 capability toggles.
-- Can listen on a dedicated port, with direct TLS and optional mTLS.
-- Certificate validity, order rate limits, and an HTTP-01 internal CIDR allowlist can be configured.
-
-### 8.2 Protocol capabilities
-
-- Accounts store only public keys, never client private keys.
-- Supports account key rollover (`keyChange`).
-- Supports ARI (RFC 9773) renewal suggestions: by default a renewal window is provided about one third of the lifetime before expiry (at most 30 days); revoked or expired certificates return a past window to prompt immediate renewal.
-- Supports the ARI `replaces` field: a new order can declare the old certificate it replaces, and the server validates ownership, identifier overlap, and duplicate replacement.
+### Protocol capabilities
+- Accounts store only public keys, never client private keys, and support account key rollover (`keyChange`).
+- Supports ARI (RFC 9773) renewal suggestions: a renewal window about one third of the lifetime before expiry (at most 30 days); revoked or expired certificates return a past window to prompt immediate renewal. The ARI `replaces` field lets a new order declare the old certificate, with ownership, identifier overlap, and duplicate-replacement checks.
 - Supports DNS and IP identifiers; IP identifiers allow only HTTP-01 / TLS-ALPN-01 and require an IP CIDR allowlist.
-- Newly issued certificates include CRL Distribution Point and OCSP AIA extensions; revocation status can be checked at `/pki/{ca}/crl` and `/pki/{ca}/ocsp`.
-- Private CAs must have the `cRLSign` usage; this is validated when an ACME endpoint is enabled.
+- Newly issued certificates include CRL Distribution Point and OCSP AIA extensions, with status at `/pki/{ca}/crl` and `/pki/{ca}/ocsp`. Private CAs must have the `cRLSign` usage, validated when an endpoint is enabled.
 
-### 8.3 Diagnostics and cleanup
+### Diagnostics and cleanup
+- "ACME Diagnostics" shows account, order, authorization, challenge, and certificate status.
+- Cleanup of invalid orders and long-unused accounts is supported by endpoint, status, and age; deleting an account removes its orders but not issued certificates.
+- CRL/OCSP is organized per CA and should remain reachable after an ACME enrollment endpoint is disabled.
 
-- The "ACME Diagnostics" page shows account, order, authorization, challenge, and certificate status.
-- Cleanup of invalid orders and long-unused accounts is supported by endpoint, status, and age.
-- Deleting an account removes its historical orders but does not affect issued certificates.
-- CRL/OCSP is organized per CA; it should remain reachable after an ACME enrollment endpoint is disabled (if clients need to check revocation).
+## Dashboard and logs
 
-## 9. Dashboard and logs
+### Dashboard
+The UI supports Simplified Chinese and English and can be switched in settings. The home page summarizes total certificates and expiring/expired counts, task and monitor status, deployment success rate, and expiry distribution and issuance trends.
 
-### 9.1 Dashboard
+### Logs: Operation
+- Shares the Misc → Logs page with system logs via tabs; records task execution, certificate issuance, deployments, notifications, monitors, and settings changes.
+- Filters by source, level, keyword, and time range, with optional auto refresh; keywords match raw stored content and parameter values (such as task names and domains), not localized template text.
+- Exports CSV or JSON with the same filters as the list; CSV includes a UTF-8 BOM for Excel/WPS.
+- Can be cleared with the separate sensitive scope `logs:write` and UI confirmation; when archiving is enabled, logs are written to `data/archives/logs/` first, and the clear action is written to the audit log.
+- Export is limited to the most recent 90 days and follows the browser time zone by default, falling back to the server `TZ`.
 
-The UI supports Simplified Chinese and English and can be switched in settings. The home page summarizes:
+### Logs: System
+- Shares the Misc → Logs page via a tab; filtered from process logs and written asynchronously to the database.
+- Filters by level, component, keyword, and time range; exports CSV/JSON and clears with the same archiving behavior, writing a clearing entry to the operation log.
+- Records `info` and above by default, retaining 7 days or 20,000 rows; HTTP access logs are not written to the database by default and can be adjusted in `log.system`.
 
-- Total certificates and expiring/expired counts.
-- Task and monitor status.
-- Deployment success rate.
-- Expiry distribution and issuance trends.
-
-### 9.2 Logs: Operation
-
-- Shares the Misc → Logs page with system logs, switched via tabs.
-- Records task execution, certificate issuance, deployments, notifications, monitors, and settings changes.
-- Supports filtering by source, level, keyword, and time range, with optional auto refresh.
-- Keywords match the raw stored content and parameter values (such as task names and domains), not the localized template text shown in the UI.
-- Can export CSV or JSON; CSV includes a UTF-8 BOM and opens directly in Excel/WPS. Export uses the same filters as the list.
-- Can be cleared; when archiving is enabled, logs are written to `data/archives/logs/` before deletion. The clear action itself is written to the audit log. This requires the separate sensitive scope `logs:write` and a confirmation in the UI.
-- Export is limited to the most recent 90 days.
-- Export times follow the browser time zone by default; if unavailable, the server `TZ` is used.
-
-### 9.3 Logs: System
-
-- Shares the Misc → Logs page with operation logs, switched via tabs.
-- Filtered from process logs and written asynchronously to the database.
-- Can be filtered by level, component, keyword, and time range.
-- Can be exported as CSV/JSON and cleared; when archiving is enabled, logs are archived before clearing, and clearing writes an entry to the operation log.
-- Records `info` and above by default, retaining 7 days or 20,000 rows.
-- HTTP access logs are not written to the database by default and can be adjusted in `log.system`.
-
-### 9.4 Logs: Archive
-
-- Shares the Misc → Logs page as a third tab.
-- Manual clears, the 90-day operation-log cleanup, and system-log retention/max-row cleanup create an archive before deletion.
-- An archive consists of `*.ndjson.gz` and `*.manifest.json`, preserving raw log fields, row count, ID/time ranges, trigger reason, operator, SHA-256, and file size.
-- Filter by category, reason, keyword, and time range; download or delete archives.
-- Archives are kept forever by default; `log.archive.retention_days`, `max_total_mb`, and `quota_policy` control cleanup.
+### Logs: Archive
+- A third tab on the Misc → Logs page. Manual clears, the 90-day operation-log cleanup, and system-log retention/max-row cleanup create an archive before deletion.
+- An archive consists of `*.ndjson.gz` and `*.manifest.json`, preserving raw fields, row count, ID/time ranges, trigger reason, operator, SHA-256, and file size.
+- Filter by category, reason, keyword, and time range; download or delete archives. Archives are kept forever by default; `log.archive.retention_days`, `max_total_mb`, and `quota_policy` control cleanup.
 - Archive failure blocks deletion: manual clears return an error and automatic cleanup retries on the next maintenance run.
-- The archive directory is not included in the default ZIP backup and must be copied separately. Administrators with data-directory access can delete archives, so this is not tamper-proof auditing.
+- The archive directory is not included in the default ZIP backup and must be copied separately; administrators with data-directory access can delete archives, so this is not tamper-proof auditing.
 
-## 10. Capability boundaries
+## Capability boundaries
 
 | Boundary | Description |
 | --- | --- |
 | Public certificate validation | DNS-01 only; HTTP-01 is not supported for public CA requests |
-| Multi-user | Single administrator account; no RBAC or organizational structure |
+| Multi-user | Single administrator account; no multi-user support or RBAC |
 | Identity federation | No LDAP/OIDC/SAML/SCIM |
 | High availability | No built-in clustering or active-active; SQLite uses a single writer |
 | Private key custody | Local encrypted storage; no HSM/KMS |
 | Monitoring output | No Prometheus metrics endpoint; logs and an authenticated API are provided |
 | Deployment rollback | No automatic rollback of previous certificates on targets; versioning must be retained on the target side |
-| Compliance certification | No MLPS/ISO certificates are included; enterprises must complete their own assessment |
-
-## Related documentation
-
-- [DNS plugins](dns-plugins.md)
-- [Deployment plugins](deploy-plugins.md)
-- [Notification plugins](notify-plugins.md)
-- [API integration](api.md)
-- [Security baseline](security.md)

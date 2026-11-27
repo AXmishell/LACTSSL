@@ -154,14 +154,17 @@
       </div>
       <template v-else>
         <span class="muted">{{ t('plugins.totalRecords', { count: visibleGroups.length }) }}</span>
-        <el-pagination
-          v-if="visibleGroups.length > pageSize"
-          v-model:current-page="page"
-          :page-size="pageSize"
-          :total="visibleGroups.length"
-          layout="prev, pager, next"
-          background
-        />
+        <div class="plugin-table-pager">
+          <el-pagination
+            v-if="visibleGroups.length > pageSize"
+            v-model:current-page="page"
+            :page-size="pageSize"
+            :total="visibleGroups.length"
+            layout="prev, pager, next"
+            background
+          />
+          <PageSizeSelect v-if="visibleGroups.length" v-model="pageSize" :max="500" />
+        </div>
       </template>
     </div>
 
@@ -308,6 +311,8 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { notifyChannelLabelKey } from '../notifyChannels'
+import PageSizeSelect from './PageSizeSelect.vue'
+import { usePageSize } from '../pageSize'
 import { formatSize, formatVersion } from '../utils'
 import type { PluginFile, PluginGroup, PluginItem } from '../types'
 
@@ -400,17 +405,20 @@ const resolvedEmptyText = computed(() => props.emptyText || t('plugins.noMatched
 
 // 客户端分页：分组数量可能上百，分页只截取当前页，筛选条件变化时回到第一页。
 const page = ref(1)
-// 插件行包含两行元信息，20 条一页比日志页更紧凑；三个标签共用同一分页逻辑。
-const pageSize = 20
+// 插件行包含两行元信息；三个标签共用同一分页与偏好。
+const pageSize = usePageSize('plugins.groups', 25, 1, 500)
 const pagedGroups = computed<PluginGroup[]>(() => {
-  const start = (page.value - 1) * pageSize
-  return visibleGroups.value.slice(start, start + pageSize)
+  const start = (page.value - 1) * pageSize.value
+  return visibleGroups.value.slice(start, start + pageSize.value)
 })
 watch(() => props.keyword, () => {
   page.value = 1
 })
+watch(pageSize, () => {
+  page.value = 1
+})
 watch(visibleGroups, (rows) => {
-  const maxPage = Math.max(1, Math.ceil(rows.length / pageSize))
+  const maxPage = Math.max(1, Math.ceil(rows.length / pageSize.value))
   if (page.value > maxPage) page.value = maxPage
 })
 
@@ -668,6 +676,12 @@ function fileAuditText(file: PluginFile): string {
 }
 .plugin-table-foot .muted {
   font-size: 12px;
+}
+.plugin-table-pager {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 /* 多选列：复选框 12px，左右各保留 16px 外边距；取消单元格内边距。 */
 .plugin-table :deep(.plugin-select-cell .cell) {

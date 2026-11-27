@@ -1,19 +1,110 @@
-/* GitHub Pages 首页样式：仅补充 landing 区块，不改动 Material 主题默认排版。 */
+/* LACTSSL 文档站点样式：在 Material 主题上补充首页区块与更轻的阅读节奏。 */
 
 :root {
   --lactssl-blue: #2563eb;
   --lactssl-blue-light: #60a5fa;
   --lactssl-card-border: rgba(37, 99, 235, 0.16);
+  --lactssl-card-bg: rgba(37, 99, 235, 0.045);
+  --lactssl-rule: rgba(37, 99, 235, 0.14);
 }
 
-/* 首屏 */
+/* ---- 正文排版 ------------------------------------------------------------ */
+
+.md-typeset {
+  line-height: 1.78;
+}
+
+.md-typeset p,
+.md-typeset ul,
+.md-typeset ol {
+  margin-bottom: 0.85em;
+}
+
+.md-typeset h1 {
+  margin-bottom: 0.55em;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.md-typeset h1 + p {
+  margin-bottom: 0.9em;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.92rem;
+  line-height: 1.75;
+}
+
+.md-typeset h2 {
+  margin-top: 2em;
+  margin-bottom: 0.7em;
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid var(--lactssl-rule);
+  font-size: 1.38rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.md-typeset h3 {
+  margin-top: 1.8em;
+  margin-bottom: 0.5em;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.md-typeset h2 .headerlink,
+.md-typeset h3 .headerlink {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.md-typeset h2:hover .headerlink,
+.md-typeset h3:hover .headerlink {
+  opacity: 1;
+}
+
+.md-typeset a {
+  text-underline-offset: 0.14em;
+}
+
+.md-typeset code {
+  border-radius: 0.25rem;
+}
+
+.md-typeset pre > code {
+  border-radius: 0.5rem;
+  font-size: 0.76rem;
+  line-height: 1.65;
+}
+
+.md-typeset table:not([class]) {
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.md-typeset table:not([class]) th {
+  font-weight: 700;
+}
+
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 0.5rem;
+}
+
+/* 目录：更轻的字重和更宽松的行距。 */
+.md-nav--secondary .md-nav__link {
+  line-height: 1.5;
+}
+
+/* ---- 首页 Hero ----------------------------------------------------------- */
+
 .md-typeset .hero {
-  padding: 2.2rem 0.5rem 1rem;
+  padding: 1.6rem 0.5rem 2.2rem;
+  border-bottom: 1px solid var(--lactssl-rule);
   text-align: center;
 }
 
 .md-typeset .hero h1 {
-  margin: 0.6rem 0 0.4rem;
+  margin: 0.55rem 0 0.45rem;
   font-size: clamp(2.6rem, 6vw, 3.6rem);
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -23,68 +114,69 @@
   color: transparent;
 }
 
-/* 首屏标题不需要锚点图标。 */
-.md-typeset .hero .headerlink {
+/* 首屏标题不需要锚点图标，首页也不需要编辑按钮。 */
+.md-typeset .hero .headerlink,
+.md-content__inner:has(.hero) .md-content__button {
   display: none;
 }
 
 .md-typeset .hero-badge {
   display: inline-block;
-  padding: 0.2rem 0.7rem;
+  padding: 0.22rem 0.72rem;
   border: 1px solid var(--lactssl-card-border);
   border-radius: 999px;
   background: rgba(37, 99, 235, 0.06);
   color: var(--lactssl-blue);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
 .md-typeset .hero-sub {
-  max-width: 42rem;
-  margin: 0 auto 1.4rem;
+  max-width: 38rem;
+  margin: 0 auto 1.3rem;
   color: var(--md-default-fg-color--light);
-  font-size: 1rem;
-  line-height: 1.7;
+  font-size: 0.98rem;
+  line-height: 1.75;
 }
 
 .md-typeset .hero .md-button {
-  margin: 0.25rem 0.2rem;
+  margin: 0.25rem 0.18rem;
 }
 
-/* 功能卡片 */
+/* ---- 首页卡片 ----------------------------------------------------------- */
+
 .md-typeset .feature-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  gap: 0.9rem;
-  margin: 2rem 0;
+  gap: 0.75rem;
+  margin: 1.8rem 0 2.2rem;
 }
 
 .md-typeset .feature-card {
-  padding: 1.1rem 1.2rem;
-  border: 1px solid var(--lactssl-card-border);
+  padding: 1.05rem 1.15rem;
+  border: 1px solid transparent;
   border-radius: 0.6rem;
-  background: var(--md-default-bg-color);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  background: var(--lactssl-card-bg);
+  transition: background 0.18s ease, transform 0.18s ease;
 }
 
 .md-typeset .feature-card:hover {
-  border-color: var(--lactssl-blue);
-  box-shadow: 0 10px 28px rgba(37, 99, 235, 0.12);
+  background: rgba(37, 99, 235, 0.08);
   transform: translateY(-2px);
 }
 
 .md-typeset .feature-card h3 {
-  margin: 0 0 0.45rem;
-  font-size: 0.92rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
 .md-typeset .feature-card h3 svg {
-  width: 1.15rem;
-  height: 1.15rem;
-  margin-right: 0.3rem;
-  vertical-align: -0.2rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-right: 0.28rem;
+  vertical-align: -0.18rem;
   color: var(--lactssl-blue);
 }
 
@@ -95,20 +187,20 @@
 .md-typeset .feature-card p {
   margin: 0;
   color: var(--md-default-fg-color--light);
-  font-size: 0.78rem;
-  line-height: 1.65;
+  font-size: 0.76rem;
+  line-height: 1.7;
 }
 
 /* 文档入口 */
 .md-typeset .doc-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: 0.9rem;
-  margin: 1.2rem 0;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 0.6rem;
+  margin: 1.2rem 0 2rem;
 }
 
 .md-typeset .doc-card {
-  padding: 0.9rem 1rem;
+  padding: 0.85rem 1rem;
   border: 1px solid var(--lactssl-card-border);
   border-radius: 0.55rem;
   transition: border-color 0.18s ease, background 0.18s ease;
@@ -124,7 +216,7 @@
 }
 
 .md-typeset .doc-card a {
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 700;
   text-decoration: none;
 }
@@ -139,23 +231,23 @@
 
 .md-typeset .doc-card span {
   display: block;
-  margin-top: 0.3rem;
+  margin-top: 0.28rem;
   color: var(--md-default-fg-color--light);
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   line-height: 1.6;
 }
 
-/* 深色模式下降低卡片背景对比，避免发灰。 */
-[data-md-color-scheme="slate"] .md-typeset .feature-card,
-[data-md-color-scheme="slate"] .md-typeset .doc-card {
-  border-color: rgba(96, 165, 250, 0.24);
+.md-typeset .home-note {
+  max-width: 44rem;
+  margin: 1.6rem auto 0;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.72rem;
+  line-height: 1.7;
+  text-align: center;
 }
 
-[data-md-color-scheme="slate"] .md-typeset .doc-card:hover {
-  background: rgba(96, 165, 250, 0.08);
-}
+/* ---- 界面截图 ----------------------------------------------------------- */
 
-/* 界面截图 */
 .md-typeset .doc-screenshot {
   display: block;
   width: 100%;
@@ -166,18 +258,35 @@
   box-shadow: 0 10px 28px rgba(37, 99, 235, 0.08);
 }
 
-[data-md-color-scheme="slate"] .md-typeset .doc-screenshot {
-  border-color: rgba(96, 165, 250, 0.24);
-}
-
-/* 首页 Hero 下方截图：限制宽度并居中，移动端自动铺满。 */
+/* 首页截图：限制宽度并居中，移动端自动铺满。 */
 .md-typeset .doc-screenshot--home {
   max-width: 72rem;
   margin-left: auto;
   margin-right: auto;
 }
 
-/* 站点 Logo：页眉与导航抽屉统一放大到 40x40。 */
+/* ---- 深色模式 ----------------------------------------------------------- */
+
+[data-md-color-scheme="slate"] {
+  --lactssl-card-border: rgba(96, 165, 250, 0.24);
+  --lactssl-card-bg: rgba(96, 165, 250, 0.07);
+  --lactssl-rule: rgba(96, 165, 250, 0.18);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .feature-card:hover {
+  background: rgba(96, 165, 250, 0.11);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .doc-card:hover {
+  background: rgba(96, 165, 250, 0.08);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .doc-screenshot {
+  border-color: rgba(96, 165, 250, 0.24);
+}
+
+/* ---- 站点 Logo ---------------------------------------------------------- */
+
 .md-header__button.md-logo {
   padding: 0;
 }

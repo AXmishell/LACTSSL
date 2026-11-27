@@ -1,8 +1,8 @@
 # Development: source and build
 
-This page is intended for engineering and integration teams that need to customize the product, produce private builds, or contribute to the project. **Operations staff and end users do not need this page**; for production deployment see [Installation and startup](install.md), and for plugin usage see [Plugin governance](plugins.md).
+For engineering and integration teams customizing the product, producing private builds, or contributing. **Operations staff and end users do not need this page**; see [Installation and startup](install.md) for deployment and [Plugin governance](plugins.md) for plugin usage.
 
-## 1. Repository layout
+## Repository layout
 
 ```text
 cmd/server/          Program entry point, startup, and secure entry initialization
@@ -29,17 +29,17 @@ docs/ja/             Japanese documentation
 docs/ru/             Russian documentation
 ```
 
-Official DNS/deploy/notify implementations live in `internal/plugin/` and are compiled and tested with the main module. `internal/plugin/providers` is a separate Go module (`lactssl/providers`) that depends only on the plugin SDK and upstream provider SDKs; the host references it through a local `replace`. `plugins/` is the external plugin development SDK (protocol, helper framework, and shared utilities). Uploaded helpers still run as protocol v1 subprocesses. The host does not depend on an external plugin repository or signed index.
+Official DNS/deploy/notify implementations live in `internal/plugin/` and compile with the main module. `internal/plugin/providers` is a separate Go module (`lactssl/providers`) that depends only on the plugin SDK and upstream provider SDKs and is referenced through a local `replace`; `plugins/` is the external plugin SDK. Uploaded helpers run as protocol v1 subprocesses, and the host does not depend on an external plugin repository or signed index.
 
-## 2. Local development
+## Local development
 
-### 2.1 Prerequisites
+### Prerequisites
 
 - Go 1.27+
 - Node.js 22.12+ and npm (required by Vite 8)
 - Optional: Docker / Docker Compose v2
 
-### 2.2 Common commands
+### Common commands
 
 ```bash
 make dev          # Start Vite + Go development mode in the background
@@ -62,16 +62,11 @@ make docs-build   # Build Chinese and English documentation (strict)
 make docs-serve   # Preview the bilingual documentation locally
 ```
 
-### 2.3 Development mode ports
+### Development mode ports
 
-`make dev` starts:
+`make dev` starts Vite on `:5173` with HMR and Go on `:8080` (from `server.addr` / `server.port`). Open `http://<host>:5173/<entry>/`; Vite proxies `/api` and the legacy `/<entry>/api` to Go, and production has no Vite.
 
-- Vite: `:5173`, with HMR, serving frontend sources.
-- Go: `:8080` by default, read from `server.addr` / `server.port` in `config.yaml`.
-
-Open `http://<host>:5173/<entry>/`. Vite proxies `/api` and the legacy `/<entry>/api` to Go; Go on `8080` **does not** reverse proxy `5173`, and there is no Vite in production.
-
-Development mode scripts:
+Options: `--no-web` starts only the backend, `--build` rebuilds with `make server-dev` before starting or restarting, and `WEB_PORT` / `DEV_HOST` set the Vite port (default `5173`) and bind address (default `0.0.0.0`).
 
 ```bash
 ./scripts/dev.sh start            # Start the Go backend + Vite in the background
@@ -81,29 +76,12 @@ Development mode scripts:
 ./scripts/dev.sh stop             # Stop
 ```
 
-PID files and logs live in `data/run/`:
+PID files and logs live in `data/run/panel.pid`, `data/run/panel.log`, `data/run/web.pid`, and `data/run/web.log`. The backend port and secure entry are read from `config.yaml`, which is generated from `config.yaml.example` when missing.
 
-```text
-data/run/panel.pid  data/run/panel.log
-data/run/web.pid    data/run/web.log
-```
+## Build and version injection
 
-Common options:
-
-| Item | Description |
-| --- | --- |
-| `--no-web` | Start the backend only, without Vite |
-| `--build` | Run `make server-dev` to rebuild before starting or restarting |
-| `WEB_PORT` / `DEV_HOST` | Vite port (default `5173`) and bind address (default `0.0.0.0`) |
-
-The backend port and secure entry are both read from `config.yaml`; when the file does not exist, it is generated from `config.yaml.example`.
-
-## 3. Build and version injection
-
-- The frontend build output is written to `web/dist` first, then copied to `internal/webui/dist` and embedded into the binary with the `embed` tag.
-- The version number comes solely from git tags. `scripts/version.sh` derives it with `git describe --tags --always --dirty` (stripping the `v` prefix) and injects it with `-ldflags -X 'lactssl/internal/api.Version=...'`.
-- Build time and architecture are handled the same way; when they are not injected, the version displays as `dev`.
-- The repository does not maintain a `VERSION` file.
+- The frontend build goes to `web/dist`, is copied to `internal/webui/dist`, and is embedded with the `embed` tag.
+- The version comes solely from git tags: `scripts/version.sh` runs `git describe --tags --always --dirty` (stripping `v`) and injects it with `-ldflags -X 'lactssl/internal/api.Version=...'`. Build time and architecture are handled the same way, and missing values display `dev`; there is no `VERSION` file.
 - To pin a version explicitly:
 
 ```bash
@@ -112,7 +90,7 @@ VERSION=1.2.3 make docker-context
 docker build --build-arg VERSION=1.2.3 -t lactssl:1.2.3 .
 ```
 
-## 4. Testing and CI
+## Testing and CI
 
 ```bash
 make test
@@ -121,7 +99,7 @@ make i18n-check
 make ci
 ```
 
-`make ci` is equivalent to `.github/workflows/ci.yml` and can also be run in parts:
+`make ci` is equivalent to `.github/workflows/ci.yml` and can be run in parts:
 
 ```bash
 ./scripts/ci.sh --backend-only
@@ -129,18 +107,15 @@ make ci
 ./scripts/ci.sh --no-build
 ```
 
-CI also runs `gofmt` checks, `go vet`, tests with `-race` and coverage reporting, plus frontend type checking and builds.
+CI runs `gofmt` checks, `go vet`, tests with `-race` and coverage, and frontend type checking and builds.
 
-## 5. Internationalization
+## Internationalization
 
-- Backend language resources live in `internal/i18n/locales/`.
-- Frontend language resources live in `web/src/i18n/locales/`.
-- When adding text, update `zh-CN`, `en-US` and `zh-TW`, then run `make i18n-check`.
-- Traditional Chinese (`zh-TW`) is bundled and included in the default check; missing strings fall back directly to `zh-CN`. Russian (`ru-RU`) and Japanese (`ja-JP`) are excluded from the default check; missing strings fall back `language → en-US → zh-CN`. After syncing translations, run `make i18n-check-all` (or `I18N_CHECK_ALL=1`) for a full check of the remaining languages.
-- The check script is TypeScript (`scripts/check-i18n.ts`), run directly by Node's native type stripping and requiring Node 22.18+.
-- The script's own type check is included in `make typecheck` (configuration in `scripts/tsconfig.json`).
+- Backend resources live in `internal/i18n/locales/`; frontend resources in `web/src/i18n/locales/`. When adding text, update `zh-CN`, `en-US`, and `zh-TW`, then run `make i18n-check`.
+- `zh-TW` is bundled and checked by default, with missing strings falling back to `zh-CN`. Russian (`ru-RU`) and Japanese (`ja-JP`) are excluded from the default check and fall back `language → en-US → zh-CN`; run `make i18n-check-all` (or `I18N_CHECK_ALL=1`) for all languages.
+- The check script is TypeScript (`scripts/check-i18n.ts`), run by Node's native type stripping and requiring Node 22.18+. Its type check is included in `make typecheck` via `scripts/tsconfig.json`.
 
-## 6. Documentation build
+## Documentation build
 
 The documentation uses Zensical/MkDocs:
 
@@ -149,40 +124,19 @@ make docs-build   # Build every language in strict mode
 make docs-serve   # Preview in the background (port 8000; -l picks a language; ./scripts/docs-serve.sh stop to stop)
 ```
 
-The configs, sources and build output all live in `docsite/`: Zensical treats the directory containing the config file as the project root, so `docs_dir` and `site_dir` must stay inside it.
+Configs, sources, and output live in `docsite/`; Zensical treats the directory containing the config as the project root, so `docs_dir` and `site_dir` stay inside it. English uses `docsite/mkdocs.yml` → `docsite/site`; Simplified Chinese, Traditional Chinese, Japanese, and Russian use `docsite/mkdocs.zh.yml`, `mkdocs.zh-hant.yml`, `mkdocs.ja.yml`, and `mkdocs.ru.yml` under `docsite/site/<lang>`. `docs-internal/` is not published, and new pages must be mirrored under `docsite/docs/<language>/` and added to each language's nav.
 
-- English: `docsite/mkdocs.yml` → `docsite/site` (default site).
-- Simplified Chinese: `docsite/mkdocs.zh.yml` → `docsite/site/zh`.
-- Traditional Chinese: `docsite/mkdocs.zh-hant.yml` → `docsite/site/zh-hant`.
-- Japanese: `docsite/mkdocs.ja.yml` → `docsite/site/ja`.
-- Russian: `docsite/mkdocs.ru.yml` → `docsite/site/ru`.
-- `docs-internal/` holds internal design records and is not published to the site.
-- New pages must be mirrored under `docsite/docs/<language>/` and added to each language's nav.
+## Release process
 
-## 7. Release process
-
-Releases are driven solely by tags. Publishing a GitHub Release triggers the `Release` workflow, which builds and uploads artifacts for each platform:
+Releases are driven solely by tags; publishing a GitHub Release triggers the `Release` workflow:
 
 ```bash
 gh release create v1.0.1 --generate-notes
 ```
 
-Artifacts include:
+Artifacts include `lactssl_<version>_<os>_<arch>.tar.xz` and `.tar.gz` for Linux and macOS amd64/arm64, `lactssl_<version>_windows_amd64.zip`, and `checksums.txt` (SHA-256). Archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`; the version comes from the tag without the `v`. Both `.tar.xz` (preferred) and `.tar.gz` (for older auto-upgrade clients) are published on non-Windows platforms.
 
-- `lactssl_<version>_linux_amd64.tar.xz`
-- `lactssl_<version>_linux_amd64.tar.gz`
-- `lactssl_<version>_linux_arm64.tar.xz`
-- `lactssl_<version>_linux_arm64.tar.gz`
-- `lactssl_<version>_darwin_amd64.tar.xz`
-- `lactssl_<version>_darwin_amd64.tar.gz`
-- `lactssl_<version>_darwin_arm64.tar.xz`
-- `lactssl_<version>_darwin_arm64.tar.gz`
-- `lactssl_<version>_windows_amd64.zip`
-- `checksums.txt` (SHA-256)
-
-Archives contain the binary, `README.md`, `LICENSE`, and `config.yaml.example`. The version comes directly from the tag (with the `v` prefix removed) and does not rely on local git derivation. On non-Windows platforms both `.tar.xz` and `.tar.gz` are published; `.tar.xz` is the preferred download, while `.tar.gz` keeps older auto-upgrade clients working.
-
-Images for `linux/amd64` and `linux/arm64` are also built and pushed to GHCR:
+Images for `linux/amd64` and `linux/arm64` are pushed to GHCR:
 
 ```text
 ghcr.io/axmishell/lactssl:<version>
@@ -191,16 +145,13 @@ ghcr.io/axmishell/lactssl:<major>
 ghcr.io/axmishell/lactssl:latest
 ```
 
-Pre-releases only push the full `<version>` tag and do not update `latest`, `<major>.<minor>`, or `<major>`. After the first release, GHCR packages are private by default and must be changed to Public in the package settings.
+Pre-releases only push `<version>` and do not update `latest`, `<major>.<minor>`, or `<major>`. GHCR packages are private by default after the first release and must be changed to Public in package settings.
 
 Notes:
 
-- The workflow only triggers when a Release is formally published; with `gh release create --draft`, the build starts only after you publish it.
-- Before first use, `.github/workflows/release.yml` must already be included in the commit the tag points to.
-- Files pre-uploaded with `gh release create <tag> <files>...` that share names with automatic artifacts are overwritten by the workflow with `--clobber`; do not pass files at creation time.
-- Release assets take a few minutes to finish building; if you need to make the release public only after assets are ready, push the tag first and create the Release after CI completes (this requires a separate tag-push flow).
-- Rebuild a specific tag with `gh workflow run release.yml -f tag=v1.0.1`.
-- Release signing: after configuring `ED25519_PRIVATE_KEY_B64`, a detached signature is generated for `checksums.txt`; the release workflow and local release script derive the 32-byte public key and embed it into official binaries so online upgrades work out of the box. You can also set `LACTSSL_PROGRAM_PUBLIC_KEY` to choose the embedded public key.
+- The workflow triggers only when a Release is published; with `gh release create --draft`, the build starts on publish. `.github/workflows/release.yml` must already exist in the tagged commit.
+- Files pre-uploaded with `gh release create <tag> <files>...` that share names with automatic artifacts are overwritten with `--clobber`; do not pass files at creation time. Assets take a few minutes to build, and a tag can be rebuilt with `gh workflow run release.yml -f tag=v1.0.1`.
+- Release signing: after configuring `ED25519_PRIVATE_KEY_B64`, a detached signature is generated for `checksums.txt`; the workflow and local release script derive the 32-byte public key and embed it so online upgrades work out of the box. `LACTSSL_PROGRAM_PUBLIC_KEY` overrides the embedded key.
 
 Local release scripts:
 
@@ -215,31 +166,12 @@ make release TAG=v1.0.1
 
 `--multiarch` requires Docker Buildx. QEMU is not required: the image only copies host-cross-compiled binaries and runs no target-architecture commands during the build.
 
-## 8. Plugin integration
+## Plugin integration
 
-Official implementations live in `internal/plugin/`; `plugins/` only contains the external plugin SDK, referenced by the host `go.mod` through a local `replace`. After changing an official implementation, build from the repository root:
+Official implementations live in `internal/plugin/`; `plugins/` is the external SDK, referenced by the host `go.mod` through a local `replace`. After changing an official implementation, build from the repository root with `make backend` and `make plugins-test`. Official implementations are built in with no merged bundle to build or install; uploaded plugins remain single helper executables. For protocol, fields, and signing, see [Plugin development](plugin-development.md).
 
-```bash
-make backend
-make plugins-test
-```
+## Contribution guidelines
 
-Official implementations are built in; there is no merged bundle to build or install. Uploaded plugins remain single helper executables.
-
-For plugin protocol, fields, and signing, see [Plugin development](plugin-development.md).
-
-## 9. Contribution guidelines
-
-- Do not commit `config.yaml`, `data/`, backups, logs, or any real credentials.
-- When changing security-related logic, update the [Security baseline](security.md) and tests at the same time.
-- When changing API, configuration, or plugin behavior, update both the Chinese and English documentation.
-- New endpoints must include an API key permission policy and tests.
-- Changes that involve data migration must provide idempotent steps, backup, and rollback instructions.
-- Run `make ci` and `make docs-build` before committing.
-
-## Related documentation
-
-- [Plugin development](plugin-development.md)
-- [Configuration reference](configuration.md)
-- [Upgrade and change management](upgrade.md)
-- [Security baseline](security.md)
+- Never commit `config.yaml`, `data/`, backups, logs, or real credentials.
+- Security-related changes must update the [Security baseline](security.md) and tests; API, configuration, or plugin changes must update both Chinese and English documentation, and new endpoints need an API key permission policy and tests.
+- Data migrations need idempotent steps, backup, and rollback instructions. Run `make ci` and `make docs-build` before committing.

@@ -1,15 +1,12 @@
 # Deployment architecture
+This document covers the deployment unit, network boundaries, capacity, and availability for developers deploying and maintaining LACTSSL; all recommendations assume the current version's **single-instance, SQLite single-writer** model.
 
-This document is for platform architects and operations leads. It describes LACTSSL's deployment unit, network boundaries, capacity estimates, and availability design. All recommendations assume the current version's **single-instance, single-tenant, SQLite single-writer** model.
-
-## 1. Deployment unit
-
+## Deployment unit
 LACTSSL is a self-contained Go binary:
 
-- Frontend build artifacts are embedded in the binary; no separate web server or Node runtime is required.
-- Data is stored in a local SQLite database; there is no dependency on an external database, cache, or message queue.
-- Official DNS, deployment, and notification implementations are compiled into the host; uploaded third-party helpers still run as one-shot subprocesses, with files stored under the data directory.
-- At runtime there are only two persistent inputs: `config.yaml` and the `data/` directory.
+- Frontend build artifacts are embedded, with no separate web server or Node runtime; data lives in local SQLite with no external database, cache, or message queue.
+- Official DNS, deployment, and notification implementations are compiled in; uploaded third-party helpers run as one-shot subprocesses with files under the data directory.
+- The only persistent inputs are `config.yaml` and the `data/` directory.
 
 ```text
 /opt/lactssl/
@@ -25,12 +22,10 @@ LACTSSL is a self-contained Go binary:
     └── restore-pending/    # Backup packages pending restore
 ```
 
-The backup boundary is `config.yaml` + `data/`. Backing up only the database loses `salt`, which makes encrypted credentials undecryptable.
+The backup boundary is `config.yaml` + `data/`. Backing up only the database loses `salt`, making encrypted credentials undecryptable.
 
-## 2. Reference topologies
-
-### 2.1 Single host with reverse proxy (recommended starting point)
-
+## Reference topologies
+### Single host with reverse proxy (recommended starting point)
 ```text
 Internet / corporate intranet
         │ HTTPS 443
@@ -51,17 +46,15 @@ Internet / corporate intranet
            targets
 ```
 
-Applies to: most enterprise single-environment deployments with dozens to thousands of certificates.
+Applies to most single-environment deployments with dozens to thousands of certificates.
 
 Key points:
 
-- The main program does not provide TLS configuration for the admin port; production must terminate TLS at a reverse proxy.
-- The reverse proxy and LACTSSL should be on the same host or subnet; the backend port should listen only on loopback or the internal network.
-- The reverse proxy must overwrite or correctly append `X-Forwarded-For` and pass `X-Forwarded-Proto`, and its exact IP or smallest CIDR must be registered in `server.trusted_proxies`. In an append chain, register every proxy in the chain.
-- `security.public_url` must be set to the fixed external address; links such as password reset do not depend on the request Host.
+- The admin port has no TLS configuration; production must terminate TLS at a reverse proxy, ideally on the same host or subnet, with the backend port on loopback or the internal network only.
+- The proxy must overwrite or correctly append `X-Forwarded-For` and pass `X-Forwarded-Proto`; register its exact IP or smallest CIDR in `server.trusted_proxies`, and every proxy in an append chain.
+- Set `security.public_url` to the fixed external address; links such as password reset must not depend on the request Host.
 
-### 2.2 DMZ proxy with internal application
-
+### DMZ proxy with internal application
 ```text
 Users ──HTTPS──► DMZ reverse proxy ──internal HTTP──► LACTSSL (application segment)
                                                        │
@@ -70,16 +63,14 @@ Users ──HTTPS──► DMZ reverse proxy ──internal HTTP──► LACTSS
                                                        └─► SMTP / webhook (per channel)
 ```
 
-Applies to: environments with higher security requirements, where the admin plane is not exposed directly on the business network.
+Applies to environments with higher security requirements, where the admin plane is not exposed directly on the internal network.
 
 Key points:
 
-- On the firewall, allow only the management port from the proxy to LACTSSL.
-- Whitelist LACTSSL's outbound access by target; if domain allowlisting is not feasible, at least restrict destination ports and subnets.
-- If the ACME server must be exposed separately in the DMZ, use a dedicated listening port and do not reuse the management port.
+- Allow only the management port from the proxy to LACTSSL, and whitelist outbound traffic by target; if domain allowlisting is not feasible, restrict destination ports and subnets.
+- If the ACME server must be exposed separately in the DMZ, use a dedicated port rather than the management port.
 
-### 2.3 Internal PKI / ACME service
-
+### Internal PKI / ACME service
 ```text
 Internal services / certbot / lego / acme.sh
         │ ACME v2 (HTTPS or mTLS)
@@ -91,17 +82,15 @@ Internal services / certbot / lego / acme.sh
    Private CA hierarchy
 ```
 
-Applies to: internal service certificates, device certificates, and test environment certificates.
+Applies to internal service, device, and test environment certificates.
 
 Key points:
 
-- Certificates are not issued until an ACME endpoint is created and enabled; every endpoint must have a domain allowlist.
-- When reachable from the internet, enable EAB and restrict sources at the network layer; use mTLS for higher assurance.
-- `acme.base_url` must be the fixed address that clients actually use; public deployments should not depend on the request Host.
-- CRL/OCSP endpoints are organized per CA and should remain reachable after the ACME enrollment endpoint is disabled (for example, when clients need to check revocation).
+- Certificates are not issued until an ACME endpoint is created and enabled; every endpoint needs a domain allowlist.
+- When reachable from the internet, enable EAB, restrict sources at the network layer, and use mTLS for higher assurance.
+- `acme.base_url` must be the fixed address clients use, not the request Host; CRL/OCSP endpoints are organized per CA and should stay reachable after enrollment is disabled.
 
-### 2.4 Container platforms
-
+### Container platforms
 ```text
 Ingress / Service
         │
@@ -114,13 +103,11 @@ Ingress / Service
 
 Key points:
 
-- With the official image, the container always reads `/app/config/config.yaml` and uses `/app/data` as the data directory.
-- The entrypoint script fixes ownership of the mounted directories, then drops privileges to run as the `lactssl` user; Compose uses a read-only root filesystem and drops capabilities by default.
-- **Single replica**: Do not let multiple pods write to the same SQLite data volume concurrently.
-- Self-upgrade inside a container does not change the image; a rebuilt container reverts to the image version. Upgrade production through image tags.
-- Use `restart: unless-stopped` or the orchestrator's equivalent policy so that the service starts automatically after a backup restore.
+- The official image always reads `/app/config/config.yaml` and uses `/app/data`; the entrypoint fixes ownership, then drops to the `lactssl` user, with a read-only root filesystem and dropped capabilities under Compose.
+- **Single replica**: do not let multiple pods write to the same SQLite volume concurrently.
+- Self-upgrade inside a container does not change the image; upgrade production through image tags, and use `restart: unless-stopped` or the orchestrator equivalent so the service returns after a restore.
 
-## 3. Ports and network flows
+## Ports and network flows
 
 | Direction | Port/protocol | Purpose | Recommendation |
 | --- | --- | --- | --- |
@@ -130,87 +117,58 @@ Key points:
 | Outbound | 443/TCP | DNS provider APIs, public ACME CAs, notifications, webhooks, panels, cloud CDNs | Allowlist by domain/subnet |
 | Outbound | 22/TCP or custom | SSH/SFTP deployment | Allow only target hosts |
 | Outbound | 21/990/TCP | FTP/FTPS deployment (plugin) | Prefer FTPS; restrict targets |
-| Outbound | 25/465/587/TCP | SMTP notifications | Use the enterprise mail gateway |
+| Outbound | 25/465/587/TCP | SMTP notifications | Use an SMTP service |
 | Outbound | Custom | Self-hosted Gotify, internal webhooks, monitoring targets | Allow on demand; be mindful of SSRF boundaries |
 
-Notes:
+- The server validates outbound targets for SSRF and rejects cloud metadata, link-local, and reserved addresses; loopback and private networks remain allowed for internal integration.
+- Deployment webhooks carry certificate private keys; public targets are forced to HTTPS, while loopback, private networks, `.local`, and `.internal` may use HTTP. If the proxy terminates TLS, pass `X-Forwarded-Proto` correctly, or the `Secure` cookie and rate-limit decisions will be wrong.
 
-- The server performs SSRF validation on outbound targets and rejects cloud metadata, link-local, and reserved network addresses; loopback and private networks are still allowed for internal integration.
-- Deployment webhooks carry certificate private keys; public targets are forced to HTTPS, while loopback, private networks, `.local`, and `.internal` may use HTTP.
-- If the reverse proxy terminates TLS, the backend is accessed over HTTP; `X-Forwarded-Proto` must be passed correctly, otherwise the `Secure` cookie decision and rate-limit identification will be incorrect.
-
-## 4. Capacity planning
-
-The following are **reference starting points**, not vendor commitments. Actual capacity depends on the number of certificates, task frequency, log volume, plugin types, and backup strategy. Load-test with realistic traffic before production.
+## Capacity planning
+These are **reference starting points**, not capacity guarantees; actual capacity depends on certificate count, task frequency, log volume, plugin types, and backup strategy. Load-test with realistic traffic before production.
 
 | Scale | Certificates/tasks | Suggested configuration | Notes |
 | --- | --- | --- | --- |
-| Pilot/small | < 100 certificates, few tasks | 2 vCPU / 1 GB / 10 GB | Avoid installing large plugin packages at the same time |
+| Small | < 100 certificates, few tasks | 2 vCPU / 1 GB / 10 GB | Keep memory headroom for concurrent helpers |
 | Medium | 100–1,000, routine renewals | 2–4 vCPU / 2 GB / 20 GB | Enable log rotation and periodic cleanup |
 | Larger | 1,000–5,000, frequent deployments | 4–8 vCPU / 4 GB / 50 GB+ | Monitor SQLite write amplification, backup windows, and plugin peaks |
 
-Memory considerations:
+- The main process idles at a few dozen MB; helpers are subprocesses limited by `memory_limit_mb` (128 MB by default), and concurrent tasks may start several at once, so leave headroom.
+- Database growth comes mainly from certificates, task logs, operation logs, system logs, and ACME orders; operation and system logs share the `logs` table but are separated by `category`, with independent retention and clearing.
+- Certificates, logs, and ACME diagnostics have cleanup entry points; system logs have `retention_days` and `max_rows`, `data/upgrade-backups/` keeps the five most recent migration snapshots, and program upgrades keep three old binaries. Do not write backups back to the data directory; reserve several times the database size.
 
-- The main process has an idle baseline of a few dozen MB; plugins are subprocesses started per invocation, and each helper is limited by `memory_limit_mb` (128 MB by default).
-- Plugin installation/update extraction causes transient memory spikes, especially with large DNS packages; do not size container memory exactly to idle usage.
-- Multiple concurrent tasks may start several helpers at once; leave headroom for peaks.
+## Availability and disaster recovery
+### Availability boundaries of the current version
+- **No built-in clustering or active-active**: SQLite is single-writer, and multiple instances on the same data directory cause lock contention or corruption.
+- **No automatic failover** and **a single administrator account**: a proxy can probe liveness, but traffic must not switch to another instance writing the same data; losing the account requires a backup or password reset, so bind it to a role with proper handover.
 
-Storage considerations:
-
-- Database growth mainly comes from certificates, task logs, operation logs, system logs, and ACME orders.
-- Operation logs and system logs share the `logs` table and are separated by `category`; retention and clearing policies remain isolated per category, so clearing system logs never removes operation logs.
-- Certificates, logs, and ACME diagnostic data all have cleanup entry points; system logs have `retention_days` and `max_rows`.
-- `data/upgrade-backups/` retains the five most recent migration snapshots by default, and program upgrades retain three old binaries by default.
-- Do not write backup files back to the same data directory; reserve backup space at several times the database size.
-
-## 5. Availability and disaster recovery
-
-### 5.1 Availability boundaries of the current version
-
-- **No built-in clustering or active-active**. SQLite is single-writer; multiple instances mounting the same data directory concurrently cause lock contention or data corruption.
-- **No automatic failover**. A reverse proxy can probe liveness, but traffic must not be automatically switched to another instance writing to the same data.
-- **The single administrator account** is a single point of failure: if the account is lost, recovery requires a backup or password reset. Bind administrator responsibility to a role and ensure proper handover.
-
-### 5.2 Single active instance with fast recovery (recommended)
-
+### Single active instance with fast recovery (recommended)
 ```text
 Primary instance ──scheduled encrypted backup──► Separate backup storage
    │
    └─ Failure ──► New host/new container ──restore backup──► Switch traffic
 ```
 
-Suggested targets:
-
 | Metric | Recommendation |
 | --- | --- |
-| RPO | Based on business tolerance, at least daily; hourly for critical environments |
+| RPO | Based on acceptable downtime, at least daily; hourly for critical environments |
 | RTO | Estimated from "prepare host + restore backup + startup validation"; document in a runbook after drills |
-| Backup retention | At least 7–30 days; longer for critical environments per compliance requirements |
+| Backup retention | At least 7–30 days; longer for critical environments as needed |
 | Drill frequency | At least one full restore drill per quarter |
 
 For restore steps, see the [Operations guide](operations.md).
 
-### 5.3 Container and host-level high availability
-
+### Container and host-level high availability
 Orchestration platforms can ensure **process** restarts but cannot solve the single-writer data problem:
 
-- Fix the replica count at 1.
-- Use persistent volumes to avoid data loss when pods are recreated.
-- Use a TCP port probe or an authenticated `/api/status` for health checks; do not use pages that require the gate cookie for unauthenticated probes.
+- Fix the replica count at 1 and use persistent volumes so pod recreation does not lose data.
+- Health-check with a TCP port probe or an authenticated `/api/status`; do not use pages that require the gate cookie.
 - When a node fails, the platform reschedules the single replica; the data volume must be re-mountable.
 
-### 5.4 Multi-environment isolation
+### Multi-environment isolation
+Production, staging, and test should use separate instances with separate `config.yaml`, `security.salt`, data directories, DNS sub-accounts, deployment credentials, and notification channels. Do not copy a production database to test and keep the same credentials; if copying is unavoidable, rotate them first.
 
-Production, staging, and test should use separate instances:
-
-- Separate `config.yaml`, separate `security.salt`, and separate data directories.
-- Separate DNS sub-accounts and deployment credentials so test tasks cannot affect production.
-- Separate notification channels so test alerts do not reach production on-call groups.
-- Do not copy a production database to a test environment and continue using the same credentials; if copying is unavoidable, rotate credentials first.
-
-## 6. Monitoring and observability
-
-LACTSSL does not provide a Prometheus metrics endpoint, but monitoring can be built on the following signals:
+## Monitoring and observability
+LACTSSL has no Prometheus metrics endpoint, but monitoring can use these signals:
 
 | Signal | Method | Recommendation |
 | --- | --- | --- |
@@ -218,22 +176,16 @@ LACTSSL does not provide a Prometheus metrics endpoint, but monitoring can be bu
 | Deep health | `GET /api/status` with an API key that has `system:read` | Every 1–5 minutes; check for 200 and response time |
 | Task failures | Operation log filters or notification channels | Alert immediately on task/deployment failure |
 | Certificate expiry | Dashboard, endpoint monitoring, task renewal status | Tiered reminders at 30/14/7 days before expiry |
-| Log anomalies | System log keywords, reverse proxy 5xx | Forward to the enterprise log platform |
+| Log anomalies | System log keywords, reverse proxy 5xx | Forward to an external log system |
 | Disk/backup | Host or platform monitoring | Alert when disk < 20% and on backup failure |
 
-`/api/status` requires authentication and cannot serve as an anonymous health check; anonymous probes can only determine whether the port is reachable.
+`/api/status` requires authentication, so anonymous probes can only determine whether the port is reachable.
 
-## 7. TLS and certificate boundaries
+## TLS and certificate boundaries
+- The admin console's TLS comes from the reverse proxy; the main port does not configure TLS. Use an internal or public CA certificate with HSTS, TLS 1.2+, and weak cipher suites disabled; the dedicated ACME listener can terminate TLS directly (`acme.tls.cert/key`) or behind the proxy, and mTLS requires both the ACME TLS certificate and private key.
+- Private keys are stored in the database encrypted with a key derived from `security.salt`; HSM/KMS custody is not provided. Backup packages contain encrypted credentials and key material, so treat them as confidential.
 
-- The admin console's TLS is provided by the reverse proxy; the LACTSSL main port does not configure TLS directly.
-- The reverse proxy should use a certificate issued by the enterprise CA or a public CA, with HSTS enabled, TLS 1.2+, and weak cipher suites disabled.
-- The dedicated ACME listener can provide TLS directly (`acme.tls.cert/key`) or have TLS terminated by the reverse proxy; when mTLS is enabled, both the ACME TLS certificate and private key must be configured.
-- Private keys for certificates managed by LACTSSL are stored in the database, encrypted with a key derived from `security.salt`; HSM/KMS custody is not provided.
-- The database and configuration in backup packages contain encrypted credentials and key material; treat them as confidential files.
-
-## 8. Architecture decision checklist
-
-During design review, make the following decisions explicit:
+## Architecture decision checklist
 
 | Decision | Options | Recommendation |
 | --- | --- | --- |
@@ -241,13 +193,6 @@ During design review, make the following decisions explicit:
 | TLS termination | Reverse proxy / dedicated ACME listener | Route the admin plane through the reverse proxy |
 | Data storage | Local disk / persistent volume / network storage | Use single-writer mounts only; validate SQLite locking semantics for network storage |
 | Availability | Single active + backup / platform restart | Do not use active-active; define RTO/RPO |
-| Outbound policy | Allow all / domain allowlist / proxy | Allowlist by target in production; use the enterprise proxy when necessary |
-| Plugin source | Official repository / internal mirror / manual upload | Prefer an internal mirror with signature verification in production |
+| Outbound policy | Allow all / domain allowlist / proxy | Allowlist by target in production; use a proxy when necessary |
+| Plugin source | Built-in / third-party helper upload | Use built-in providers and verified helpers in production |
 | Upgrade method | Image tag / binary replacement | Use images for containers; use release packages for binaries and retain rollback capability |
-
-## Related documentation
-
-- [Installation](install.md): Detailed deployment steps.
-- [Configuration reference](configuration.md): Ports, proxy, logging, and ACME settings.
-- [Security baseline](security.md): Network, identity, outbound, and supply chain controls.
-- [Operations guide](operations.md): Backup, recovery, monitoring, and drills.

@@ -1,12 +1,10 @@
 # 扩展开发：插件协议与贡献指南
 
-本文面向插件开发者、集成商和企业平台团队，说明 LACTSSL 插件协议、仓库结构、开发流程、构建、打包、索引、签名和发布。**运维人员通常只需阅读[插件治理](plugins.md)和对应的 DNS/部署/通知插件页面。**
+本文面向插件开发者、集成商和平台开发者，说明 LACTSSL 插件协议、仓库结构、开发流程、构建与发布。使用与治理说明见[插件治理](plugins.md)和对应的 DNS/部署/通知插件页面。
 
-官方 DNS/部署/通知实现位于本仓库 `internal/plugin/`，随主程序编译；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具）。上传插件仍使用协议 v1 的子进程通信。主程序不使用插件索引或外部插件仓库。
+官方 DNS/部署/通知实现位于本仓库 `internal/plugin/`，随主程序编译；`plugins/` 是外部插件开发 SDK（协议、helper 框架与通用工具）。上传插件仍使用协议 v1 的子进程通信，主程序不使用插件索引或外部插件仓库。下文涉及的生成器与合并包工具位于 `internal/plugin/`，命令默认在该目录执行；外部插件只需引用 `plugins/protocol` 与 `plugins/sdk`。
 
-下文涉及的生成器、合并包与索引工具位于 `internal/plugin/`，命令默认在该目录执行；外部插件只需引用 `plugins/protocol` 与 `plugins/sdk`。
-
-## 1. 架构与心智模型
+## 架构与心智模型
 
 官方插件在宿主进程内调用；上传插件仍是一次性子进程：
 
@@ -28,46 +26,15 @@ LACTSSL 宿主
 | `tools/helpers/deploy-helper` | 证书部署 | `manifest` / `deploy` / `options` / `plan` / `verify` |
 | `tools/helpers/notify-helper` | 通知 | `manifest` / `send` |
 
-插件仓库采用**模块化单体**：
+插件代码库采用**模块化单体**：每个 provider 一个目录，元数据、文案、图标按 provider 拆分；聚合文件由 `make manifest` 生成，禁止手改，以减少并行开发时的单文件冲突。
 
-- 每个 provider 一个目录；
-- 元数据、文案、图标按 provider 拆分；
-- 聚合文件由 `make manifest` 生成，禁止手改；
-- 多个贡献者可以并行开发，减少单文件冲突。
-
-## 2. 协议 v1
+## 协议 v1
 
 协议保持 `v1`；只有破坏性变更才升 `v2`。新能力通过可选字段与特性标记扩展，旧宿主会忽略无法识别的字段。
 
-### 2.1 子命令与输出
+### 子命令与输出
 
-DNS：
-
-```text
-dns-plugin manifest
-dns-plugin present   # stdin JSON
-dns-plugin cleanup   # stdin JSON
-dns-plugin verify    # stdin JSON
-```
-
-部署：
-
-```text
-deploy-plugin manifest
-deploy-plugin deploy
-deploy-plugin options
-deploy-plugin plan
-deploy-plugin verify
-```
-
-通知：
-
-```text
-notify-plugin manifest
-notify-plugin send
-```
-
-约定：
+DNS、部署、通知 helper 的子命令见上表。约定：
 
 - 退出码 `0` 成功，非 `0` 失败；stderr 进入主程序日志。
 - DNS `present` / `cleanup` 的 stdout 必须为空。
@@ -75,7 +42,7 @@ notify-plugin send
 - 通知 `send` 成功输出一行 `{"ok":true,"message":""}`；失败也会输出 `{"ok":false,...}` 并以非 0 退出。
 - 请求与响应均使用 UTF-8 JSON，非 ASCII 不转义。
 
-### 2.2 环境变量
+### 环境变量
 
 | 变量 | 说明 |
 |---|---|
@@ -93,15 +60,15 @@ notify-plugin send
 | `verify-v1` | 支持 `verify` 只读探测 |
 | `plan-v1` | 支持 `plan` 预匹配 |
 
-### 2.3 安全约定
+### 安全约定
 
-- 私钥、token 只通过 stdin 传递，不写入 argv 或环境变量；
-- 主程序只传递最小环境变量集合；
-- helper 必须可执行，且不能允许组或其他用户写入；符号链接会被拒绝；
-- 主程序轮询 `VmRSS`，超过 `memory_limit_mb` 时结束整个进程组；
-- `manifest.sha256` 可留空，仓库安装由索引 asset SHA-256 与安装记录保证完整性。
+- 私钥、token 只通过 stdin 传递，不写入 argv 或环境变量。
+- 主程序只传递最小环境变量集合。
+- helper 必须可执行，且不能允许组或其他用户写入；符号链接会被拒绝。
+- 主程序轮询 `VmRSS`，超过 `memory_limit_mb` 时结束整个进程组。
+- `manifest.sha256` 可留空；上传安装时仍会校验 manifest 与文件摘要。
 
-## 3. 仓库结构
+## 仓库结构
 
 ```text
 plugins/                     外部插件 SDK（独立 module）
@@ -150,15 +117,9 @@ providers/dns/lego5/groups/**
 plugins.json
 ```
 
-修改源文件后运行：
+修改源文件后运行 `make manifest`：依次执行 `catalog`、`i18n`、`deployimports`、`gen-v5`，再生成 `plugins.json` 与分组。CI 会校验生成物是否遗漏；同仓库 PR 还会由 `Update generated files` bot 自动回写。
 
-```bash
-make manifest
-```
-
-该命令依次执行 `catalog`、`i18n`、`deployimports`、`gen-v5`，再生成 `plugins.json` 与分组。CI 会校验生成物是否遗漏；同仓库 PR 还会由 `Update generated files` bot 自动回写。
-
-## 4. 开发 DNS provider
+## 开发 DNS provider
 
 官方 DNS provider 统一使用 lego v5，包装文件由生成器产出：
 
@@ -193,16 +154,9 @@ internal/plugin/providers/dns/lego5/providers/<id>/plugin.go
 }
 ```
 
-`env` 会由 helper 写入 lego v5 读取的环境变量。文案放在：
+`env` 会由 helper 写入 lego v5 读取的环境变量。文案放在 `plugins/i18n/providers/dns/<id>/zh-CN.json` 与 `en-US.json`；公共字段文案放在 `plugins/i18n/core/<locale>.json`。缺失翻译会回退到默认语言，再回退到 `label` / `value`。
 
-```text
-plugins/i18n/providers/dns/<id>/zh-CN.json
-plugins/i18n/providers/dns/<id>/en-US.json
-```
-
-公共字段文案放在 `plugins/i18n/core/<locale>.json`。缺失翻译会回退到默认语言，再回退到 `label` / `value`。
-
-## 5. 开发部署目标
+## 开发部署目标
 
 位置：`providers/deploy/<id>/plugin.go`
 
@@ -241,7 +195,7 @@ func init() { deploy.RegisterNative(plugin{}) }
 
 历史 ID 通过 `catalog/migrations.json` 的 `deprecated_deploy_types` 与 `deploy_migrations` 映射到规范目标。
 
-## 6. 开发通知渠道
+## 开发通知渠道
 
 位置：`providers/notify/channels/channel_<id>.go`
 
@@ -270,7 +224,7 @@ func sendExample(cfg map[string]any, msg notify.NativeMessage) error { ... }
 
 每个渠道独立文件，通过 `init` 自动注册，不需要修改共享列表。发送逻辑优先使用 `notifyJSON` / `notifyForm` / `notifyHTTP` 与 `outbound`。
 
-## 7. 构建
+## 构建
 
 ```bash
 # 全部合并包
@@ -291,13 +245,12 @@ CGO_ENABLED=0 go build -trimpath \
   -o lactssl-dns-all-native ./tools/helpers/dns-helper
 ```
 
-- `-trimpath` 去掉本机路径；
-- `-s -w` 去符号和 DWARF；
+- `-trimpath` 去掉本机路径；`-s -w` 去符号和 DWARF；
 - `bundle_dns_all_lego` / `bundle_dns_all_native` 选择 DNS 分组；
 - `nethttpomithttp2,http2legacy` 规避 Go 1.27 `net/http` 与新版 `x/net/http2` 的兼容问题；
 - lego v5 额外使用 `urfave_cli_no_template,ozzo_validation_no_template,grpcnotrace,validator_novalidatefn` 裁掉模板代码。
 
-## 8. 打包与索引
+## 打包与索引
 
 单包构建：
 
@@ -313,74 +266,34 @@ dist/
 └── lactssl-dns-all-native_<version>_linux_amd64.meta.json
 ```
 
-包内容：
+包内容为 `plugin.json`、helper 可执行文件、`LICENSE` 与 `icons/<provider>.<svg|png|webp>`。`plugin.json` 包含版本、协议、bundle、providers、variant、conflicts、sdk 与图标引用。
 
-```text
-plugin.json
-lactssl-dns-all-native
-LICENSE
-icons/<provider>.<svg|png|webp>
-```
+主程序不再使用插件签名索引；发布物完整性由 `checksums.txt` 与 Ed25519 签名保证，上传 helper 则校验 manifest `sha256` 和安装记录。
 
-`plugin.json` 包含版本、协议、bundle、providers、variant、conflicts、sdk 与图标引用。索引：
+### 签名
 
-```bash
-make index BASE_URL=https://github.com/AXmishell/LACTSSL-Plugins/releases/download
-```
+发布包通过 `checksums.txt` 与 Ed25519 签名校验；上传 helper 的摘要写入安装记录，并在每次调用前复核。没有需要生成或发布的插件索引。
 
-索引字段：
+## 版本策略
 
-- `schema` / `channel` / `protocol` / `generated_at`；
-- `plugins[]`：kind、id、version、bundle、providers、variant_of、conflicts_with、sdk、assets；
-- `assets[GOOS/GOARCH]`：url、sha256、size、uncompressed_size；
-- 根级 `icons[]`：内联 base64 图标，用于未安装时展示。
-
-### 8.1 签名
-
-```bash
-go run scripts/pluginctl/main.go sign -key key.b64 -in index.json -out index.json.sig
-```
-
-`key.b64` 是 base64 编码的 Ed25519 私钥（32 字节种子或 64 字节私钥）。生产发布应强制配置 `PLUGIN_INDEX_SIGNING_KEY`，缺失时不应发布未签名索引。
-
-## 9. 版本策略
-
-- `all-lego` / `all-lego-v5` 版本跟随 `go.mod` 中的 lego 版本；
-- `all-native`、`deploy/all`、`notify/all` 的补丁号由内容指纹自动递增；
-- 公共输入（`protocol/`、`sdk/`、`i18n/`、`outbound/`、`catalog/`、`go.mod`）变化会触发所有相关包升版，避免“同版本不同内容”；
-- provider 自身源码变化只影响对应类型的包；
+- `all-lego` / `all-lego-v5` 版本跟随 `go.mod` 中的 lego 版本；`all-native`、`deploy/all`、`notify/all` 的补丁号由内容指纹自动递增。
+- 公共输入（`protocol/`、`sdk/`、`i18n/`、`outbound/`、`catalog/`、`go.mod`）变化会触发所有相关包升版，避免“同版本不同内容”；provider 自身源码变化只影响对应类型的包。
 - 发布以 tag 为准，非 tag 手动发布使用内部版本，需注意与已发布 tag 版本的先后关系。
 
-## 10. 协作流程
+## 协作流程
 
-### 10.1 分支与 PR
+### 分支与 PR
 
-```text
-main
-  ↑
-短分支（1～3 天）
-  ↑
-PR → lint / generated / test / bundle / native → CODEOWNER review
-  → merge queue → CI gate → 合并
-  → after-merge bot 刷新生成物
-```
+分支保持 1～3 天的短周期，流程为 PR → lint / generated / test / bundle / native → CODEOWNER review → merge queue → CI gate → 合并 → after-merge bot 刷新生成物。
 
-要求：
+- 禁止直接 push `main`，必须 PR 并通过 `CI gate`，使用 Merge Queue。
+- 单 provider / 单目标 / 单渠道一个 PR；生成物由 bot 回写，贡献者不要手工解决生成物冲突。
 
-- 禁止直接 push `main`；
-- 必须 PR，必须通过 `CI gate`；
-- 使用 Merge Queue；
-- 单 provider / 单目标 / 单渠道一个 PR；
-- 生成物由 bot 回写，贡献者不要手工解决生成物冲突。
+### CODEOWNERS
 
-### 10.2 CODEOWNERS
+`.github/CODEOWNERS` 定义默认 owner，团队扩大后按 area（DNS native、lego、deploy、notify、infra）替换为 GitHub Team；protocol / sdk / catalog schema / CI 需核心维护者复核。
 
-插件仓库 `.github/CODEOWNERS` 定义默认 owner。团队扩大后按 area 替换为 GitHub Team：
-
-- DNS native、lego、deploy、notify、infra；
-- protocol / sdk / catalog schema / CI 需要核心维护者复核。
-
-### 10.3 分层 CI
+### 分层 CI
 
 | 层级 | 触发 | 内容 |
 |---|---|---|
@@ -391,20 +304,13 @@ PR → lint / generated / test / bundle / native → CODEOWNER review
 | native | DNS/SDK 变更 | `check_native.sh` |
 | nightly | 每天 | `go test -race`、全量构建、govulncheck |
 
-分支保护只需要求 **CI gate** 一个检查；条件 job 被跳过时 gate 仍会通过。
+分支保护只需 **CI gate** 一个检查；条件 job 被跳过时 gate 仍会通过。
 
-### 10.4 Merge Queue
+### Merge Queue
 
-仓库设置：
+保护 `main`，Require status checks 只选 `CI gate`，启用 Require linear history 与 Merge Queue（最大并发 5，等待超时 5 分钟）；禁止直接 push，启用 “Require branches to be up to date before merging”。
 
-- 保护 `main`；
-- Require status checks：`CI gate`；
-- Require linear history；
-- 开启 Merge Queue（最大并发 5，等待超时 5 分钟）；
-- 禁止直接 push；
-- 启用 “Require branches to be up to date before merging”。
-
-## 11. 本地调试
+## 本地调试
 
 ```bash
 # 生成
@@ -425,29 +331,15 @@ LACTSSL_DEPLOY_PLUGIN_FEATURES=merged-deployers-v1,verify-v1,plan-v1,dynamic-opt
 go run ./tools/helpers/notify-helper manifest | jq '.channels | length'
 ```
 
-请求示例：
+请求体示例见[DNS 插件](dns-plugins.md)的 `present` stdin。
 
-```bash
-echo '{
-  "action": "present",
-  "provider": "linode",
-  "config": {"token": "..."},
-  "domain": "example.com",
-  "token": "acme-token",
-  "key_auth": "acme-token.thumbprint"
-}' | go run -tags bundle_dns_all_native ./tools/helpers/dns-helper present
-```
+## 测试要求
 
-## 12. 测试要求
+- 单测使用 `httptest`，不访问真实网络；manifest 数量与字段由 CI 断言。
+- DNS 覆盖写入值、清理只删本次值、记录不存在幂等、无匹配 zone。
+- 部署覆盖成功、鉴权失败、Verify/Plan 不写入；通知覆盖配置缺失、请求体、错误状态码；native 包额外运行 `./scripts/check_native.sh`。
 
-- 单测使用 `httptest`，不访问真实网络；
-- DNS 覆盖：写入值、清理只删本次值、记录不存在幂等、无匹配 zone；
-- 部署覆盖：成功、鉴权失败、Verify/Plan 不写入；
-- 通知覆盖：配置缺失、请求体、错误状态码；
-- manifest 数量与字段由 CI 断言；
-- native 包额外运行 `./scripts/check_native.sh`。
-
-## 13. 提交前检查
+## 提交前检查
 
 ```text
 [ ] 只改自己的 provider 目录 + 对应 catalog/i18n
@@ -460,11 +352,3 @@ echo '{
 [ ] check_native（native）
 [ ] 生成物已提交或等待 bot 回写
 ```
-
-## 14. 相关文档
-
-- [插件治理](plugins.md)
-- [DNS 插件](dns-plugins.md)
-- [部署插件](deploy-plugins.md)
-- [通知插件](notify-plugins.md)
-- [插件仓库贡献指南](https://github.com/AXmishell/LACTSSL-Plugins/blob/main/CONTRIBUTING.md)

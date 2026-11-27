@@ -1,12 +1,10 @@
 # 拡張開発：プラグインプロトコルとコントリビューションガイド
 
-本文はプラグイン開発者、インテグレーター、企業プラットフォームチーム向けで、LACTSSL のプラグインプロトコル、リポジトリ構造、開発フロー、ビルド、パッケージング、インデックス、署名、リリースについて説明します。**運用担当者は通常、[プラグインガバナンス](plugins.md)と対応する DNS/デプロイ/通知プラグインのページのみを読めば十分です。**
+本文はプラグイン開発者、インテグレーター、プラットフォーム開発者向けで、LACTSSL のプラグインプロトコル、リポジトリ構造、開発フロー、ビルド、パッケージング、署名、リリースについて説明します。**利用とガバナンスは[プラグインガバナンス](plugins.md)と対応する DNS/デプロイ/通知プラグインのページを参照してください。**
 
-公式 DNS/デプロイ/通知実装は `internal/plugin/` にあり、メインプログラムと一緒にコンパイルされます。`plugins/` は外部プラグイン開発 SDK（プロトコル、helper フレームワーク、共通ユーティリティ）です。アップロードプラグインは引き続きプロトコル v1 のサブプロセスを使用します。メインプログラムはプラグインインデックスや外部プラグインリポジトリを使用しません。
+公式 DNS/デプロイ/通知実装は `internal/plugin/` にあり、メインプログラムと一緒にコンパイルされます。`plugins/` は外部プラグイン開発 SDK（プロトコル、helper フレームワーク、共通ユーティリティ）で、アップロードプラグインは引き続きプロトコル v1 のサブプロセスを使用します。メインプログラムはプラグインインデックスや外部プラグインリポジトリを使用しません。生成器とバンドルツールは `internal/plugin/` にあり、コマンドはそのディレクトリで実行します。外部プラグインは `plugins/protocol` と `plugins/sdk` のみを参照します。
 
-以下で説明する生成器、バンドル、インデックスツールは `internal/plugin/` にあり、コマンドはそのディレクトリで実行します。外部プラグインは `plugins/protocol` と `plugins/sdk` のみを参照します。
-
-## 1. アーキテクチャとメンタルモデル
+## アーキテクチャとメンタルモデル
 
 プラグインは動的ライブラリではなく、**1 回限りの子プロセス**です:
 
@@ -28,54 +26,22 @@ LACTSSL ホスト
 | `tools/helpers/deploy-helper` | 証明書デプロイ | `manifest` / `deploy` / `options` / `plan` / `verify` |
 | `tools/helpers/notify-helper` | 通知 | `manifest` / `send` |
 
-プラグインリポジトリは**モジュラーモノリス**を採用しています:
+プラグインコードベースは**モジュラーモノリス**を採用しています。各 provider に 1 つのディレクトリを持たせ、メタデータ、文言、アイコンを provider ごとに分割し、集約ファイルは `make manifest` で生成して手動編集を禁止します。これにより複数のコントリビューターが並行開発でき、単一ファイルの競合を減らせます。
 
-- 各 provider に 1 つのディレクトリ。
-- メタデータ、文言、アイコンは provider ごとに分割。
-- 集約ファイルは `make manifest` で生成し、手動編集は禁止。
-- 複数のコントリビューターが並行開発でき、単一ファイルの競合を減らせます。
+## プロトコル v1
 
-## 2. プロトコル v1
+プロトコルは `v1` のままです。破壊的変更がある場合のみ `v2` に上げ、新機能は任意フィールドと機能フラグで拡張します。古いホストは認識できないフィールドを無視します。
 
-プロトコルは `v1` のままです。破壊的変更がある場合のみ `v2` に上げます。新機能は任意フィールドと機能フラグで拡張し、古いホストは認識できないフィールドを無視します。
+### サブコマンドと出力
 
-### 2.1 サブコマンドと出力
-
-DNS:
-
-```text
-dns-plugin manifest
-dns-plugin present   # stdin JSON
-dns-plugin cleanup   # stdin JSON
-dns-plugin verify    # stdin JSON
-```
-
-デプロイ:
-
-```text
-deploy-plugin manifest
-deploy-plugin deploy
-deploy-plugin options
-deploy-plugin plan
-deploy-plugin verify
-```
-
-通知:
-
-```text
-notify-plugin manifest
-notify-plugin send
-```
+DNS は `manifest` / `present` / `cleanup` / `verify`、デプロイは `manifest` / `deploy` / `options` / `plan` / `verify`、通知は `manifest` / `send` をサポートします。stdin の JSON 形式と出力例は、[DNS プラグイン](dns-plugins.md)、[デプロイプラグイン](deploy-plugins.md)、[通知プラグイン](notify-plugins.md)の Helper プロトコルを参照してください。
 
 規約:
 
-- 終了コード `0` は成功、非 `0` は失敗。stderr はメインプログラムのログに入ります。
-- DNS の `present` / `cleanup` の stdout は空でなければなりません。
-- デプロイの `deploy` は成功時に stdout が空です。`verify` / `options` / `plan` は JSON を出力します。
-- 通知の `send` は成功時に 1 行の `{"ok":true,"message":""}` を出力します。失敗時も `{"ok":false,...}` を出力し、非 0 で終了します。
+- 終了コード `0` は成功、非 `0` は失敗です。stderr はメインプログラムのログに入ります。DNS の `present` / `cleanup` の stdout は空でなければなりません。デプロイの `deploy` は成功時に stdout が空で、`verify` / `options` / `plan` は JSON を出力します。通知の `send` は成功時に 1 行の `{"ok":true,"message":""}`、失敗時も `{"ok":false,...}` を出力して非 0 で終了します。
 - リクエストとレスポンスは UTF-8 JSON を使用し、非 ASCII はエスケープしません。
 
-### 2.2 環境変数
+### 環境変数
 
 | 変数 | 説明 |
 |---|---|
@@ -89,19 +55,16 @@ notify-plugin send
 | 機能 | 意味 |
 |---|---|
 | `merged-deployers-v1` | デプロイターゲットは統合後の正規 ID のみを出力 |
-| `dynamic-options-v1` | `options` サブコマンドと `options_source` / `multiple` をサポート |
+| `dynamic-options-v1` / `plan-v1` | `options` サブコマンドと `options_source` / `multiple`、`plan` の事前マッチをサポート |
 | `verify-v1` | `verify` の読み取り専用プローブをサポート |
-| `plan-v1` | `plan` の事前マッチをサポート |
 
-### 2.3 セキュリティ規約
+### セキュリティ規約
 
-- 秘密キー、token は stdin 経由でのみ渡し、argv や環境変数には書き込みません。
-- メインプログラムは最小限の環境変数セットのみを渡します。
+- 秘密キー、token は stdin 経由でのみ渡し、argv や環境変数には書き込みません。メインプログラムは最小限の環境変数セットのみを渡します。
 - helper は実行可能で、グループまたは他のユーザーに書き込みを許可してはなりません。シンボリックリンクは拒否されます。
-- メインプログラムは `VmRSS` をポーリングし、`memory_limit_mb` を超えるとプロセスグループ全体を終了します。
-- `manifest.sha256` は空でもかまいません。リポジトリインストールではインデックス asset の SHA-256 とインストール記録で完全性を保証します。
+- メインプログラムは `VmRSS` をポーリングし、`memory_limit_mb` を超えるとプロセスグループ全体を終了します。`manifest.sha256` は空でもかまいません。リポジトリインストールではインデックス asset の SHA-256 とインストール記録で完全性を保証します。
 
-## 3. リポジトリ構造
+## リポジトリ構造
 
 ```text
 plugins/                     外部プラグイン SDK（独立 module）
@@ -156,23 +119,16 @@ plugins.json
 make manifest
 ```
 
-このコマンドは `catalog`、`i18n`、`deployimports`、`gen-v5` を順に実行し、その後 `plugins.json` とグループを生成します。CI は生成物の漏れを検証します。同一リポジトリの PR では `Update generated files` bot が自動的に書き戻します。
+このコマンドは `catalog`、`i18n`、`deployimports`、`gen-v5` を順に実行し、その後 `plugins.json` とグループを生成します。CI は生成物の漏れを検証し、同一リポジトリの PR では `Update generated files` bot が自動的に書き戻します。
 
-## 4. DNS provider の開発
+## DNS provider の開発
 
-公式 DNS provider は lego v5 を使用し、ラッパーファイルは生成されます：
-
-```text
-internal/plugin/providers/dns/lego5/providers/<id>/plugin.go
-```
-
-生成ファイルは手動で編集しないでください。provider を追加・更新する手順：
+公式 DNS provider は lego v5 を使用し、ラッパーファイル `internal/plugin/providers/dns/lego5/providers/<id>/plugin.go` は生成されます。生成ファイルは手動で編集しないでください。追加・更新手順：
 
 1. `github.com/go-acme/lego/v5` に対象 provider があることを確認する；
 2. `catalog/dns/<id>.json` にフィールドと環境変数のマッピングを追加する；
-3. `plugins/i18n/providers/dns/<id>/` に `zh-CN.json` と `en-US.json` を追加する；
-4. `make gen-v5` でラッパー、グループ、メタデータを生成する；
-5. `make metadata-check`、`make manifest`、`make test-providers` を実行する。
+3. `plugins/i18n/providers/dns/<id>/` に `zh-CN.json` と `en-US.json` を追加し、`make gen-v5` でラッパー、グループ、メタデータを生成する；
+4. `make metadata-check`、`make manifest`、`make test-providers` を実行する。
 
 `catalog/dns/<id>.json` の例：
 
@@ -193,16 +149,9 @@ internal/plugin/providers/dns/lego5/providers/<id>/plugin.go
 }
 ```
 
-`env` は helper が lego v5 の環境変数として設定します。文言は次に置きます：
+`env` は helper が lego v5 の環境変数として設定します。文言は `plugins/i18n/providers/dns/<id>/` の `zh-CN.json` と `en-US.json` に置き、共通フィールド文言は `plugins/i18n/core/<locale>.json` にあります。翻訳がない場合は既定言語、次に `label` / `value` にフォールバックします。
 
-```text
-plugins/i18n/providers/dns/<id>/zh-CN.json
-plugins/i18n/providers/dns/<id>/en-US.json
-```
-
-共通フィールド文言は `plugins/i18n/core/<locale>.json` にあります。翻訳がない場合は既定言語、次に `label` / `value` にフォールバックします。
-
-## 5. デプロイターゲットの開発
+## デプロイターゲットの開発
 
 場所: `providers/deploy/<id>/plugin.go`
 
@@ -229,19 +178,14 @@ func init() { deploy.RegisterNative(plugin{}) }
 1. `providers/deploy/<id>/plugin.go` を作成します。
 2. `catalog/deploy/<id>.json` を作成し、`fields` と `deploy_fields` を含めます。
 3. `i18n/providers/deploy/<id>/zh-CN.json` と `en-US.json` を作成します。
-4. `make manifest` を実行して `tools/helpers/deploy-helper/imports_gen.go` を生成します。
-5. `httptest` の単体テストを追加します。
+4. `make manifest` を実行して `tools/helpers/deploy-helper/imports_gen.go` を生成し、`httptest` の単体テストを追加します。
 
 セキュリティ規約:
 
-- ユーザー制御の URL には `outbound.ValidateURL` / `outbound.ValidateWebhookURL` を使用する必要があります。
-- アウトバウンドリクエストには `outbound.NewClient` を使用し、`http.DefaultClient` を直接使用しないでください。
-- `Verify` / `Plan` / `ListOptions` は証明書の書き込み、永続オブジェクトの作成、reload を行ってはなりません。
-- エラーメッセージに token/secret を含めないでください。
+- ユーザー制御の URL には `outbound.ValidateURL` / `outbound.ValidateWebhookURL` を使用し、アウトバウンドリクエストには `outbound.NewClient` を使用してください。`http.DefaultClient` を直接使用しないでください。
+- `Verify` / `Plan` / `ListOptions` は証明書の書き込み、永続オブジェクトの作成、reload を行ってはなりません。エラーメッセージに token/secret を含めないでください。過去の ID は `catalog/migrations.json` の `deprecated_deploy_types` と `deploy_migrations` で正規ターゲットにマッピングされます。
 
-過去の ID は `catalog/migrations.json` の `deprecated_deploy_types` と `deploy_migrations` で正規ターゲットにマッピングされます。
-
-## 6. 通知チャンネルの開発
+## 通知チャンネルの開発
 
 場所: `providers/notify/channels/channel_<id>.go`
 
@@ -265,12 +209,11 @@ func sendExample(cfg map[string]any, msg notify.NativeMessage) error { ... }
 | `text` | テキスト |
 | `password` | パスワード/キー |
 | `number` | 数値 |
-| `selectField` + `opt` | ドロップダウン |
-| `textarea` | 複数行テキスト |
+| `selectField` + `opt` / `textarea` | ドロップダウン、複数行テキスト |
 
 各チャンネルは独立したファイルで、`init` により自動登録され、共有リストを変更する必要はありません。送信ロジックは `notifyJSON` / `notifyForm` / `notifyHTTP` と `outbound` を優先的に使用します。
 
-## 7. ビルド
+## ビルド
 
 ```bash
 # すべての統合パッケージ
@@ -291,13 +234,11 @@ CGO_ENABLED=0 go build -trimpath \
   -o lactssl-dns-all-native ./tools/helpers/dns-helper
 ```
 
-- `-trimpath` はローカルパスを除去します。
-- `-s -w` はシンボルと DWARF を除去します。
+- `-trimpath` はローカルパスを除去し、`-s -w` はシンボルと DWARF を除去します。
 - `bundle_dns_all_lego` / `bundle_dns_all_native` は DNS グループを選択します。
-- `nethttpomithttp2,http2legacy` は Go 1.27 の `net/http` と新しい `x/net/http2` の互換性問題を回避します。
-- lego v5 はさらに `urfave_cli_no_template,ozzo_validation_no_template,grpcnotrace,validator_novalidatefn` を使用してテンプレートコードを削減します。
+- `nethttpomithttp2,http2legacy` は Go 1.27 の `net/http` と新しい `x/net/http2` の互換性問題を回避します。lego v5 はさらに `urfave_cli_no_template,ozzo_validation_no_template,grpcnotrace,validator_novalidatefn` を使用してテンプレートコードを削減します。
 
-## 8. パッケージングとインデックス
+## パッケージングとインデックス
 
 単一パッケージのビルド:
 
@@ -322,38 +263,20 @@ LICENSE
 icons/<provider>.<svg|png|webp>
 ```
 
-`plugin.json` にはバージョン、プロトコル、bundle、providers、variant、conflicts、sdk、アイコン参照が含まれます。インデックス:
+`plugin.json` にはバージョン、プロトコル、bundle、providers、variant、conflicts、sdk、アイコン参照が含まれます。メインプログラムは署名付きプラグインインデックスを使用しません。
 
-```bash
-make index BASE_URL=https://github.com/AXmishell/LACTSSL-Plugins/releases/download
-```
+### 署名
 
-インデックスフィールド:
+リリースは `checksums.txt` と Ed25519 署名で検証し、アップロード helper は manifest の `sha256` とインストール記録で検証します。プラグインインデックスを生成・公開する必要はありません。
 
-- `schema` / `channel` / `protocol` / `generated_at`。
-- `plugins[]`: kind、id、version、bundle、providers、variant_of、conflicts_with、sdk、assets。
-- `assets[GOOS/GOARCH]`: url、sha256、size、uncompressed_size。
-- ルートレベルの `icons[]`: インライン base64 アイコン。未インストール時の表示に使用。
+## バージョン戦略
 
-### 8.1 署名
+- `all-lego` / `all-lego-v5` のバージョンは `go.mod` の lego バージョンに従います。`all-native`、`deploy/all`、`notify/all` のパッチ番号はコンテンツフィンガープリントにより自動インクリメントされます。
+- 共通入力（`protocol/`、`sdk/`、`i18n/`、`outbound/`、`catalog/`、`go.mod`）の変更はすべての関連パッケージのバージョンアップをトリガーし、「同一バージョンで内容が異なる」状態を避けます。provider 自身のソース変更は、対応するタイプのパッケージにのみ影響します。リリースは tag を基準とし、tag 以外の手動リリースは内部バージョンを使用します。公開済み tag バージョンとの前後関係に注意してください。
 
-```bash
-go run scripts/pluginctl/main.go sign -key key.b64 -in index.json -out index.json.sig
-```
+## コラボレーションフロー
 
-`key.b64` は base64 エンコードされた Ed25519 秘密キー（32 バイトのシードまたは 64 バイトの秘密キー）です。本番リリースでは `PLUGIN_INDEX_SIGNING_KEY` の設定を必須にすべきで、欠落時に未署名インデックスを公開すべきではありません。
-
-## 9. バージョン戦略
-
-- `all-lego` / `all-lego-v5` のバージョンは `go.mod` の lego バージョンに従います。
-- `all-native`、`deploy/all`、`notify/all` のパッチ番号はコンテンツフィンガープリントにより自動インクリメントされます。
-- 共通入力（`protocol/`、`sdk/`、`i18n/`、`outbound/`、`catalog/`、`go.mod`）の変更は、すべての関連パッケージのバージョンアップをトリガーし、「同一バージョンで内容が異なる」状態を避けます。
-- provider 自身のソース変更は、対応するタイプのパッケージにのみ影響します。
-- リリースは tag を基準とし、tag 以外の手動リリースは内部バージョンを使用します。公開済み tag バージョンとの前後関係に注意が必要です。
-
-## 10. コラボレーションフロー
-
-### 10.1 ブランチと PR
+### ブランチと PR
 
 ```text
 main
@@ -367,44 +290,29 @@ PR → lint / generated / test / bundle / native → CODEOWNER review
 
 要件:
 
-- `main` への直接 push は禁止。
-- PR は必須で、`CI gate` を通過する必要があります。
-- Merge Queue を使用します。
-- 単一 provider / 単一ターゲット / 単一チャンネルにつき 1 つの PR とします。
-- 生成物は bot が書き戻すため、コントリビューターは生成物の競合を手動で解決しないでください。
+- `main` への直接 push は禁止です。PR は必須で、`CI gate` を通過する必要があります。
+- Merge Queue を使用し、単一 provider / 単一ターゲット / 単一チャンネルにつき 1 つの PR とします。生成物は bot が書き戻すため、コントリビューターは生成物の競合を手動で解決しないでください。
 
-### 10.2 CODEOWNERS
+### CODEOWNERS
 
-プラグインリポジトリの `.github/CODEOWNERS` がデフォルト owner を定義します。チーム拡大後は area ごとに GitHub Team へ置き換えます:
+プラグインコードベースの `.github/CODEOWNERS` がデフォルト owner を定義します。チーム拡大後は DNS native、lego、deploy、notify、infra の area ごとに GitHub Team へ置き換えます。protocol / sdk / catalog schema / CI はコアメンテナーのレビューが必要です。
 
-- DNS native、lego、deploy、notify、infra。
-- protocol / sdk / catalog schema / CI はコアメンテナーのレビューが必要です。
-
-### 10.3 階層型 CI
+### 階層型 CI
 
 | レイヤー | トリガー | 内容 |
 |---|---|---|
-| lint | 各 PR / merge queue | gofmt、go.mod/go.sum |
-| generated | 各 PR / merge queue | `make manifest` + 生成物検証 |
+| lint / generated | 各 PR / merge queue | gofmt、go.mod/go.sum、`make manifest` + 生成物検証 |
 | test | Go の変更 | `go vet ./...`、`go test ./...` |
 | bundle | DNS/deploy/notify の変更 | 5 つの helper のビルド、マニフェストの数/一貫性、パッケージング smoke |
-| native | DNS/SDK の変更 | `check_native.sh` |
-| nightly | 毎日 | `go test -race`、全体ビルド、govulncheck |
+| native / nightly | DNS/SDK の変更、毎日 | `check_native.sh`、`go test -race`、全体ビルド、govulncheck |
 
 ブランチ保護では **CI gate** の 1 つのチェックのみを必須にすれば十分です。条件付き job がスキップされても gate は通過します。
 
-### 10.4 Merge Queue
+### Merge Queue
 
-リポジトリ設定:
+`main` を保護し、Require status checks に `CI gate`、Require linear history、Merge Queue（最大同時実行 5、待機タイムアウト 5 分）、直接 push の禁止、「Require branches to be up to date before merging」を設定します。
 
-- `main` を保護。
-- Require status checks: `CI gate`。
-- Require linear history。
-- Merge Queue を有効化（最大同時実行 5、待機タイムアウト 5 分）。
-- 直接 push を禁止。
-- 「Require branches to be up to date before merging」を有効化。
-
-## 11. ローカルデバッグ
+## ローカルデバッグ
 
 ```bash
 # 生成
@@ -425,29 +333,14 @@ LACTSSL_DEPLOY_PLUGIN_FEATURES=merged-deployers-v1,verify-v1,plan-v1,dynamic-opt
 go run ./tools/helpers/notify-helper manifest | jq '.channels | length'
 ```
 
-リクエスト例:
+リクエスト例は[DNS プラグイン](dns-plugins.md)の `present` / `cleanup` の stdin を参照してください。
 
-```bash
-echo '{
-  "action": "present",
-  "provider": "linode",
-  "config": {"token": "..."},
-  "domain": "example.com",
-  "token": "acme-token",
-  "key_auth": "acme-token.thumbprint"
-}' | go run -tags bundle_dns_all_native ./tools/helpers/dns-helper present
-```
+## テスト要件
 
-## 12. テスト要件
+- 単体テストは `httptest` を使用し、実際のネットワークへアクセスしません。DNS のカバレッジ: 書き込み値、クリーンアップが今回の値のみ削除、レコード不存在の冪等性、一致する zone がない場合。デプロイ: 成功、認証失敗、Verify/Plan が書き込まないこと。通知: 設定欠落、リクエストボディ、エラーステータスコード。
+- マニフェストの数とフィールドは CI がアサートします。native パッケージは追加で `./scripts/check_native.sh` を実行します。
 
-- 単体テストは `httptest` を使用し、実際のネットワークへアクセスしません。
-- DNS のカバレッジ: 書き込み値、クリーンアップが今回の値のみ削除、レコード不存在の冪等性、一致する zone がない場合。
-- デプロイのカバレッジ: 成功、認証失敗、Verify/Plan が書き込まないこと。
-- 通知のカバレッジ: 設定欠落、リクエストボディ、エラーステータスコード。
-- マニフェストの数とフィールドは CI がアサートします。
-- native パッケージは追加で `./scripts/check_native.sh` を実行します。
-
-## 13. コミット前チェック
+## コミット前チェック
 
 ```text
 [ ] 自分の provider ディレクトリ + 対応する catalog/i18n のみを変更
@@ -460,11 +353,3 @@ echo '{
 [ ] check_native（native）
 [ ] 生成物をコミット済み、または bot の書き戻しを待機
 ```
-
-## 14. 関連ドキュメント
-
-- [プラグインガバナンス](plugins.md)
-- [DNS プラグイン](dns-plugins.md)
-- [デプロイプラグイン](deploy-plugins.md)
-- [通知プラグイン](notify-plugins.md)
-- [プラグインリポジトリのコントリビューションガイド](https://github.com/AXmishell/LACTSSL-Plugins/blob/main/CONTRIBUTING.md)

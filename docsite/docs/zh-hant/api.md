@@ -1,11 +1,9 @@
 # API 整合
-
-LACTSSL 的控制台介面可同時透過瀏覽器登入會話和 API 金鑰呼叫。API 金鑰適合 CI/CD、監控巡檢、CMDB 同步、證書分發等長期執行的程式；每個金鑰可以單獨配置權限、過期時間和啟用狀態，避免共享管理員密碼。
+LACTSSL 的控制台介面可同時透過瀏覽器登入會話和 API 金鑰呼叫。API 金鑰適合 CI/CD、監控巡檢、CMDB 同步、證書分發等長期執行的程式，每個金鑰可單獨配置權限、過期時間和啟用狀態。
 
 > 帳戶安全、通行金鑰、會話管理等敏感操作只允許瀏覽器登入會話呼叫；API 金鑰不能修改登入密碼、繫結通行金鑰或退出其他會話。
 
-## 1. 整合方式選擇
-
+## 整合方式選擇
 | 場景 | 建議方式 | 原因 |
 | --- | --- | --- |
 | 人工簽發、排障、改配置 | 瀏覽器控制台 | 可用完整審計和互動確認 |
@@ -15,10 +13,8 @@ LACTSSL 的控制台介面可同時透過瀏覽器登入會話和 API 金鑰呼�
 | 監控巡檢 | API 金鑰 + `system:read` / `monitors:read` | 只讀，短期過期 |
 | 日誌審計 | API 金鑰 + `logs:read` / `system_logs:read` | 只讀，匯出到 SIEM |
 
-API 金鑰不是多使用者 RBAC。需要多人分權時，應透過企業 IAM、堡壘機或上層平臺實現審批和代理呼叫。
-
-## 2. 認證
-
+API 金鑰不是多使用者 RBAC。需要多人分權時，應在自有平臺或閘道中實現確認和代理呼叫。
+## 認證
 把金鑰放在 `Authorization: Bearer` 或 `X-API-Key` 請求頭中：
 
 ```bash
@@ -30,27 +26,17 @@ curl -H "Authorization: Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 curl -H "X-API-Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   https://ssl.example.com/api/certificates
 ```
-
-要點：
-
-- 介面固定位於 `/api`；舊版 `/<entry>/api` 保留為相容別名。
-- 請求仍需透過登入會話或 API 金鑰認證，不依賴門禁入口。
-- API 金鑰請求不依賴 Cookie，因此不需要 `X-LACTSSL-CSRF` 頭。
-- 所有請求建議透過 HTTPS；金鑰不得出現在 URL 查詢引數中。
-- 回應頭包含 `X-Request-ID`，排障時提供給供應商或運維。
-
-## 3. API 金鑰生命週期
-
-### 3.1 建立
-
+- 介面固定位於 `/api`；舊版 `/<entry>/api` 保留為相容別名。請求仍需登入會話或 API 金鑰認證，不依賴門禁入口。
+- API 金鑰請求不依賴 Cookie，不需要 `X-LACTSSL-CSRF` 頭；所有請求建議使用 HTTPS，金鑰不得出現在 URL 查詢引數中。
+- 回應頭包含 `X-Request-ID`，排障時提供給上游服務或運維。
+## API 金鑰生命週期
+### 建立
 1. 使用管理員帳戶登入控制台。
 2. 開啟「API 金鑰」頁面，點選「建立金鑰」。
 3. 填寫名稱、過期時間，並按需勾選權限。
 4. 頁面會顯示一次完整金鑰；關閉彈窗後無法再次檢視，只能輪換。
 
 金鑰格式為 86 位 Base64URL 隨機字串（64 位元組熵），不含固定字首。服務端只儲存摘要，資料庫洩露時無法直接還原明文金鑰。
-
-建立請求示例：
 
 ```bash
 curl -X POST \
@@ -63,24 +49,15 @@ curl -X POST \
   }' \
   https://ssl.example.com/api/api-keys
 ```
-
-`expires_at` 留空表示永不過期；生產不建議永不過期。建立和修改金鑰屬於高風險操作，瀏覽器會話依賴登入身份，API 金鑰呼叫則依賴其 `api_keys:write` 權限。
-
-### 3.2 輪換與停用
-
-- 輪換後舊令牌立即失效。
-- 停用或刪除後，所有使用該金鑰的呼叫返回 `401`。
+`expires_at` 留空表示永不過期，生產不建議。建立和修改金鑰屬於高風險操作：瀏覽器會話依賴登入身份，API 金鑰呼叫則依賴 `api_keys:write` 權限。
+### 輪換與停用
+- 輪換後舊令牌立即失效；停用或刪除後，所有使用該金鑰的呼叫返回 `401`。
 - 透過 API 金鑰管理其他金鑰時，不能授予自身沒有的權限，也不能修改/輪換/刪除權限高於自身的金鑰。
-
-### 3.3 保管
-
-- 存入企業密碼管理器或金鑰管理系統，不寫入程式碼倉庫、映象或日誌。
-- 為每個系統單獨發放，命名包含系統名和環境。
-- 設定合理過期時間，到期前輪換。
-- 懷疑洩露時立即輪換或刪除，並檢查操作日誌中的異常呼叫。
-
-## 4. 權限模型
-
+- 為每個系統單獨發放，設定合理過期時間，到期前輪換；懷疑洩露時立即輪換或刪除，並檢查操作日誌。
+### 保管
+- 存入密碼管理器或金鑰管理系統，不寫入程式碼倉庫、映象或日誌。
+- 命名包含系統名和環境，避免多個系統共用同一把金鑰。
+## 權限模型
 權限按「資源:動作」劃分。`*` 表示全部系統 API 能力，包含所有敏感操作。
 
 | 權限 | 說明 | 敏感 |
@@ -110,8 +87,8 @@ curl -X POST \
 | `private_cas:read` | 檢視私有 CA 證書與證書鏈 | 否 |
 | `private_cas:write` | 建立、匯入和刪除私有 CA | 是 |
 | `private_cas:key` | 下載私有 CA 私鑰 | 是 |
-| `plugins:read` | 檢視外掛、外掛倉庫與啟用狀態 | 否 |
-| `plugins:write` | 上傳、安裝、更新、解除安裝和啟用外掛 | 是 |
+| `plugins:read` | 檢視外掛與啟用狀態 | 否 |
+| `plugins:write` | 上傳、啟停和刪除外掛 | 是 |
 | `logs:read` | 檢視和匯出操作日誌，檢視/下載日誌歸檔 | 否 |
 | `logs:write` | 清空全部操作日誌、刪除日誌歸檔（清空動作本身會留下審計記錄） | 是 |
 | `system_logs:read` | 檢視和匯出程序日誌，檢視/下載日誌歸檔 | 否 |
@@ -126,9 +103,7 @@ curl -X POST \
 | `security:write` | 修改信任根與外掛信任錨（門禁入口僅瀏覽器會話） | 是 |
 | `api_keys:read` | 檢視 API 金鑰列表與權限 | 否 |
 | `api_keys:write` | 建立、修改、輪換和刪除 API 金鑰 | 是 |
-
-### 4.1 推薦角色對映
-
+### 推薦角色對映
 | 角色 | 權限 |
 | --- | --- |
 | 只讀巡檢 | `system:read`、`dashboard:read`、`certificates:read`、`tasks:read`、`monitors:read`、`deployments:read` |
@@ -139,15 +114,11 @@ curl -X POST \
 
 私鑰權限是附加權限：
 
-- 下載證書私鑰還需要 `certificates:read`。
-- 下載私有 CA 私鑰還需要 `private_cas:read`。
+- 下載證書私鑰還需要 `certificates:read`；下載私有 CA 私鑰還需要 `private_cas:read`。
 - 建立/執行含部署節點的任務必須顯式擁有 `deploy:execute`；`certificates:write` 和 `tasks:*` 不隱含部署執行能力。
 - 本地/SSH 部署中的 `reload_command` 還必須顯式擁有 `deploy:command`；僅 `deploy:execute` 只能寫入證書檔案。
-- 使用私有 CA 簽發證書的任務需要 `private_cas:write`；`tasks:write` 不隱含私有 CA 簽發能力。
-- 建立 `enabled:true` 的任務會立即簽發，除 `tasks:write` 外還需要 `tasks:run`。
-
-## 5. 回應格式
-
+- 使用私有 CA 簽發證書的任務需要 `private_cas:write`；建立 `enabled:true` 的任務會立即簽發，除 `tasks:write` 外還需要 `tasks:run`。
+## 回應格式
 成功：
 
 ```json
@@ -156,7 +127,6 @@ curl -X POST \
   "data": {}
 }
 ```
-
 失敗：
 
 ```json
@@ -168,8 +138,6 @@ curl -X POST \
 }
 ```
 
-常見狀態碼：
-
 | 狀態碼 | 含義 |
 | --- | --- |
 | `400` | 引數錯誤、配置校驗失敗 |
@@ -179,11 +147,8 @@ curl -X POST \
 | `409` | 狀態衝突（如正在執行、重複操作） |
 | `429` | 請求過於頻繁，按 `Retry-After` 重試 |
 | `500` | 服務端錯誤，記錄 `X-Request-ID` 後排查 |
-
-## 6. 常用介面
-
-### 6.1 檢視狀態與證書
-
+## 常用介面
+### 檢視狀態與證書
 ```bash
 # 程序狀態（需要 system:read）
 curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
@@ -193,17 +158,13 @@ curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
 curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/certificates
 ```
-
 列表介面直接返回陣列；日誌介面返回分頁物件：
 
 ```bash
 curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
   "https://ssl.example.com/api/logs?page=1&size=50&level=error&source=task&q=demo"
 ```
-
-`size` 最大 200；`q` 按原始儲存內容和引數值匹配。清空操作日誌使用 `DELETE /api/logs`，需要 `logs:write`。
-
-清空日誌時，如果啟用了 `log.archive.enabled`，服務會先寫入歸檔再刪除，回應額外返回 `archived` 物件；歸檔失敗會返回 500 且不刪除日誌。
+`size` 最大 200；`q` 按原始儲存內容和引數值匹配。清空操作日誌使用 `DELETE /api/logs`，需要 `logs:write`。啟用 `log.archive.enabled` 時，服務會先寫入歸檔再刪除，回應額外返回 `archived` 物件；歸檔失敗會返回 500 且不刪除日誌。
 
 日誌歸檔介面：
 
@@ -220,11 +181,8 @@ curl -fsS -OJ -H "Authorization: Bearer $LACTSSL_TOKEN" \
 curl -fsS -X DELETE -H "Authorization: Bearer $LACTSSL_TOKEN" \
   "https://ssl.example.com/api/log-archives/<archive_id>"
 ```
-
 歸檔介面接受 `logs:*` 或 `system_logs:*` 對應權限：檢視/下載需要任一讀權限，刪除需要任一寫權限。`category` 取值為 `operation` 或 `runtime`；`reason` 取值為 `manual_clear`、`retention` 或 `max_rows`。
-
-### 6.2 目標流程預覽
-
+### 目標流程預覽
 目標流程 Beta 在儲存任務前可以讀取目標網站並預覽證書分組。該介面只讀，需要 `deploy:execute`：
 
 ```bash
@@ -239,20 +197,14 @@ curl -fsS -X POST \
     "public_ca": true
   }'
 ```
-
 建立任務時傳 `flow_mode: "target_beta"` 與 `target_flow`；`target_flow.policy.strategy` 支援 `smart`、`per_site`、`per_base_domain`、`single`、`per_source`、`custom`。一個 Beta 任務可能關聯多張證書，證書關聯記錄在 `task_certificate_links` 中。
-
-### 6.3 執行任務
-
+### 執行任務
 ```bash
 curl -fsS -X POST \
   -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/tasks/123/run
 ```
-
-如果任務包含啟用的部署節點，金鑰必須同時擁有 `deploy:execute`。
-
-預設會複用仍在有效期內且未進入續期視窗的證書，只重新執行部署節點，不重複向上遊 CA 下單。確需強制重新簽發時使用 `?force=1` 或傳送 `{"force":true}`；強制簽發會消耗 CA 的證書配額。
+如果任務包含啟用的部署節點，金鑰必須同時擁有 `deploy:execute`。預設會複用仍在有效期內且未進入續期視窗的證書，只重新執行部署節點；確需強制重新簽發時使用 `?force=1` 或傳送 `{"force":true}`，會消耗 CA 的證書配額。
 
 查詢任務執行日誌（需要 `tasks:read`）：
 
@@ -260,18 +212,14 @@ curl -fsS -X POST \
 curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/tasks/123/logs
 ```
-
 清理任務執行日誌（需要 `tasks:write`）：
 
 ```bash
 curl -fsS -X DELETE -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/tasks/123/logs
 ```
-
 清理介面會刪除該任務的簽發與部署日誌，回傳刪除行數 `deleted`，並在操作日誌中保留一筆稽核記錄。
-
-### 6.4 下載證書
-
+### 下載證書
 ```bash
 # 完整鏈（需要 certificates:read）
 curl -fL -H "Authorization: Bearer $LACTSSL_TOKEN" \
@@ -283,11 +231,8 @@ curl -fL -H "Authorization: Bearer $LACTSSL_TOKEN" \
   -o example.com.key \
   "https://ssl.example.com/api/certificates/42/download?type=key"
 ```
-
 `type` 支援 `fullchain`（預設）、`cert`、`key`。下載介面返回 PEM 原文，不包在 JSON 中；請按檔案權限儲存，不要寫入日誌。
-
-### 6.5 站點監控
-
+### 站點監控
 ```bash
 curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/monitors
@@ -296,9 +241,7 @@ curl -fsS -X POST \
   -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/monitors/7/check
 ```
-
-### 6.6 API 金鑰管理
-
+### API 金鑰管理
 | 介面 | 方法 | 權限 | 說明 |
 | --- | --- | --- | --- |
 | `/api-keys` | GET | `api_keys:read` | 列出金鑰，不返回明文令牌 |
@@ -307,9 +250,7 @@ curl -fsS -X POST \
 | `/api-keys/:id` | PUT | `api_keys:write` | 修改名稱、權限、啟用狀態和過期時間 |
 | `/api-keys/:id/rotate` | POST | `api_keys:write` | 輪換金鑰，舊令牌立即失效 |
 | `/api-keys/:id` | DELETE | `api_keys:write` | 刪除金鑰 |
-
-### 6.7 使用客戶端 CSR 申請證書
-
+### 使用客戶端 CSR 申請證書
 服務端作為中間環節接收客戶端 CSR，使用已配置的公共 CA 和 DNS 帳戶完成 DNS-01 驗證並簽發證書，或使用管理員維護的私有 CA 直接簽名。服務端不會生成或儲存私鑰，證書簽發後私鑰仍由客戶端保管。
 
 建立申請需要 `certificates:request` 權限；使用私有 CA 時還需要 `private_cas:write`：
@@ -328,7 +269,6 @@ curl -fsS -X POST \
   }' \
   https://ssl.example.com/api/certificate-requests
 ```
-
 使用私有 CA 時，將 `ca` 設為 `private-ca:<id>`，或直接傳入 `private_ca_id`。私有 CA 申請不進行 DNS-01 驗證，不需要 `dns_account_id` 和 ACME 聯絡信箱，並允許申請 `app.internal` 等內網網域：
 
 ```bash
@@ -342,14 +282,12 @@ curl -fsS -X POST \
   }' \
   https://ssl.example.com/api/certificate-requests
 ```
-
-介面返回 `202 Accepted` 和申請 ID。申請是非同步執行的，可輪詢狀態：
+介面返回 `202 Accepted` 和申請 ID，申請非同步執行，可輪詢狀態：
 
 ```bash
 curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
   https://ssl.example.com/api/certificate-requests/csr_xxxxxxxx
 ```
-
 狀態為 `issued` 後可下載證書鏈，不提供私鑰：
 
 ```bash
@@ -357,17 +295,14 @@ curl -fsS -H "Authorization: Bearer $LACTSSL_TOKEN" \
   "https://ssl.example.com/api/certificate-requests/csr_xxxxxxxx/certificate?type=fullchain" \
   -o example.com.fullchain.crt
 ```
-
-要點：
-
 - 公共 CA 申請僅支援 DNS-01，萬用字元證書必須使用 DNS-01；私有 CA 申請由服務端直接簽名，不使用網域挑戰。
-- `ca` 可以是「公共CA」頁面中的 ACME 上游，也可以是 `private-ca:<id>`。私有 CA 簽發還需要 `private_cas:write`，並會執行該 CA 的擴展金鑰用途和名稱約束檢查。
+- `ca` 可以是「公共CA」頁面中的 ACME 上游，也可以是 `private-ca:<id>`；私有 CA 簽發還需要 `private_cas:write`，並會執行該 CA 的擴展金鑰用途和名稱約束檢查。
 - 服務端會嚴格校驗 CSR 簽名、公鑰強度、SAN 規範和通用名稱；公共 CA 申請會拒絕內部網域，私有 CA 申請則允許。CSR 已由客戶端簽名，服務端無法替客戶端修正。
 - `idempotency_key` 建議必傳；同一 CSR、CA、DNS 路由在同一呼叫方下只允許一個在途申請。
-- 可透過設定項 `csr.allowed_domains` 限制允許申請的網域，多個網域用逗號或空白分隔。私有 CA 申請在允許列表為空時不做額外限制，依賴 CA 自身的名稱約束；設定允許列表後，兩種 CA 都按列表校驗。
+- 可透過 `csr.allowed_domains` 限制允許申請的網域，多個網域用逗號或空白分隔。私有 CA 申請在允許列表為空時不做額外限制，依賴 CA 自身的名稱約束。
 - 證書列表中的 `key_available` 為 `false`，表示服務端沒有私鑰，不能下載私鑰或執行依賴私鑰的部署。
 
-倉庫內提供了可直接使用的 Python 客戶端腳本 `scripts/csr_client.py`，它會在本地生成私鑰和 CSR，提交申請、輪詢狀態，並在下載後校驗證書與私鑰匹配：
+倉庫內提供了 Python 客戶端腳本 `scripts/csr_client.py`，它會在本地生成私鑰和 CSR，提交申請、輪詢狀態，並在下載後校驗證書與私鑰匹配：
 
 ```bash
 export LACTSSL_URL="https://ssl.example.com"
@@ -385,13 +320,11 @@ python3 scripts/csr_client.py \
   --private-ca-id 2 \
   --out-dir ./certs
 ```
-
-也可以使用互動式嚮導逐項填寫，無需記憶引數（不帶任何引數在終端中執行也會自動進入嚮導）：
+也可以使用互動式嚮導逐項填寫（不帶引數執行也會進入嚮導）：
 
 ```bash
 python3 scripts/csr_client.py --interactive
 ```
-
 續期、查詢與批次操作：
 
 ```bash
@@ -413,7 +346,6 @@ python3 scripts/csr_client.py --list --json
 # 批次申請：順序執行，失敗時預設停止
 python3 scripts/csr_client.py --manifest ./certs.json --json
 ```
-
 批次清單格式：
 
 ```json
@@ -425,14 +357,11 @@ python3 scripts/csr_client.py --manifest ./certs.json --json
   ]
 }
 ```
+腳本只上傳 CSR，私鑰始終儲存在客戶端；輸出包括 `.key`、`.csr`、`.crt`、`.fullchain.crt` 和 `.request.json`。本機產生的私鑰與 CSR 先以 `.new` 暫存，憑證下載並校驗通過後才原子替換最終檔案，申請失敗不會破壞上一套可用憑證。
 
-腳本只上傳 CSR，私鑰始終儲存在客戶端；輸出包括 `.key`、`.csr`、`.crt`、`.fullchain.crt` 和 `.request.json`。本機產生的私鑰與 CSR 先以 `.new` 暫存，憑證下載並校驗通過後才原子替換最終檔案，因此申請失敗不會破壞上一套可用憑證。建立申請後會立即寫入 `.request.json`，即使斷網或使用 `--quiet`，也可以用 `--request-id csr_xxxxxxxx` 續傳；續傳時會自動尋找上次留下的 `.key.new`/`.key`。網路異常預設重試 3 次（`--retries`），服務端標記可重試時預設自動呼叫 `/retry` 1 次（`--auto-retry`），並遵循 429 的 `Retry-After`。進度訊息寫入 stderr，`--json` 時 stdout 只有最終 JSON；金鑰可透過 `LACTSSL_TOKEN_FILE` 或 `--token-file` 讀取，避免出現在命令列引數中。客戶端介面支援 `zh-CN`、`zh-TW`、`en-US`、`ja-JP`、`ru-RU`，可透過 `--lang` 或 `LACTSSL_LANG` 切換，API 錯誤也會按同一語言返回。結束碼：0 成功、1 一般失敗、2 引數/設定、3 認證/權限、4 網路、5 服務端申請失敗、6 本機校驗失敗、130 使用者取消。
-
-### 6.8 驗證憑據可用性
-
-在新增或修改 DNS 帳戶、目標憑據後，可主動驗證憑據是否真實可用。驗證介面使用 `dns_accounts:write` / `deploy_accounts:write` 權限；瀏覽器會話不再需要透過當前密碼或 TOTP 再認證。驗證結果僅作提示，不會阻止儲存或執行。
-
-未傳 `domain` 時，已儲存的 DNS 帳戶優先使用其已啟用的網域綁定；沒有綁定時回傳 `mode: "scope"`，僅校驗憑據設定與呼叫權限。
+建立申請後會立即寫入 `.request.json`，斷網或使用 `--quiet` 時可用 `--request-id csr_xxxxxxxx` 續傳。網路異常預設重試 3 次（`--retries`），服務端標記可重試時自動呼叫 `/retry` 1 次（`--auto-retry`），並遵循 429 的 `Retry-After`。進度訊息寫入 stderr，`--json` 時 stdout 只有最終 JSON；金鑰可透過 `LACTSSL_TOKEN_FILE` 或 `--token-file` 讀取，避免出現在命令列引數中。客戶端介面支援 `zh-CN`、`zh-TW`、`en-US`、`ja-JP`、`ru-RU`，可透過 `--lang` 或 `LACTSSL_LANG` 切換。結束碼：0 成功、1 一般失敗、2 引數/設定、3 認證/權限、4 網路、5 服務端申請失敗、6 本機校驗失敗、130 使用者取消。
+### 驗證憑據可用性
+在新增或修改 DNS 帳戶、目標憑據後，可主動驗證憑據是否真實可用。驗證介面使用 `dns_accounts:write` / `deploy_accounts:write` 權限；瀏覽器會話不再需要透過當前密碼或 TOTP 再認證。驗證結果僅作提示，不會阻止儲存或執行。未傳 `domain` 時，已儲存的 DNS 帳戶優先使用其已啟用的網域綁定；沒有綁定時回傳 `mode: "scope"`，僅校驗憑據設定與呼叫權限。
 
 | 方法 | 路徑 | 說明 |
 | --- | --- | --- |
@@ -443,8 +372,6 @@ python3 scripts/csr_client.py --manifest ./certs.json --json
 | POST | `/api/deploy-accounts/:id/options` | 使用已儲存憑據讀取部署欄位的動態選項，例如寶塔網站列表 |
 | POST | `/api/deploy-accounts/:id/match` | 依憑證網域比對目標網站；回傳 `field`、`multiple`、`values` |
 
-請求示例：
-
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $LACTSSL_TOKEN" \
@@ -452,7 +379,6 @@ curl -X POST \
   -d '{"domain":"example.com","mode":"auto"}' \
   https://ssl.example.com/api/dns-accounts/3/verify
 ```
-
 動態選項介面只適用於 manifest 中宣告瞭 `options_source` 的部署欄位，API 金鑰需要 `deploy_accounts:write` 權限。請求體傳入欄位名和當前部署引數，憑據由服務端從目標憑據中讀取：
 
 ```bash
@@ -462,10 +388,7 @@ curl -X POST \
   -d '{"field":"sites","config":{"target":"docker"}}' \
   https://ssl.example.com/api/deploy-accounts/3/options
 ```
-
-返回 `{"options":[{"label":"站點名稱","value":"站點名稱"}]}`。外掛不可用或面板不可達時返回明確錯誤，介面會保留手工輸入能力。
-
-返回結構包含分項檢查，便於區分認證失敗、網域不屬於該憑據、目錄不可寫等原因：
+返回 `{"options":[{"label":"站點名稱","value":"站點名稱"}]}`。外掛不可用或面板不可達時返回明確錯誤，介面會保留手工輸入能力。返回結構包含分項檢查，便於區分認證失敗、網域不屬於該憑據、目錄不可寫等原因：
 
 ```json
 {
@@ -483,18 +406,14 @@ curl -X POST \
   }
 }
 ```
-
 行為說明：
 
 - DNS 驗證預設使用 `auto` 模式：外掛宣告 `verify-v1` 時優先只讀列出 zone 並檢查網域歸屬；未宣告或返回不支援時回退到寫測試（寫入隨機 `_acme-challenge` TXT 後立即刪除）。`mode=read` 強制只讀，外掛不支援時返回 `unsupported`。
 - 已儲存帳戶只使用資料庫中的配置；未儲存配置必須顯式提交金鑰，不會複用已儲存金鑰，避免透過修改 endpoint 把憑據發往其他伺服器。
-- 目標憑據驗證支援內建 `local`/`ssh`：連線並認證，在目標目錄建立並刪除臨時檔案，不執行 `reload_command`。其他部署外掛在實現 `verify` 能力前返回 `unsupported`。
+- 目標憑據驗證支援內建 `local`/`ssh`：連線並認證，在目標目錄建立並刪除臨時檔案，不執行 `reload_command`；其他部署 helper 在實現 `verify` 能力前返回 `unsupported`。
 - 傳入 `deploy_config` 可驗證具體部署節點的作用域（站點、目錄、桶、網域），這是“新增權限是否可用”的推薦用法。
-
-## 7. CI/CD 示例
-
-### 7.1 證書續期後分發
-
+## CI/CD 示例
+### 證書續期後分發
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
@@ -513,15 +432,10 @@ curl -fL \
   -o /run/secrets/example.com.fullchain.pem \
   "${BASE_URL}/api/certificates/${CERT_ID}/download?type=fullchain"
 ```
-
-注意：
-
 - API 沒有冪等鍵；重複呼叫 `run` 會再次執行任務流程，但證書仍有效時會跳過簽發並只執行部署，腳本仍應自行去重。
 - 任務執行是非同步的；需要等待完成時輪詢任務列表或訂閱通知，不要假設 POST 返回即完成。
-- 下載私鑰需要額外權限；大多數分發場景只需證書鏈和私鑰由部署節點直接寫入目標，不建議把私鑰經 CI 中轉。
-
-### 7.2 巡檢
-
+- 下載私鑰需要額外權限；大多數分發場景只需證書鏈，私鑰由部署節點直接寫入目標，不建議經 CI 中轉。
+### 巡檢
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
@@ -533,30 +447,14 @@ curl -fsS -H "Authorization: Bearer ${LACTSSL_TOKEN}" \
   "${LACTSSL_URL}/api/certificates" |
   jq -e '[.data[] | select(.not_after < (now + 14*86400 | todate))] | length == 0'
 ```
-
 （示例使用 `jq`；實際欄位名以介面返回為準。）
-
-## 8. 錯誤處理與重試
-
-- 對 `429` 按 `Retry-After` 退避，不要立即重試。
-- 對 `5xx` 使用指數退避，並記錄 `X-Request-ID`。
-- 對 `401` 不要重試，檢查金鑰是否過期、停用或輪換。
-- 對 `403` 檢查權限和介面限制（部分介面只允許瀏覽器會話）。
+## 錯誤處理與重試
+- 對 `429` 按 `Retry-After` 退避；對 `5xx` 使用指數退避並記錄 `X-Request-ID`。
+- 對 `401` 不要重試，檢查金鑰是否過期、停用或輪換；對 `403` 檢查權限和介面限制。
 - 對 `400`/`409` 不要自動重試，先修正引數或狀態。
 - 涉及簽發/部署的請求可能產生外部副作用，重試前先查詢任務/部署狀態。
-
-## 9. 安全建議
-
-- 為每個自動化任務建立獨立金鑰，不要共用。
-- 只授予任務真正需要的權限；只讀任務不要授予 `*`。
-- 設定合理過期時間，並定期輪換。
-- 不在日誌、截圖或公開倉庫中暴露完整金鑰。
-- 懷疑洩露時立即停用或刪除金鑰；輪換會使舊金鑰立即失效。
-- 在網路層限制呼叫來源，避免金鑰洩露後被任意地址使用。
+## 安全建議
+- 為每個自動化任務建立獨立金鑰，只授予真正需要的權限；只讀任務不要授予 `*`。
+- 設定合理過期時間並定期輪換；不在日誌、截圖或公開倉庫中暴露完整金鑰。
+- 懷疑洩露時立即停用或刪除金鑰，並在網路層限制呼叫來源。
 - 將 API 呼叫日誌與操作日誌關聯，保留呼叫方、時間和 `X-Request-ID`。
-
-## 相關文件
-
-- [管理工作臺](administration.md)：金鑰治理和職責分離。
-- [安全基線](security.md)：認證、審計和網路控制。
-- [監控與排障](troubleshooting.md)：429、401、任務失敗等問題。

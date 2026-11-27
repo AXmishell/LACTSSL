@@ -55,15 +55,17 @@
               </template>
             </el-table>
           </div>
-          <el-pagination
-            v-if="accountTotal > pageSize"
-            v-model:current-page="accountPage"
-            :page-size="pageSize"
-            :total="accountTotal"
-            layout="prev, pager, next"
-            style="margin-top: 16px; justify-content: flex-end"
-            @current-change="loadAccounts"
-          />
+          <div v-if="accountTotal > 0" class="acme-list-foot">
+            <el-pagination
+              v-if="accountTotal > pageSize"
+              v-model:current-page="accountPage"
+              :page-size="pageSize"
+              :total="accountTotal"
+              layout="prev, pager, next"
+              @current-change="loadAccounts"
+            />
+            <PageSizeSelect v-model="pageSize" :max="200" @change="onPageSizeChange" />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane :label="t('acmeDiagnostics.orders')" name="orders">
@@ -117,15 +119,17 @@
               </template>
             </el-table>
           </div>
-          <el-pagination
-            v-if="orderTotal > pageSize"
-            v-model:current-page="orderPage"
-            :page-size="pageSize"
-            :total="orderTotal"
-            layout="prev, pager, next"
-            style="margin-top: 16px; justify-content: flex-end"
-            @current-change="loadOrders"
-          />
+          <div v-if="orderTotal > 0" class="acme-list-foot">
+            <el-pagination
+              v-if="orderTotal > pageSize"
+              v-model:current-page="orderPage"
+              :page-size="pageSize"
+              :total="orderTotal"
+              layout="prev, pager, next"
+              @current-change="loadOrders"
+            />
+            <PageSizeSelect v-model="pageSize" :max="200" @change="onPageSizeChange" />
+          </div>
         </el-tab-pane>
       </el-tabs>
     </div>
@@ -258,6 +262,8 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Back, CopyDocument, Delete, Refresh } from '@element-plus/icons-vue'
 import { api, copyText } from '../api'
+import PageSizeSelect from '../components/PageSizeSelect.vue'
+import { usePageSize } from '../pageSize'
 import { formatDate } from '../utils'
 import type { ACMEAccount, ACMEEndpoint, ACMEOrder, ACMEOrderDetail } from '../types'
 
@@ -265,7 +271,7 @@ const { t } = useI18n()
 const router = useRouter()
 const tab = ref<'accounts' | 'orders'>('accounts')
 const endpoints = ref<ACMEEndpoint[]>([])
-const pageSize = 50
+const pageSize = usePageSize('acmeDiagnostics', 50)
 
 const accountEndpoint = ref<number | undefined>()
 const accountPage = ref(1)
@@ -333,7 +339,10 @@ async function loadAccounts(page = accountPage.value): Promise<void> {
   accountPage.value = page
   accountLoading.value = true
   try {
-    const query = new URLSearchParams({ limit: String(pageSize), offset: String((page - 1) * pageSize) })
+    const query = new URLSearchParams({
+      limit: String(pageSize.value),
+      offset: String((page - 1) * pageSize.value)
+    })
     if (accountEndpoint.value) query.set('endpoint_id', String(accountEndpoint.value))
     const data = await api.get<{ items: ACMEAccount[]; total: number }>(`/acme-accounts?${query.toString()}`)
     accounts.value = data?.items || []
@@ -349,7 +358,10 @@ async function loadOrders(page = orderPage.value): Promise<void> {
   orderPage.value = page
   orderLoading.value = true
   try {
-    const query = new URLSearchParams({ limit: String(pageSize), offset: String((page - 1) * pageSize) })
+    const query = new URLSearchParams({
+      limit: String(pageSize.value),
+      offset: String((page - 1) * pageSize.value)
+    })
     if (orderEndpoint.value) query.set('endpoint_id', String(orderEndpoint.value))
     if (orderStatus.value) query.set('status', orderStatus.value)
     const data = await api.get<{ items: ACMEOrder[]; total: number }>(`/acme-orders?${query.toString()}`)
@@ -360,6 +372,14 @@ async function loadOrders(page = orderPage.value): Promise<void> {
   } finally {
     orderLoading.value = false
   }
+}
+
+// 每页条数变化后两个列表都回到第一页，只重新加载当前标签页。
+function onPageSizeChange(): void {
+  accountPage.value = 1
+  orderPage.value = 1
+  if (tab.value === 'orders') void loadOrders(1)
+  else void loadAccounts(1)
 }
 
 async function openDetail(row: ACMEOrder): Promise<void> {
@@ -498,6 +518,14 @@ onMounted(async () => {
   gap: 12px;
   flex-wrap: wrap;
   padding: 8px 16px 12px;
+}
+.acme-list-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
 }
 .diag-kid {
   display: flex;

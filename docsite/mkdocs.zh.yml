@@ -4,7 +4,7 @@
 # 注意：Zensical 以本文件所在目录（docsite/）为项目根，docs_dir/site_dir 不能指向其外部。
 site_name: LACTSSL
 site_url: https://lactssl.gpcn.cc/zh/
-site_description: 面向企业团队与个人 / 小团队的自托管 SSL 证书管理平台：ACME 申请与自动续期、证书部署、监控、私有 CA 与内部 ACME 服务。
+site_description: "自托管 SSL 证书管理：ACME 申请与自动续期、证书部署、到期监控、私有 CA 与内部 ACME 服务。"
 repo_url: https://github.com/AXmishell/LACTSSL
 repo_name: AXmishell/LACTSSL
 edit_uri: edit/main/docsite/docs/zh/
@@ -38,6 +38,7 @@ theme:
         icon: material/brightness-4
         name: 切换到浅色模式
   features:
+    - navigation.tabs
     - navigation.sections
     - navigation.top
     - navigation.footer
@@ -48,18 +49,17 @@ theme:
 
 nav:
   - 首页: index.md
-  - 快速上手与部署:
-      - 快速上手与上线: getting-started.md
+  - 开始使用:
+      - 快速开始: getting-started.md
       - 安装与启动: install.md
       - 部署架构: architecture.md
-  - 管理与使用:
-      - 管理工作台: administration.md
+  - 使用指南:
       - 产品能力: features.md
+      - 管理工作台: administration.md
       - 插件治理: plugins.md
-  - 集成与安全:
       - API 集成: api.md
       - 安全基线: security.md
-  - 运维保障:
+  - 运维:
       - 运维手册: operations.md
       - 升级与变更: upgrade.md
       - 监控与排障: troubleshooting.md
@@ -68,7 +68,7 @@ nav:
       - DNS 插件: dns-plugins.md
       - 部署插件: deploy-plugins.md
       - 通知插件: notify-plugins.md
-  - 扩展开发:
+  - 开发:
       - 源码与构建: development.md
       - 插件开发: plugin-development.md
 
